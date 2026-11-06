@@ -30,7 +30,7 @@ globalThis.Date = class extends RealDate {
   }
 };
 
-const { registerBackgroundTask } = await importFrom(tree, 'src/runtime/shared/background-tasks.mjs');
+const { registerBackgroundTask, completeBackgroundTask } = await importFrom(tree, 'src/runtime/shared/background-tasks.mjs');
 const { listStoppableShellJobs, stopBackgroundShellJob, stopBackgroundShellJobs } = await importFrom(
   tree,
   'src/runtime/agent/orchestrator/tools/builtin/task-tool.mjs'
@@ -69,6 +69,18 @@ for (const [taskId, caller] of [['', 'sess_a'], ['   ', 'sess_a'], ['nope', 'ses
 }
 const clean = [];
 for (const caller of ['sess_none', null]) clean.push({ caller, answer: await stopBackgroundShellJobs(scope(caller)) });
+// A shell the registry completes (`completeBackgroundTask`, what the job's own end calls) leaves the
+// stoppable list, and stopping it answers how it ended instead of cancelling anything.
+shell('job_done', 'sess_b', { command: 'echo done' }, 'done');
+const stoppableBefore = listStoppableShellJobs(scope('sess_b')).map((job) => job.taskId);
+completeBackgroundTask('job_done', { status: 'completed', result: {}, notify: false });
+const completed = {
+  taskId: 'job_done',
+  caller: 'sess_b',
+  stoppableBefore,
+  stoppableAfter: listStoppableShellJobs(scope('sess_b')).map((job) => job.taskId),
+  answer: await stopBackgroundShellJob('job_done', scope('sess_b')),
+};
 
 // ---- the release-anyway answers --------------------------------------------------------------------
 const ws = join(scratch, 'ws');
@@ -127,7 +139,7 @@ await closeCase('the desktop delete reason', base('sess_close_delete', { agent: 
 }
 
 const stage = stageSet(outDir);
-writeJson(join(stage, 'shell-job-actions.json'), { stoppable, stops, clean, releases, rows, closes });
+writeJson(join(stage, 'shell-job-actions.json'), { stoppable, stops, clean, completed, releases, rows, closes });
 commitStage(stage, outDir);
 writeSetManifest(outDir, {
   set: 'shell-job-actions',

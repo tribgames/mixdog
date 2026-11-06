@@ -25,6 +25,7 @@ mixdog-ledger = { workspace = true }
 mixdog-mcp = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
+mixdog-secrets = { workspace = true }
 mixdog-services = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
@@ -48,7 +49,14 @@ mixdog-core-rooms = { workspace = true }
 mixdog-core-run = { workspace = true }
 mixdog-core-session = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Wdk_System_SystemServices", "Win32_System_SystemInformation"] }
+
 [dev-dependencies]
+mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }

@@ -11,7 +11,7 @@ use sha2::Sha256;
 /// `PENDING_MODE_TASK_NOTIFICATION`.
 pub const MODE: &str = "task-notification";
 /// `COMPLETION_NOTIFICATION_KIND`.
-const KIND: &str = "completion_notification";
+pub(crate) const KIND: &str = "completion_notification";
 
 /// `pendingEntryMode(entry) === PENDING_MODE_TASK_NOTIFICATION`.
 pub fn is_notification(entry: &Value) -> bool {

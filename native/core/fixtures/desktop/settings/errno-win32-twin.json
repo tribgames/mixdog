@@ -1,0 +1,628 @@
+{
+ "domain": "errno-win32-twin",
+ "recorder": "benchmarks/rust-core/recorders/record-errno-win32.mjs",
+ "source": {
+  "url": "https://raw.githubusercontent.com/libuv/libuv/v1.51.0/src/win/error.c",
+  "tag": "v1.51.0",
+  "libuv": "1.51.0",
+  "node": "v22.20.0",
+  "function": "uv_translate_sys_error"
+ },
+ "numbers": {
+  "windowsSdk": "10.0.26100.0",
+  "file": "shared/winerror.h"
+ },
+ "pairs": [
+  {
+   "win": "WSAEACCES",
+   "number": 10013,
+   "errno": "EACCES"
+  },
+  {
+   "win": "ERROR_ELEVATION_REQUIRED",
+   "number": 740,
+   "errno": "EACCES"
+  },
+  {
+   "win": "ERROR_CANT_ACCESS_FILE",
+   "number": 1920,
+   "errno": "EACCES"
+  },
+  {
+   "win": "ERROR_ADDRESS_ALREADY_ASSOCIATED",
+   "number": 1227,
+   "errno": "EADDRINUSE"
+  },
+  {
+   "win": "WSAEADDRINUSE",
+   "number": 10048,
+   "errno": "EADDRINUSE"
+  },
+  {
+   "win": "WSAEADDRNOTAVAIL",
+   "number": 10049,
+   "errno": "EADDRNOTAVAIL"
+  },
+  {
+   "win": "WSAEAFNOSUPPORT",
+   "number": 10047,
+   "errno": "EAFNOSUPPORT"
+  },
+  {
+   "win": "WSAEWOULDBLOCK",
+   "number": 10035,
+   "errno": "EAGAIN"
+  },
+  {
+   "win": "ERROR_NO_DATA",
+   "number": 232,
+   "errno": "EAGAIN"
+  },
+  {
+   "win": "WSAEALREADY",
+   "number": 10037,
+   "errno": "EALREADY"
+  },
+  {
+   "win": "ERROR_INVALID_FLAGS",
+   "number": 1004,
+   "errno": "EBADF"
+  },
+  {
+   "win": "ERROR_INVALID_HANDLE",
+   "number": 6,
+   "errno": "EBADF"
+  },
+  {
+   "win": "ERROR_LOCK_VIOLATION",
+   "number": 33,
+   "errno": "EBUSY"
+  },
+  {
+   "win": "ERROR_PIPE_BUSY",
+   "number": 231,
+   "errno": "EBUSY"
+  },
+  {
+   "win": "ERROR_SHARING_VIOLATION",
+   "number": 32,
+   "errno": "EBUSY"
+  },
+  {
+   "win": "ERROR_OPERATION_ABORTED",
+   "number": 995,
+   "errno": "ECANCELED"
+  },
+  {
+   "win": "WSAEINTR",
+   "number": 10004,
+   "errno": "ECANCELED"
+  },
+  {
+   "win": "ERROR_NO_UNICODE_TRANSLATION",
+   "number": 1113,
+   "errno": "ECHARSET"
+  },
+  {
+   "win": "ERROR_CONNECTION_ABORTED",
+   "number": 1236,
+   "errno": "ECONNABORTED"
+  },
+  {
+   "win": "WSAECONNABORTED",
+   "number": 10053,
+   "errno": "ECONNABORTED"
+  },
+  {
+   "win": "ERROR_CONNECTION_REFUSED",
+   "number": 1225,
+   "errno": "ECONNREFUSED"
+  },
+  {
+   "win": "WSAECONNREFUSED",
+   "number": 10061,
+   "errno": "ECONNREFUSED"
+  },
+  {
+   "win": "ERROR_NETNAME_DELETED",
+   "number": 64,
+   "errno": "ECONNRESET"
+  },
+  {
+   "win": "WSAECONNRESET",
+   "number": 10054,
+   "errno": "ECONNRESET"
+  },
+  {
+   "win": "ERROR_ALREADY_EXISTS",
+   "number": 183,
+   "errno": "EEXIST"
+  },
+  {
+   "win": "ERROR_FILE_EXISTS",
+   "number": 80,
+   "errno": "EEXIST"
+  },
+  {
+   "win": "ERROR_NOACCESS",
+   "number": 998,
+   "errno": "EFAULT"
+  },
+  {
+   "win": "WSAEFAULT",
+   "number": 10014,
+   "errno": "EFAULT"
+  },
+  {
+   "win": "ERROR_HOST_UNREACHABLE",
+   "number": 1232,
+   "errno": "EHOSTUNREACH"
+  },
+  {
+   "win": "WSAEHOSTUNREACH",
+   "number": 10065,
+   "errno": "EHOSTUNREACH"
+  },
+  {
+   "win": "ERROR_INSUFFICIENT_BUFFER",
+   "number": 122,
+   "errno": "EINVAL"
+  },
+  {
+   "win": "ERROR_INVALID_DATA",
+   "number": 13,
+   "errno": "EINVAL"
+  },
+  {
+   "win": "ERROR_INVALID_PARAMETER",
+   "number": 87,
+   "errno": "EINVAL"
+  },
+  {
+   "win": "ERROR_SYMLINK_NOT_SUPPORTED",
+   "number": 1464,
+   "errno": "EINVAL"
+  },
+  {
+   "win": "WSAEINVAL",
+   "number": 10022,
+   "errno": "EINVAL"
+  },
+  {
+   "win": "WSAEPFNOSUPPORT",
+   "number": 10046,
+   "errno": "EINVAL"
+  },
+  {
+   "win": "ERROR_BEGINNING_OF_MEDIA",
+   "number": 1102,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_BUS_RESET",
+   "number": 1111,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_CRC",
+   "number": 23,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_DEVICE_DOOR_OPEN",
+   "number": 1166,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_DEVICE_REQUIRES_CLEANING",
+   "number": 1165,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_DISK_CORRUPT",
+   "number": 1393,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_EOM_OVERFLOW",
+   "number": 1129,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_FILEMARK_DETECTED",
+   "number": 1101,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_GEN_FAILURE",
+   "number": 31,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_INVALID_BLOCK_LENGTH",
+   "number": 1106,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_IO_DEVICE",
+   "number": 1117,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_NO_DATA_DETECTED",
+   "number": 1104,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_NO_SIGNAL_SENT",
+   "number": 205,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_OPEN_FAILED",
+   "number": 110,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_SETMARK_DETECTED",
+   "number": 1103,
+   "errno": "EIO"
+  },
+  {
+   "win": "ERROR_SIGNAL_REFUSED",
+   "number": 156,
+   "errno": "EIO"
+  },
+  {
+   "win": "WSAEISCONN",
+   "number": 10056,
+   "errno": "EISCONN"
+  },
+  {
+   "win": "ERROR_CANT_RESOLVE_FILENAME",
+   "number": 1921,
+   "errno": "ELOOP"
+  },
+  {
+   "win": "ERROR_TOO_MANY_OPEN_FILES",
+   "number": 4,
+   "errno": "EMFILE"
+  },
+  {
+   "win": "WSAEMFILE",
+   "number": 10024,
+   "errno": "EMFILE"
+  },
+  {
+   "win": "WSAEMSGSIZE",
+   "number": 10040,
+   "errno": "EMSGSIZE"
+  },
+  {
+   "win": "ERROR_BUFFER_OVERFLOW",
+   "number": 111,
+   "errno": "ENAMETOOLONG"
+  },
+  {
+   "win": "ERROR_FILENAME_EXCED_RANGE",
+   "number": 206,
+   "errno": "ENAMETOOLONG"
+  },
+  {
+   "win": "ERROR_NETWORK_UNREACHABLE",
+   "number": 1231,
+   "errno": "ENETUNREACH"
+  },
+  {
+   "win": "WSAENETUNREACH",
+   "number": 10051,
+   "errno": "ENETUNREACH"
+  },
+  {
+   "win": "WSAENOBUFS",
+   "number": 10055,
+   "errno": "ENOBUFS"
+  },
+  {
+   "win": "ERROR_BAD_PATHNAME",
+   "number": 161,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "ERROR_DIRECTORY",
+   "number": 267,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "ERROR_ENVVAR_NOT_FOUND",
+   "number": 203,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "ERROR_FILE_NOT_FOUND",
+   "number": 2,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "ERROR_INVALID_NAME",
+   "number": 123,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "ERROR_INVALID_DRIVE",
+   "number": 15,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "ERROR_INVALID_REPARSE_DATA",
+   "number": 4392,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "ERROR_MOD_NOT_FOUND",
+   "number": 126,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "ERROR_PATH_NOT_FOUND",
+   "number": 3,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "WSAHOST_NOT_FOUND",
+   "number": 11001,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "WSANO_DATA",
+   "number": 11004,
+   "errno": "ENOENT"
+  },
+  {
+   "win": "ERROR_NOT_ENOUGH_MEMORY",
+   "number": 8,
+   "errno": "ENOMEM"
+  },
+  {
+   "win": "ERROR_OUTOFMEMORY",
+   "number": 14,
+   "errno": "ENOMEM"
+  },
+  {
+   "win": "ERROR_CANNOT_MAKE",
+   "number": 82,
+   "errno": "ENOSPC"
+  },
+  {
+   "win": "ERROR_DISK_FULL",
+   "number": 112,
+   "errno": "ENOSPC"
+  },
+  {
+   "win": "ERROR_EA_TABLE_FULL",
+   "number": 277,
+   "errno": "ENOSPC"
+  },
+  {
+   "win": "ERROR_END_OF_MEDIA",
+   "number": 1100,
+   "errno": "ENOSPC"
+  },
+  {
+   "win": "ERROR_HANDLE_DISK_FULL",
+   "number": 39,
+   "errno": "ENOSPC"
+  },
+  {
+   "win": "ERROR_NOT_CONNECTED",
+   "number": 2250,
+   "errno": "ENOTCONN"
+  },
+  {
+   "win": "WSAENOTCONN",
+   "number": 10057,
+   "errno": "ENOTCONN"
+  },
+  {
+   "win": "ERROR_DIR_NOT_EMPTY",
+   "number": 145,
+   "errno": "ENOTEMPTY"
+  },
+  {
+   "win": "WSAENOTSOCK",
+   "number": 10038,
+   "errno": "ENOTSOCK"
+  },
+  {
+   "win": "ERROR_NOT_SUPPORTED",
+   "number": 50,
+   "errno": "ENOTSUP"
+  },
+  {
+   "win": "ERROR_BROKEN_PIPE",
+   "number": 109,
+   "errno": "EOF"
+  },
+  {
+   "win": "ERROR_ACCESS_DENIED",
+   "number": 5,
+   "errno": "EPERM"
+  },
+  {
+   "win": "ERROR_PRIVILEGE_NOT_HELD",
+   "number": 1314,
+   "errno": "EPERM"
+  },
+  {
+   "win": "ERROR_BAD_PIPE",
+   "number": 230,
+   "errno": "EPIPE"
+  },
+  {
+   "win": "ERROR_PIPE_NOT_CONNECTED",
+   "number": 233,
+   "errno": "EPIPE"
+  },
+  {
+   "win": "WSAESHUTDOWN",
+   "number": 10058,
+   "errno": "EPIPE"
+  },
+  {
+   "win": "WSAEPROTONOSUPPORT",
+   "number": 10043,
+   "errno": "EPROTONOSUPPORT"
+  },
+  {
+   "win": "ERROR_WRITE_PROTECT",
+   "number": 19,
+   "errno": "EROFS"
+  },
+  {
+   "win": "ERROR_SEM_TIMEOUT",
+   "number": 121,
+   "errno": "ETIMEDOUT"
+  },
+  {
+   "win": "WSAETIMEDOUT",
+   "number": 10060,
+   "errno": "ETIMEDOUT"
+  },
+  {
+   "win": "ERROR_NOT_SAME_DEVICE",
+   "number": 17,
+   "errno": "EXDEV"
+  },
+  {
+   "win": "ERROR_INVALID_FUNCTION",
+   "number": 1,
+   "errno": "EISDIR"
+  },
+  {
+   "win": "ERROR_META_EXPANSION_TOO_LONG",
+   "number": 208,
+   "errno": "E2BIG"
+  },
+  {
+   "win": "WSAESOCKTNOSUPPORT",
+   "number": 10044,
+   "errno": "ESOCKTNOSUPPORT"
+  },
+  {
+   "win": "ERROR_BAD_EXE_FORMAT",
+   "number": 193,
+   "errno": "EFTYPE"
+  }
+ ],
+ "descriptions": {
+  "E2BIG": "argument list too long",
+  "EACCES": "permission denied",
+  "EADDRINUSE": "address already in use",
+  "EADDRNOTAVAIL": "address not available",
+  "EAFNOSUPPORT": "address family not supported",
+  "EAGAIN": "resource temporarily unavailable",
+  "EALREADY": "connection already in progress",
+  "EBADF": "bad file descriptor",
+  "EBUSY": "resource busy or locked",
+  "ECANCELED": "operation canceled",
+  "ECHARSET": "invalid Unicode character",
+  "ECONNABORTED": "software caused connection abort",
+  "ECONNREFUSED": "connection refused",
+  "ECONNRESET": "connection reset by peer",
+  "EEXIST": "file already exists",
+  "EFAULT": "bad address in system call argument",
+  "EFTYPE": "inappropriate file type or format",
+  "EHOSTUNREACH": "host is unreachable",
+  "EINVAL": "invalid argument",
+  "EIO": "i/o error",
+  "EISCONN": "socket is already connected",
+  "EISDIR": "illegal operation on a directory",
+  "ELOOP": "too many symbolic links encountered",
+  "EMFILE": "too many open files",
+  "EMSGSIZE": "message too long",
+  "ENAMETOOLONG": "name too long",
+  "ENETUNREACH": "network is unreachable",
+  "ENOBUFS": "no buffer space available",
+  "ENOENT": "no such file or directory",
+  "ENOMEM": "not enough memory",
+  "ENOSPC": "no space left on device",
+  "ENOTCONN": "socket is not connected",
+  "ENOTEMPTY": "directory not empty",
+  "ENOTSOCK": "socket operation on non-socket",
+  "ENOTSUP": "operation not supported on socket",
+  "EOF": "end of file",
+  "EPERM": "operation not permitted",
+  "EPIPE": "broken pipe",
+  "EPROTONOSUPPORT": "protocol not supported",
+  "EROFS": "read-only file system",
+  "ESOCKTNOSUPPORT": "socket type not supported",
+  "ETIMEDOUT": "connection timed out",
+  "EXDEV": "cross-device link not permitted"
+ },
+ "unknown": {
+  "errno": "UNKNOWN",
+  "description": "unknown error"
+ },
+ "real": [
+  {
+   "name": "a file that is not there",
+   "step": "open",
+   "message": "ENOENT: no such file or directory, open '<dir>\\absent.json'",
+   "code": "ENOENT"
+  },
+  {
+   "name": "a directory that is not there",
+   "step": "open",
+   "message": "ENOENT: no such file or directory, open '<dir>\\no-dir\\a.json'",
+   "code": "ENOENT"
+  },
+  {
+   "name": "a file that already exists",
+   "step": "open",
+   "message": "EEXIST: file already exists, open '<dir>\\exists.json'",
+   "code": "EEXIST"
+  },
+  {
+   "name": "a name Windows refuses",
+   "step": "open",
+   "message": "ENOENT: no such file or directory, open '<dir>\\a|b'",
+   "code": "ENOENT"
+  },
+  {
+   "name": "a directory that already exists",
+   "step": "mkdir",
+   "message": "EEXIST: file already exists, mkdir '<dir>\\made'",
+   "code": "EEXIST"
+  },
+  {
+   "name": "a rename onto a read-only file",
+   "step": "rename",
+   "message": "EPERM: operation not permitted, rename '<dir>\\from.json' -> '<dir>\\locked.json'",
+   "code": "EPERM"
+  },
+  {
+   "name": "a rename onto a directory",
+   "step": "rename",
+   "message": "EPERM: operation not permitted, rename '<dir>\\from2.json' -> '<dir>\\target-dir'",
+   "code": "EPERM"
+  },
+  {
+   "name": "a directory with something in it removed",
+   "step": "rmdir",
+   "message": "ENOTEMPTY: directory not empty, rmdir '<dir>\\full'",
+   "code": "ENOTEMPTY"
+  },
+  {
+   "name": "a file another process holds open, removed",
+   "step": "unlink",
+   "message": "EBUSY: resource busy or locked, unlink '<dir>\\held.json'",
+   "code": "EBUSY"
+  },
+  {
+   "name": "a file another process holds open, renamed over",
+   "step": "rename",
+   "message": "EPERM: operation not permitted, rename '<dir>\\over.json' -> '<dir>\\held.json'",
+   "code": "EPERM"
+  }
+ ]
+}

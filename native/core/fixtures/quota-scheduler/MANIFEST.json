@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 24420,
+      "bytes": 46274,
       "path": "golden.json",
-      "sha256": "d9ff705cef5e17afb1830bc49ce33faa03e8831154825ab35eef02df37dde979"
+      "sha256": "c9b6928e37c5771b62d6376851a17c397ff596a44f852700b3e147c57aa36fb6"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-quota-scheduler.mjs",
   "set": "quota-scheduler",
-  "totalBytes": 24420
+  "totalBytes": 46274
 }

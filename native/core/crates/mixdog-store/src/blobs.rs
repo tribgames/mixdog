@@ -228,9 +228,6 @@ impl BlobStore {
             if now.duration_since(modified).unwrap_or_default() < min_age {
                 continue;
             }
-            if referenced(&digest)? {
-                continue;
-            }
             let pins = self
                 .inner
                 .shard(&digest)
@@ -238,6 +235,12 @@ impl BlobStore {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             if pins.contains_key(hex(&digest)) {
+                continue;
+            }
+            // Asked only now, under the shard's pin lock: a writer that pinned, referenced and
+            // unpinned the digest since an earlier look cannot slip between the answer and the
+            // unlink, so a referenced blob is never removed.
+            if referenced(&digest)? {
                 continue;
             }
             std::fs::remove_file(&path).map_err(|e| GcError::Io(err(IoOp::Remove, &path)(e)))?;

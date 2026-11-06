@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 625425,
+      "bytes": 1475683,
       "path": "golden.json",
-      "sha256": "7dbadd16adaeaabc423157ff87d043ac10e30c43179da8025bee425b599a5595"
+      "sha256": "19d2eadc3aa60dfa6f27a43d3fc93d2774e27ce17a9b566ca68baaf0025fca5e"
     }
   ],
   "product": {
@@ -26,6 +26,6 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-home-delivery.mjs",
   "set": "home-delivery",
-  "steps": 79,
-  "totalBytes": 625425
+  "steps": 145,
+  "totalBytes": 1475683
 }

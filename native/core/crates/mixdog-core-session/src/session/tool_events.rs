@@ -93,15 +93,15 @@ impl ToolEventsLog {
     }
 
     /// `_logSessionCloseMetric(id, existing, closedAt, reason)`: the close of a session whose
-    /// stored `header` is `existing`.
-    pub fn session_closed(&self, id: &str, header: &Header, reason: &str) {
-        let now = self.clock.now_ms();
+    /// stored `header` is `existing`, landed at `closed_at_ms`. Called once the tombstone write
+    /// was acknowledged: the line is stamped now, its `lifeMs` ends at the close.
+    pub fn session_closed(&self, id: &str, header: &Header, reason: &str, closed_at_ms: i64) {
         let text = |key: &str| {
             header.get(key).and_then(Value::as_str).filter(|value| !value.is_empty()).unwrap_or("-").to_owned()
         };
         let created = header.get("createdAt").and_then(Value::as_f64).filter(|created| *created > 0.0);
-        let life_ms = created.map_or(0.0, |created| now as f64 - created);
-        let ts = mixdog_agent::agent_tool::stamp::iso_from_ms(now);
+        let life_ms = created.map_or(0.0, |created| closed_at_ms as f64 - created);
+        let ts = mixdog_agent::agent_tool::stamp::iso_from_ms(self.clock.now_ms());
         self.append(format!(
             "[{ts}] [session-close] owner={} agent={} reason={reason} lifeMs={} id={id}\n",
             text("owner"),
@@ -173,6 +173,17 @@ mod tests {
         }
     }
 
+    /// Lays `text` at `path` (its directories made) the way the daemon writes: on the lane.
+    async fn put(path: &Path, text: &str) {
+        let (path, text) = (path.to_owned(), text.to_owned());
+        let io = mixdog_rt::testing::tokens().maintenance_io;
+        io.submit(&CancellationToken::new(), move |lane| mixdog_statefile::append_file(lane, &path, text.as_bytes()).unwrap()).unwrap().await.unwrap();
+    }
+
+    fn text_of(path: &Path) -> String {
+        String::from_utf8(mixdog_statefile::read_content(path).unwrap().unwrap()).unwrap()
+    }
+
     fn log_at(dir: &Path, now: i64) -> ToolEventsLog {
         ToolEventsLog::new(dir, mixdog_rt::testing::tokens().maintenance_io, Arc::new(At(now)))
     }
@@ -194,13 +205,30 @@ mod tests {
                 continue;
             }
             let Value::Object(header) = close["record"].clone() else { unreachable!() };
-            log.session_closed(close["record"]["id"].as_str().unwrap(), &header, close["reason"].as_str().unwrap());
+            log.session_closed(close["record"]["id"].as_str().unwrap(), &header, close["reason"].as_str().unwrap(), 1_767_323_045_678);
             want.push_str(line);
         }
         assert_eq!(want.lines().count(), 4);
         log.flush().await;
-        assert_eq!(std::fs::read_to_string(temp.path().join("tool-events.log")).unwrap(), want);
+        assert_eq!(text_of(&temp.path().join("tool-events.log")), want);
     }
+
+    /// `markSessionClosed` reads `closeTime` when the close lands and logs after the tombstone
+    /// write is acknowledged: the line carries the time of the log, and `lifeMs` runs to the close.
+    #[tokio::test]
+    async fn the_line_is_stamped_at_the_log_and_its_life_ends_at_the_close() {
+        let temp = tempfile::tempdir().unwrap();
+        let log = log_at(temp.path(), 1_767_323_050_000);
+        let mut header = Header::new();
+        header.insert("createdAt".into(), serde_json::json!(1_767_323_000_000_i64));
+        log.session_closed("sess_a", &header, "desktop-session-delete", 1_767_323_045_000);
+        log.flush().await;
+        assert_eq!(
+            text_of(&temp.path().join("tool-events.log")),
+            "[2026-01-02T03:04:10.000Z] [session-close] owner=- agent=- reason=desktop-session-delete lifeMs=45000 id=sess_a\n"
+        );
+    }
+
     /// `createAsyncLogAppender`: a file past its cap is cut to its last `KEEP` bytes from a line
     /// boundary before the next line lands.
     #[tokio::test]
@@ -208,11 +236,11 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("tool-events.log");
         let line = "x".repeat(99) + "\n";
-        std::fs::write(&path, line.repeat(MAX_BYTES as usize / line.len() + 1)).unwrap();
+        put(&path, &line.repeat(MAX_BYTES as usize / line.len() + 1)).await;
         let log = log_at(temp.path(), 1_767_323_045_678);
-        log.session_closed("sess_a", &Header::new(), "manual");
+        log.session_closed("sess_a", &Header::new(), "manual", 1_767_323_045_678);
         log.flush().await;
-        let text = std::fs::read_to_string(&path).unwrap();
+        let text = text_of(&path);
         assert!(text.len() as u64 <= KEEP_BYTES + 200, "{}", text.len());
         assert!(text.starts_with(&"x".repeat(99)), "starts on a whole line");
         assert!(text.ends_with("lifeMs=0 id=sess_a\n"));

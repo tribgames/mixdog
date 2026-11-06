@@ -150,7 +150,7 @@ impl ProviderAdmin {
         std::env::var(MODEL_PROXY_ENV).is_ok_and(|v| v == "client")
     }
 
-    pub(crate) fn require_local() -> Result<(), Failure> {
+    pub fn require_local() -> Result<(), Failure> {
         if Self::model_proxy_client_mode() {
             return Err(Failure::Coded {
                 code: "MODEL_CREDENTIALS_DISABLED",

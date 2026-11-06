@@ -1,0 +1,918 @@
+{
+  "conversations": [
+    {
+      "conversation": false,
+      "messages": []
+    },
+    {
+      "conversation": false,
+      "messages": [
+        {
+          "content": "You are Mixy.",
+          "role": "system"
+        }
+      ]
+    },
+    {
+      "conversation": false,
+      "messages": [
+        {
+          "content": "   ",
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "conversation": true,
+      "messages": [
+        {
+          "content": "",
+          "role": "assistant"
+        }
+      ]
+    },
+    {
+      "conversation": true,
+      "messages": [
+        {
+          "content": "hello",
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "conversation": true,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "done",
+              "type": "text"
+            }
+          ],
+          "role": "tool"
+        }
+      ]
+    },
+    {
+      "conversation": false,
+      "messages": [
+        {
+          "content": "",
+          "role": "tool"
+        }
+      ]
+    },
+    {
+      "conversation": false,
+      "messages": [
+        {
+          "content": "Cwd: C:/repos/app",
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "conversation": false,
+      "messages": [
+        {
+          "content": "# permission\nask",
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "conversation": true,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "look at this",
+              "type": "text"
+            },
+            {
+              "data": "x",
+              "type": "image"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "conversation": false,
+      "messages": [
+        {
+          "content": [
+            {
+              "data": "x",
+              "type": "image"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "conversation": false,
+      "messages": [
+        {
+          "content": "a notice",
+          "role": "notice"
+        },
+        {
+          "content": "",
+          "role": "user"
+        }
+      ]
+    }
+  ],
+  "descendantRows": [
+    {
+      "agent": "lead",
+      "id": "sess_lead"
+    },
+    {
+      "id": "sess_w1",
+      "owner": "agent",
+      "ownerSessionId": "sess_lead"
+    },
+    {
+      "id": "sess_w2",
+      "parentSessionId": "sess_w1",
+      "visibility": "agent-only"
+    },
+    {
+      "id": "sess_w3",
+      "owner": "agent",
+      "ownerSessionId": "sess_w2",
+      "parentSessionId": "sess_lead"
+    },
+    {
+      "id": "sess_loop",
+      "ownerSessionId": "sess_w3",
+      "parentSessionId": "sess_lead",
+      "visibility": "agent-only"
+    },
+    {
+      "id": "sess_plain",
+      "ownerSessionId": "sess_lead"
+    },
+    {
+      "id": "sess_self",
+      "ownerSessionId": "sess_self",
+      "visibility": "agent-only"
+    },
+    {
+      "agent": "lead",
+      "id": "sess_lead2",
+      "ownerSessionId": "sess_lead",
+      "visibility": "agent-only"
+    },
+    {
+      "id": "sess_other",
+      "owner": "agent",
+      "ownerSessionId": "sess_x"
+    }
+  ],
+  "descendants": [
+    {
+      "ids": [
+        "sess_w1",
+        "sess_w3",
+        "sess_loop",
+        "sess_lead2",
+        "sess_w2"
+      ],
+      "root": "sess_lead"
+    },
+    {
+      "ids": [
+        "sess_w2",
+        "sess_w3",
+        "sess_loop"
+      ],
+      "root": "sess_w1"
+    },
+    {
+      "ids": [
+        "sess_w3",
+        "sess_loop"
+      ],
+      "root": "sess_w2"
+    },
+    {
+      "ids": [
+        "sess_other"
+      ],
+      "root": "sess_x"
+    },
+    {
+      "ids": [],
+      "root": "sess_none"
+    },
+    {
+      "ids": [
+        "sess_w1",
+        "sess_w3",
+        "sess_loop",
+        "sess_lead2",
+        "sess_w2"
+      ],
+      "root": " sess_lead "
+    }
+  ],
+  "domain": "session-sidebar",
+  "identities": [
+    {
+      "identity": "c:/repos/app",
+      "path": "C:\\Repos\\App\\"
+    },
+    {
+      "identity": "/repos/app",
+      "path": " /repos//app/ "
+    },
+    {
+      "identity": "c:/repos/app",
+      "path": "C:/repos/app"
+    },
+    {
+      "identity": "",
+      "path": ""
+    },
+    {
+      "identity": "",
+      "path": null
+    },
+    {
+      "identity": "/server/share/x",
+      "path": "\\\\server\\share\\x"
+    },
+    {
+      "identity": "",
+      "path": "/"
+    },
+    {
+      "identity": "ä/ö",
+      "path": "Ä/Ö"
+    }
+  ],
+  "projectKeys": [
+    {
+      "key": "c:/repos/app",
+      "keys": [
+        "c:/repos",
+        "c:/repos/app",
+        "c:/repos/app/sub",
+        "d:/other"
+      ],
+      "row": {
+        "cwd": "C:\\Repos\\App\\src"
+      }
+    },
+    {
+      "key": "c:/repos",
+      "keys": [
+        "c:/repos",
+        "c:/repos/app",
+        "c:/repos/app/sub",
+        "d:/other"
+      ],
+      "row": {
+        "cwd": "C:/repos/apple"
+      }
+    },
+    {
+      "key": "c:/repos/app/sub",
+      "keys": [
+        "c:/repos",
+        "c:/repos/app",
+        "c:/repos/app/sub",
+        "d:/other"
+      ],
+      "row": {
+        "cwd": "C:/tmp",
+        "projectPath": "C:/Repos/App/Sub"
+      }
+    },
+    {
+      "key": "d:/other",
+      "keys": [
+        "c:/repos",
+        "c:/repos/app",
+        "c:/repos/app/sub",
+        "d:/other"
+      ],
+      "row": {
+        "cwd": "C:/wt/x",
+        "workspace": {
+          "cwd": "C:/wt/x",
+          "projectPath": "D:/Other"
+        }
+      }
+    },
+    {
+      "key": "c:/repos/app/sub",
+      "keys": [
+        "c:/repos",
+        "c:/repos/app",
+        "c:/repos/app/sub",
+        "d:/other"
+      ],
+      "row": {
+        "workspace": {
+          "cwd": "C:/repos/app/sub/deep"
+        }
+      }
+    },
+    {
+      "key": "",
+      "keys": [
+        "c:/repos",
+        "c:/repos/app",
+        "c:/repos/app/sub",
+        "d:/other"
+      ],
+      "row": {
+        "cwd": "E:/elsewhere"
+      }
+    },
+    {
+      "key": "",
+      "keys": [
+        "c:/repos",
+        "c:/repos/app",
+        "c:/repos/app/sub",
+        "d:/other"
+      ],
+      "row": {}
+    }
+  ],
+  "reads": [
+    {
+      "consumed": false,
+      "count": 4,
+      "cursor": {
+        "messageCount": 4,
+        "revision": 1
+      },
+      "id": "sess_a",
+      "numbering": null,
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 4,
+      "cursor": {
+        "messageCount": 4,
+        "revision": 1
+      },
+      "id": "sess_a",
+      "numbering": null,
+      "value": false
+    },
+    {
+      "consumed": true,
+      "count": 4,
+      "cursor": {
+        "messageCount": 4,
+        "revision": 2
+      },
+      "id": "sess_a",
+      "numbering": null,
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 2,
+      "cursor": {
+        "messageCount": 4,
+        "revision": 2
+      },
+      "id": "sess_a",
+      "numbering": null,
+      "value": false
+    },
+    {
+      "consumed": false,
+      "count": 9,
+      "cursor": {
+        "messageCount": 6,
+        "revision": 3
+      },
+      "id": "sess_a",
+      "numbering": {
+        "messageCount": 6
+      },
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 9,
+      "cursor": {
+        "messageCount": 9,
+        "revision": 4
+      },
+      "id": "sess_a",
+      "numbering": {
+        "messageCount": 0
+      },
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 417,
+      "cursor": {
+        "epoch": 16,
+        "messageCount": 417,
+        "revision": 1
+      },
+      "id": "sess_s",
+      "numbering": {
+        "compactCount": 16,
+        "messageCount": 417
+      },
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 66,
+      "cursor": {
+        "epoch": 17,
+        "messageCount": 66,
+        "revision": 2
+      },
+      "id": "sess_s",
+      "numbering": {
+        "compactCount": 17,
+        "messageCount": 66
+      },
+      "value": true
+    },
+    {
+      "consumed": true,
+      "count": 66,
+      "cursor": {
+        "epoch": 17,
+        "messageCount": 66,
+        "revision": 3
+      },
+      "id": "sess_s",
+      "numbering": {
+        "compactCount": 17,
+        "messageCount": 66
+      },
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 417,
+      "cursor": {
+        "messageCount": 417,
+        "revision": 1
+      },
+      "id": "sess_stale",
+      "numbering": null,
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 500,
+      "cursor": {
+        "messageCount": 500,
+        "revision": 2
+      },
+      "id": "sess_stale",
+      "numbering": {
+        "compactCount": 17,
+        "messageCount": 0
+      },
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 417,
+      "cursor": {
+        "epoch": 17,
+        "messageCount": 62,
+        "revision": 2
+      },
+      "id": "sess_stale",
+      "numbering": {
+        "compactCount": 17,
+        "messageCount": 62
+      },
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 70,
+      "cursor": {
+        "epoch": 17,
+        "messageCount": 70,
+        "revision": 3
+      },
+      "id": "sess_stale",
+      "numbering": {
+        "compactCount": 17,
+        "messageCount": 80
+      },
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 10,
+      "cursor": {
+        "epoch": 3,
+        "messageCount": 10,
+        "revision": 1
+      },
+      "id": "sess_within",
+      "numbering": {
+        "compactCount": 3,
+        "messageCount": 12
+      },
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 10,
+      "cursor": {
+        "epoch": 0,
+        "messageCount": 10,
+        "revision": 2
+      },
+      "id": "sess_within",
+      "numbering": {
+        "compactCount": 0,
+        "messageCount": 12
+      },
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 0,
+      "cursor": {
+        "epoch": 0,
+        "messageCount": 0,
+        "revision": 1
+      },
+      "id": "sess_zero",
+      "numbering": {
+        "compactCount": 0,
+        "messageCount": 0
+      },
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 0,
+      "cursor": {
+        "epoch": 0,
+        "messageCount": 0,
+        "revision": 1
+      },
+      "id": "sess_zero",
+      "numbering": {
+        "compactCount": 0,
+        "messageCount": 0
+      },
+      "value": false
+    },
+    {
+      "consumed": false,
+      "count": -1,
+      "cursor": {
+        "messageCount": 9,
+        "revision": 4
+      },
+      "error": "Session read cursor is invalid.",
+      "id": "sess_a",
+      "numbering": null
+    },
+    {
+      "consumed": false,
+      "count": 10000001,
+      "cursor": {
+        "messageCount": 9,
+        "revision": 4
+      },
+      "error": "Session read cursor is invalid.",
+      "id": "sess_a",
+      "numbering": null
+    },
+    {
+      "consumed": false,
+      "count": 10000000,
+      "cursor": {
+        "messageCount": 10000000,
+        "revision": 5
+      },
+      "id": "sess_a",
+      "numbering": null,
+      "value": true
+    },
+    {
+      "consumed": false,
+      "count": 1,
+      "cursor": null,
+      "error": "Session read cursor is invalid.",
+      "id": "bad id",
+      "numbering": null
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-session-sidebar.mjs",
+  "sidebar": [
+    {
+      "archived": {},
+      "descendants": [],
+      "favorites": {
+        "sess_a": 1800000000000
+      },
+      "flag": true,
+      "id": "sess_a",
+      "now": 1800000000000,
+      "op": "favorite",
+      "value": true
+    },
+    {
+      "archived": {},
+      "descendants": [],
+      "favorites": {
+        "sess_a": 1800000000000
+      },
+      "flag": true,
+      "id": "sess_a",
+      "now": 1800000000000,
+      "op": "favorite",
+      "value": false
+    },
+    {
+      "archived": {},
+      "descendants": [],
+      "favorites": {
+        "sess_a": 1800000000000,
+        "sess_b": 1800000000005
+      },
+      "flag": true,
+      "id": "sess_b",
+      "now": 1800000000005,
+      "op": "favorite",
+      "value": true
+    },
+    {
+      "archived": {},
+      "descendants": [],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": false,
+      "id": "sess_a",
+      "now": 1800000000005,
+      "op": "favorite",
+      "value": true
+    },
+    {
+      "archived": {},
+      "descendants": [],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": false,
+      "id": "sess_a",
+      "now": 1800000000005,
+      "op": "favorite",
+      "value": false
+    },
+    {
+      "archived": {
+        "sess_c1": 1800000000005,
+        "sess_c2": 1800000000005,
+        "sess_lead": 1800000000005
+      },
+      "descendants": [
+        "sess_c1",
+        "sess_c2"
+      ],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": true,
+      "id": "sess_lead",
+      "now": 1800000000005,
+      "op": "archive",
+      "value": true
+    },
+    {
+      "archived": {
+        "sess_c1": 1800000000005,
+        "sess_c2": 1800000000005,
+        "sess_lead": 1800000000005
+      },
+      "descendants": [
+        "sess_c1",
+        "sess_c2"
+      ],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": true,
+      "id": "sess_lead",
+      "now": 1800000000005,
+      "op": "archive",
+      "value": false
+    },
+    {
+      "archived": {
+        "sess_c1": 1800000000005,
+        "sess_c2": 1800000000005,
+        "sess_c3": 1800000000006,
+        "sess_lead": 1800000000005
+      },
+      "descendants": [],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": true,
+      "id": "sess_c3",
+      "now": 1800000000005,
+      "op": "archive",
+      "value": true
+    },
+    {
+      "archived": {
+        "sess_c1": 1800000000005,
+        "sess_c2": 1800000000005,
+        "sess_c3": 1800000000006,
+        "sess_c4": 1800000000007,
+        "sess_lead": 1800000000005,
+        "sess_other": 1800000000007
+      },
+      "descendants": [
+        "sess_c3",
+        "sess_c4"
+      ],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": true,
+      "id": "sess_other",
+      "now": 1800000000005,
+      "op": "archive",
+      "value": true
+    },
+    {
+      "archived": {
+        "sess_c3": 1800000000006,
+        "sess_c4": 1800000000007,
+        "sess_other": 1800000000007
+      },
+      "descendants": [
+        "sess_c1",
+        "sess_c2",
+        "sess_c3"
+      ],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": false,
+      "id": "sess_lead",
+      "now": 1800000000005,
+      "op": "archive",
+      "value": true
+    },
+    {
+      "archived": {
+        "sess_c3": 1800000000006,
+        "sess_c4": 1800000000007,
+        "sess_other": 1800000000007
+      },
+      "descendants": [
+        "sess_c1"
+      ],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": false,
+      "id": "sess_lead",
+      "now": 1800000000005,
+      "op": "archive",
+      "value": false
+    },
+    {
+      "archived": {
+        "sess_c1": 1800000001005,
+        "sess_c3": 1800000000006,
+        "sess_c4": 1800000000007,
+        "sess_lead": 1800000001005,
+        "sess_other": 1800000000007
+      },
+      "descendants": [
+        "sess_c1",
+        "sess_c4"
+      ],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": true,
+      "id": "sess_lead",
+      "now": 1800000001005,
+      "op": "archive",
+      "value": true
+    },
+    {
+      "archived": {
+        "sess_c1": 1800000001005,
+        "sess_c3": 1800000000006,
+        "sess_lead": 1800000001005
+      },
+      "descendants": [
+        "sess_c3",
+        "sess_c4"
+      ],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": false,
+      "id": "sess_other",
+      "now": 1800000001005,
+      "op": "archive",
+      "value": true
+    },
+    {
+      "archived": {
+        "sess_c1": 1800000001005,
+        "sess_c3": 1800000000006,
+        "sess_lead": 1800000001005
+      },
+      "descendants": [],
+      "favorites": {
+        "sess_b": 1800000000005
+      },
+      "flag": false,
+      "id": "sess_missing",
+      "now": 1800000001005,
+      "op": "archive",
+      "value": false
+    }
+  ],
+  "t0": 1800000000000,
+  "toolModes": [
+    {
+      "mode": "full",
+      "normalized": "full",
+      "spec": "full"
+    },
+    {
+      "mode": "readonly",
+      "normalized": "readonly",
+      "spec": [
+        "tools:readonly"
+      ]
+    },
+    {
+      "mode": "lead",
+      "normalized": "lead",
+      "spec": "full"
+    },
+    {
+      "mode": " ReadOnly ",
+      "normalized": "readonly",
+      "spec": [
+        "tools:readonly"
+      ]
+    },
+    {
+      "mode": "LEAD",
+      "normalized": "lead",
+      "spec": "full"
+    },
+    {
+      "mode": "default",
+      "normalized": "full",
+      "spec": "full"
+    },
+    {
+      "mode": "",
+      "normalized": "full",
+      "spec": "full"
+    },
+    {
+      "mode": "read only",
+      "normalized": "full",
+      "spec": "full"
+    },
+    {
+      "mode": " readonly ",
+      "normalized": "readonly",
+      "spec": [
+        "tools:readonly"
+      ]
+    },
+    {
+      "mode": "İ",
+      "normalized": "full",
+      "spec": "full"
+    }
+  ]
+}

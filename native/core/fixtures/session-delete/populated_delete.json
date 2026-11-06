@@ -1,0 +1,214 @@
+{
+  "cwd": "C:\\mixdog-golden\\project",
+  "files": {
+    "data/connector-accounts-by-conversation.json": {
+      "after": "{\n  \"sess_keeper\": {\n    \"accounts\": {\n      \"gmail\": {\n        \"name\": \"b@example.com\",\n        \"id\": \"acc2\"\n      }\n    }\n  }\n}\n",
+      "before": "{\"sess_victim\":{\"accounts\":{\"gmail\":{\"name\":\"a@example.com\",\"id\":\"acc1\"}}},\"sess_cleared\":{\"accounts\":{\"gmail\":{\"name\":\"a@example.com\",\"id\":\"acc1\"}}},\"sess_keeper\":{\"accounts\":{\"gmail\":{\"name\":\"b@example.com\",\"id\":\"acc2\"}}}}"
+    },
+    "data/prompt-cache-idle-gaps.json": {
+      "after": "{\"version\":1,\"sessions\":{\"sess_keeper\":{\"open\":1793989120417,\"gaps\":[{\"at\":1793989120417,\"ms\":70000}]}}}\n",
+      "before": "{\"version\":1,\"sessions\":{\"sess_victim\":{\"open\":1793989120417,\"gaps\":[{\"at\":1793989120417,\"ms\":70000}]},\"sess_cleared\":{\"open\":1793989120417,\"gaps\":[{\"at\":1793989120417,\"ms\":70000}]},\"sess_keeper\":{\"open\":1793989120417,\"gaps\":[{\"at\":1793989120417,\"ms\":70000}]}}}"
+    },
+    "data/prompt-cache-touches.json": {
+      "after": "{\"version\":1,\"touches\":{},\"warmUses\":{\"sess_keeper\":{\"at\":6000,\"provider\":\"anthropic-oauth\",\"model\":\"m\",\"accountId\":\"acc\"}}}\n",
+      "before": "{\"version\":1,\"touches\":{},\"warmUses\":{\"sess_victim\":{\"at\":6000,\"provider\":\"anthropic-oauth\",\"model\":\"m\",\"accountId\":\"acc\"},\"sess_cleared\":{\"at\":6000,\"provider\":\"anthropic-oauth\",\"model\":\"m\",\"accountId\":\"acc\"},\"sess_keeper\":{\"at\":6000,\"provider\":\"anthropic-oauth\",\"model\":\"m\",\"accountId\":\"acc\"}}}\n"
+    },
+    "data/read-snapshots/sess_cleared.json": {
+      "after": null,
+      "before": "{\"<home>\\\\files\\\\src.txt\":{\"mtimeMs\":1793989120213.5818,\"ctimeMs\":1793989120213.5818,\"size\":6,\"ino\":1688849862088000,\"dev\":340399430,\"contentHash\":\"ab12\"}}\n"
+    },
+    "data/read-snapshots/sess_keeper.json": {
+      "after": "{\"<home>\\\\files\\\\src.txt\":{\"mtimeMs\":1793989120213.5818,\"ctimeMs\":1793989120213.5818,\"size\":6,\"ino\":1688849862088000,\"dev\":340399430,\"contentHash\":\"ab12\"}}\n",
+      "before": "{\"<home>\\\\files\\\\src.txt\":{\"mtimeMs\":1793989120213.5818,\"ctimeMs\":1793989120213.5818,\"size\":6,\"ino\":1688849862088000,\"dev\":340399430,\"contentHash\":\"ab12\"}}\n"
+    },
+    "data/read-snapshots/sess_victim.json": {
+      "after": null,
+      "before": "{\"<home>\\\\files\\\\src.txt\":{\"mtimeMs\":1793989120213.5818,\"ctimeMs\":1793989120213.5818,\"size\":6,\"ino\":1688849862088000,\"dev\":340399430,\"contentHash\":\"ab12\"}}\n"
+    },
+    "data/scratch/s.5fd13dd5cd82a48b/tmp.txt": {
+      "after": null,
+      "before": "scratch"
+    },
+    "data/scratch/s.9c107e8b82b4f259/tmp.txt": {
+      "after": null,
+      "before": "scratch"
+    },
+    "data/scratch/s.efdf1d11b1c33ed1/tmp.txt": {
+      "after": "scratch",
+      "before": "scratch"
+    },
+    "data/scratch/sess_cleared/legacy.txt": {
+      "after": null,
+      "before": "legacy scratch"
+    },
+    "data/scratch/sess_keeper/legacy.txt": {
+      "after": "legacy scratch",
+      "before": "legacy scratch"
+    },
+    "data/scratch/sess_victim/legacy.txt": {
+      "after": null,
+      "before": "legacy scratch"
+    },
+    "data/session-summaries.log": {
+      "after": "\n{\"u\":{\"id\":\"sess_victim\",\"updatedAt\":10,\"lastUsedAt\":0,\"createdAt\":0,\"lastHeartbeatAt\":0,\"closed\":false,\"status\":\"idle\",\"owner\":\"user\",\"agent\":\"lead\",\"sessionMode\":\"coding\",\"sourceType\":\"lead\",\"sourceName\":null,\"scopeKey\":null,\"parentSessionId\":null,\"ownerSessionId\":null,\"visibility\":\"ordinary\",\"clientHostPid\":null,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"desktopSession\":null,\"provider\":null,\"model\":null,\"presetName\":null,\"effort\":null,\"fast\":false,\"modelParameters\":null,\"agentTag\":null,\"task_id\":null,\"permission\":null,\"permissionMode\":null,\"toolPermission\":null,\"schemaAllowedTools\":null,\"taskType\":null,\"messageCount\":1,\"compactCount\":0,\"realTurnCount\":1,\"title\":\"\",\"preview\":\"hello sess_victim\",\"lastMessagePreview\":\"hello sess_victim\",\"lastMessageRoutine\":null,\"generation\":0,\"storageMtimeMs\":1793989120215.5876,\"storageSize\":370,\"storageLegacy\":\"-\",\"detachedReason\":null,\"importKey\":null,\"inheritedFromSessionId\":null}}\n{\"u\":{\"id\":\"sess_cleared\",\"updatedAt\":10,\"lastUsedAt\":0,\"createdAt\":0,\"lastHeartbeatAt\":0,\"closed\":false,\"status\":\"idle\",\"owner\":\"user\",\"agent\":\"lead\",\"sessionMode\":\"coding\",\"sourceType\":\"lead\",\"sourceName\":null,\"scopeKey\":null,\"parentSessionId\":null,\"ownerSessionId\":null,\"visibility\":\"ordinary\",\"clientHostPid\":null,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"desktopSession\":null,\"provider\":null,\"model\":null,\"presetName\":null,\"effort\":null,\"fast\":false,\"modelParameters\":null,\"agentTag\":null,\"task_id\":null,\"permission\":null,\"permissionMode\":null,\"toolPermission\":null,\"schemaAllowedTools\":null,\"taskType\":null,\"messageCount\":1,\"compactCount\":0,\"realTurnCount\":1,\"title\":\"\",\"preview\":\"hello sess_cleared\",\"lastMessagePreview\":\"hello sess_cleared\",\"lastMessageRoutine\":null,\"generation\":0,\"storageMtimeMs\":1793989120263.7046,\"storageSize\":373,\"storageLegacy\":\"-\",\"detachedReason\":null,\"importKey\":null,\"inheritedFromSessionId\":null}}\n{\"u\":{\"id\":\"sess_keeper\",\"updatedAt\":10,\"lastUsedAt\":0,\"createdAt\":0,\"lastHeartbeatAt\":0,\"closed\":false,\"status\":\"idle\",\"owner\":\"user\",\"agent\":\"lead\",\"sessionMode\":\"coding\",\"sourceType\":\"lead\",\"sourceName\":null,\"scopeKey\":null,\"parentSessionId\":null,\"ownerSessionId\":null,\"visibility\":\"ordinary\",\"clientHostPid\":null,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"desktopSession\":null,\"provider\":null,\"model\":null,\"presetName\":null,\"effort\":null,\"fast\":false,\"modelParameters\":null,\"agentTag\":null,\"task_id\":null,\"permission\":null,\"permissionMode\":null,\"toolPermission\":null,\"schemaAllowedTools\":null,\"taskType\":null,\"messageCount\":1,\"compactCount\":0,\"realTurnCount\":1,\"title\":\"\",\"preview\":\"hello sess_keeper\",\"lastMessagePreview\":\"hello sess_keeper\",\"lastMessageRoutine\":null,\"generation\":0,\"storageMtimeMs\":1793989120275.7512,\"storageSize\":370,\"storageLegacy\":\"-\",\"detachedReason\":null,\"importKey\":null,\"inheritedFromSessionId\":null}}\n\n{\"r\":[\"sess_victim\",\"sess_cleared\"]}\n",
+      "before": "\n{\"u\":{\"id\":\"sess_victim\",\"updatedAt\":10,\"lastUsedAt\":0,\"createdAt\":0,\"lastHeartbeatAt\":0,\"closed\":false,\"status\":\"idle\",\"owner\":\"user\",\"agent\":\"lead\",\"sessionMode\":\"coding\",\"sourceType\":\"lead\",\"sourceName\":null,\"scopeKey\":null,\"parentSessionId\":null,\"ownerSessionId\":null,\"visibility\":\"ordinary\",\"clientHostPid\":null,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"desktopSession\":null,\"provider\":null,\"model\":null,\"presetName\":null,\"effort\":null,\"fast\":false,\"modelParameters\":null,\"agentTag\":null,\"task_id\":null,\"permission\":null,\"permissionMode\":null,\"toolPermission\":null,\"schemaAllowedTools\":null,\"taskType\":null,\"messageCount\":1,\"compactCount\":0,\"realTurnCount\":1,\"title\":\"\",\"preview\":\"hello sess_victim\",\"lastMessagePreview\":\"hello sess_victim\",\"lastMessageRoutine\":null,\"generation\":0,\"storageMtimeMs\":1793989120215.5876,\"storageSize\":370,\"storageLegacy\":\"-\",\"detachedReason\":null,\"importKey\":null,\"inheritedFromSessionId\":null}}\n{\"u\":{\"id\":\"sess_cleared\",\"updatedAt\":10,\"lastUsedAt\":0,\"createdAt\":0,\"lastHeartbeatAt\":0,\"closed\":false,\"status\":\"idle\",\"owner\":\"user\",\"agent\":\"lead\",\"sessionMode\":\"coding\",\"sourceType\":\"lead\",\"sourceName\":null,\"scopeKey\":null,\"parentSessionId\":null,\"ownerSessionId\":null,\"visibility\":\"ordinary\",\"clientHostPid\":null,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"desktopSession\":null,\"provider\":null,\"model\":null,\"presetName\":null,\"effort\":null,\"fast\":false,\"modelParameters\":null,\"agentTag\":null,\"task_id\":null,\"permission\":null,\"permissionMode\":null,\"toolPermission\":null,\"schemaAllowedTools\":null,\"taskType\":null,\"messageCount\":1,\"compactCount\":0,\"realTurnCount\":1,\"title\":\"\",\"preview\":\"hello sess_cleared\",\"lastMessagePreview\":\"hello sess_cleared\",\"lastMessageRoutine\":null,\"generation\":0,\"storageMtimeMs\":1793989120263.7046,\"storageSize\":373,\"storageLegacy\":\"-\",\"detachedReason\":null,\"importKey\":null,\"inheritedFromSessionId\":null}}\n{\"u\":{\"id\":\"sess_keeper\",\"updatedAt\":10,\"lastUsedAt\":0,\"createdAt\":0,\"lastHeartbeatAt\":0,\"closed\":false,\"status\":\"idle\",\"owner\":\"user\",\"agent\":\"lead\",\"sessionMode\":\"coding\",\"sourceType\":\"lead\",\"sourceName\":null,\"scopeKey\":null,\"parentSessionId\":null,\"ownerSessionId\":null,\"visibility\":\"ordinary\",\"clientHostPid\":null,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"desktopSession\":null,\"provider\":null,\"model\":null,\"presetName\":null,\"effort\":null,\"fast\":false,\"modelParameters\":null,\"agentTag\":null,\"task_id\":null,\"permission\":null,\"permissionMode\":null,\"toolPermission\":null,\"schemaAllowedTools\":null,\"taskType\":null,\"messageCount\":1,\"compactCount\":0,\"realTurnCount\":1,\"title\":\"\",\"preview\":\"hello sess_keeper\",\"lastMessagePreview\":\"hello sess_keeper\",\"lastMessageRoutine\":null,\"generation\":0,\"storageMtimeMs\":1793989120275.7512,\"storageSize\":370,\"storageLegacy\":\"-\",\"detachedReason\":null,\"importKey\":null,\"inheritedFromSessionId\":null}}\n"
+    },
+    "data/session-writer-locks/sess_cleared.lock": {
+      "after": null,
+      "before": ""
+    },
+    "data/session-writer-locks/sess_cleared.lock-journal": {
+      "after": null,
+      "before": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000H�\u001b�\u0000\u0000\u0000\u0000\u0000\u0000\u0002\u0000\u0000\u0000\u0010\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+    },
+    "data/session-writer-locks/sess_keeper.lock": {
+      "after": "",
+      "before": ""
+    },
+    "data/session-writer-locks/sess_keeper.lock-journal": {
+      "after": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u00002�:\u001d\u0000\u0000\u0000\u0000\u0000\u0000\u0002\u0000\u0000\u0000\u0010\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+      "before": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u00002�:\u001d\u0000\u0000\u0000\u0000\u0000\u0000\u0002\u0000\u0000\u0000\u0010\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+    },
+    "data/session-writer-locks/sess_victim.lock": {
+      "after": null,
+      "before": ""
+    },
+    "data/session-writer-locks/sess_victim.lock-journal": {
+      "after": null,
+      "before": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000~�ӧ\u0000\u0000\u0000\u0000\u0000\u0000\u0002\u0000\u0000\u0000\u0010\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+    },
+    "data/sessions/sess_cleared.compaction-archive.jsonl": {
+      "after": null,
+      "before": "{\"v\":1,\"seq\":1,\"id\":\"sess_cleared\"}\n"
+    },
+    "data/sessions/sess_cleared.compaction-archive.pending": {
+      "after": null,
+      "before": "{\"v\":1,\"jobs\":[]}"
+    },
+    "data/sessions/sess_cleared.log.jsonl": {
+      "after": null,
+      "before": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"047bcb4156c80d9023e0a502\",\"id\":\"sess_cleared\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_cleared\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"updatedAt\":10,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello sess_cleared\"}]}\n"
+    },
+    "data/sessions/sess_keeper.compaction-archive.jsonl": {
+      "after": "{\"v\":1,\"seq\":1,\"id\":\"sess_keeper\"}\n",
+      "before": "{\"v\":1,\"seq\":1,\"id\":\"sess_keeper\"}\n"
+    },
+    "data/sessions/sess_keeper.compaction-archive.pending": {
+      "after": "{\"v\":1,\"jobs\":[]}",
+      "before": "{\"v\":1,\"jobs\":[]}"
+    },
+    "data/sessions/sess_keeper.log.jsonl": {
+      "after": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"9a23aec7f7b99afe76533376\",\"id\":\"sess_keeper\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_keeper\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"updatedAt\":10,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello sess_keeper\"}]}\n",
+      "before": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"9a23aec7f7b99afe76533376\",\"id\":\"sess_keeper\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_keeper\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"updatedAt\":10,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello sess_keeper\"}]}\n"
+    },
+    "data/sessions/sess_victim.compaction-archive.jsonl": {
+      "after": null,
+      "before": "{\"v\":1,\"seq\":1,\"id\":\"sess_victim\"}\n"
+    },
+    "data/sessions/sess_victim.compaction-archive.pending": {
+      "after": null,
+      "before": "{\"v\":1,\"jobs\":[]}"
+    },
+    "data/sessions/sess_victim.log.jsonl": {
+      "after": null,
+      "before": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"d688424cb9ede59b6be99b46\",\"id\":\"sess_victim\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_victim\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"updatedAt\":10,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello sess_victim\"}]}\n"
+    },
+    "data/tool-results/sess_cleared/a45b2bc0aaa45f1800fed81aa6e88ee8ca62ac61d60d10de2ac8f760c73f4ff6.txt": {
+      "after": null,
+      "before": "result of sess_cleared"
+    },
+    "data/tool-results/sess_keeper/6f9340401be40038ca2539c66f0b482d47cf1564554440eedc6d0595bcd19251.txt": {
+      "after": "result of sess_keeper",
+      "before": "result of sess_keeper"
+    },
+    "data/tool-results/sess_victim/786024eabf47d9b8b831c1bf99002541f2e76c1eaaa5da9d0cf24d52e70e75f6.txt": {
+      "after": null,
+      "before": "result of sess_victim"
+    },
+    "data/tool-results/sess_victim/notes.md": {
+      "after": "kept",
+      "before": "kept"
+    },
+    "data/turn-snapshots/5fd13dd5cd82a48b653de96e.json": {
+      "after": "{\"version\":1,\"sessionId\":\"sess_victim\",\"turns\":[{\"generation\":1,\"checkpointId\":\"\",\"root\":\"<home>\\\\files\",\"baselineTree\":\"tree1\",\"baselineFiles\":[],\"toolFiles\":[\"src.txt\"],\"sealed\":false,\"updatedAt\":1793989120419}],\"sessionScopes\":[{\"root\":\"<home>\\\\files\",\"baselineTree\":\"tree1\",\"toolFiles\":[\"src.txt\"],\"baselineFiles\":[],\"updatedAt\":1793989120419}]}",
+      "before": "{\"version\":1,\"sessionId\":\"sess_victim\",\"turns\":[{\"generation\":1,\"checkpointId\":\"\",\"root\":\"<home>\\\\files\",\"baselineTree\":\"tree1\",\"baselineFiles\":[],\"toolFiles\":[\"src.txt\"],\"sealed\":false,\"updatedAt\":1793989120419}],\"sessionScopes\":[{\"root\":\"<home>\\\\files\",\"baselineTree\":\"tree1\",\"toolFiles\":[\"src.txt\"],\"baselineFiles\":[],\"updatedAt\":1793989120419}]}"
+    },
+    "data/turn-snapshots/baselines/5fd13dd5cd82a48b653de96e.json": {
+      "after": "{\"version\":1,\"sessionId\":\"sess_victim\",\"createdAt\":0,\"updatedAt\":1793989121535,\"clearedAt\":1793989121399,\"files\":[],\"renames\":[],\"events\":[]}",
+      "before": "{\"version\":1,\"sessionId\":\"sess_victim\",\"createdAt\":1793989120253,\"updatedAt\":1793989120346,\"files\":[{\"key\":\"<home>/files/src.txt\",\"path\":\"<home>\\\\files\\\\src.txt\",\"root\":\"C:\\\\mixdog-golden\\\\project\",\"at\":1793989120253,\"state\":\"present\",\"status\":\"captured\",\"size\":7,\"sha256\":\"9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb\",\"blob\":\"9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb\"}],\"renames\":[],\"events\":[]}"
+    },
+    "data/turn-snapshots/baselines/5fd13dd5cd82a48b653de96e/9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb": {
+      "after": null,
+      "before": "before\n"
+    },
+    "data/turn-snapshots/baselines/9c107e8b82b4f259c138fbc3.json": {
+      "after": "{\"version\":1,\"sessionId\":\"sess_cleared\",\"createdAt\":0,\"updatedAt\":1793989121535,\"clearedAt\":1793989121530,\"files\":[],\"renames\":[],\"events\":[]}",
+      "before": "{\"version\":1,\"sessionId\":\"sess_cleared\",\"createdAt\":1793989120272,\"updatedAt\":1793989120364,\"files\":[{\"key\":\"<home>/files/src.txt\",\"path\":\"<home>\\\\files\\\\src.txt\",\"root\":\"C:\\\\mixdog-golden\\\\project\",\"at\":1793989120272,\"state\":\"present\",\"status\":\"captured\",\"size\":7,\"sha256\":\"9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb\",\"blob\":\"9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb\"}],\"renames\":[],\"events\":[]}"
+    },
+    "data/turn-snapshots/baselines/9c107e8b82b4f259c138fbc3/9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb": {
+      "after": null,
+      "before": "before\n"
+    },
+    "data/turn-snapshots/baselines/efdf1d11b1c33ed1a630e3a8.json": {
+      "after": "{\"version\":1,\"sessionId\":\"sess_keeper\",\"createdAt\":1793989120253,\"updatedAt\":1793989120380,\"files\":[{\"key\":\"<home>/files/src.txt\",\"path\":\"<home>\\\\files\\\\src.txt\",\"root\":\"C:\\\\mixdog-golden\\\\project\",\"at\":1793989120253,\"state\":\"present\",\"status\":\"captured\",\"size\":7,\"sha256\":\"9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb\",\"blob\":\"9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb\",\"touched\":1793989120293}],\"renames\":[],\"events\":[]}",
+      "before": "{\"version\":1,\"sessionId\":\"sess_keeper\",\"createdAt\":1793989120253,\"updatedAt\":1793989120380,\"files\":[{\"key\":\"<home>/files/src.txt\",\"path\":\"<home>\\\\files\\\\src.txt\",\"root\":\"C:\\\\mixdog-golden\\\\project\",\"at\":1793989120253,\"state\":\"present\",\"status\":\"captured\",\"size\":7,\"sha256\":\"9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb\",\"blob\":\"9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb\",\"touched\":1793989120293}],\"renames\":[],\"events\":[]}"
+    },
+    "data/turn-snapshots/baselines/efdf1d11b1c33ed1a630e3a8/9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb": {
+      "after": "before\n",
+      "before": "before\n"
+    },
+    "data/turn-snapshots/cleared/9c107e8b82b4f259c138fbc3.json": {
+      "after": null,
+      "before": "{\"version\":1,\"sessionId\":\"sess_cleared\",\"clearedAt\":1793989120446}"
+    },
+    "data/turn-snapshots/efdf1d11b1c33ed1a630e3a8.json": {
+      "after": "{\"version\":1,\"sessionId\":\"sess_keeper\",\"turns\":[{\"generation\":1,\"checkpointId\":\"\",\"root\":\"<home>\\\\files\",\"baselineTree\":\"tree2\",\"baselineFiles\":[],\"toolFiles\":[\"src.txt\"],\"sealed\":false,\"updatedAt\":1793989120437}],\"sessionScopes\":[{\"root\":\"<home>\\\\files\",\"baselineTree\":\"tree2\",\"toolFiles\":[\"src.txt\"],\"baselineFiles\":[],\"updatedAt\":1793989120437}]}",
+      "before": "{\"version\":1,\"sessionId\":\"sess_keeper\",\"turns\":[{\"generation\":1,\"checkpointId\":\"\",\"root\":\"<home>\\\\files\",\"baselineTree\":\"tree2\",\"baselineFiles\":[],\"toolFiles\":[\"src.txt\"],\"sealed\":false,\"updatedAt\":1793989120437}],\"sessionScopes\":[{\"root\":\"<home>\\\\files\",\"baselineTree\":\"tree2\",\"toolFiles\":[\"src.txt\"],\"baselineFiles\":[],\"updatedAt\":1793989120437}]}"
+    },
+    "data/turn-snapshots/review-owners/5fd13dd5cd82a48b653de96e.json": {
+      "after": null,
+      "before": "{\"version\":1,\"sessionId\":\"sess_victim\",\"ownerSessionId\":\"sess_keeper\",\"at\":1793989120301}"
+    },
+    "data/turn-snapshots/review-owners/9c107e8b82b4f259c138fbc3.json": {
+      "after": null,
+      "before": "{\"version\":1,\"sessionId\":\"sess_cleared\",\"ownerSessionId\":\"sess_keeper\",\"at\":1793989120302}"
+    },
+    "files/src.txt": {
+      "after": "after\n",
+      "before": "after\n"
+    },
+    "projects/C--mixdog-golden-project/sess_cleared.jsonl": {
+      "after": null,
+      "before": "{\"type\":\"user\",\"sessionId\":\"sess_cleared\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hi sess_cleared\"}]},\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"timestamp\":\"2026-11-06T18:18:40.272Z\"}\n"
+    },
+    "projects/C--mixdog-golden-project/sess_cleared.jsonl.1": {
+      "after": null,
+      "before": "rotated sess_cleared\n"
+    },
+    "projects/C--mixdog-golden-project/sess_keeper.jsonl": {
+      "after": "{\"type\":\"user\",\"sessionId\":\"sess_keeper\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hi sess_keeper\"}]},\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"timestamp\":\"2026-11-06T18:18:40.293Z\"}\n",
+      "before": "{\"type\":\"user\",\"sessionId\":\"sess_keeper\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hi sess_keeper\"}]},\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"timestamp\":\"2026-11-06T18:18:40.293Z\"}\n"
+    },
+    "projects/C--mixdog-golden-project/sess_keeper.jsonl.1": {
+      "after": "rotated sess_keeper\n",
+      "before": "rotated sess_keeper\n"
+    },
+    "projects/C--mixdog-golden-project/sess_victim.jsonl": {
+      "after": null,
+      "before": "{\"type\":\"user\",\"sessionId\":\"sess_victim\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hi sess_victim\"}]},\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"timestamp\":\"2026-11-06T18:18:40.254Z\"}\n"
+    },
+    "projects/C--mixdog-golden-project/sess_victim.jsonl.1": {
+      "after": null,
+      "before": "rotated sess_victim\n"
+    }
+  },
+  "offsetsForgotten": [
+    "projects/C--mixdog-golden-project/sess_cleared.jsonl",
+    "projects/C--mixdog-golden-project/sess_victim.jsonl"
+  ],
+  "sessions": [
+    "sess_victim",
+    "sess_cleared",
+    "sess_keeper"
+  ]
+}

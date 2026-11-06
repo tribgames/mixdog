@@ -221,7 +221,8 @@ impl QuotaSettlement {
         self.settlement.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn epoch(&self) -> u64 {
+    /// The raise count of the cancels made so far (`cancelEpoch`): a resume is current while it holds.
+    pub fn epoch(&self) -> u64 {
         self.epoch.load(Ordering::SeqCst)
     }
 

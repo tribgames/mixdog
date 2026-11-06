@@ -55,9 +55,9 @@ fn input(queued_ids: Vec<QueuedId>, merged: Normalized, mode: SteerMode, executi
     }
 }
 
-struct Normalized {
-    content: Value,
-    text: String,
+pub(crate) struct Normalized {
+    pub content: Value,
+    pub text: String,
 }
 
 /// `promptContentText`.
@@ -84,7 +84,7 @@ fn content_text(content: &Value) -> String {
 
 /// `normalizePendingMessageEntry`. A queued turn's prompt is its `message`, a string or an
 /// array of parts (Node keeps parts under `content`).
-fn normalize(entry: &Value) -> Option<Normalized> {
+pub(crate) fn normalize(entry: &Value) -> Option<Normalized> {
     let content = match (entry.get("content"), entry.get("message"), entry.get("text")) {
         (Some(content), _, _) => content.clone(),
         (None, Some(message @ (Value::String(_) | Value::Array(_))), _) => message.clone(),

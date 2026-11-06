@@ -228,6 +228,12 @@ pub(crate) fn native_blocks_text(value: &JsonValue) -> String {
         .join("\n")
 }
 
+/// isReasoningBlock.
+fn is_reasoning_block(block: &JsonValue) -> bool {
+    matches!(block.get("type").and_then(JsonValue::as_str), Some("thinking" | "redacted_thinking" | "reasoning"))
+        || block.get("thought") == Some(&JsonValue::Bool(true))
+}
+
 fn non_empty_array(value: &JsonValue) -> Option<&Vec<JsonValue>> {
     value.as_array().filter(|a| !a.is_empty())
 }
@@ -259,6 +265,20 @@ impl MessageMeter<'_> {
     }
 
     fn projection(&self, m: &AgentMessage) -> Projection {
+        let assistant = m.role() == Role::Assistant;
+        let assistant_blocks = m.message.assistant_blocks.as_ref().filter(|_| assistant);
+        self.projection_with(m, self.replay_items(m), m.message.thinking_blocks.as_ref(), assistant_blocks)
+    }
+
+    /// The projection with the replay items and native block lists given instead of the
+    /// message's own (the reasoning split prices the message without its reasoning blocks).
+    fn projection_with(
+        &self,
+        m: &AgentMessage,
+        replay_items: Option<JsonValue>,
+        thinking_blocks: Option<&JsonValue>,
+        assistant_blocks: Option<&JsonValue>,
+    ) -> Projection {
         let mut media_tokens = 0;
         let mut text = match &m.message.content {
             Content::Text(text) => text.clone(),
@@ -290,8 +310,6 @@ impl MessageMeter<'_> {
             text.push('\n');
             text.push_str(&mixdog_js::json_stringify(&JsonValue::Array(calls)));
         }
-        let replay_items = self.replay_items(m);
-        let assistant_blocks = m.message.assistant_blocks.as_ref().filter(|_| assistant);
         // Images in the native block lists bill as media whichever form
         // supplies the text.
         for blocks in [assistant_blocks, replay_items.as_ref()].into_iter().flatten() {
@@ -304,7 +322,7 @@ impl MessageMeter<'_> {
             text.push_str(&piece);
             replay = Some(piece);
         } else if assistant {
-            for blocks in [m.message.thinking_blocks.as_ref(), assistant_blocks].into_iter().flatten() {
+            for blocks in [thinking_blocks, assistant_blocks].into_iter().flatten() {
                 if non_empty_array(blocks).is_some() {
                     text.push('\n');
                     text.push_str(&native_blocks_text(blocks));
@@ -336,6 +354,56 @@ impl MessageMeter<'_> {
     /// `messageEstimateText`: the text projection the meter prices (and transcript signatures hash).
     pub fn estimate_text(&self, m: &AgentMessage) -> String {
         self.projection(m).text
+    }
+
+    /// messageReasoningBreakdown(m).tokens: what the message's reasoning blocks cost inside its
+    /// estimate, capped by the whole-minus-visible difference.
+    pub fn reasoning_tokens(&self, m: &AgentMessage) -> u64 {
+        if m.role() != Role::Assistant {
+            return 0;
+        }
+        let split = |items: &JsonValue| -> (Vec<JsonValue>, JsonValue) {
+            match items.as_array() {
+                Some(list) => {
+                    let (reasoning, visible): (Vec<_>, Vec<_>) = list.iter().cloned().partition(is_reasoning_block);
+                    (reasoning, JsonValue::Array(visible))
+                }
+                None => (Vec::new(), items.clone()),
+            }
+        };
+        let replay = self.replay_items(m);
+        let array_replay = m.message.replay_for(self.replay_owner).any(|r| r.items.is_array());
+        let assistant_blocks = m.message.assistant_blocks.as_ref();
+        let (mut blocks, mut sent) = (Vec::new(), Vec::new());
+        let (mut visible_replay, mut visible_thinking, mut visible_assistant) = (replay.clone(), m.message.thinking_blocks.clone(), assistant_blocks.cloned());
+        if array_replay {
+            if let Some(items) = &replay {
+                let (reasoning, visible) = split(items);
+                blocks.extend(reasoning.iter().cloned());
+                sent = reasoning;
+                visible_replay = Some(visible).filter(|v| non_empty_array(v).is_some());
+            } else {
+                visible_replay = None;
+            }
+        } else {
+            for slot in [&mut visible_thinking, &mut visible_assistant] {
+                if let Some(items) = slot.as_ref() {
+                    let (reasoning, visible) = split(items);
+                    blocks.extend(reasoning);
+                    *slot = Some(visible);
+                }
+            }
+        }
+        if blocks.is_empty() {
+            return 0;
+        }
+        if replay.is_none() {
+            sent = blocks;
+        }
+        let priced: u64 = sent.iter().map(|b| estimate_tokens(&native_blocks_text(b))).sum();
+        let whole = Self::text_tokens(&self.projection(m)) as i64;
+        let visible = Self::text_tokens(&self.projection_with(m, visible_replay, visible_thinking.as_ref(), visible_assistant.as_ref())) as i64;
+        priced.min((whole - visible).max(0) as u64)
     }
 
     /// The one per-message meter.

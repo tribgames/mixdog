@@ -10,6 +10,9 @@ use std::convert::Infallible;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::sync::MutexGuard;
+use std::sync::PoisonError;
 
 use mixdog_rt::InLane;
 use serde_json::Value;
@@ -132,9 +135,38 @@ pub(crate) fn quarantine_path_from(path: &Path, mut stamp: u128) -> PathBuf {
     }
 }
 
+/// The recovery clock: the wall clock, unless [`fix_recovery_clock`] holds it at one instant.
+static FIXED_CLOCK: Mutex<Option<u128>> = Mutex::new(None);
+/// Held for as long as a fixed clock is in force, so two users of the seam never overlap.
+static CLOCK_OWNER: Mutex<()> = Mutex::new(());
+
+/// The one clock seam of the recovery stamp (`Date.now()` in Node): replays of a Node recording
+/// that ran on a fixed clock hold it at that instant. Production never calls this.
+pub struct FixedRecoveryClock {
+    _owner: MutexGuard<'static, ()>,
+}
+
+/// Holds the stamp clock at `ms` until the returned guard drops; a second caller waits for it.
+#[must_use]
+pub fn fix_recovery_clock(ms: u128) -> FixedRecoveryClock {
+    let owner = CLOCK_OWNER.lock().unwrap_or_else(PoisonError::into_inner);
+    *FIXED_CLOCK.lock().unwrap_or_else(PoisonError::into_inner) = Some(ms);
+    FixedRecoveryClock { _owner: owner }
+}
+
+impl Drop for FixedRecoveryClock {
+    fn drop(&mut self) {
+        *FIXED_CLOCK.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    }
+}
+
+fn recovery_now_ms() -> u128 {
+    let fixed = *FIXED_CLOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    fixed.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis()))
+}
+
 fn quarantine_path(path: &Path) -> PathBuf {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
-    quarantine_path_from(path, now)
+    quarantine_path_from(path, recovery_now_ms())
 }
 
 fn report_damaged(path: &Path, reason: &str, outcome: &str) {

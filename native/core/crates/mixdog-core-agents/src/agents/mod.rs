@@ -13,10 +13,18 @@ mod connectors;
 mod contact_ids;
 mod edit;
 mod files;
+mod lead;
+mod lead_service;
+mod home_api;
 mod permissions;
+mod pool_list;
 mod service;
 #[cfg(test)]
 mod api_tests;
+#[cfg(test)]
+mod lead_twin_tests;
+#[cfg(test)]
+mod home_api_tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
@@ -25,7 +33,12 @@ pub use connector_api::AgentConnectors;
 pub use connector_api::ConnectorCatalog;
 pub use connector_api::McpConnectors;
 pub use contact_ids::ContactIds;
+pub use lead::LeadAppearance;
+pub use lead_service::LEAD_METHODS;
+pub use lead_service::LeadService;
+pub use home_api::{AgentHomeService, AgentHomeSessions, AgentMemoryHost, DepError, HOME_METHODS, HomeDeps, MemoryRuntime};
 pub use permissions::AgentPermissions;
+pub use pool_list::{AgentPool, HEADER_FIELDS, PoolError, PoolLive, PoolStore, RuntimeEntry};
 pub use service::AgentService;
 pub use service::METHODS as AGENT_METHODS;
 

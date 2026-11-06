@@ -1,0 +1,382 @@
+{
+  "fixtures": {
+    "data/skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha (global).\n---\n\n# alpha\n\nBody.\n",
+    "data/skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\n# beta\n\nBody.\n",
+    "data/skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\n# gamma\n\nBody.\n",
+    "data/skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\n# other-name\n\nBody.\n",
+    "data/skills/emptied/SKILL.md": "",
+    "data/skills/nested/deep/inner/SKILL.md": "---\nname: inner\ndescription: Use when nested.\n---\n\n# inner\n\nBody.\n",
+    "data/skills/needs-git/SKILL.md": "---\nname: needs-git\ndescription: Needs git.\nmetadata:\n  requires: git\n---\n\n# needs-git\n\nBody.\n",
+    "data/skills/needs-office/SKILL.md": "---\nname: needs-office\ndescription: Needs office.\nmetadata:\n  requires: [office, webSearch]\n---\n\n# needs-office\n\nBody.\n",
+    "data/plugins/registry.json": "{\"plugins\":[{\"id\":\"plug-a\",\"root\":\"{base}/plugins/a\",\"enabled\":true},{\"id\":\"plug-off\",\"root\":\"{base}/plugins/off\",\"enabled\":false},{\"name\":\"plug-name\",\"root\":\"{base}/plugins/named\"},{\"id\":\"plug-gone\",\"root\":\"{base}/plugins/gone\"},{\"id\":\"plug-manifest\",\"root\":\"{base}/plugins/manifest\"}]}",
+    "plugins/a/skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Plugin alpha (shadowed by the global one).\n---\n\n# alpha\n\nBody.\n",
+    "plugins/a/skills/topic/sub/SKILL.md": "---\nname: plugin-topic\ndescription: Use when topic (nested plugin layout).\n---\n\n# plugin-topic\n\nBody.\n",
+    "plugins/off/skills/off-skill/SKILL.md": "---\nname: off-skill\ndescription: Disabled plugin.\n---\n\n# off-skill\n\nBody.\n",
+    "plugins/named/skills/named-skill/SKILL.md": "---\nname: named-skill\ndescription: Plugin known by name only.\n---\n\n# named-skill\n\nBody.\n",
+    "plugins/manifest/plugin.json": "{\"skills\":[\"./extra/\",\"../escape\",\"/abs\",\"\"]}",
+    "plugins/manifest/skills/own/SKILL.md": "---\nname: own\ndescription: Conventional root.\n---\n\n# own\n\nBody.\n",
+    "plugins/manifest/extra/more/SKILL.md": "---\nname: more\ndescription: Manifest root.\n---\n\n# more\n\nBody.\n",
+    "package/defaults/plugin.json": "{\"name\":\"mixdog-defaults\"}",
+    "package/defaults/skills/bundled/SKILL.md": "---\nname: bundled\ndescription: Use when bundled.\n---\n\n# bundled\n\nBody.\n",
+    "package/defaults/skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Bundled alpha (shadowed).\n---\n\n# alpha\n\nBody.\n",
+    "package/defaults/skills/bundled-git/SKILL.md": "---\nname: bundled-git\ndescription: Bundled, needs git.\nmetadata:\n  requires: git\n---\n\n# bundled-git\n\nBody.\n"
+  },
+  "configs": [
+    {
+      "name": "partial-builtins",
+      "agent": {
+        "skills": {
+          "disabled": [
+            " Beta ",
+            "OWN"
+          ]
+        },
+        "builtins": {
+          "git": {
+            "installed": true
+          },
+          "office": {
+            "installed": false
+          }
+        },
+        "extensionScopes": {
+          "skills": {
+            "gamma": [
+              "{base}/proj1"
+            ]
+          },
+          "plugins": {
+            "plug-a": [
+              "{base}/proj2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "grandfathered",
+      "agent": {
+        "skills": {
+          "disabled": []
+        }
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "partial-builtins",
+      "all": [
+        {
+          "name": "alpha",
+          "description": "Use when alpha (global).",
+          "whenToUse": "",
+          "path": "{base}/data/skills/alpha/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": []
+        },
+        {
+          "name": "beta",
+          "description": "Use when beta.",
+          "whenToUse": "Beta trigger",
+          "path": "{base}/data/skills/beta/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": []
+        },
+        {
+          "name": "gamma",
+          "description": "Use when gamma.",
+          "whenToUse": "",
+          "path": "{base}/data/skills/gamma/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": []
+        },
+        {
+          "name": "needs-git",
+          "description": "Needs git.",
+          "whenToUse": "",
+          "path": "{base}/data/skills/needs-git/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": [
+            "git"
+          ]
+        },
+        {
+          "name": "needs-office",
+          "description": "Needs office.",
+          "whenToUse": "",
+          "path": "{base}/data/skills/needs-office/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": [
+            "office",
+            "webSearch"
+          ]
+        },
+        {
+          "name": "inner",
+          "description": "Use when nested.",
+          "whenToUse": "",
+          "path": "{base}/data/skills/nested/deep/inner/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": []
+        },
+        {
+          "name": "plugin-topic",
+          "description": "Use when topic (nested plugin layout).",
+          "whenToUse": "",
+          "path": "{base}/plugins/a/skills/topic/sub/SKILL.md",
+          "source": "plugin",
+          "plugin": "plug-a",
+          "requires": []
+        },
+        {
+          "name": "named-skill",
+          "description": "Plugin known by name only.",
+          "whenToUse": "",
+          "path": "{base}/plugins/named/skills/named-skill/SKILL.md",
+          "source": "plugin",
+          "plugin": "plug-name",
+          "requires": []
+        },
+        {
+          "name": "own",
+          "description": "Conventional root.",
+          "whenToUse": "",
+          "path": "{base}/plugins/manifest/skills/own/SKILL.md",
+          "source": "plugin",
+          "plugin": "plug-manifest",
+          "requires": []
+        },
+        {
+          "name": "more",
+          "description": "Manifest root.",
+          "whenToUse": "",
+          "path": "{base}/plugins/manifest/extra/more/SKILL.md",
+          "source": "plugin",
+          "plugin": "plug-manifest",
+          "requires": []
+        },
+        {
+          "name": "bundled",
+          "description": "Use when bundled.",
+          "whenToUse": "",
+          "path": "{base}/package/defaults/skills/bundled/SKILL.md",
+          "source": "builtin",
+          "plugin": null,
+          "requires": []
+        },
+        {
+          "name": "bundled-git",
+          "description": "Bundled, needs git.",
+          "whenToUse": "",
+          "path": "{base}/package/defaults/skills/bundled-git/SKILL.md",
+          "source": "builtin",
+          "plugin": null,
+          "requires": [
+            "git"
+          ]
+        }
+      ],
+      "visible": {
+        "inProj1": [
+          "alpha",
+          "gamma",
+          "needs-git",
+          "inner",
+          "named-skill",
+          "more",
+          "bundled",
+          "bundled-git"
+        ],
+        "inProj2": [
+          "alpha",
+          "needs-git",
+          "inner",
+          "plugin-topic",
+          "named-skill",
+          "more",
+          "bundled",
+          "bundled-git"
+        ],
+        "elsewhere": [
+          "alpha",
+          "needs-git",
+          "inner",
+          "named-skill",
+          "more",
+          "bundled",
+          "bundled-git"
+        ]
+      }
+    },
+    {
+      "name": "grandfathered",
+      "all": [
+        {
+          "name": "alpha",
+          "description": "Use when alpha (global).",
+          "whenToUse": "",
+          "path": "{base}/data/skills/alpha/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": []
+        },
+        {
+          "name": "beta",
+          "description": "Use when beta.",
+          "whenToUse": "Beta trigger",
+          "path": "{base}/data/skills/beta/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": []
+        },
+        {
+          "name": "gamma",
+          "description": "Use when gamma.",
+          "whenToUse": "",
+          "path": "{base}/data/skills/gamma/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": []
+        },
+        {
+          "name": "needs-git",
+          "description": "Needs git.",
+          "whenToUse": "",
+          "path": "{base}/data/skills/needs-git/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": [
+            "git"
+          ]
+        },
+        {
+          "name": "needs-office",
+          "description": "Needs office.",
+          "whenToUse": "",
+          "path": "{base}/data/skills/needs-office/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": [
+            "office",
+            "webSearch"
+          ]
+        },
+        {
+          "name": "inner",
+          "description": "Use when nested.",
+          "whenToUse": "",
+          "path": "{base}/data/skills/nested/deep/inner/SKILL.md",
+          "source": "global",
+          "plugin": null,
+          "requires": []
+        },
+        {
+          "name": "plugin-topic",
+          "description": "Use when topic (nested plugin layout).",
+          "whenToUse": "",
+          "path": "{base}/plugins/a/skills/topic/sub/SKILL.md",
+          "source": "plugin",
+          "plugin": "plug-a",
+          "requires": []
+        },
+        {
+          "name": "named-skill",
+          "description": "Plugin known by name only.",
+          "whenToUse": "",
+          "path": "{base}/plugins/named/skills/named-skill/SKILL.md",
+          "source": "plugin",
+          "plugin": "plug-name",
+          "requires": []
+        },
+        {
+          "name": "own",
+          "description": "Conventional root.",
+          "whenToUse": "",
+          "path": "{base}/plugins/manifest/skills/own/SKILL.md",
+          "source": "plugin",
+          "plugin": "plug-manifest",
+          "requires": []
+        },
+        {
+          "name": "more",
+          "description": "Manifest root.",
+          "whenToUse": "",
+          "path": "{base}/plugins/manifest/extra/more/SKILL.md",
+          "source": "plugin",
+          "plugin": "plug-manifest",
+          "requires": []
+        },
+        {
+          "name": "bundled",
+          "description": "Use when bundled.",
+          "whenToUse": "",
+          "path": "{base}/package/defaults/skills/bundled/SKILL.md",
+          "source": "builtin",
+          "plugin": null,
+          "requires": []
+        },
+        {
+          "name": "bundled-git",
+          "description": "Bundled, needs git.",
+          "whenToUse": "",
+          "path": "{base}/package/defaults/skills/bundled-git/SKILL.md",
+          "source": "builtin",
+          "plugin": null,
+          "requires": [
+            "git"
+          ]
+        }
+      ],
+      "visible": {
+        "inProj1": [
+          "alpha",
+          "beta",
+          "gamma",
+          "needs-git",
+          "needs-office",
+          "inner",
+          "plugin-topic",
+          "named-skill",
+          "own",
+          "more",
+          "bundled",
+          "bundled-git"
+        ],
+        "inProj2": [
+          "alpha",
+          "beta",
+          "gamma",
+          "needs-git",
+          "needs-office",
+          "inner",
+          "plugin-topic",
+          "named-skill",
+          "own",
+          "more",
+          "bundled",
+          "bundled-git"
+        ],
+        "elsewhere": [
+          "alpha",
+          "beta",
+          "gamma",
+          "needs-git",
+          "needs-office",
+          "inner",
+          "plugin-topic",
+          "named-skill",
+          "own",
+          "more",
+          "bundled",
+          "bundled-git"
+        ]
+      }
+    }
+  ]
+}

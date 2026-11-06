@@ -98,41 +98,83 @@ mod tests {
         (ThreadTodos::new(threads.clone(), rig.clock.clone()), threads, thread, rig)
     }
 
-    /// `todoPhases`: a stored record is untrusted. The cases are run through Node's
-    /// `todoSnapshot` (todo-list.mjs): whitespace runs fold, a blank phase name is `Tasks`, an
-    /// unknown status (a stored `blocked`) is pending with its extra keys gone, a task without
-    /// wording and a phase without tasks leave.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_stored_list_reads_as_node_normalizes_it() {
-        let (todos, _, thread, _rig) = store(json!({
-            "todo": { "updatedAt": 41, "phases": [
-                { "name": "  Build \n step ", "tasks": [
-                    { "content": " Write\t the  code ", "status": "blocked", "blocker": "waiting" },
-                    { "content": "Ship", "status": "completed", "note": "  all\n done " },
-                    { "content": "   ", "status": "pending" },
-                    { "status": "pending" },
-                    "stray",
-                ] },
-                { "name": "", "tasks": [{ "content": "Loose", "status": "in_progress", "note": " " }] },
-                { "name": "Empty", "tasks": [] },
-                { "name": "Bad" },
-            ] },
-        }))
-        .await;
-        let list = todos.read(&thread).await;
-        assert_eq!(
-            json!(list.phases),
-            json!([
-                { "name": "Build step", "tasks": [
-                    { "content": "Write the code", "status": "pending" },
-                    { "content": "Ship", "status": "completed", "note": "all done" },
-                ] },
-                { "name": "Tasks", "tasks": [{ "content": "Loose", "status": "in_progress" }] },
-            ])
-        );
-        assert_eq!(list.updated_at_ms, 41);
+    fn golden() -> Value {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/todo-list/golden.json");
+        let bytes = mixdog_statefile::read_content(&path).expect("read golden.json").expect("golden.json exists");
+        serde_json::from_slice(&bytes).expect("golden.json parses")
     }
 
+    /// `todoPhases`: a stored record is untrusted. Every case is Node's own `todoPhases` over the
+    /// same stored record (`fixtures/todo-list/golden.json`, recorded by `record-todo-list.mjs`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stored_list_reads_as_node_normalizes_it() {
+        let golden = golden();
+        let cases = golden["reads"].as_array().expect("reads");
+        assert!(cases.len() >= 7);
+        for case in cases {
+            let record = case["todo"].clone();
+            let (todos, _, thread, _rig) = store(json!({ "todo": record })).await;
+            let list = todos.read(&thread).await;
+            assert_eq!(json!(list.phases), case["phases"], "{}", case["name"]);
+            if let Some(at) = record.get("updatedAt").and_then(Value::as_i64) {
+                assert_eq!(list.updated_at_ms, at, "{}", case["name"]);
+            }
+        }
+    }
+
+    /// Node's `executeTodoTool` over the recorded stored lists: every operation (the refusals
+    /// too) runs through the production `run` and `ThreadTodos::update` over `SessionThreads`
+    /// with Node's clock value, and the reply or error and the header it leaves equal Node's
+    /// (`todo` and the session's `updatedAt`). A refusal leaves the header as it was.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_recorded_operation_leaves_the_record_node_leaves() {
+        let golden = golden();
+        let at = golden["at"].as_i64().expect("at");
+        let (mut committed, mut refused) = (0, 0);
+        for case in golden["commits"].as_array().expect("commits") {
+            let name = &case["name"];
+            let (todos, threads, thread, _rig) = store(json!({ "todo": case["before"], "updatedAt": 1 })).await;
+            let before = threads.header(&thread).await.expect("header");
+            let mut reply = None;
+            let result = todos
+                .update(&thread, &mut |list| match mixdog_tools::state::todo::run(list, &case["args"], at) {
+                    Ok(mixdog_tools::state::todo::TodoRun::Commit { list, reply: r }) => {
+                        reply = Some(r);
+                        Ok(list)
+                    }
+                    Ok(mixdog_tools::state::todo::TodoRun::View(r)) => {
+                        reply = Some(r);
+                        Ok(list.clone())
+                    }
+                    Err(message) => Err(message),
+                })
+                .await;
+            let header = threads.header(&thread).await.expect("header");
+            match (&case["error"], result) {
+                (Value::String(want), Err(got)) => {
+                    assert_eq!(&got, want, "{name}");
+                    // Nothing moved: not the list, not the session's time.
+                    assert_eq!((header.get("todo"), header.get("updatedAt")), (before.get("todo"), before.get("updatedAt")), "{name}");
+                    assert_eq!(header.get("todo").unwrap_or(&Value::Null), &case["after"]["todo"], "{name}");
+                    assert_eq!(header["updatedAt"], case["after"]["updatedAt"], "{name}");
+                    refused += 1;
+                }
+                (Value::Null, Ok(())) => {
+                    assert_eq!(json!(reply), case["reply"], "{name}");
+                    assert_eq!((&header["todo"], &header["updatedAt"]), (&case["after"]["todo"], &case["after"]["updatedAt"]), "{name}");
+                    committed += 1;
+                }
+                (want, got) => panic!("{name}: Node {want}, here {got:?}"),
+            }
+        }
+        assert_eq!((committed, refused), (6, 3));        let cleared = &golden["cleared"];
+        let (todos, threads, thread, rig) = store(json!({ "todo": cleared["before"] })).await;
+        // Node stamps the clear from its clock, frozen at `at` in the recording: drive ours to it.
+        rig.clock.0.store(at as u64, std::sync::atomic::Ordering::SeqCst);
+        todos.update(&thread, &mut |_| Ok(TodoList::default())).await.expect("clear");
+        let header = threads.header(&thread).await.expect("header");
+        assert_eq!((&header["todo"], &header["updatedAt"]), (&cleared["after"]["todo"], &cleared["after"]["updatedAt"]));
+    }
     /// `commitPhases` / `clearTodo`: `session.todo = { phases, updatedAt }` with the session's
     /// `updatedAt` set beside it; a cleared list is `todo: null`.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

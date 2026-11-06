@@ -194,6 +194,27 @@ fn holding(rig: &Rig) -> Arc<tokio::sync::Notify> {
     gate
 }
 
+/// `holding`, also counting the runs that finished, so a test waits for a turn by its end and
+/// never by a poll of the thread's state.
+fn holding_counted(rig: &Rig) -> (Arc<tokio::sync::Notify>, tokio::sync::watch::Receiver<usize>) {
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let (done, finished) = tokio::sync::watch::channel(0usize);
+    let done = Arc::new(done);
+    let (open, first) = (gate.clone(), Arc::new(std::sync::atomic::AtomicBool::new(true)));
+    rig.set_script(Arc::new(move |run| {
+        let (open, first, done) = (open.clone(), first.clone(), done.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                open.notified().await;
+            }
+            done.send_modify(|count| *count += 1);
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    (gate, finished)
+}
+
 /// `goal-facade-api.mjs` `goalContinuation`: the continuation carries the session's todo list,
 /// and it waits while the session waits on an agent or an awaited background job.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -251,7 +272,7 @@ async fn a_continuation_carries_the_todo_list_and_waits_on_background_work() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deadline_warning_is_queued_behind_a_turn_and_marks_the_reminder_when_idle() {
     let rig = Rig::new();
-    let gate = holding(&rig);
+    let (gate, mut finished) = holding_counted(&rig);
     let spy = Spy::new(&rig);
     let directory = directory(&rig, &spy);
     let handle = start_thread(&directory).await;
@@ -270,12 +291,13 @@ async fn a_deadline_warning_is_queued_behind_a_turn_and_marks_the_reminder_when_
 
     changed(&spy, &handle, goal("g1", "active", 1, 290_000)).await;
     gate.notify_one();
-    // The warning queued behind the turn is taken in by it or runs as a turn of its own: the thread
-    // is idle for good once it has left the queue, not when the first turn merely ends.
+    // The script never drains steers, so the warning queued behind the turn runs as a turn of its
+    // own: both turns have ended once two runs finished, and the thread is idle for good after.
+    tokio::time::timeout(Duration::from_secs(60), finished.wait_for(|count| *count == 2)).await.expect("both turns end").expect("the script is alive");
     eventually(|| (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty)).then_some(())).await;
     changed(&spy, &handle, goal("g1", "active", 2, 120_000)).await;
     eventually(|| (spy.resets() == 1).then_some(())).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(*finished.borrow(), 2, "no further turn ran");
     assert_eq!(queued_entries(&rig, &handle).iter().filter(|e| e["mode"] == "prompt").count(), 1, "revision 1 was delivered once");
     assert_eq!(spy.resets(), 1, "an idle thread marks the reminder once");
 }

@@ -13,6 +13,8 @@ use serde_json::{Map, Value, json};
 use tokio::task::AbortHandle;
 
 use super::chain::{Answer, submission_outcome, Outcome};
+use crate::bots::delivery::env::RetryTimer;
+use crate::memory::cycles::requests::wait;
 use super::follow::{FINAL_POLL, FINAL_SETTLE, Follow, FollowArgs, FollowHost, GONE_TEXT, RESUME_FAILED_TEXT, RuntimeView};
 use super::{progress_run_id, turn_report_run_id};
 use crate::memory::cycles::requests::spawn_work;
@@ -33,7 +35,7 @@ pub trait RearmHost: FollowHost {
     /// The submission ids still queued for the session.
     async fn queued_submission_ids(&self, session_id: &str) -> Vec<String>;
     /// The files the turn produced, as report fields.
-    async fn artifact_fields(&self, session_id: &str, turn_id: &str) -> Map<String, Value>;
+    async fn artifact_fields(&self, session_id: &str, turn_id: &str, runtime: Option<&Arc<dyn RuntimeView>>) -> Map<String, Value>;
     fn note_bot_work(&self, run_id: &str, session_id: &str, agent_id: &str);
     fn end_bot_work(&self, run_id: &str);
     /// `roomMemberOfSession(id)`: a group-room member session.
@@ -90,7 +92,7 @@ pub async fn deliver_with_retries(host: &dyn RearmHost, delays: &[Duration], age
             Err(error) if attempt >= delays.len() => return Err(error),
             Err(error) => {
                 tracing::info!("report of {session_id} failed (try {}), retrying: {error}", attempt + 1);
-                tokio::time::sleep(delays[attempt]).await;
+                wait(host.timer().as_ref(), delays[attempt]).await;
             }
         }
     }
@@ -153,7 +155,7 @@ impl Rearm {
             payload.insert("progressRunId".into(), json!(progress_run_id(session, answer_id)));
         }
         if !(watch.text_only || text == GONE_TEXT || text == LOST_TEXT) {
-            payload.extend(self.host.artifact_fields(session, &self.turn_id).await);
+            payload.extend(self.host.artifact_fields(session, &self.turn_id, self.runtime.as_ref()).await);
         }
         self.host.deliver(&watch.agent_id, Value::Object(payload)).await
     }
@@ -303,6 +305,9 @@ impl FollowHost for HostView {
     }
     async fn pending_work(&self, session_id: &str, task_ids: Option<&HashSet<String>>) -> bool {
         self.0.pending_work(session_id, task_ids).await
+    }
+    fn timer(&self) -> Arc<dyn RetryTimer> {
+        self.0.timer()
     }
 }
 

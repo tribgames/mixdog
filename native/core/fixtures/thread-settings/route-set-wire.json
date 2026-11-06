@@ -1,0 +1,3101 @@
+{
+  "cases": [
+    {
+      "request": {
+        "model": "claude-x",
+        "provider": "anthropic"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": true,
+        "effort": "low",
+        "fast": false,
+        "model": "claude-x",
+        "provider": "anthropic"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "effort": "low",
+            "fast": false,
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": true,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "keepMainModel": false,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": false,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5",
+        "onlyIfEmpty": true,
+        "provider": "openai"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "onlyIfEmpty": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "high",
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "low",
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "low",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "autoEffort": false,
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "fast": false,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "autoEffort": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": true,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "claude-x",
+        "provider": "anthropic",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "medium",
+        "fast": true,
+        "model": "claude-x",
+        "provider": "anthropic",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "effort": "medium",
+            "fast": true,
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "low",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "low",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "fast": false,
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "fast": true,
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "high",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5-mini",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5-mini"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "contextPercent": 50,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "contextPercent": 50,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": true,
+        "keepMainModel": false,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "contextTokens": 100000,
+        "fallbacks": [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          }
+        ],
+        "model": "claude-x",
+        "modelParameters": {
+          "thinking": "on"
+        },
+        "provider": "anthropic"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "contextTokens": 100000,
+            "fallbacks": [
+              {
+                "model": "gpt-5",
+                "provider": "openai"
+              }
+            ],
+            "model": "claude-x",
+            "modelParameters": {
+              "thinking": "on"
+            },
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": false,
+        "keepMainModel": true,
+        "model": "gpt-5",
+        "onlyIfEmpty": false,
+        "provider": "openai",
+        "sessionOnly": false
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "claude-x",
+        "provider": "anthropic"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": true,
+        "effort": "low",
+        "fast": false,
+        "model": "claude-x",
+        "provider": "anthropic"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "effort": "low",
+            "fast": false,
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": true,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "keepMainModel": false,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": false,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5",
+        "onlyIfEmpty": true,
+        "provider": "openai"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "onlyIfEmpty": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "effort": "high",
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "effort": "low",
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "low",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "autoEffort": false,
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "fast": false,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "autoEffort": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": true,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "model": "claude-x",
+        "provider": "anthropic",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "effort": "medium",
+        "fast": true,
+        "model": "claude-x",
+        "provider": "anthropic",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "effort": "medium",
+            "fast": true,
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "effort": "low",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "low",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "fast": false,
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "fast": true,
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "effort": "high",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5-mini",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5-mini"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "contextPercent": 50,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "contextPercent": 50,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": true,
+        "keepMainModel": false,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": true,
+            "deferUntilNextTurn": true,
+            "keepMainModel": false,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "contextTokens": 100000,
+        "fallbacks": [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          }
+        ],
+        "model": "claude-x",
+        "modelParameters": {
+          "thinking": "on"
+        },
+        "provider": "anthropic"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "contextTokens": 100000,
+            "fallbacks": [
+              {
+                "model": "gpt-5",
+                "provider": "openai"
+              }
+            ],
+            "model": "claude-x",
+            "modelParameters": {
+              "thinking": "on"
+            },
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": false,
+        "keepMainModel": true,
+        "model": "gpt-5",
+        "onlyIfEmpty": false,
+        "provider": "openai",
+        "sessionOnly": false
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "claude-x",
+        "sessionProvider": "anthropic"
+      }
+    },
+    {
+      "request": {
+        "model": "claude-x",
+        "provider": "anthropic"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": true,
+        "effort": "low",
+        "fast": false,
+        "model": "claude-x",
+        "provider": "anthropic"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "effort": "low",
+            "fast": false,
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": true,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "keepMainModel": false,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": false,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5",
+        "onlyIfEmpty": true,
+        "provider": "openai"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "onlyIfEmpty": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "high",
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "low",
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "low",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "autoEffort": false,
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "fast": false,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "autoEffort": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": true,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "claude-x",
+        "provider": "anthropic",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "medium",
+        "fast": true,
+        "model": "claude-x",
+        "provider": "anthropic",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "effort": "medium",
+            "fast": true,
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "low",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "low",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "fast": false,
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "fast": true,
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "high",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5-mini",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5-mini"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "contextPercent": 50,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "contextPercent": 50,
+            "effort": "high",
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": true,
+        "keepMainModel": false,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "contextTokens": 100000,
+        "fallbacks": [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          }
+        ],
+        "model": "claude-x",
+        "modelParameters": {
+          "thinking": "on"
+        },
+        "provider": "anthropic"
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "contextTokens": 100000,
+            "fallbacks": [
+              {
+                "model": "gpt-5",
+                "provider": "openai"
+              }
+            ],
+            "model": "claude-x",
+            "modelParameters": {
+              "thinking": "on"
+            },
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": false,
+        "keepMainModel": true,
+        "model": "gpt-5",
+        "onlyIfEmpty": false,
+        "provider": "openai",
+        "sessionOnly": false
+      },
+      "result": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "autoEffort": false,
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionModel": "gpt-5",
+        "sessionProvider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "claude-x",
+        "provider": "anthropic"
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": true,
+        "effort": "low",
+        "fast": false,
+        "model": "claude-x",
+        "provider": "anthropic"
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "effort": "low",
+            "fast": false,
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": true,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "keepMainModel": false,
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": false,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5",
+        "onlyIfEmpty": true,
+        "provider": "openai"
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "onlyIfEmpty": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "high",
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": true,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "low",
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": true,
+            "effort": "low",
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "autoEffort": false,
+        "fast": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": false,
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "fast": false,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "autoEffort": true,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "claude-x",
+        "provider": "anthropic",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "medium",
+        "fast": true,
+        "model": "claude-x",
+        "provider": "anthropic",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "effort": "medium",
+            "fast": true,
+            "model": "claude-x",
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "low",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": true,
+            "effort": "low",
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "fast": false,
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "fast": true,
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": true,
+            "fast": true,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "effort": "high",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": true,
+            "effort": "high",
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "model": "gpt-5-mini",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5-mini"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "contextPercent": 50,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "autoEffort": true,
+            "contextPercent": 50,
+            "fast": false,
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "sessionOnly": true,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": true,
+        "keepMainModel": false,
+        "model": "gpt-5",
+        "provider": "openai",
+        "sessionOnly": true
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "contextTokens": 100000,
+        "fallbacks": [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          }
+        ],
+        "model": "claude-x",
+        "modelParameters": {
+          "thinking": "on"
+        },
+        "provider": "anthropic"
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "contextTokens": 100000,
+            "fallbacks": [
+              {
+                "model": "gpt-5",
+                "provider": "openai"
+              }
+            ],
+            "model": "claude-x",
+            "modelParameters": {
+              "thinking": "on"
+            },
+            "provider": "anthropic"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    },
+    {
+      "request": {
+        "applyToCurrentSession": false,
+        "keepMainModel": true,
+        "model": "gpt-5",
+        "onlyIfEmpty": false,
+        "provider": "openai",
+        "sessionOnly": false
+      },
+      "result": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "runtimeCalls": [
+        [
+          {
+            "model": "gpt-5",
+            "provider": "openai"
+          },
+          {
+            "applyToCurrentSession": false,
+            "deferUntilNextTurn": true,
+            "keepMainModel": true,
+            "originGeneration": 7,
+            "switchEstablished": true
+          }
+        ]
+      ],
+      "selected": {
+        "model": "gpt-5",
+        "provider": "openai"
+      }
+    }
+  ]
+}

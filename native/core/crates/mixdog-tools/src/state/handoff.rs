@@ -23,6 +23,8 @@ use url::Url;
 
 use crate::desktop::host::HostCommands;
 use crate::orch::ports::CallerFacts;
+use mixdog_core_api::domain::tool::ToolError;
+use crate::orch::util::action_failed;
 use crate::orch::util::cancelled;
 use crate::orch::util::invalid;
 use crate::orch::util::spec_from_def;
@@ -193,6 +195,14 @@ fn decided(resolution: &ApprovalResolution) -> Option<&mixdog_protocol::ToolAppr
     }
 }
 
+/// The device that answered (`result?.device`); a timeout has none.
+fn device_of(resolution: &ApprovalResolution) -> &str {
+    match resolution {
+        ApprovalResolution::Decided { device, .. } => device,
+        _ => "",
+    }
+}
+
 /// Result of a takeover: what the user did and where the page is now, never "signed in".
 pub fn takeover_outcome(resolution: &ApprovalResolution, page_url: &str) -> String {
     if expired(resolution) {
@@ -226,7 +236,9 @@ pub trait HandoffEnv: Send + Sync {
     /// A schedule or webhook run has nobody to take over: the step ends the run now and the
     /// user is told what needs them. True when that happened.
     async fn human_needed(&self, thread: &ThreadId, outcome: &str, site: &str) -> bool;
-    async fn record_decision(&self, thread: &ThreadId, gate: &GateRecord, response: &str);
+    /// `recordHumanDecision(gate, { response, device })`: the audit line of the answer. `Err` is
+    /// the store's failure, which fails the call as it did in Node.
+    async fn record_decision(&self, thread: &ThreadId, gate: &GateRecord, response: &str, device: &str) -> Result<(), String>;
     /// Computer Use secret: bound to the exact window and field ref. `bound` on success.
     async fn computer_bind(&self, thread: &ThreadId, request_id: &str, window_id: &str, reference: &str) -> String;
     /// Fill the secret the user handed the desktop for `request_id`; a handoff outcome.
@@ -258,7 +270,11 @@ impl HandoffUserTool {
         value.is_object().then_some(value)
     }
 
-    async fn secret(&self, ctx: &ToolContext, h: &Handoff, gate: &GateRecord) -> Result<String, String> {
+    async fn record(&self, thread: &ThreadId, gate: &GateRecord, response: &str, device: &str) -> Result<(), ToolError> {
+        self.env.record_decision(thread, gate, response, device).await.map_err(|message| action_failed("handoff", message))
+    }
+
+    async fn secret(&self, ctx: &ToolContext, h: &Handoff, gate: &GateRecord) -> Result<String, ToolError> {
         let thread = &ctx.thread_id;
         let request_id = (self.ids)();
         let mut bound = json!({});
@@ -276,7 +292,7 @@ impl HandoffUserTool {
                 _ => None,
             };
             if let Some(outcome) = refused {
-                self.env.record_decision(thread, gate, outcome).await;
+                self.record(thread, gate, outcome, "").await?;
                 return Ok(outcome.to_owned());
             }
             bound = json!({"origin": origin, "form": form});
@@ -291,7 +307,7 @@ impl HandoffUserTool {
             };
             if outcome != "bound" {
                 let refused = if outcome == "no_field" { "no_field" } else { "blocked" };
-                self.env.record_decision(thread, gate, refused).await;
+                self.record(thread, gate, refused, "").await?;
                 return Ok(refused.to_owned());
             }
         }
@@ -313,7 +329,7 @@ impl HandoffUserTool {
             })
             .await;
         if matches!(resolution, ApprovalResolution::Cancelled { .. }) {
-            return Err("cancelled".to_owned());
+            return Err(cancelled());
         }
         let outcome = if expired(&resolution) {
             "expired".to_owned()
@@ -330,11 +346,11 @@ impl HandoffUserTool {
             };
             if filled != "user_skipped" && HANDOFF_OUTCOMES.contains(&filled.as_str()) { filled } else { "blocked".to_owned() }
         };
-        self.env.record_decision(thread, gate, &outcome).await;
+        self.record(thread, gate, &outcome, device_of(&resolution)).await?;
         Ok(outcome)
     }
 
-    async fn takeover(&self, ctx: &ToolContext, h: &Handoff, gate: &GateRecord) -> Result<String, String> {
+    async fn takeover(&self, ctx: &ToolContext, h: &Handoff, gate: &GateRecord) -> Result<String, ToolError> {
         let thread = &ctx.thread_id;
         let tab_input = |mut base: Value| {
             if !h.identity.tab.is_empty() {
@@ -381,7 +397,7 @@ impl HandoffUserTool {
             })
             .await;
         if matches!(resolution, ApprovalResolution::Cancelled { .. }) {
-            return Err("cancelled".to_owned());
+            return Err(cancelled());
         }
         let page_url = if decided(&resolution).is_some() && h.surface == "browser" {
             self.page(thread, "page_url", tab_input(json!({})))
@@ -393,7 +409,7 @@ impl HandoffUserTool {
         };
         let answer = takeover_outcome(&resolution, &page_url);
         let response = if answer.starts_with("User ") { "done" } else { answer.as_str() };
-        self.env.record_decision(thread, gate, response).await;
+        self.record(thread, gate, response, device_of(&resolution)).await?;
         Ok(answer)
     }
 }
@@ -421,19 +437,16 @@ impl Tool for HandoffUserTool {
                 return text(UNATTENDED_TAKEOVER);
             }
         }
-        if !self.facts.user_available(&ctx.thread_id) {
+        if !self.facts.user_available(&ctx.thread_id).await {
             // Nobody can take over or type here: blocked, never "proceed".
             if !h.secret {
                 return text(NO_TAKEOVER);
             }
-            self.env.record_decision(&ctx.thread_id, &gate, "blocked").await;
+            self.record(&ctx.thread_id, &gate, "blocked", "").await?;
             return text("blocked");
         }
-        let result = if h.secret { self.secret(ctx, &h, &gate).await } else { self.takeover(ctx, &h, &gate).await };
-        match result {
-            Ok(answer) => text(answer),
-            Err(_) => Err(cancelled()),
-        }
+        let answer = if h.secret { self.secret(ctx, &h, &gate).await? } else { self.takeover(ctx, &h, &gate).await? };
+        text(answer)
     }
 }
 

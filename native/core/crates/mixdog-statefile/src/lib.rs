@@ -34,10 +34,12 @@ pub use access::sync_dir;
 pub use access::unlaned;
 #[cfg(windows)]
 pub use access::verbatim_wide;
+pub use json::FixedRecoveryClock;
 pub use json::Invalid;
 pub use json::Peek;
 pub use json::StateError;
 pub use json::Validate;
+pub use json::fix_recovery_clock;
 pub use json::is_json_content;
 pub use json::json_bytes;
 pub use json::parse_json_text;
@@ -61,9 +63,11 @@ pub use publish::holds_no_data;
 pub use publish::append_file;
 pub use publish::list_dir;
 pub use publish::metadata;
+pub use publish::symlink_metadata;
 pub use publish::read_range;
 pub use publish::remove_dir_all;
 pub use publish::remove_file;
+pub use publish::set_readonly;
 pub use publish::read_content;
 
 use mixdog_rt::DurabilityIo;

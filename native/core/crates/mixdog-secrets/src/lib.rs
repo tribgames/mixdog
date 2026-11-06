@@ -63,6 +63,9 @@ pub trait SecretStore: Send + Sync {
     async fn has(&self, account: &str) -> bool {
         matches!(self.get(account).await, Ok(Some(_)))
     }
+    async fn is_fallback(&self, _account: &str) -> bool {
+        false
+    }
 }
 
 /// Runs a blocking closure on the durability lane.

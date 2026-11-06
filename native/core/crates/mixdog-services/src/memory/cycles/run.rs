@@ -12,6 +12,7 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use super::quality::{Row, cycle1_source_budget, partition_cycle1_rows, InvalidChunk};
+use crate::bots::delivery::env::RetryTimer;
 use super::requests::{RetryRunner, RetryTimers, consume_cycle_requests, mark_cycle_request, resolve_coalesce_max_drains, resolve_coalesce_max_retries, spawn_work};
 use super::rows::{MAX_PACKETS, PACKET_MAX_ROWS, PlanOptions, count_pending_rows, count_raw_unchunked_rows, fetch_cycle1_rows, group_rows_by_session, resolve_cycle1_plan};
 use super::signature::make_cycle_request_signature;
@@ -336,8 +337,8 @@ pub struct Cycle1Runner {
 }
 
 impl Cycle1Runner {
-    pub fn new(db: Db, llm: Arc<dyn Cycle1Llm>, embeddings: Arc<dyn CycleEmbeddings>, config: Arc<dyn CycleConfig>, now: NowMs) -> Arc<Self> {
-        Arc::new(Self { db, llm, embeddings, config, now, retries: Arc::default(), running: Mutex::new(false), logged_at: Mutex::default() })
+    pub fn new(db: Db, llm: Arc<dyn Cycle1Llm>, embeddings: Arc<dyn CycleEmbeddings>, config: Arc<dyn CycleConfig>, now: NowMs, timer: Arc<dyn RetryTimer>) -> Arc<Self> {
+        Arc::new(Self { db, llm, embeddings, config, now, retries: RetryTimers::new(timer), running: Mutex::new(false), logged_at: Mutex::default() })
     }
 
     pub fn db(&self) -> &Db {

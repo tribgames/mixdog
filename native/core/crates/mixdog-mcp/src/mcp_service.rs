@@ -953,7 +953,7 @@ fn process_env() -> crate::config::Env {
 }
 
 /// `hasConfiguredMcpAuth(cfg)`: the config carries its own authentication.
-fn has_configured_auth(cfg: &Value) -> bool {
+pub(crate) fn has_configured_auth(cfg: &Value) -> bool {
     let configured = |key: &str| cfg.get(key).and_then(Value::as_object).is_some_and(|m| !m.is_empty());
     let bearer = if truthy(field(cfg, "bearer_token_env_var")) { clean(field(cfg, "bearer_token_env_var")) } else { String::new() };
     !bearer.is_empty() || configured("headers") || configured("env_http_headers") || !accounts_of(cfg).is_empty()

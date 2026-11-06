@@ -164,6 +164,8 @@ pub struct HostServices {
     pub observed: Arc<mixdog_core_prompt::prompt::probes::StartupObservations>,
 }
 
+mod session_view;
+
 pub struct HostRunParts {
     services: HostServices,
 }
@@ -287,10 +289,7 @@ impl HostRunParts {
         let provider_state = header.get("providerState").and_then(|state| serde_json::from_value(state.clone()).ok());
         let source = RequestSource { thread, header, surface, prior: &rows, request: "", injected: false, provider_state, window, turn: None };
         let parts = self.request_parts(source).await.ok()?;
-        let mut messages = super::factory::system_messages(header);
-        for body in &rows {
-            messages.push(super::message_row::message_of(body).ok()?);
-        }
+        let messages = rebuilt_messages(header, &rows)?;
         let mut options = parts.options;
         options.iteration = 1;
         let request = mixdog_agent::wire_request(
@@ -440,5 +439,41 @@ impl RunParts for HostRunParts {
             blobs: s.blobs.clone(),
             carry: RunCarry::default(),
         })
+    }
+}
+
+/// The messages of the next main request: the system prompt and the stored rows, with the pre-send
+/// transcript repair of the loop's request boundary (a tool call the interrupted turn never answered
+/// gets its stub, a stray result is dropped) applied to this local copy only; nothing is persisted.
+fn rebuilt_messages(header: &Header, rows: &[Value]) -> Option<Vec<mixdog_agent::message::AgentMessage>> {
+    let mut messages = super::factory::system_messages(header);
+    for body in rows {
+        messages.push(super::message_row::message_of(body).ok()?);
+    }
+    mixdog_agent::repair::repair_before_send(&mut messages);
+    Some(messages)
+}
+
+#[cfg(test)]
+mod rebuilt_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_dangling_tool_call_is_answered_with_the_missing_stub_in_the_rebuilt_request() {
+        let header = json!({}).as_object().unwrap().clone();
+        let rows = vec![
+            json!({ "role": "user", "content": "go" }),
+            json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "c1", "name": "list", "arguments": {} }] }),
+        ];
+        let messages = rebuilt_messages(&header, &rows).unwrap();
+        let tail = &messages[messages.len() - 1];
+        assert_eq!(tail.tool_call_id(), Some("c1"));
+        assert_eq!(tail.text(), "[Older tool result unavailable after context compaction]");
+        assert_eq!(messages.len() - mixdog_core_prompt::prompt::blocks::request_system_messages(&header).len(), 3, "user, assistant, stub; no tail reminder");
+        // A complete transcript is untouched.
+        let whole = vec![rows[0].clone(), rows[1].clone(), json!({ "role": "tool", "toolCallId": "c1", "content": { "content": "ok" } })];
+        assert_eq!(rebuilt_messages(&header, &whole).unwrap().last().unwrap().text(), "ok");
     }
 }

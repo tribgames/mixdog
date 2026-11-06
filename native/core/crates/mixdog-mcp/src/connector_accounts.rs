@@ -338,6 +338,14 @@ fn read_state(lane: &InLane<MaintenanceIo>, path: &Path) -> std::io::Result<Map<
     })
 }
 
+/// The `(name, id)` of the account connector `connector` used last (`connectorAccountInUseRecord`),
+/// read from the accounts-in-use file under `data_dir`; `id` is empty for a record from before
+/// identities.
+pub fn in_use_account(lane: &InLane<MaintenanceIo>, data_dir: &Path, connector: &str) -> std::io::Result<Option<(String, String)>> {
+    let all = read_state(lane, &data_dir.join(IN_USE_FILE))?;
+    Ok(in_use_record(&all, connector).map(|r| (r.name, r.id)))
+}
+
 /// `{ server, tool }` of an MCP tool name, as Node's `/^mcp__(.+?)__(.+)$/` reads it.
 pub fn split_mcp_tool_name(name: &str) -> Option<(String, String)> {
     let caps = JsRegex::new_static("^mcp__(.+?)__(.+)$", "").captures(name)?;

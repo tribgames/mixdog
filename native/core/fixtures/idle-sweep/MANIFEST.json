@@ -3,18 +3,18 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 59091,
+      "bytes": 60466,
       "path": "golden.json",
-      "sha256": "35af05987774a94c1c3ec83cd03d6c450ded3fac11ba654f5147a209fb15d79a"
+      "sha256": "c8c1fd3f46420d6cd695da8016e16fbd3cfae0ebac1137541715b2d9c2162503"
     }
   ],
   "product": {
     "appsSha256": "04b921c4ae348576f68a0a015207ce668e374e6d3cae8c8fdeff8ff229de0afa",
-    "commit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
+    "commit": "433c7dfbb0d6763b0200667fabbf7f76e3f4abc7",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9241,
     "refComparison": {
-      "closestCommit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
+      "closestCommit": "433c7dfbb0d6763b0200667fabbf7f76e3f4abc7",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-idle-sweep.mjs",
   "set": "idle-sweep",
-  "totalBytes": 59091
+  "totalBytes": 60466
 }

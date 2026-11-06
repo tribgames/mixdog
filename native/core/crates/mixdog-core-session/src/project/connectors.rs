@@ -101,11 +101,13 @@ impl ProjectConnectors {
         &self,
         project_path: &str,
         connector_id: &str,
-        enabled: bool,
+        enabled: &Value,
         no_widen: bool,
         cancel: &CancellationToken,
     ) -> Result<Value, String> {
         let id = require_id(connector_id, "connector id")?;
+        // The raw wire value: Node checks `typeof enabled` after the id and before the project.
+        let Value::Bool(enabled) = *enabled else { return Err("enabled must be a boolean".to_owned()) };
         let root = self.registered(project_path).await?;
         let (file, key_root) = (self.file.clone(), root.clone());
         let written = on_lane(self.io.durability, cancel, move |lane| -> Result<(), String> {

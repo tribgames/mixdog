@@ -1,0 +1,1802 @@
+{
+  "audit": [
+    {
+      "approval": {
+        "device": "dev1",
+        "response": "entered"
+      },
+      "gate": {
+        "kind": "secret",
+        "target": "login",
+        "tool": "handoff_user:browser"
+      },
+      "name": "an attended session acts for Mixy",
+      "rows": [
+        {
+          "agentId": "lead",
+          "decision": "entered",
+          "device": "dev1",
+          "kind": "secret",
+          "target": "login",
+          "tool": "handoff_user:browser"
+        }
+      ],
+      "session": "sess_plain"
+    },
+    {
+      "approval": {
+        "device": "dev2",
+        "response": "done"
+      },
+      "gate": {
+        "kind": "takeover",
+        "target": "Settings",
+        "tool": "handoff_user:computer"
+      },
+      "name": "a home thread acts for its agent",
+      "rows": [
+        {
+          "agentId": "ann",
+          "decision": "done",
+          "device": "dev2",
+          "kind": "takeover",
+          "target": "Settings",
+          "tool": "handoff_user:computer"
+        }
+      ],
+      "session": "sess_home_ann"
+    },
+    {
+      "approval": {
+        "response": "blocked"
+      },
+      "gate": {
+        "kind": "secret",
+        "target": "pw",
+        "tool": "handoff_user:computer"
+      },
+      "name": "a room member acts for its agent",
+      "rows": [
+        {
+          "agentId": "ann",
+          "decision": "blocked",
+          "device": "",
+          "kind": "secret",
+          "target": "pw",
+          "tool": "handoff_user:computer"
+        }
+      ],
+      "session": "sess_rmem_abc123_ann"
+    },
+    {
+      "approval": {
+        "device": "phone",
+        "response": "user_skipped"
+      },
+      "gate": {
+        "kind": "takeover",
+        "target": "",
+        "tool": "handoff_user:browser"
+      },
+      "name": "a marked run acts for its owner",
+      "rows": [
+        {
+          "agentId": "ann",
+          "decision": "user_skipped",
+          "device": "phone",
+          "kind": "takeover",
+          "target": "",
+          "tool": "handoff_user:browser"
+        }
+      ],
+      "session": "sess_run_ann"
+    },
+    {
+      "approval": {
+        "device": 5,
+        "response": "expired"
+      },
+      "gate": {
+        "kind": "secret",
+        "target": "x",
+        "tool": "handoff_user:browser"
+      },
+      "name": "a device that is no string is none",
+      "rows": [
+        {
+          "agentId": "lead",
+          "decision": "expired",
+          "device": "",
+          "kind": "secret",
+          "target": "x",
+          "tool": "handoff_user:browser"
+        }
+      ],
+      "session": "sess_plain"
+    }
+  ],
+  "bindingTimeoutMs": 90,
+  "fill": [
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": false,
+        "has": false,
+        "redacted": "typed  here"
+      },
+      "bind": true,
+      "command": {},
+      "commands": [],
+      "name": "a value nobody provided has expired",
+      "outcome": "expired"
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": false,
+        "has": false,
+        "redacted": "typed pw here"
+      },
+      "command": {},
+      "commands": [],
+      "name": "a value for an unbound request has no field",
+      "outcome": "no_field",
+      "provide": "pw"
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": false,
+        "has": false,
+        "redacted": "typed pw here"
+      },
+      "bind": true,
+      "command": {
+        "sessionId": "s2"
+      },
+      "commands": [],
+      "name": "another session is blocked",
+      "outcome": "blocked",
+      "provide": "pw"
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": false,
+        "has": false,
+        "redacted": "typed pw here"
+      },
+      "bind": true,
+      "command": {
+        "sessionId": ""
+      },
+      "commands": [],
+      "name": "no session expires",
+      "outcome": "expired",
+      "provide": "pw"
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": false,
+        "has": false,
+        "redacted": "typed pw here"
+      },
+      "bind": true,
+      "command": {
+        "windowId": "w2"
+      },
+      "commands": [],
+      "name": "another window is a page change",
+      "outcome": "page_changed",
+      "provide": "pw"
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": false,
+        "has": false,
+        "redacted": "typed pw here"
+      },
+      "bind": true,
+      "command": {
+        "ref": "e2"
+      },
+      "commands": [],
+      "name": "another ref is a page change",
+      "outcome": "page_changed",
+      "provide": "pw"
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "command": {
+        "ref": "e1",
+        "windowId": "w1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        }
+      ],
+      "name": "the agent naming the bound target is the target",
+      "outcome": "entered",
+      "provide": "pw",
+      "replies": [
+        {},
+        {
+          "elements": []
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "ty[redacted]ed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "p",
+          "window_id": "w1"
+        }
+      ],
+      "name": "one character is entered by one write",
+      "outcome": "entered",
+      "provide": "p",
+      "replies": [
+        {}
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "😀",
+          "window_id": "w1"
+        }
+      ],
+      "name": "one code point of two code units is one character",
+      "outcome": "entered",
+      "provide": "😀",
+      "replies": [
+        {}
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "😀a",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        }
+      ],
+      "name": "two code points are read back",
+      "outcome": "entered",
+      "provide": "😀a",
+      "replies": [
+        {},
+        {
+          "elements": []
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        }
+      ],
+      "name": "no bound field read back leaves the write",
+      "outcome": "entered",
+      "provide": "pw12",
+      "replies": [
+        {},
+        {
+          "elements": [
+            {
+              "is_password": false,
+              "ref": "e8",
+              "value": "p"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        }
+      ],
+      "name": "an element without a ref leaves the write",
+      "outcome": "entered",
+      "provide": "pw12",
+      "replies": [
+        {},
+        {
+          "elements": [
+            {
+              "bound_ref": true,
+              "is_password": false,
+              "ref": "",
+              "value": "a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a password field leaves the write",
+      "outcome": "entered",
+      "provide": "pw12",
+      "replies": [
+        {},
+        {
+          "elements": [
+            {
+              "bound_ref": true,
+              "is_password": true,
+              "ref": "e9",
+              "value": "p"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a field that does not say is a password",
+      "outcome": "entered",
+      "provide": "pw12",
+      "replies": [
+        {},
+        {
+          "elements": [
+            {
+              "bound_ref": true,
+              "ref": "e9",
+              "value": "p"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a box holding another value leaves the write",
+      "outcome": "entered",
+      "provide": "pw12",
+      "replies": [
+        {},
+        {
+          "elements": [
+            {
+              "bound_ref": true,
+              "is_password": false,
+              "ref": "e9",
+              "value": "x"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a box without a value leaves the write",
+      "outcome": "entered",
+      "provide": "pw12",
+      "replies": [
+        {},
+        {
+          "elements": [
+            {
+              "bound_ref": true,
+              "is_password": false,
+              "ref": "e9"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "1234",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        },
+        {
+          "action": "type",
+          "delivery": "foreground",
+          "ref": "e9",
+          "session_id": "s1",
+          "text": "1234",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a one-character box is typed box to box in the foreground",
+      "outcome": "entered",
+      "provide": "1234",
+      "replies": [
+        {},
+        {
+          "elements": [
+            {
+              "bound_ref": true,
+              "is_password": false,
+              "ref": "e9",
+              "value": "1"
+            }
+          ]
+        },
+        {}
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "1234",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        },
+        {
+          "action": "type",
+          "delivery": "foreground",
+          "ref": "e7",
+          "session_id": "s1",
+          "text": "1234",
+          "window_id": "w1"
+        }
+      ],
+      "name": "the first bound element is the one used",
+      "outcome": "entered",
+      "provide": "1234",
+      "replies": [
+        {},
+        {
+          "elements": [
+            {
+              "bound_ref": true,
+              "is_password": false,
+              "ref": "e7",
+              "value": "1"
+            },
+            {
+              "bound_ref": true,
+              "is_password": false,
+              "ref": "e9",
+              "value": "1"
+            }
+          ]
+        },
+        {}
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a read that fails leaves the write",
+      "outcome": "entered",
+      "provide": "pw12",
+      "replies": [
+        {},
+        {
+          "error": "find failed"
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a read without elements leaves the write",
+      "outcome": "entered",
+      "provide": "pw12",
+      "replies": [
+        {},
+        {}
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a failed write is blocked",
+      "outcome": "blocked",
+      "provide": "pw12",
+      "replies": [
+        {
+          "error": "boom"
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a stale target is a page change",
+      "outcome": "page_changed",
+      "provide": "pw12",
+      "replies": [
+        {
+          "error": "Error: stale_target: window is gone"
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        }
+      ],
+      "name": "is stale reads as a page change",
+      "outcome": "page_changed",
+      "provide": "pw12",
+      "replies": [
+        {
+          "error": "the ref is stale now"
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        }
+      ],
+      "name": "stale or invalid reads as a page change",
+      "outcome": "page_changed",
+      "provide": "pw12",
+      "replies": [
+        {
+          "error": "Ref was stale or invalid"
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        }
+      ],
+      "name": "the match is case-insensitive",
+      "outcome": "page_changed",
+      "provide": "pw12",
+      "replies": [
+        {
+          "error": "STALE_TARGET"
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "pw12",
+          "window_id": "w1"
+        }
+      ],
+      "name": "an unrelated stale word is blocked",
+      "outcome": "blocked",
+      "provide": "pw12",
+      "replies": [
+        {
+          "error": "the instale thing"
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "1234",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        },
+        {
+          "action": "type",
+          "delivery": "foreground",
+          "ref": "e9",
+          "session_id": "s1",
+          "text": "1234",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a failed foreground write is judged the same way",
+      "outcome": "page_changed",
+      "provide": "1234",
+      "replies": [
+        {},
+        {
+          "elements": [
+            {
+              "bound_ref": true,
+              "is_password": false,
+              "ref": "e9",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "error": "stale_target"
+        }
+      ]
+    },
+    {
+      "after": {
+        "binding": null,
+        "focusArmed": true,
+        "has": false,
+        "redacted": "typed [redacted] here"
+      },
+      "bind": true,
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "s1",
+          "text": "1234",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "s1",
+          "window_id": "w1"
+        },
+        {
+          "action": "type",
+          "delivery": "foreground",
+          "ref": "e9",
+          "session_id": "s1",
+          "text": "1234",
+          "window_id": "w1"
+        }
+      ],
+      "name": "a failed foreground write that is no stale target is blocked",
+      "outcome": "blocked",
+      "provide": "1234",
+      "replies": [
+        {},
+        {
+          "elements": [
+            {
+              "bound_ref": true,
+              "is_password": false,
+              "ref": "e9",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "error": "denied"
+        }
+      ]
+    }
+  ],
+  "homeSession": "sess_home_ann",
+  "human": [
+    {
+      "aborted": [
+        "sess_human"
+      ],
+      "humanNeeded": {
+        "outcome": "login_required",
+        "site": "example.com"
+      },
+      "name": "a marked run",
+      "result": true,
+      "session": "sess_human"
+    },
+    {
+      "aborted": [],
+      "humanNeeded": null,
+      "name": "an attended session",
+      "result": false,
+      "session": "sess_plain"
+    },
+    {
+      "aborted": [],
+      "humanNeeded": null,
+      "name": "a room member",
+      "result": false,
+      "session": "sess_rmem_abc123_ann"
+    },
+    {
+      "aborted": [],
+      "humanNeeded": null,
+      "name": "an unmarked session",
+      "result": false,
+      "session": "sess_gone"
+    },
+    {
+      "humanNeeded": null,
+      "name": "after the run ends",
+      "session": "sess_human"
+    }
+  ],
+  "memberSession": "sess_rmem_abc123_ann",
+  "registry": [
+    {
+      "name": "a plain bind is held",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "binding"
+        }
+      ],
+      "results": [
+        true,
+        {
+          "ref": "e1",
+          "sessionId": "s1",
+          "windowId": "w1"
+        }
+      ]
+    },
+    {
+      "name": "ids that are not request ids bind nothing",
+      "ops": [
+        {
+          "id": "",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdefg",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcd_efgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcd-efgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdéfgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdefgh\n",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "Secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        }
+      ],
+      "results": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "name": "no session binds nothing",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "",
+          "window": "w1"
+        }
+      ],
+      "results": [
+        false
+      ]
+    },
+    {
+      "name": "window ids and refs are plain tokens within their limits",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": ""
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "a b"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "W_1.2:3#4@5-6"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "wé"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e 1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e/1",
+          "session": "s1",
+          "window": "w1"
+        }
+      ],
+      "results": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "name": "a later bind replaces the earlier one",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e2",
+          "session": "s1",
+          "window": "w2"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "binding"
+        }
+      ],
+      "results": [
+        true,
+        true,
+        {
+          "ref": "e2",
+          "sessionId": "s1",
+          "windowId": "w2"
+        }
+      ]
+    },
+    {
+      "name": "a refused bind keeps the earlier binding",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "a b"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "binding"
+        }
+      ],
+      "results": [
+        true,
+        false,
+        {
+          "ref": "e1",
+          "sessionId": "s1",
+          "windowId": "w1"
+        }
+      ]
+    },
+    {
+      "name": "a value slot is one-shot",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "provide",
+          "value": "v1"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "has"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "take"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "has"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "take"
+        }
+      ],
+      "results": [
+        true,
+        true,
+        "v1",
+        false,
+        ""
+      ]
+    },
+    {
+      "name": "values are bounded in UTF-16 units",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "provide",
+          "value": ""
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "provide",
+          "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "provide",
+          "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "provide",
+          "value": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "provide",
+          "value": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        },
+        {
+          "id": "nope",
+          "op": "provide",
+          "value": "v"
+        }
+      ],
+      "results": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        false
+      ]
+    },
+    {
+      "name": "a provided value again replaces the slot",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "provide",
+          "value": "one"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "provide",
+          "value": "two"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "take"
+        }
+      ],
+      "results": [
+        true,
+        true,
+        "two"
+      ]
+    },
+    {
+      "name": "discard drops the slot, its username and save slots and the binding",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "provide",
+          "value": "v"
+        },
+        {
+          "id": "secret_abcdefgh-username",
+          "op": "provide",
+          "value": "u"
+        },
+        {
+          "id": "secret_abcdefgh-save",
+          "op": "provide",
+          "value": "y"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "discard"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "has"
+        },
+        {
+          "id": "secret_abcdefgh-username",
+          "op": "has"
+        },
+        {
+          "id": "secret_abcdefgh-save",
+          "op": "has"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "binding"
+        }
+      ],
+      "results": [
+        true,
+        true,
+        true,
+        true,
+        null,
+        false,
+        false,
+        false,
+        null
+      ]
+    },
+    {
+      "name": "a slot expires on its own",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "provide",
+          "value": "v"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "has"
+        },
+        {
+          "ms": 100,
+          "op": "sleep"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "has"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "take"
+        }
+      ],
+      "results": [
+        true,
+        true,
+        null,
+        false,
+        ""
+      ]
+    },
+    {
+      "name": "a binding outlives the slot and then expires too",
+      "ops": [
+        {
+          "id": "secret_abcdefgh",
+          "op": "bind",
+          "ref": "e1",
+          "session": "s1",
+          "window": "w1"
+        },
+        {
+          "ms": 65,
+          "op": "sleep"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "binding"
+        },
+        {
+          "ms": 90,
+          "op": "sleep"
+        },
+        {
+          "id": "secret_abcdefgh",
+          "op": "binding"
+        }
+      ],
+      "results": [
+        true,
+        null,
+        {
+          "ref": "e1",
+          "sessionId": "s1",
+          "windowId": "w1"
+        },
+        null,
+        null
+      ]
+    },
+    {
+      "name": "redaction replaces every filled value of the session only",
+      "ops": [
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": "hunter2"
+        },
+        {
+          "op": "remember",
+          "session": "s2",
+          "value": "other"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "typed hunter2 then other, hunter2 again"
+        },
+        {
+          "op": "redact",
+          "session": "s3",
+          "text": "hunter2"
+        }
+      ],
+      "results": [
+        null,
+        null,
+        "typed [redacted] then other, [redacted] again",
+        "hunter2"
+      ]
+    },
+    {
+      "name": "an empty value or session registers nothing",
+      "ops": [
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": ""
+        },
+        {
+          "op": "remember",
+          "session": "",
+          "value": "v"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "abc"
+        },
+        {
+          "op": "redact",
+          "session": "",
+          "text": "v"
+        }
+      ],
+      "results": [
+        null,
+        null,
+        "abc",
+        "v"
+      ]
+    },
+    {
+      "name": "the longest secret is replaced whole",
+      "ops": [
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": "pass"
+        },
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": "password1"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "my password1 and pass"
+        }
+      ],
+      "results": [
+        null,
+        null,
+        "my [redacted] and [redacted]"
+      ]
+    },
+    {
+      "name": "a secret never rewrites the letters of a marker",
+      "ops": [
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": "e"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "there is [redacted] here"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "a [saved login] e"
+        }
+      ],
+      "results": [
+        null,
+        "th[redacted]r[redacted] is [redacted] h[redacted]r[redacted]",
+        "a [saved login] [redacted]"
+      ]
+    },
+    {
+      "name": "a secret that spans marker text is still replaced and redacting twice is redacting once",
+      "ops": [
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": "x[redacted]y"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "a x[redacted]y b"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "a x[redacted]y [redacted] x[redacted]y"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "x[redacted][redacted]y"
+        }
+      ],
+      "results": [
+        null,
+        "a [redacted] b",
+        "a [redacted] [redacted] [redacted]",
+        "x[redacted][redacted]y"
+      ]
+    },
+    {
+      "name": "a secret overlapping part of a marker takes the marker whole",
+      "ops": [
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": "ab[red"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "zab[redacted]z"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "ab[red"
+        }
+      ],
+      "results": [
+        null,
+        "z[redacted]z",
+        "[redacted]"
+      ]
+    },
+    {
+      "name": "a replacement can join a secret to the text before it",
+      "ops": [
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": "a[redacted]"
+        },
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": "q"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "aq a[redacted]"
+        }
+      ],
+      "results": [
+        null,
+        null,
+        "[redacted] [redacted]"
+      ]
+    },
+    {
+      "name": "non-ASCII secrets and repeated occurrences",
+      "ops": [
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": "비밀😀"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "비밀😀 와 비밀😀비밀😀 끝 비밀"
+        }
+      ],
+      "results": [
+        null,
+        "[redacted] 와 [redacted][redacted] 끝 비밀"
+      ]
+    },
+    {
+      "name": "forget drops the session secrets",
+      "ops": [
+        {
+          "op": "remember",
+          "session": "s1",
+          "value": "v1"
+        },
+        {
+          "op": "forget",
+          "session": "s1"
+        },
+        {
+          "op": "redact",
+          "session": "s1",
+          "text": "v1"
+        }
+      ],
+      "results": [
+        null,
+        null,
+        "v1"
+      ]
+    }
+  ],
+  "timeoutMs": 40
+}

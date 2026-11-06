@@ -9,14 +9,23 @@
 //! service arrives through [`DomainSeams`], one named field per owed trait.
 
 mod adapters;
+mod export;
 mod local;
 mod rows;
+#[cfg(test)]
+mod tests;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use mixdog_ai::catalog::CatalogService;
+use mixdog_ai::netproxy::NetworkProxy;
+use mixdog_ai::netproxy::clients::RoutedClients;
 use mixdog_ai::netproxy::system::SystemProxy;
+use mixdog_ai::service::network_proxy::NetworkProxyService;
+use mixdog_core_agents::setup::SetupRequests;
+use mixdog_core_agents::setup::SetupRequestsService;
+use mixdog_core_agents::setup::SetupUiSurface;
 use mixdog_app_protocol::limits::Limits;
 use mixdog_core_domains::domains::diagnostics::DiagnosticsService;
 use mixdog_core_domains::domains::diagnostics::DoctorConfig;
@@ -52,6 +61,14 @@ use mixdog_workspace::transfer::TransferSource;
 use tokio_util::sync::CancellationToken;
 
 use adapters::ServiceDoctor;
+pub use export::{HeaderCwds, SessionCwds};
+use export::HostExportRenderer;
+use mixdog_agent::compact::settings_service::CompactionHost;
+use mixdog_agent::compact::settings_service::CompactionSettingsService;
+use mixdog_core_config::workflow::WorkflowConfig;
+use mixdog_core_config::workflow::WorkflowHost;
+use mixdog_core_config::workflow::WorkflowPaths;
+use mixdog_core_domains::domains::visualize_export::ExportSource;
 pub use adapters::ConfigExtensions;
 use mixdog_mcp::declaration_cache::DeclarationCache;
 use mixdog_mcp::extension_service::ExtensionHost;
@@ -64,8 +81,7 @@ pub use local::LocalSeams;
 
 /// The op scopes this file's services take a gate for. `compose.rs` builds one gate per scope
 /// and passes them in [`OpScopeSource`]; `OP_SCOPES` there must list every name here.
-pub const OP_SCOPES: [&str; 5] = ["config", "update", "diagnostics", "feedback", "instructions"];
-// `plugins` is added with the plugins service.
+pub const OP_SCOPES: [&str; 6] = ["config", "update", "diagnostics", "feedback", "instructions", "workflow"];
 
 /// How the process environment is read (`process.env[name]`).
 pub type EnvReader = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -138,6 +154,19 @@ pub struct DomainSeams {
     /// (worker, setup), WP-MCP (hooks), WP-MIGRATE (session log), WP-INSTALL (JS runtime).
     pub doctor: Arc<dyn DoctorHost>,
     pub plugins: PluginSeams,
+    /// Tells the session whose setup request it is that a desktop surface should claim it
+    /// (`notifySessionUi`): WP-SESSION.
+    pub setup_ui: Arc<dyn SetupUiSurface>,
+    /// The process's one network-proxy policy and the routed clients that follow it: WP-AI-SVC.
+    pub network_proxy: Arc<NetworkProxy>,
+    pub routed_clients: Arc<RoutedClients>,
+    /// The live route and session side of the compaction and auto-clear settings: WP-SESSION.
+    /// The project folder of a session, for the device export (`SessionDirectory`'s stored header `cwd`).
+    pub session_cwds: Arc<dyn SessionCwds>,
+    pub compaction_host: Arc<dyn CompactionHost>,
+    /// The live route, provider registry and session facts of the workflow, orchestration-mode,
+    /// web-search-route, model-preference and onboarding methods: WP-SESSION, WP-AI-SVC.
+    pub workflow_host: Arc<dyn WorkflowHost>,
 }
 
 /// What `PluginsService` runs on that no crate implements yet.
@@ -190,6 +219,8 @@ pub struct ComposedDomains {
     pub system: Arc<mixdog_spawn::service::SystemService>,
     /// The agent config as the extension services read it; the `ExtensionHost` flushes it.
     pub extensions: Arc<ConfigExtensions>,
+    /// The broker the setup tool's desktop requests go through (`SetupRuntime` shares it).
+    pub setup_requests: Arc<SetupRequests>,
 }
 
 pub async fn compose_domains(inputs: DomainInputs) -> Result<ComposedDomains, ComposeDomainsError> {
@@ -209,10 +240,26 @@ pub async fn compose_domains(inputs: DomainInputs) -> Result<ComposedDomains, Co
     let output_styles = OutputStyles::new(config.clone(), inputs.paths.package_root.join("output-styles"), &inputs.paths.data_dir);
     services.push(Arc::new(ConfigService::new(config.clone(), tool_modules.clone(), settings, output_styles)));
     services.extend(local.services);
+    let setup_requests = Arc::new(SetupRequests::new(inputs.seams.setup_ui.clone()));
+    services.push(Arc::new(SetupRequestsService::new(setup_requests.clone())));
+    services.push(Arc::new(NetworkProxyService::new(
+        Arc::new(config.clone()),
+        inputs.seams.network_proxy.clone(),
+        inputs.seams.routed_clients.clone(),
+    )));
     let rows = rows::build(&inputs, &config, state.publisher.clone(), tool_modules.clone()).await?;
     services.extend(rows.services);
     let mut transfer_sources = local.transfer_sources;
     transfer_sources.extend(rows.transfer_sources);
+    transfer_sources.push(ExportSource::new(HostExportRenderer::new(inputs.host.clone(), inputs.seams.session_cwds.clone()), &inputs.tokens));
+    services.push(Arc::new(CompactionSettingsService::new(Arc::new(config.clone()), inputs.seams.compaction_host.clone())));
+    services.push(WorkflowConfig::new(
+        config.clone(),
+        WorkflowPaths { root: inputs.paths.package_root.clone(), data: inputs.paths.data_dir.clone() },
+        inputs.seams.workflow_host.clone(),
+        inputs.scopes.scopes("workflow")?,
+        &inputs.tokens,
+    ));
     services.push(Arc::new(BrowserService::new(inputs.host.clone())));
     services.push(Arc::new(VisualizeService::new(inputs.host.clone())));
     let extensions = Arc::new(ConfigExtensions::new(config.clone()));
@@ -234,5 +281,5 @@ pub async fn compose_domains(inputs: DomainInputs) -> Result<ComposedDomains, Co
         inputs.scopes.scopes("diagnostics")?,
         &inputs.tokens,
     ));
-    Ok(ComposedDomains { services, transfer_sources, state, config, tool_modules, watcher, late, system: rows.system, extensions })
+    Ok(ComposedDomains { services, transfer_sources, state, config, tool_modules, watcher, late, system: rows.system, extensions, setup_requests })
 }

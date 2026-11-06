@@ -25,6 +25,12 @@ impl NextRequestSource {
         Arc::default()
     }
 
+    /// The directory and the assembly it was bound to, for the other sources that read the same
+    /// thread views ([`super::inheritance_fit`]).
+    pub(crate) fn bound(&self) -> Option<&(Weak<SessionDirectory>, Arc<HostRunParts>)> {
+        self.bound.get()
+    }
+
     /// Bound exactly once, by the composition of the turn path.
     pub(crate) fn bind(&self, directory: Weak<SessionDirectory>, parts: Arc<HostRunParts>) {
         let _ = self.bound.set((directory, parts));

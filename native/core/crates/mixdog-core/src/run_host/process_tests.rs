@@ -111,8 +111,8 @@ impl LocalModels for Local {
     }
 }
 
-struct World {
-    services: ProcessServices,
+pub(crate) struct World {
+    pub(crate) services: ProcessServices,
     headers: Arc<Headers>,
     rejections: Arc<Rejections>,
     _dir: tempfile::TempDir,
@@ -129,7 +129,7 @@ async fn catalog_with(dir: &std::path::Path, records: Vec<ModelRecord>) -> Arc<C
     Arc::new(CatalogService::cold_start(snapshot, Vec::new(), metadata).await)
 }
 
-async fn world(env: &[(&str, &str)], providers: Value, records: Vec<ModelRecord>) -> World {
+pub(crate) async fn world(env: &[(&str, &str)], providers: Value, records: Vec<ModelRecord>) -> World {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };

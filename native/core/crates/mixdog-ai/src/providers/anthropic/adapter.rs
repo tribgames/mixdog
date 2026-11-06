@@ -41,6 +41,8 @@ use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
 
+use crate::warmer::send::{Post, WarmContext, send_cache_warm};
+use crate::warmer::stream::{WarmFailure, WarmUsage};
 use super::betas::BetaFeatures;
 use super::betas::beta_header;
 use super::codec::ANTHROPIC_VERSION;
@@ -217,6 +219,41 @@ impl AnthropicAdapter {
     async fn failure(&self, response: HttpResponse) -> ProviderError {
         match response.read_all().await {
             Ok(rejected) => self.codec.classify(&rejected),
+            Err(err) => err,
+        }
+    }
+
+    /// Cache-warm mode (`sendCacheWarm`): the request `attempt` would build for `request` (the
+    /// caller made it a warm: output capped at one token), POSTed once and plain: no retry,
+    /// credential replay, fallback model or re-send, no compression, and the stream cut at the
+    /// first content block. The account gate may skip it; the response is read by the warmer's
+    /// stream reader.
+    pub async fn send_cache_warm(
+        &self,
+        request: &ModelRequest,
+        ctx: &WarmContext<'_>,
+        cancel: &CancellationToken,
+        on_usage: &mut (dyn for<'u> FnMut(&'u WarmUsage) + Send),
+    ) -> Result<WarmUsage, WarmFailure> {
+        let wire = self.codec.encode(request).map_err(|e| WarmFailure::new(e.message))?;
+        let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.message))?;
+        let post: Post<'_> = Box::new(move || {
+            Box::pin(async move {
+                let response = self.http.send(self.request_with(&wire, &secret)).await?;
+                if response.is_success() { Ok(response) } else { Err(self.warm_failure(response).await) }
+            })
+        });
+        send_cache_warm(ctx, cancel, post, on_usage).await
+    }
+
+    /// A refused warm's error, worded as `anthropicQuotaError` words it for both routes.
+    async fn warm_failure(&self, response: HttpResponse) -> ProviderError {
+        match response.read_all().await {
+            Ok(rejected) => {
+                let mut error = self.codec.classify(&rejected);
+                error.message = super::errors::quota_error_text(&rejected);
+                error
+            }
             Err(err) => err,
         }
     }

@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 21095,
+      "bytes": 74420,
       "path": "golden.json",
-      "sha256": "a337c547ba9ddfbb7b95f4e50c3190d60faf98f2b88fe784ccffeae113b6b4ed"
+      "sha256": "fef345a1cb6b1fc83cd889a11ad909941f0952f487d6ea6253370a3d84084655"
     }
   ],
   "product": {
@@ -26,6 +26,6 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-project-methods.mjs",
   "set": "project-methods",
-  "steps": 59,
-  "totalBytes": 21095
+  "steps": 82,
+  "totalBytes": 74420
 }

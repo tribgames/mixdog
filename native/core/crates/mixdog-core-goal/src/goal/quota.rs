@@ -66,6 +66,11 @@ impl GoalQuotaResume {
         self.store.schedule(request).await
     }
 
+    /// `quotaResumeEntry(sessionId)?.generation`: the queued resume's generation, if one waits.
+    pub fn entry_generation(&self, session_id: &str) -> Option<u64> {
+        self.store.entry(session_id).map(|entry| entry.generation)
+    }
+
     /// `quotaSuspendedGoal`.
     pub fn suspended(&self, session_id: &str, turn_key: &str) -> String {
         self.store.suspended_goal(session_id, turn_key)

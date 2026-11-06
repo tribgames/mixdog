@@ -84,12 +84,18 @@ use mixdog_core_base::approvals::Devices;
 pub struct TestCompaction {
     pub result: Mutex<Option<Value>>,
     pub calls: Mutex<Vec<String>>,
+    /// A compaction waits on it before answering, when set.
+    pub hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
 }
 
 #[async_trait::async_trait]
 impl super::turn_ops::ManualCompaction for TestCompaction {
     async fn compact(&self, _: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
         lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
+        let hold = lock(&self.hold).clone();
+        if let Some(hold) = hold {
+            hold.notified().await;
+        }
         Ok(lock(&self.result).clone())
     }
     async fn post_compact(&self, _: &ThreadId, trigger: &str) {
@@ -131,6 +137,8 @@ pub struct TestSide {
     pub reply: Mutex<Option<Result<super::turn_ops::SideReply, super::turn_ops::SideFailure>>>,
     pub prompts: Mutex<Vec<String>>,
     pub begins: std::sync::atomic::AtomicUsize,
+    /// Every `forget(thread, cancel)`, in order.
+    pub forgets: Mutex<Vec<(String, bool)>>,
     active: Mutex<Option<mixdog_rt::CancellationToken>>,
 }
 
@@ -149,6 +157,9 @@ impl super::turn_ops::SideQuestions for TestSide {
     }
     fn cancel(&self, _: &ThreadId) -> bool {
         lock(&self.active).take().map(|token| token.cancel()).is_some()
+    }
+    fn forget(&self, thread: &ThreadId, cancel: bool) {
+        lock(&self.forgets).push((thread.as_str().to_owned(), cancel));
     }
     async fn send(&self, _: &ThreadId, prompt: &str, _: &str, cancel: &mixdog_rt::CancellationToken) -> Result<super::turn_ops::SideReply, super::turn_ops::SideFailure> {
         let scripted = lock(&self.reply).take();
@@ -176,6 +187,8 @@ pub struct MemStore {
     pub head_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
+    /// The catalog lists every session (session_meta answers a bare row, not None).
+    pub listed: AtomicBool,
 }
 
 impl MemStore {
@@ -246,6 +259,13 @@ impl ThreadStore for MemStore {
         }
     }
 
+    fn read_log_id(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
+        match self.records(id).first() {
+            Some((_, Record::Session(session))) => Ok(session.log_id.as_str().to_owned()),
+            _ => Err(CoreError::ThreadNotFound { thread_id: id.clone() }),
+        }
+    }
+
     fn read_window(
         &self,
         _lane: &InLane<InteractiveIo>,
@@ -296,7 +316,8 @@ impl ThreadStore for MemStore {
         &self,
         _id: &ThreadId,
     ) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
-        Box::pin(async { Ok(None) })
+        let listed = self.listed.load(Ordering::SeqCst);
+        Box::pin(async move { Ok(listed.then(super::seams::SessionMeta::default)) })
     }
 
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
@@ -391,20 +412,24 @@ impl ThreadStore for MemStore {
         &self,
         _lane: &InLane<InteractiveIo>,
         id: &ThreadId,
-    ) -> Result<Vec<ItemRecord>, CoreError> {
+    ) -> Result<(u64, Vec<ItemRecord>), CoreError> {
         let records = self.records(id);
         if records.is_empty() {
             return Err(CoreError::ThreadNotFound { thread_id: id.clone() });
         }
         let mut rows: Vec<(u64, ItemRecord)> = Vec::new();
+        let mut rev = 0;
         for (ordinal, record) in records {
             match record {
                 Record::Item(item) => rows.push((ordinal, item)),
-                Record::Rewind(rewind) => rows.retain(|(o, _)| *o < rewind.to_ordinal),
+                Record::Rewind(rewind) => {
+                    rev += 1;
+                    rows.retain(|(o, _)| *o < rewind.to_ordinal);
+                }
                 _ => {}
             }
         }
-        Ok(rows.into_iter().map(|(_, row)| row).collect())
+        Ok((rev, rows.into_iter().map(|(_, row)| row).collect()))
     }
 
     fn history_row(
@@ -482,6 +507,20 @@ impl MemStore {
 pub struct TextTranscript;
 
 impl Transcript for TextTranscript {
+    /// The test rows are their items' own JSON.
+    fn rows(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<(ThreadItem, usize)> {
+        self.items(lane, record)
+            .into_iter()
+            .filter_map(|shown| match shown {
+                Shown::Item(item) => {
+                    let bytes = serde_json::to_vec(&item).expect("protocol types serialize").len();
+                    Some((item, bytes))
+                }
+                Shown::Update(_) => None,
+            })
+            .collect()
+    }
+
     /// A `{toolCallId, text}` body updates the call `call:<toolCallId>` a `{toolCalls}` body
     /// showed.
     fn items(&self, _lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<Shown> {
@@ -836,7 +875,7 @@ impl super::delete::DeleteSeams for Deletes {
     async fn release_session_work(&self, session_id: &str, reason: &str) {
         self.note(format!("releaseSessionWork:{session_id}:{reason}"));
     }
-    fn session_closed(&self, session_id: &str, reason: &str, _: &mixdog_store::schema::record::Header) {
+    fn session_closed(&self, session_id: &str, reason: &str, _: &mixdog_store::schema::record::Header, _: i64) {
         self.note(format!("sessionClosed:{session_id}:{reason}"));
     }
     fn forget_session_search(&self, session_id: &str) {
@@ -854,6 +893,7 @@ impl Rig {
     fn purge_hooks(&self) -> super::delete::PurgeHooks {
         let hook = |name: &'static str| -> Arc<dyn super::delete::PurgeHook> { Arc::new(Hook(name, self.deletes.clone())) };
         super::delete::PurgeHooks {
+            transcript_export: hook("transcriptExport"),
             tool_result_offload: hook("toolResultOffload"),
             transcripts: hook("transcripts"),
             cache_warm: hook("cacheWarm"),

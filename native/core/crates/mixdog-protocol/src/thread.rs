@@ -339,6 +339,12 @@ pub struct SubmitOptions {
     pub goal_command: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_failed_turn: Option<bool>,
+    /// The failed user message a retry replays from the model history (`retryTurnId`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_turn_id: Option<String>,
+    /// The failed attempt of that message (`retryAttemptId`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_attempt_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<PromptPriority>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

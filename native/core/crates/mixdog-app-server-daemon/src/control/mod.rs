@@ -10,7 +10,8 @@ pub mod wait_exit;
 mod tests;
 
 pub use legacy::Legacy;
-pub use legacy::UPDATE_TEXT_PLACEHOLDER;
+pub use legacy::UPDATE_TEXT;
 pub use server::ControlConfig;
+pub use server::ControlListener;
 pub use server::ControlServer;
 pub use server::new_token;

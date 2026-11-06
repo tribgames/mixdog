@@ -201,12 +201,17 @@ impl Outgoing {
     /// connection holds one claim, and a `hostId` is held by one connection (a reconnecting
     /// desktop replaces its stale claim).
     pub(crate) fn claim(&self, host: HostId, conn: &Arc<Connection>) {
+        // The claim is queued work: its connection may have closed (and been unregistered) before
+        // it runs, and a claim recorded after that would never be forgotten.
+        let mut hosts = lock(&self.hosts);
+        if self.connection(conn.id).is_none() {
+            return;
+        }
         let serves = conn
             .session()
             .and_then(|session| session.host.as_ref())
             .map(serves)
             .unwrap_or_default();
-        let mut hosts = lock(&self.hosts);
         hosts.retain(|claim| claim.host != host && claim.conn.id != conn.id);
         hosts.push(Claim {
             host,

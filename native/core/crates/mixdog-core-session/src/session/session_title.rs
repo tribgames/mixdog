@@ -404,6 +404,18 @@ fn port(error: PortError) -> String {
     format!("{error:?}")
 }
 
+/// What `updateSessionAiTitle` answered (`{ok, reason, title}`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum AiTitle {
+    Set(String),
+    /// `not-found`: no such session, or it is closed.
+    NotFound,
+    /// `empty-title`.
+    Empty,
+    /// `user-title`.
+    UserTitle,
+}
+
 /// The stored sessions behind the controller: what it reads of one, and the promotion.
 pub struct StoredTitles {
     threads: Arc<dyn ThreadState>,
@@ -414,6 +426,46 @@ pub struct StoredTitles {
 impl StoredTitles {
     pub fn new(threads: Arc<dyn ThreadState>, messages: Arc<dyn ThreadMessages>, clock: Arc<dyn Clock>) -> Self {
         Self { threads, messages, clock }
+    }
+
+    /// `updateSessionAiTitle`: a title the model chose (the `session` tool's rename). It never
+    /// overwrites a user title (a locked title without `titleSource` counts as the user's); it
+    /// locks the title against generated ones but stays replaceable by the model.
+    pub async fn update_ai_title(&self, id: &str, title: &str) -> Result<AiTitle, String> {
+        let thread = ThreadId::from(id);
+        let normalized = normalize_title(title);
+        loop {
+            let header = match self.threads.header(&thread).await {
+                Ok(header) => header,
+                Err(PortError::NotFound { .. }) => return Ok(AiTitle::NotFound),
+                Err(error) => return Err(port(error)),
+            };
+            if header.get("closed") == Some(&Value::Bool(true)) {
+                return Ok(AiTitle::NotFound);
+            }
+            if normalized.is_empty() {
+                return Ok(AiTitle::Empty);
+            }
+            if header.get("titleLocked") == Some(&Value::Bool(true)) && header.get("titleSource").and_then(Value::as_str) != Some("ai") {
+                return Ok(AiTitle::UserTitle);
+            }
+            let expect: Map<String, Value> = ["title", "titleLocked", "titleSource", "closed"]
+                .iter()
+                .map(|key| ((*key).to_owned(), header.get(*key).cloned().unwrap_or(Value::Null)))
+                .collect();
+            let set = Map::from_iter([
+                ("title".to_owned(), json!(normalized)),
+                ("titleLocked".to_owned(), json!(true)),
+                ("titleSource".to_owned(), json!("ai")),
+                ("titleUpdatedAt".to_owned(), json!(self.clock.now_ms() as i64)),
+            ]);
+            match self.threads.patch_header_if(&thread, expect, set, Vec::new()).await {
+                Ok(None) => return Ok(AiTitle::Set(normalized)),
+                Ok(Some(_)) => continue,
+                Err(PortError::NotFound { .. }) => return Ok(AiTitle::NotFound),
+                Err(error) => return Err(port(error)),
+            }
+        }
     }
 
     /// The session as the controller reads it, `None` when it is unknown.

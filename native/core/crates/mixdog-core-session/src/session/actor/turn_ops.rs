@@ -88,15 +88,20 @@ impl SessionActor {
         if self.ui_busy() {
             return self.replied(op, tx, Ok(super::super::turn_ops::compact_in_turn()));
         }
+        self.compactions += 1;
         let (trigger, require_reduction) = super::super::turn_ops::compact_trigger(options.as_ref());
         let recover = options.as_ref().and_then(|options| options.get("recoverAgent")) == Some(&Value::Bool(true));
         let (compaction, thread, jobs) = (self.deps.compaction.clone(), self.id.clone(), self.jobs_tx.clone());
         tokio::spawn(async move {
             let result = match compaction.compact(&thread, trigger, require_reduction).await {
                 Ok(result) => result.unwrap_or(Value::Null),
-                Err(error) => return drop(jobs.send(JobDone::Replied { op, tx, result: Err(error) })),
+                Err(error) => {
+                    let _ = jobs.send(JobDone::CompactionEnded);
+                    return drop(jobs.send(JobDone::Replied { op, tx, result: Err(error) }));
+                }
             };
             if mixdog_core_goal::goal::js::truthy(result.get("skipped")) {
+                let _ = jobs.send(JobDone::CompactionEnded);
                 return drop(jobs.send(JobDone::Replied { op, tx, result: Ok(result) }));
             }
             compaction.post_compact(&thread, trigger).await;
@@ -105,8 +110,19 @@ impl SessionActor {
     }
 
     /// `retryBlocked()`: anything running, settling, closing or queued owns the session first.
+    /// Node's flags map as: `disposed` and a closed `admission` to a deleted or unloaded thread,
+    /// `settlement` to the quota settlement, `busy` to any turn state, `commandBusy` and
+    /// `autoClearRunning` to a running compaction, `draining` to the completions still waiting
+    /// for their own turns, `quotaResumePending` to a Goal resume in flight, `pending` to the
+    /// queue (`decisions.md`, "turn/retryFailed").
     fn retry_blocked(&self) -> bool {
-        self.deleting || self.quota.settlement.settling() || self.turn_busy() || !self.projected.queue.is_empty()
+        self.deleting
+            || self.cell.closed.load(SeqCst)
+            || self.quota.settlement.settling()
+            || self.turn_busy()
+            || self.compactions > 0
+            || !self.wake_tail.is_empty()
+            || !self.projected.queue.is_empty()
     }
 
     fn failed_turn_items(&self) -> Vec<Value> {
@@ -132,40 +148,142 @@ impl SessionActor {
         });
     }
 
-    /// The rest of `retryFailedTurn`: the claim, then the retry turn replays the failed prompt
-    /// (or the continuation instruction when the turn produced output) and the resume entry
-    /// it answered is finished.
-    pub(super) fn retry_checked(&mut self, op: Option<OpId>, tx: Waiter, key: String, retained: bool) {
+    /// `retryFailedTurn(key)`'s entry: the retained failed message resent as stored (already on
+    /// screen), else the prompt the failed turn replays.
+    fn retry_turn(retained: Option<super::super::quota_lane::Retained>, prompt: Option<String>) -> Result<Option<super::super::quota_lane::RetryTurn>, CoreError> {
+        if let Some(retained) = retained {
+            let prompt: PromptContent = serde_json::from_value(retained.content)
+                .map_err(|_| super::super::turn_ops::failure("The failed message holds content this daemon cannot resend"))?;
+            let options = mixdog_protocol::thread::SubmitOptions {
+                retry_failed_turn: Some(true),
+                retry_turn_id: Some(retained.message_id),
+                retry_attempt_id: retained.attempt_id,
+                ..Default::default()
+            };
+            return Ok(Some(super::super::quota_lane::RetryTurn { input: TurnInput { prompt, options: Some(options) }, hidden: true }));
+        }
+        Ok(prompt.map(|prompt| {
+            let options = mixdog_protocol::thread::SubmitOptions {
+                display_text: Some(prompt.clone()),
+                retry_failed_turn: Some(true),
+                ..Default::default()
+            };
+            super::super::quota_lane::RetryTurn { input: TurnInput { prompt: PromptContent::Text(prompt), options: Some(options) }, hidden: false }
+        }))
+    }
+
+    fn begin_retry(&mut self, retry: super::super::quota_lane::RetryTurn) {
+        self.retry_hidden = retry.hidden;
+        self.start_run(retry.input, None, None, None);
+    }
+
+    /// The rest of `retryFailedTurn`: the claim, then either the retry turn starts at once (and
+    /// the resume entry it answered is finished) or a suspended Goal is revived first.
+    pub(super) fn retry_checked(&mut self, op: Option<OpId>, tx: Waiter, key: String, retained: Option<super::super::quota_lane::Retained>) {
         let items = self.failed_turn_items();
         let goal_id = self.deps.quota.goals.suspended(self.id.as_str(), &key);
         let prompt = mixdog_core_goal::quota_settlement::failed_turn_retry_prompt(&items, &key);
         if self.retry_blocked()
             || super::super::quota_lane::latest_failed_turn_key(&items) != key
-            || (!retained && prompt.is_none() && goal_id.is_empty())
+            || (retained.is_none() && prompt.is_none() && goal_id.is_empty())
         {
             return self.replied(op, tx, Ok(Value::Bool(false)));
         }
-        let Some(prompt) = prompt.filter(|_| !retained && goal_id.is_empty()) else {
-            let error = super::super::turn_ops::failure("A retry that resumes a suspended Goal or replays the retained failed message is not served by this daemon yet");
-            return self.replied(op, tx, Err(error));
+        let generation = self.deps.quota.goals.entry_generation(self.id.as_str());
+        let retry = match Self::retry_turn(retained, prompt) {
+            Ok(retry) => retry,
+            Err(error) => return self.replied(op, tx, Err(error)),
         };
         self.retry_claim = format!("{}\0{key}", self.id.as_str());
-        let input = TurnInput {
-            prompt: PromptContent::Text(prompt.clone()),
-            options: Some(mixdog_protocol::thread::SubmitOptions {
-                display_text: Some(prompt),
-                retry_failed_turn: Some(true),
-                ..Default::default()
-            }),
-        };
-        self.start_run(input, None, None, None);
-        let (goals, id) = (self.deps.quota.goals.clone(), self.id.as_str().to_owned());
-        self.quota.call(async move {
-            let _ = goals.cancel_entry(&id).await;
-        });
+        if !goal_id.is_empty() {
+            return self.resume_goal(op, tx, key, goal_id, generation, retry);
+        }
+        if let Some(retry) = retry {
+            self.begin_retry(retry);
+        }
+        self.finish_resume(&key, "", generation);
         self.replied(op, tx, Ok(Value::Bool(true)));
     }
 
+    /// `finishResume(id, entry, goalId)`: the entry the resume answered goes, and the note of
+    /// the Goal it revived.
+    fn finish_resume(&mut self, key: &str, goal_id: &str, generation: Option<u64>) {
+        let (goals, id, key, goal_id) = (self.deps.quota.goals.clone(), self.id.as_str().to_owned(), key.to_owned(), goal_id.to_owned());
+        self.quota.call(async move {
+            let _ = goals.finish_resume(&id, &key, &goal_id, generation).await;
+        });
+    }
+
+    /// `resumeGoal`: the Goal runtime revives the suspended Goal through the lane's admission;
+    /// the retry is let through only while the failed turn is still the latest, unsuperseded
+    /// and its queued resume (by generation) is the one answered.
+    fn resume_goal(&mut self, op: Option<OpId>, tx: Waiter, key: String, goal_id: String, generation: Option<u64>, retry: Option<super::super::quota_lane::RetryTurn>) {
+        let token = Arc::new(super::super::quota_lane::ResumeToken::default());
+        let (settlement, goals, cell, id) = (self.quota.settlement.clone(), self.deps.quota.goals.clone(), self.cell.clone(), self.id.as_str().to_owned());
+        let epoch = settlement.epoch();
+        let current: Arc<dyn Fn() -> bool + Send + Sync> = {
+            let (goals, key, id) = (goals.clone(), key.clone(), id.clone());
+            Arc::new(move || {
+                let view = cell.view.load();
+                !cell.closed.load(SeqCst)
+                    && settlement.epoch() == epoch
+                    && super::super::quota_lane::latest_failed_turn_key(&super::super::quota_lane::transcript_rows(view.items.iter().map(|item| item.as_ref()))) == key
+                    && goals.entry_generation(&id) == generation
+            })
+        };
+        let admission = mixdog_core_goal::goal::Admission {
+            is_current: Some({
+                let current = current.clone();
+                Box::new(move || Ok(current()))
+            }),
+            accept: Some({
+                let (current, token) = (current, token.clone());
+                Box::new(move || {
+                    if !current() {
+                        return Ok(false);
+                    }
+                    *token.admitted.lock().unwrap_or_else(|p| p.into_inner()) = Some(retry.clone());
+                    Ok(true)
+                })
+            }),
+        };
+        self.quota_pending = Some(token.clone());
+        let jobs = self.jobs_tx.clone();
+        tokio::spawn(async move {
+            let result = goals.resume(&id, &goal_id, admission).await;
+            let _ = jobs.send(JobDone::Resumed(Box::new(ResumeDone { op, tx, key, goal_id, generation, token, result })));
+        });
+    }
+
+    /// The Goal resume answered: a revived Goal finishes the resume and lets its retry (or the
+    /// Goal's own continuation) run; a refusal frees the claim; a failure shows its notice.
+    pub(super) fn resumed(&mut self, done: ResumeDone) {
+        let ResumeDone { op, tx, key, goal_id, generation, token, result } = done;
+        let admitted = token.admitted.lock().unwrap_or_else(|p| p.into_inner()).take();
+        let (accepted, answer, release) = match &result {
+            Ok(goal) => (goal.as_ref().is_some_and(|goal| mixdog_core_goal::goal::js::string(goal, "status") == "active") && admitted.is_some(), Ok(()), true),
+            Err(error) => {
+                let item = super::super::transcript::idle_notice_item(&new_id(), &format!("Goal resume failed: {}", error.message), "warn");
+                self.show_live(TurnId::from(""), item, None);
+                (false, Err(super::super::turn_ops::failure(&error.message)), !error.rollback_failed)
+            }
+        };
+        if accepted {
+            self.finish_resume(&key, &goal_id, generation);
+        } else {
+            self.retry_claim.clear();
+        }
+        // A rolled-back failure that could not restore the Goal keeps the session held.
+        if release {
+            self.quota_pending = None;
+            match admitted.filter(|_| accepted) {
+                Some(Some(retry)) => self.begin_retry(retry),
+                Some(None) => self.schedule_goal_continuation(),
+                None => self.start_next_queued(),
+            }
+        }
+        self.replied(op, tx, answer.map(|()| Value::Bool(accepted)));
+    }
     /// The rest of a manual compaction once its Goal reminder is marked.
     pub(super) fn compacted(&mut self, op: Option<OpId>, tx: Waiter, result: Value, recover: bool) {
         self.mark_goal_reminder("compaction");
@@ -176,6 +294,7 @@ impl SessionActor {
                 compaction.recover_workers(&thread);
             }
             compaction.invalidate_context_status(&thread);
+            let _ = jobs.send(JobDone::CompactionEnded);
             let _ = jobs.send(JobDone::Replied { op, tx, result: Ok(result) });
         });
     }
@@ -212,6 +331,65 @@ impl SessionActor {
                 Err(error) => Err(super::super::turn_ops::failure(&error.message)),
             };
             let _ = jobs.send(JobDone::Replied { op, tx, result });
+        });
+    }
+
+    /// `commitSessionCompaction` of a manual compaction: refused (`Moved`, the compaction is not
+    /// applied) while a turn runs or starts, or the thread closes; else the model context is read
+    /// to reconcile the result with.
+    pub(super) fn commit_compaction(
+        &mut self,
+        snapshot: Vec<mixdog_core_api::ids::ItemId>,
+        compaction: super::super::run::Compaction,
+        tx: oneshot::Sender<Result<super::super::turn_ops::CompactionCommit, CoreError>>,
+    ) {
+        use super::super::turn_ops::CompactionCommit;
+        if self.compaction_blocked() {
+            return drop(tx.send(Ok(CompactionCommit::Moved)));
+        }
+        let context = ModelContext {
+            store: self.deps.store.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        };
+        let (jobs, begun) = (self.jobs_tx.clone(), self.runs_begun);
+        tokio::spawn(async move {
+            let rows = context.read().await;
+            let _ = jobs.send(JobDone::CompactionRows(Box::new(CommitRows { snapshot, compaction, begun, rows, tx })));
+        });
+    }
+
+    /// `isSessionCompactionBlocked`: a turn's provider or tool work runs now, or the thread is going.
+    fn compaction_blocked(&self) -> bool {
+        self.deleting || self.cell.closed.load(SeqCst) || self.ui_busy()
+    }
+
+    /// The context is read: the result is applied when the context still starts with the snapshot
+    /// it was planned on, no turn began meanwhile and none runs; the rows a finished turn appended
+    /// meanwhile follow the compacted ones, in order (`appendedSinceSnapshot`). Anything else
+    /// leaves the conversation as it is (`Moved`).
+    pub(super) fn compaction_rows(&mut self, done: CommitRows) {
+        use super::super::turn_ops::CompactionCommit;
+        let CommitRows { snapshot, mut compaction, begun, rows, tx } = done;
+        let rows = match rows {
+            Ok(rows) => rows,
+            Err(error) => return drop(tx.send(Err(error))),
+        };
+        let extends = rows.len() >= snapshot.len() && rows.iter().zip(&snapshot).all(|((iid, _), planned)| iid == planned);
+        if self.compaction_blocked() || self.runs_begun != begun || !extends {
+            return drop(tx.send(Ok(CompactionCommit::Moved)));
+        }
+        compaction.replacement.extend(rows.into_iter().skip(snapshot.len()));
+        let (ack, durable) = oneshot::channel();
+        // No turn: the divider is shown live with no turn id, as a card outside a turn is.
+        self.on_producer(ProducerMsg::Compacted { turn: TurnId::from(""), compaction, ack });
+        tokio::spawn(async move {
+            let answer = match durable.await {
+                Ok(Ok(())) => Ok(CompactionCommit::Applied),
+                _ => Err(CoreError::Internal { incident_id: "compaction-commit".into() }),
+            };
+            let _ = tx.send(answer);
         });
     }
 }

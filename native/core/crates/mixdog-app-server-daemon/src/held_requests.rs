@@ -138,6 +138,14 @@ impl HeldRequests {
         self.pending.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Takes the pending request out of the table; `None` when it is not (or no longer) there.
+    fn take(&self, id: &str) -> Option<Entry> {
+        match self.lock().entry(id.to_owned()) {
+            std::collections::hash_map::Entry::Occupied(pending) => Some(pending.remove()),
+            std::collections::hash_map::Entry::Vacant(_) => None,
+        }
+    }
+
     /// `hold(request)`: registers the request, posts its row and push, and waits for the answer.
     async fn hold(&self, thread: &ThreadId, run: RunInfo, ask: &ApprovalAsk) -> ApprovalResolution {
         let id = format!("held_{}", self.home.new_id());
@@ -207,10 +215,12 @@ impl HeldRequests {
         }
     }
 
-    /// `resolve(id, decision)`: false when `id` is not pending (already settled). Posts the
-    /// settled row, then answers the waiting run.
+    /// `resolve(id, decision)`: false when `id` is not pending (already settled). Answers the
+    /// waiting run first, with no await before it, so a cancelled caller cannot leave an
+    /// approval that went out unanswered; then posts the settled row (Node settles without
+    /// awaiting the delivery).
     pub async fn resolve(&self, id: &str, answer: HeldAnswer) -> bool {
-        let Some(entry) = self.lock().remove(id) else { return false };
+        let Some(entry) = self.take(id) else { return false };
         let approved = answer.approved;
         let mut response = if approved { HumanGateResponse::Approve } else { HumanGateResponse::Deny };
         if let Some(asked) = answer.response.filter(|asked| allowed(entry.outbound, *asked) && granting(*asked) == approved) {
@@ -247,10 +257,10 @@ impl HeldRequests {
         let mut settled = entry.held;
         settled.status = if approved { HeldRequestStatus::Approved } else { HeldRequestStatus::Denied };
         settled.device = Some(clean(&answer.device, 80)).filter(|d| !d.is_empty());
-        self.post(&settled.agent_id, &settled).await;
         let at = (self.now_ms)();
         let kind = answer.connection_kind.unwrap_or(ConnectionKind::Desktop);
         let _ = entry.reply.send(ApprovalResolution::Decided { decision, device: answer.device, connection_kind: kind, at });
+        self.post(&settled.agent_id, &settled).await;
         true
     }
 
@@ -288,7 +298,7 @@ struct CancelGuard<'a> {
 impl Drop for CancelGuard<'_> {
     fn drop(&mut self) {
         // The settled row is posted off the drop: the run is gone, the denial must still land.
-        let Some(entry) = self.held.lock().remove(&self.id) else { return };
+        let Some(entry) = self.held.take(&self.id) else { return };
         let mut settled = entry.held;
         settled.status = HeldRequestStatus::Denied;
         let home = Arc::clone(&self.held.home);
@@ -335,6 +345,8 @@ mod tests {
         rows: Mutex<Vec<(String, HeldRequest)>>,
         pushes: Mutex<Vec<HeldPush>>,
         ids: AtomicU64,
+        /// Delivery of a settled row never completes (a slow or wedged home thread).
+        stall_settled: AtomicBool,
     }
 
     #[async_trait]
@@ -346,6 +358,9 @@ mod tests {
             self.attached.load(Ordering::SeqCst)
         }
         async fn deliver(&self, agent_id: &str, held: &HeldRequest) -> Result<(), String> {
+            if held.status != HeldRequestStatus::Pending && self.stall_settled.load(Ordering::SeqCst) {
+                std::future::pending::<()>().await;
+            }
             self.rows.lock().unwrap().push((agent_id.to_owned(), held.clone()));
             Ok(())
         }
@@ -440,6 +455,27 @@ mod tests {
         let ApprovalResolution::Decided { decision, .. } = waiting.await.unwrap() else { panic!("decided") };
         assert_eq!(decision.remember, Some(ApprovalRemember::Once));
         assert_eq!(decision.response, Some(HumanGateResponse::Approve));
+    }
+
+    #[tokio::test]
+    async fn an_answer_reaches_the_waiting_run_even_when_the_resolving_call_is_cancelled_in_delivery() {
+        let (home, held, gate) = setup();
+        let waiting = tokio::spawn({
+            let gate = gate.clone();
+            async move { gate.request(ask()).await }
+        });
+        let row = first_row(&home).await;
+        home.stall_settled.store(true, Ordering::SeqCst);
+        let resolving = tokio::spawn({
+            let (held, id) = (held.clone(), row.id.clone());
+            async move { held.resolve(&id, HeldAnswer { approved: true, ..HeldAnswer::default() }).await }
+        });
+        // The run is answered while the settled row is still being delivered.
+        let ApprovalResolution::Decided { decision, .. } = waiting.await.unwrap() else { panic!("decided, not cancelled") };
+        assert!(decision.approved);
+        resolving.abort();
+        assert!(resolving.await.unwrap_err().is_cancelled());
+        assert!(held.pending().is_empty());
     }
 
     #[tokio::test]

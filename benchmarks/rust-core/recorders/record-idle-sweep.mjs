@@ -36,11 +36,19 @@ const scenarios = {
   ],
   permanent: [row('sess_home_lead', 99_999 * MIN, { closed: true, status: 'closed' }), row('sess_home_watcher', 99_999 * MIN, { owner: 'cli' })],
   running: [row('sess_quiet', 9 * MIN, { status: 'running' }), row('sess_zombie', 11 * MIN, { status: 'running' })],
+  // An older process beside this one (mid-upgrade) keeps a fresh `.own` marker naming a live pid: the close or delete
+  // lands nothing and the row is kept. The Rust store answers Ok(false) for the same sessions.
+  legacyOwnerVeto: [
+    row('sess_busy', 6 * MIN),
+    row('sess_free', 6 * MIN),
+    row('sess_tomb_busy', 90 * MIN, { owner: 'user', closed: true, status: 'closed' }),
+    row('sess_blank_busy', 61 * MIN, { owner: 'user', conversation: 0 }),
+  ],
   // 302 ownerless sessions inside the idle window: the cap keeps the 300 newest.
   cap: [row('sess_ancient', 15 * 24 * 60 * MIN), ...Array.from({ length: 302 }, (_, i) => row(`sess_n${String(i).padStart(3, '0')}`, 1000 + i * 700))],
 };
 const live = { idleClose: ['sess_live'], tombstones: ['sess_held'] };
-
+const legacyMarkers = { legacyOwnerVeto: ['sess_busy', 'sess_tomb_busy', 'sess_blank_busy'] };
 const dir = join(root, 'sessions');
 const out = {};
 for (const [name, rows] of Object.entries(scenarios)) {
@@ -56,6 +64,7 @@ for (const [name, rows] of Object.entries(scenarios)) {
     }));
     utimesSync(path, at / 1000, at / 1000);
   }
+  for (const id of legacyMarkers[name] ?? []) writeFileSync(join(dir, `${id}.own`), `${now}\n${process.pid}\n`);
   const liveIds = new Set(live[name] ?? []);
   const result = await sweepStaleSessions(5 * MIN, { isSessionLive: (id) => liveIds.has(id), tombstoneMaxAgeMs: 60 * MIN });
   await store.settleSessionSummaryIndex();
@@ -65,8 +74,10 @@ for (const [name, rows] of Object.entries(scenarios)) {
     tombstonesCleaned: result.tombstoneDetails.map((d) => d.id).sort(),
     openPruned: result.openPrunedDetails.map((d) => d.id).sort(),
     remaining: result.remaining,
-  };
-}
+    // The sessions an older process still held (close/delete refused), and those whose unlink threw.
+    vetoed: legacyMarkers[name] ?? [],
+    tombstoneErrors: (result.tombstoneErrors ?? []).map((e) => e.id).sort(),
+  };}
 rmSync(root, { recursive: true, force: true });
 
 writeJson(join(FIXTURES_ROOT, 'idle-sweep', 'golden.json'), { ttlMs: 5 * MIN, tombstoneMaxAgeMs: 60 * MIN, scenarios: out });

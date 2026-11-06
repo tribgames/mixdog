@@ -1,0 +1,431 @@
+//! The composition of the turn path as plain functions of their inputs, so the daemon's
+//! `compose.rs` only supplies the parts it builds (`compose-seams.md`, "TurnPath inputs").
+//!
+//! - [`early_rows`]: what the tool pool is built from (todos, running work, goals, cycles).
+//! - [`ready_rows`]: every other row that needs nothing the tree lacks once a `ProcessServices`
+//!   and the tool pool exist.
+//! - [`turn_path_parts`]: the whole `TurnPathParts`, every owner part a parameter of [`Owed`].
+//!
+//! The directory comes after the path's registry, so `run_stamps`, `SessionHeaders` and
+//! `hook_common` read a [`LateDirectory`] the daemon binds once `TurnPath::new` returns.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::Weak;
+
+use async_trait::async_trait;
+use mixdog_agent::agent_tool::board::JobBoard;
+use mixdog_agent::env::Clock;
+use mixdog_ai::registry::accounted::AccountingDeps;
+use mixdog_ai::registry::providers::ProviderBuilder;
+use mixdog_ai::registry::providers::ProviderRegistry;
+use mixdog_core_api::domain::ext::ExtPool;
+use mixdog_core_api::domain::fs::FileService;
+use mixdog_core_api::domain::process::ProcessManager;
+use mixdog_core_api::domain::tool::Tool;
+use mixdog_core_api::ids::ThreadId;
+use mixdog_core_goal::goal::GoalConfig;
+use mixdog_core_goal::goal::GoalEnv;
+use mixdog_core_goal::goal::GoalRuntime;
+use mixdog_core_ports::ports::run_stamps::RunStamps;
+use mixdog_core_ports::ports::threads::ThreadState;
+use mixdog_core_run::ports::running_work::ProcessWork;
+use mixdog_core_run::run_host::guards::UserCycles;
+use mixdog_core_run::run_host::hop_host::HopFactory;
+use mixdog_core_run::run_host::hop_host::HopDeps;
+use mixdog_core_run::run_host::hop_host::HopSessions;
+use mixdog_core_session::session::run_stamps::run_stamp_of;
+use mixdog_core_session::session::run_stamps::Records;
+use mixdog_core_session::session::RunFactory;
+use mixdog_core_session::session::SessionDeps;
+use mixdog_core_session::session::SessionDirectory;
+use mixdog_core_agents::agents::AgentDefinitions;
+use mixdog_mcp::hook_bus::session::CommonOf;
+use mixdog_mcp::hook_bus::HookBus;
+use mixdog_mcp::hook_bus::HookCommon;
+use mixdog_mcp::McpHub;
+use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_rt::DurabilityIo;
+use mixdog_rt::LaneTokens;
+use mixdog_services::effort_judge::judge::EffortJudgeModel;
+use mixdog_store::paths::Paths;
+use mixdog_store::schema::record::Header;
+use mixdog_tools::exec::ExecRuntime;
+use mixdog_tools::policy::ConnectorPermissions;
+use mixdog_tools::policy::ToolPolicy;
+use serde_json::json;
+use serde_json::Value;
+
+use super::compaction_world::CompactionServices;
+use super::hop_bindings::HopBindings;
+use super::host_seams::ConfigSeams;
+use super::mcp_seams::CatalogSkillsListed;
+use super::mcp_seams::ConfigAllowAll;
+use super::mcp_seams::McpAwareResolver;
+use super::next_request_source::NextRequestSource;
+use super::process::ProcessServices;
+use super::process::SessionHeaders;
+use super::run_seams::EnvReader;
+use super::session_tools::SessionMcp;
+use super::settings::SettingsSources;
+use super::side_requests::SideRequests;
+use super::thread_todos::ThreadTodos;
+use super::turn_inputs::BotRouteStore;
+use super::turn_inputs::CatalogCeilings;
+use super::turn_path::TurnPathParts;
+
+/// TurnPathParts.hops: built once the directory and the registry exist.
+pub type HopsBuilder = Box<dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory>;
+
+/// HopSessions of a directory.
+pub type HopSessionsBuilder = Box<dyn FnOnce(&Arc<SessionDirectory>) -> Arc<dyn HopSessions>>;
+
+// ---- the late directory ----------------------------------------------------------------------
+
+/// The session directory, bound once after the turn path builds it.
+#[derive(Default)]
+pub struct LateDirectory(OnceLock<Weak<SessionDirectory>>);
+
+impl LateDirectory {
+    pub fn bind(&self, directory: &Arc<SessionDirectory>) {
+        let _ = self.0.set(Arc::downgrade(directory));
+    }
+
+    fn directory(&self) -> Option<Arc<SessionDirectory>> {
+        self.0.get()?.upgrade()
+    }
+
+    /// The latest acked header of a loaded session.
+    fn live_header(&self, session_id: &str) -> Option<Arc<Header>> {
+        Some(self.directory()?.handle(&ThreadId::from(session_id))?.live_header().header())
+    }
+}
+
+/// `SessionHeaders` (the codex `User-Agent` and the effort lookups) over the late directory.
+pub struct DirectoryHeaders(pub Arc<LateDirectory>);
+
+impl SessionHeaders for DirectoryHeaders {
+    fn header(&self, session_id: &str) -> Option<Arc<Header>> {
+        self.0.live_header(session_id)
+    }
+}
+
+#[async_trait]
+impl Records for LateDirectory {
+    async fn record(&self, session: &str) -> Option<Header> {
+        self.directory()?.stored_header(&ThreadId::from(session)).await
+    }
+}
+
+/// `RunStamps` over the late directory: `DirectoryRunStamps`' backfill (`run_stamp_of`), reading a
+/// record where `DirectoryRunStamps` does (a loaded thread's header, else the stored record).
+pub struct LateRunStamps(pub Arc<LateDirectory>);
+
+#[async_trait]
+impl RunStamps for LateRunStamps {
+    async fn stamp_of(&self, thread: &ThreadId) -> Option<Value> {
+        run_stamp_of(thread.as_str(), self.0.as_ref()).await
+    }
+}
+
+/// `hookCommonPayload`'s permission mode and effort for a session header: the mode is
+/// `session.permissionMode || 'default'`, the effort `{ level }` of the trimmed, lower-cased
+/// `effort`, left out when empty.
+pub fn common_of_header(header: &Header) -> HookCommon {
+    let text = |key: &str| header.get(key).and_then(|v| v.as_str()).map(mixdog_js::js_trim).unwrap_or_default();
+    let mode = text("permissionMode");
+    let effort = text("effort").to_lowercase();
+    HookCommon {
+        transcript_path: None,
+        permission_mode: Some(if mode.is_empty() { "default".to_owned() } else { mode.to_owned() }),
+        effort: (!effort.is_empty()).then(|| json!({ "level": effort })),
+    }
+}
+
+/// `TurnPathParts.hook_common`: the session's common fields from its live header. A session that
+/// is not loaded has none, so it answers Node's defaults.
+///
+/// `transcript_path` stays `None`: Node hands hooks the session's `.log`/`.json` record file, and
+/// the store keeps a session as a directory of log files with no such single file (wu-purge-hooks
+/// decides what a hook is given).
+pub fn hook_common(directory: Arc<LateDirectory>) -> CommonOf {
+    Arc::new(move |session_id: &str| match directory.live_header(session_id) {
+        Some(header) => common_of_header(&header),
+        None => HookCommon { permission_mode: Some("default".to_owned()), ..HookCommon::default() },
+    })
+}
+
+// ---- the rows the tool pool is built from ----------------------------------------------------
+
+pub struct EarlyIn {
+    pub data_dir: PathBuf,
+    pub durability: DurabilityIo,
+    /// The session directory's `ThreadState`.
+    pub threads: Arc<dyn ThreadState>,
+    pub clock: Arc<dyn mixdog_core_session::session::Clock>,
+    pub board: JobBoard,
+    pub exec: Arc<ExecRuntime>,
+}
+
+pub struct EarlyRows {
+    pub todos: Arc<ThreadTodos>,
+    pub work: Arc<ProcessWork>,
+    pub goals: GoalRuntime,
+    pub cycles: Arc<UserCycles>,
+}
+
+/// `ProcessWork::new` points the exec runtime at `cycles`, so build the rows once per process.
+pub fn early_rows(input: EarlyIn) -> EarlyRows {
+    let cycles = Arc::<UserCycles>::default();
+    EarlyRows {
+        todos: Arc::new(ThreadTodos::new(input.threads, input.clock)),
+        work: Arc::new(ProcessWork::new(input.board, input.exec, cycles.clone())),
+        goals: GoalRuntime::new(GoalConfig::new(input.data_dir.to_string_lossy().into_owned()), GoalEnv::system(input.durability)),
+        cycles,
+    }
+}
+
+// ---- the rows that need the tool pool --------------------------------------------------------
+
+/// What the READY rows of `TurnPathParts` are built from, besides the process services.
+pub struct ReadyIn {
+    pub data_dir: PathBuf,
+    /// `process.env[name]`, the reader the config seams use.
+    pub env: EnvReader,
+    /// The tool pool the session tool set and the policy's resolver both read.
+    pub tool_pool: Vec<Arc<dyn Tool>>,
+    pub hub: Arc<McpHub>,
+    pub skills: Arc<mixdog_mcp::skill_catalog::SkillCatalog>,
+    /// The heartbeat marks the routine host also writes (`RoutineHost::new`'s `marks`).
+    pub heartbeats: Arc<mixdog_services::bots::HeartbeatSessions>,
+    /// The server's stored attachments.
+    pub blobs: mixdog_store::blobs::BlobStore,
+}
+
+pub struct ReadyRows {
+    pub provider_builder: Arc<dyn ProviderBuilder>,
+    pub accounting: AccountingDeps,
+    pub ladder: Arc<super::ladder_sources::ProcessLadder>,
+    /// `wiring` and `errors` of the route hop's `HopDeps`; `settings.wiring` is the same `wiring`.
+    pub hop: HopBindings,
+    pub settings: SettingsSources,
+    pub bots: Arc<BotRouteStore>,
+    pub resolver: Arc<McpAwareResolver>,
+    pub skills_listed: Arc<CatalogSkillsListed>,
+    pub allow_all: Arc<ConfigAllowAll>,
+}
+
+/// Builds every row whose inputs exist. `process` is the one `ProcessServices` of the daemon.
+pub fn ready_rows(process: &ProcessServices, input: ReadyIn) -> ReadyRows {
+    let hop = HopBindings::new(process);
+    let settings = SettingsSources {
+        wiring: hop.wiring.clone(),
+        attachments: Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy::StoreAttachments {
+            store: input.blobs,
+            interactive: process.lanes.interactive_io,
+        }),
+        heartbeats: input.heartbeats,
+        ceilings: Arc::new(CatalogCeilings::new(process.catalog.clone())),
+        auto_effort: Arc::new(super::auto_effort::ConfigAutoEffort::new(process.config.clone(), input.env)),
+    };
+    ReadyRows {
+        provider_builder: Arc::new(mixdog_ai::registry::builder::DefaultProviderBuilder::new(super::builder_env::builder_env(process))),
+        accounting: super::accounting_scope::accounting_deps(process),
+        ladder: Arc::new(super::ladder_sources::ProcessLadder::new(process)),
+        hop,
+        settings,
+        bots: Arc::new(BotRouteStore::new(input.data_dir, process.lanes.interactive_io)),
+        resolver: Arc::new(McpAwareResolver::new(input.tool_pool, input.hub)),
+        skills_listed: Arc::new(CatalogSkillsListed(input.skills)),
+        allow_all: Arc::new(ConfigAllowAll(process.config.clone())),
+    }
+}
+
+/// `TurnPathParts.hops`: the route hop over the directory and the path's registry. `sessions` builds
+/// the `HopSessions` of the directory (`SessionHops` over a `SessionRouteAdapter`).
+pub fn hops(
+    process: &ProcessServices,
+    hop: &HopBindings,
+    bots: Arc<BotRouteStore>,
+    sessions: impl FnOnce(&Arc<SessionDirectory>) -> Arc<dyn HopSessions> + 'static,
+) -> HopsBuilder {
+    let (config, catalog) = (process.config.clone(), process.catalog.clone());
+    let (errors, wiring) = (hop.errors.clone(), hop.wiring.clone());
+    Box::new(move |directory, registry| {
+        let deps = HopDeps {
+            registry: registry.clone(),
+            catalog,
+            config: Arc::new(move || (*config.full()).clone()),
+            bots,
+            errors,
+            wiring,
+        };
+        HopFactory::new(deps, sessions(directory))
+    })
+}
+
+// ---- the whole TurnPathParts -----------------------------------------------------------------
+
+/// Every part another owner builds. The daemon fills it as each lands; nothing here has a default.
+pub struct Owed {
+    pub tokens: LaneTokens,
+    pub clock: Arc<dyn Clock>,
+    pub paths: Paths,
+    pub effort_judge: Arc<EffortJudgeModel>,
+    pub side: SideRequests,
+    pub next: Arc<NextRequestSource>,
+    pub files: Arc<dyn FileService>,
+    pub processes: Arc<dyn ProcessManager>,
+    pub policy: Arc<ToolPolicy>,
+    pub connectors: Arc<dyn ConnectorPermissions>,
+    pub agents: Arc<AgentDefinitions>,
+    pub hub: Arc<McpHub>,
+    pub blobs: Arc<dyn Blobs + Send + Sync>,
+    pub mcp: Arc<dyn SessionMcp>,
+    pub skills: Arc<mixdog_mcp::skill_catalog::SkillCatalog>,
+    pub ext_pool: Arc<dyn ExtPool>,
+    pub hook_bus: Arc<HookBus>,
+    pub config: Arc<dyn ConfigSeams>,
+    pub deps: Box<dyn FnOnce(Arc<dyn RunFactory>) -> SessionDeps>,
+    pub compaction: CompactionServices,
+    /// `HopSessions` over the directory.
+    pub hop_sessions: HopSessionsBuilder,
+    pub directory: Arc<LateDirectory>,
+    /// The pool the `early` rows were built into; `Skill`, `todo` and `load_tool` included.
+    pub tool_pool: Vec<Arc<dyn Tool>>,
+}
+
+/// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
+/// `ready` and `owed`.
+pub fn turn_path_parts(process: &ProcessServices, early: EarlyRows, ready: ReadyRows, owed: Owed) -> TurnPathParts {
+    let hops = hops(process, &ready.hop, ready.bots.clone(), owed.hop_sessions);
+    TurnPathParts {
+        tokens: owed.tokens,
+        clock: owed.clock,
+        paths: owed.paths,
+        provider_builder: ready.provider_builder,
+        accounting: ready.accounting,
+        effort_judge: owed.effort_judge,
+        side: owed.side,
+        next: owed.next,
+        files: owed.files,
+        processes: owed.processes,
+        policy: owed.policy,
+        connectors: owed.connectors,
+        resolver: ready.resolver,
+        run_stamps: Arc::new(LateRunStamps(owed.directory.clone())),
+        agents: owed.agents,
+        allow_all: ready.allow_all,
+        hub: owed.hub,
+        blobs: owed.blobs,
+        tool_pool: owed.tool_pool,
+        mcp: owed.mcp,
+        skills_listed: ready.skills_listed,
+        skill_names: owed.skills,
+        ext_pool: owed.ext_pool,
+        hook_bus: owed.hook_bus,
+        hook_common: hook_common(owed.directory),
+        goals: early.goals,
+        todos: early.todos,
+        work: early.work,
+        cycles: early.cycles,
+        config: owed.config,
+        settings: ready.settings,
+        ladder: ready.ladder,
+        deps: owed.deps,
+        compaction: owed.compaction,
+        hops,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_mcp::skill_catalog::SkillRoots;
+    use mixdog_mcp::skill_catalog::SkillSettings;
+    use mixdog_mcp::skill_catalog::SkillSettingsSource;
+    use mixdog_mcp::skills_watch::SkillsWatch;
+    use serde_json::Map;
+
+    use super::super::mcp_seams::AllowAllActions;
+    use super::super::process_tests::world;
+    use super::super::session_tools::SkillsListed;
+    use super::*;
+
+    struct NoSettings;
+    impl SkillSettingsSource for NoSettings {
+        fn current(&self) -> SkillSettings {
+            SkillSettings::default()
+        }
+    }
+
+    fn header(fields: &[(&str, Value)]) -> Header {
+        let mut map = Map::new();
+        for (key, value) in fields {
+            map.insert((*key).to_owned(), value.clone());
+        }
+        map
+    }
+
+    #[test]
+    fn a_header_gives_the_hooks_its_permission_mode_and_effort() {
+        let common = common_of_header(&header(&[("permissionMode", json!("strict")), ("effort", json!(" High "))]));
+        assert_eq!(common.permission_mode.as_deref(), Some("strict"));
+        assert_eq!(common.effort, Some(json!({ "level": "high" })));
+    }
+
+    #[test]
+    fn a_header_without_them_gives_node_defaults() {
+        let common = common_of_header(&header(&[("permissionMode", Value::Null), ("effort", json!(""))]));
+        assert_eq!(common.permission_mode.as_deref(), Some("default"));
+        assert_eq!(common.effort, None);
+    }
+
+    #[tokio::test]
+    async fn a_session_that_is_not_loaded_answers_the_defaults() {
+        let late = Arc::new(LateDirectory::default());
+        let common = hook_common(late.clone())("nobody");
+        assert_eq!(common.permission_mode.as_deref(), Some("default"));
+        assert!(DirectoryHeaders(late.clone()).header("nobody").is_none());
+        assert!(LateRunStamps(late).stamp_of(&ThreadId::from("nobody")).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn the_ready_rows_share_the_instances_the_turn_reads() {
+        let world = world(&[], json!({}), Vec::new()).await;
+        let process = &world.services;
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let hub = McpHub::new(
+            mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io },
+            dir.path().join("tool-results"),
+            mixdog_mcp::result::OutputPolicy::default(),
+        );
+        let roots: SkillRoots = Arc::new(|_lane| Vec::new());
+        let skills = mixdog_mcp::skill_catalog::SkillCatalog::new(
+            dir.path().to_path_buf(),
+            tokens.maintenance_io,
+            roots,
+            Arc::new(NoSettings),
+            &SkillsWatch::new(),
+        );
+        let heartbeats = mixdog_services::bots::HeartbeatSessions::new();
+        let rows = ready_rows(
+            process,
+            ReadyIn {
+                data_dir: dir.path().to_path_buf(),
+                env: Arc::new(|_| None),
+                tool_pool: Vec::new(),
+                hub,
+                skills,
+                heartbeats: heartbeats.clone(),
+                blobs: mixdog_store::blobs::BlobStore::new(dir.path()),
+            },
+        );
+        heartbeats.mark("beat");
+        assert!(rows.settings.heartbeats.is_heartbeat("beat"), "settings read the marks the routine host writes");
+        assert!(!rows.settings.heartbeats.is_heartbeat("other"));
+        assert!(!rows.allow_all.allow_all_actions(), "an unset developer option is off");
+        assert_eq!(rows.skills_listed.any_for(dir.path()).await, Ok(false), "no skill root, no skill");
+    }
+}

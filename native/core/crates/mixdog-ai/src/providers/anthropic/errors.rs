@@ -94,6 +94,28 @@ fn retry_after(headers: &[(String, String)]) -> Option<Duration> {
     (millis.is_finite() && millis > 0.0).then(|| Duration::from_millis(millis as u64))
 }
 
+/// `anthropicQuotaError`'s message (`anthropic-oauth-request/initial-status.mjs`): the text a
+/// cache warm's refused POST fails with on the subscription wire.
+pub(super) fn quota_error_text(response: &ErrorResponse) -> String {
+    let retry = retry_after(&response.headers).map_or_else(String::new, |after| {
+        let ms = after.as_millis();
+        let shown = if ms >= 60_000 && ms % 60_000 == 0 {
+            format!("{}m", ms / 60_000)
+        } else if ms >= 1000 {
+            format!("{}s", ms.div_ceil(1000))
+        } else {
+            format!("{ms}ms")
+        };
+        format!(" retryAfter={shown}")
+    });
+    let body = String::from_utf8_lossy(&response.body);
+    let detail = if body.is_empty() { String::new() } else { format!(": {}", mixdog_js::slice_utf16(&body, 200)) };
+    let quota = ["anthropic-ratelimit-unified-representative-claim", "anthropic-ratelimit-unified-overage-status"]
+        .iter()
+        .any(|name| header(&response.headers, name).is_some_and(|v| !v.is_empty()));
+    let kind = if quota { "quota/rate limit" } else { "request rejected" };
+    format!("Anthropic OAuth API {} {kind}{retry}{detail}", response.status.unwrap_or(0))
+}
 /// The unified rate-limit window reset (epoch seconds).
 fn reset_at(headers: &[(String, String)]) -> Option<SystemTime> {
     let secs = mixdog_js::string_to_number(header(headers, RESET_HEADER)?);

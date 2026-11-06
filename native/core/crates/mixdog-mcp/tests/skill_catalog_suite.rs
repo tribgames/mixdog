@@ -69,7 +69,7 @@ impl SkillSettingsSource for NoSettings {
 
 fn catalog(data: &std::path::Path, root: &std::path::Path, tokens: &mixdog_rt::LaneTokens) -> Arc<SkillCatalog> {
     let root = SkillRoot { dir: root.to_path_buf(), source: SkillSource::Global, plugin: None };
-    SkillCatalog::new(data.to_path_buf(), tokens.maintenance_io, Arc::new(move || vec![root.clone()]), Arc::new(NoSettings), &SkillsWatch::new())
+    SkillCatalog::new(data.to_path_buf(), tokens.maintenance_io, Arc::new(move |_| vec![root.clone()]), Arc::new(NoSettings), &SkillsWatch::new())
 }
 
 #[tokio::test]

@@ -199,6 +199,13 @@ pub(crate) enum Inbox {
     QuotaFacts { tx: oneshot::Sender<super::quota_lane::ResumeCheck> },
     /// `cancelQuotaResume`: the explicit cancel of the pending resume.
     QuotaCancelled { tx: oneshot::Sender<()> },
+    /// `commitSessionCompaction`: a manual compaction's result, committed when no turn runs.
+    /// `snapshot`: the model context (item ids) the compaction was planned on.
+    CommitCompaction {
+        snapshot: Vec<mixdog_core_api::ids::ItemId>,
+        compaction: super::run::Compaction,
+        tx: oneshot::Sender<Result<super::turn_ops::CompactionCommit, CoreError>>,
+    },
 }
 
 /// Results of lane jobs the actor submitted.
@@ -255,8 +262,35 @@ pub(crate) enum JobDone {
     Replied { op: Option<OpId>, tx: Waiter, result: Result<Value, CoreError> },
     /// A manual compaction ran and its PostCompact hook did: the actor re-marks the Goal reminder.
     Compacted { op: Option<OpId>, tx: Waiter, result: Value, recover: bool },
-    /// `retainedRetryInput() !== null` for a `turn/retryFailed` that passed its first gates.
-    RetryChecked { op: Option<OpId>, tx: Waiter, key: String, retained: bool },
+    /// A manual compaction ended (its answer follows).
+    CompactionEnded,
+    /// `retainedRetryInput()` for a `turn/retryFailed` that passed its first gates.
+    RetryChecked { op: Option<OpId>, tx: Waiter, key: String, retained: Option<super::quota_lane::Retained> },
+    /// `reactivateUsageLimitedGoal` of a Goal resume answered.
+    Resumed(Box<ResumeDone>),
+    /// The model context a manual compaction's commit reconciles with (`commitSessionCompaction`).
+    CompactionRows(Box<CommitRows>),
+}
+
+/// A manual compaction's result and the context read to reconcile it with.
+pub(crate) struct CommitRows {
+    snapshot: Vec<mixdog_core_api::ids::ItemId>,
+    compaction: super::run::Compaction,
+    /// `runs_begun` when the read started: a turn begun since owns the context.
+    begun: u64,
+    rows: Result<Vec<(mixdog_core_api::ids::ItemId, Value)>, CoreError>,
+    tx: oneshot::Sender<Result<super::turn_ops::CompactionCommit, CoreError>>,
+}
+
+/// `reactivateUsageLimitedGoal`'s answer with what the resume carries to settle it.
+pub(crate) struct ResumeDone {
+    op: Option<OpId>,
+    tx: Waiter,
+    key: String,
+    goal_id: String,
+    generation: Option<u64>,
+    token: Arc<super::quota_lane::ResumeToken>,
+    result: Result<Option<Goal>, mixdog_core_goal::goal::error::GoalError>,
 }
 
 /// What `shouldRunGoalContinuation` read for a Goal entry.
@@ -277,6 +311,7 @@ pub(crate) struct InputStart {
     prompt: Option<String>,
     wake: bool,
     agent: Option<super::control::AgentStart>,
+    routine: Option<super::control::RoutineStart>,
 }
 
 /// What the actor does first.
@@ -350,6 +385,8 @@ pub(crate) struct SessionActor {
     wake_tail: Vec<String>,
     /// A delete closed the thread (`Ctl::Delete`): no run starts again.
     deleting: bool,
+    /// The thread's tombstone landed (`Ctl::Closed`).
+    tombstoned: bool,
     /// The Goal a user prompt is archiving, masked from the lane until the archive lands.
     goal_suppressed: String,
     /// A continuation decision is on its way.
@@ -391,6 +428,14 @@ pub(crate) struct SessionActor {
     /// `retryClaim`: the `<thread>\0<turnKey>` of the retry already admitted, so a late second
     /// click cannot enqueue another.
     retry_claim: String,
+    /// `flags.quotaResumePending`: a quota resume revives the Goal and holds the next turn back.
+    quota_pending: Option<Arc<super::quota_lane::ResumeToken>>,
+    /// `state.commandBusy` / `flags.autoClearRunning`: compactions running.
+    compactions: u32,
+    /// The next run's input row is already on screen (a retained retry's `suppressDisplay`).
+    retry_hidden: bool,
+    /// Turns begun so far: a manual compaction's commit is refused when one began since its read.
+    runs_begun: u64,
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {
@@ -467,6 +512,7 @@ impl SessionActor {
             suppressed: Default::default(),
             wake_tail: Vec::new(),
             deleting: false,
+            tombstoned: false,
             goal_suppressed: String::new(),
             goal_scheduled: false,
             settling: false,
@@ -488,6 +534,10 @@ impl SessionActor {
             jobs_rx,
             quota: super::quota_lane::QuotaLane::new(&deps.quota),
             retry_claim: String::new(),
+            quota_pending: None,
+            compactions: 0,
+            retry_hidden: false,
+            runs_begun: 0,
             deps,
         }
     }
@@ -548,6 +598,7 @@ impl SessionActor {
         &mut self,
         reason: &str,
         idle: bool,
+        guard: Option<super::control::DeleteGuard>,
         closed: oneshot::Sender<Result<(), &'static str>>,
         mark: oneshot::Receiver<()>,
         marked: oneshot::Sender<Result<(), RunError>>,
@@ -556,6 +607,19 @@ impl SessionActor {
         if self.deleting {
             let _ = closed.send(Err("missing"));
             return;
+        }
+        // A guarded delete reads the admission word first and closes it from exactly that value:
+        // an attach after this point, even one that detaches again, refuses the close.
+        let mut seen = None;
+        if let Some(guard) = guard {
+            let word = self.cell.admission();
+            let moved = super::sub_agent_retention::activity_at(&self.cell.header.load()) != guard.activity;
+            let peers_changed = self.ch.directory.upgrade().is_none_or(|directory| directory.peers_changed(&guard.peers, guard.opens));
+            if word != 0 || guard.cancel.is_cancelled() || moved || self.turn_busy() || !self.projected.queue.is_empty() || peers_changed {
+                let _ = closed.send(Err("changed"));
+                return;
+            }
+            seen = Some(word);
         }
         if idle {
             let refusal = if self.turn_busy() {
@@ -570,7 +634,15 @@ impl SessionActor {
                 return;
             }
         }
-        self.cell.closed.store(true, SeqCst);
+        // The same word an attach transitions, so exactly one of the two wins.
+        match seen {
+            Some(word) if !self.cell.close_if_unchanged(word) => {
+                let _ = closed.send(Err("changed"));
+                return;
+            }
+            Some(_) => {}
+            None => self.cell.close(),
+        }
         self.deleting = true;
         (self.delete_closed, self.delete_mark, self.delete_marked) = (Some(closed), Some(mark), Some(marked));
         if let Some(run) = &self.run {
@@ -616,8 +688,9 @@ impl SessionActor {
         if !self.quiet() {
             return;
         }
-        // Nobody ever attached: there is no last unsubscribe, so the idle clock decides.
-        if !self.cell.ever_subscribed.load(SeqCst) {
+        // Nobody ever attached: there is no last unsubscribe, so the idle clock decides; a
+        // closed thread unloads at once (`_clearSessionRuntime`).
+        if !self.cell.ever_attached() && !self.tombstoned {
             self.arm_idle_evict();
             return;
         }
@@ -631,7 +704,7 @@ impl SessionActor {
             || self.settling
             || self.starting
             || self.goal_checking
-            || self.cell.subscribers.load(SeqCst) != 0
+            || self.cell.attached() != 0
             || self.run.is_some()
             || !self.projected.queue.is_empty()
             || !self.projected.approvals.is_empty())
@@ -639,7 +712,7 @@ impl SessionActor {
 
     /// The idle clock of a thread nobody watched starts over.
     fn arm_idle_evict(&mut self) {
-        self.idle_evict_at = (!self.cell.ever_subscribed.load(SeqCst)).then(|| tokio::time::Instant::now() + IDLE_EVICT);
+        self.idle_evict_at = (!self.cell.ever_attached()).then(|| tokio::time::Instant::now() + IDLE_EVICT);
     }
 
     /// The idle deadline came: a thread found working waits the whole delay again.
@@ -840,7 +913,10 @@ impl SessionActor {
             JobDone::ReminderGoal(start, goal) => self.start_run_read(*start, goal),
             JobDone::Replied { op, tx, result } => self.replied(op, tx, result),
             JobDone::Compacted { op, tx, result, recover } => self.compacted(op, tx, result, recover),
+            JobDone::CompactionEnded => self.compactions = self.compactions.saturating_sub(1),
             JobDone::RetryChecked { op, tx, key, retained } => self.retry_checked(op, tx, key, retained),
+            JobDone::Resumed(done) => self.resumed(*done),
+            JobDone::CompactionRows(done) => self.compaction_rows(*done),
             JobDone::QuotaUnresumable(turn) => {
                 let item = super::transcript::notice_item(&new_id(), turn.as_str(), super::quota_lane::UNRESUMABLE, "warn");
                 self.show_live(turn, item, None);
@@ -1067,7 +1143,11 @@ impl SessionActor {
     /// Idle with nothing queued: queued user work runs first, and a queued Goal entry already
     /// carries the next continuation.
     fn goal_idle(&self) -> bool {
-        !self.turn_busy() && self.projected.queue.is_empty() && !self.deleting && !self.cell.closed.load(SeqCst)
+        !self.turn_busy()
+            && self.projected.queue.is_empty()
+            && !self.deleting
+            && !self.tombstoned
+            && !self.cell.closed.load(SeqCst)
     }
 
     /// The continuation decision: an active Goal's prompt is queued as the next turn.
@@ -1528,9 +1608,13 @@ impl SessionActor {
             }
             Ctl::RefreshSurface => self.refresh_surface(),
             Ctl::Unsubscribed => self.try_unload(),
-            Ctl::Delete { reason, idle, closed, mark, marked } => self.delete(&reason, idle, closed, mark, marked),
+            Ctl::Closed => {
+                self.tombstoned = true;
+                self.try_unload();
+            }
+            Ctl::Delete { reason, idle, guard, closed, mark, marked } => self.delete(&reason, idle, guard, closed, mark, marked),
             Ctl::Shutdown(done) => {
-                self.cell.closed.store(true, SeqCst);
+                self.cell.close();
                 if let Some(run) = &self.run {
                     // Teardown's `quiesce('cli-exit')`.
                     run.cancel.abort(&mixdog_agent::cancel::session_closed(self.id.as_str(), "runtime close (reason=cli-exit)"));
@@ -1908,7 +1992,7 @@ impl SessionActor {
     /// A turn runs, is starting (its input row's facts being read), is settling, or a dequeued
     /// Goal entry is being checked.
     fn turn_busy(&self) -> bool {
-        self.run.is_some() || self.starting || self.settling || self.goal_checking
+        self.run.is_some() || self.starting || self.settling || self.goal_checking || self.quota_pending.is_some()
     }
 
     /// Node's `state.busy`: set when `runTurn` begins, cleared when the turn closes, before its
@@ -2032,7 +2116,8 @@ impl SessionActor {
                 compaction,
                 ack,
             } => {
-                if !self.active(&turn) {
+                // An empty turn id is no turn: a manual compaction's commit (`commit_compaction`).
+                if !turn.as_str().is_empty() && !self.active(&turn) {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
                 }
@@ -2072,6 +2157,7 @@ impl SessionActor {
                         message_ids: d.message_ids,
                         call_ids: d.call_ids,
                     }),
+                    silent: None,
                     replacement: Slot::Inline(
                         compaction
                             .replacement
@@ -2090,6 +2176,31 @@ impl SessionActor {
                     vec![note],
                     vec![Effect::ItemAck(ack)],
                 );
+            }
+            ProducerMsg::ContextRewound { turn, replacement, ack } => {
+                if !self.active(&turn) {
+                    let _ = ack.send(Err(RunError::NotApplied));
+                    return;
+                }
+                // The provider continuation described the rows that left.
+                if let Some(reset) = self.provider_state_change(None) {
+                    self.accept_record(reset, Class::Normal, Display::None, Vec::new(), Vec::new());
+                }
+                // Nothing leaves the transcript (`dropped_count: 0`, no identities) and no divider
+                // is shown, live or restored (`silent`): only the model context restarts.
+                let record = Record::Compacted(CompactedRecord {
+                    cid: id(&new_id()),
+                    summary_iid: None,
+                    op: None,
+                    at: Some(self.deps.clock.now_ms()),
+                    dropped_count: Some(0),
+                    dropped: None,
+                    silent: Some(true),
+                    replacement: Slot::Inline(
+                        replacement.into_iter().map(|(iid, body)| ReplacementEntry { iid: iid.as_str().to_owned(), body }).collect(),
+                    ),
+                });
+                self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
             }
             ProducerMsg::Approval { turn, ask, reply } => {
                 if !self.active(&turn) {
@@ -2439,6 +2550,7 @@ impl SessionActor {
                 });
                 let _ = tx.send(plan);
             }
+            Inbox::CommitCompaction { snapshot, compaction, tx } => self.commit_compaction(snapshot, compaction, tx),
             Inbox::QuotaFacts { tx } => {
                 let _ = tx.send(self.resume_check());
             }
@@ -2743,6 +2855,8 @@ impl SessionActor {
             reason: RewindReason::Rewind,
             op: self.op_ref(req, Some(&value))?,
         });
+        // The saved request carried the truncated transcript (`session-crud.mjs:475`).
+        self.deps.side.forget(&self.id, false);
         let note = self.history_reset(HistoryResetReason::Rewind, previous);
         let mut records = vec![(record, Class::Normal, Display::None, vec![note])];
         // The provider continuation is keyed on the truncated prefix (`session-crud.mjs:473`).
@@ -2766,6 +2880,8 @@ impl SessionActor {
             reason: RewindReason::Clear,
             op: self.op_ref(req, Some(&value))?,
         });
+        // The saved request carried the cleared transcript (`session-crud.mjs:345`).
+        self.deps.side.forget(&self.id, false);
         let note = self.history_reset(HistoryResetReason::Clear, None);
         let mut records = vec![(record, Class::Normal, Display::None, vec![note])];
         // A cleared session starts without provider state (`session-crud.mjs:137`), and with its
@@ -3101,11 +3217,33 @@ impl SessionActor {
                 body["meta"]["transcript"]["submissionIds"] = json!([submission]);
             }
         }
+        // A routine fire's queued turn (`routine-home-turn.mjs`): its input row carries the
+        // fire's content, the submission and the marker row's trigger; it starts "committed".
+        let routine = if wake {
+            None
+        } else {
+            let submission = input.options.as_ref().and_then(|options| options.client_submission_id.clone()).unwrap_or_default();
+            let found = self.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner()).remove(&submission);
+            if let Some(routine) = found {
+                body["content"] = routine.content.clone();
+                body["meta"]["transcript"]["submissionIds"] = json!([submission]);
+                if let Some(trigger) = &routine.trigger {
+                    body["meta"]["transcript"]["routineTrigger"] = trigger.clone();
+                }
+                if let Some(hop) = routine.hop {
+                    body["meta"]["transcript"]["hop"] = json!(hop);
+                }
+                Some(routine)
+            } else {
+                None
+            }
+        };
         // The input row's facts read the prompt-attachment store first; no other turn starts
         // meanwhile.
         self.starting = true;
+        self.runs_begun += 1;
         let read = self.with_facts(body, move |body, facts| {
-            JobDone::InputFacts(Box::new(InputStart { input, body, facts, op_ref, reply, prompt, wake, agent }))
+            JobDone::InputFacts(Box::new(InputStart { input, body, facts, op_ref, reply, prompt, wake, agent, routine }))
         });
         if !read {
             // The lane refused the read: the turn does not start (its waiter hears the drop).
@@ -3120,7 +3258,7 @@ impl SessionActor {
         if self.deleting {
             return;
         }
-        let InputStart { input, mut body, facts, op_ref, reply, prompt, wake, agent } = start;
+        let InputStart { input, mut body, facts, op_ref, reply, prompt, wake, agent, routine } = start;
         let (goal_reminder, change) = super::goal_reminder::snapshot(
             &self.projected.header,
             shown,
@@ -3148,14 +3286,15 @@ impl SessionActor {
         }
         let review = super::turn_snapshot::TurnSnapshot::new(self.deps.turn_review.clone(), self.id.as_str(), checkpoint, wake);
         let input_body = body.clone();
-        let input_display = self.row_display(Some("user"), &input_body);
+        let hidden = std::mem::take(&mut self.retry_hidden);
+        let input_display = if hidden { Display::None } else { self.row_display(Some("user"), &input_body) };
         let item = Record::Item(ItemRecord {
             iid: id(input_iid.as_str()),
             turn: Some(id(turn.as_str())),
             role: Some(Text::try_from("user").expect("short")),
             form: Form::Message,
             model: true,
-            visible: facts.visible,
+            visible: facts.visible && !hidden,
             archive: None,
             op: op_ref,
             prompt: facts.prompt.map(Slot::Inline),
@@ -3190,6 +3329,15 @@ impl SessionActor {
         let (agent_turn, agent) = match agent {
             Some(start) => (Some(start.turn.clone()), Some((start.turn.hooks.on_terminal_result.clone(), start.done))),
             None => (None, None),
+        };
+        let mut skill_selection = None;
+        let agent = match routine {
+            Some(routine) => {
+                skill_selection = routine.skill_selection;
+                (routine.on_start)();
+                Some((None, routine.done))
+            }
+            None => agent,
         };
         self.run = Some(RunSlot {
             turn: turn.clone(),
@@ -3241,6 +3389,7 @@ impl SessionActor {
         self.refresh_surface();
         let future = self.deps.runs.start(RunStart {
             agent_turn,
+            skill_selection,
             goal_reminder,
             thread: self.id.clone(),
             turn: turn.clone(),

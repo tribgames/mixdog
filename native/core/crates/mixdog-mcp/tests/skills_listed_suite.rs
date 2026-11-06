@@ -40,7 +40,7 @@ fn catalog_over(dir: &Path, settings: Arc<Settings>) -> (Arc<SkillCatalog>, std:
     let root = dir.join("skills");
     std::fs::create_dir_all(&root).unwrap();
     let roots = SkillRoot { dir: root.clone(), source: SkillSource::Global, plugin: None };
-    let catalog = SkillCatalog::new(dir.to_path_buf(), tokens.maintenance_io, Arc::new(move || vec![roots.clone()]), settings, &SkillsWatch::new());
+    let catalog = SkillCatalog::new(dir.to_path_buf(), tokens.maintenance_io, Arc::new(move |_| vec![roots.clone()]), settings, &SkillsWatch::new());
     (catalog, root)
 }
 

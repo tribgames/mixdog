@@ -106,7 +106,7 @@ fn trimmed(value: Option<&Value>) -> String {
 
 /// The Maintainer's route of a config: a disabled Maintainer has none, its stored route is the
 /// only candidate and needs a provider and a model, and its provider must not be switched off.
-fn maintainer_of(config: &Map<String, Value>) -> Option<MaintainerRoute> {
+pub(crate) fn maintainer_of(config: &Map<String, Value>) -> Option<MaintainerRoute> {
     if agent_disabled(config, MAINTAINER_ROLE) {
         return None;
     }

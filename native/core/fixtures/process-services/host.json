@@ -1,0 +1,58 @@
+{
+  "cases": [
+    {
+      "arch": "x64",
+      "platform": "Windows 10.0.26100; x86_64",
+      "release": "10.0.26100",
+      "type": "Windows_NT"
+    },
+    {
+      "arch": "arm64",
+      "platform": "Windows 10.0.22631; aarch64",
+      "release": "10.0.22631",
+      "type": "Windows_NT"
+    },
+    {
+      "arch": "arm64",
+      "platform": "Mac OS 24.1.0; aarch64",
+      "release": "24.1.0",
+      "type": "Darwin"
+    },
+    {
+      "arch": "x64",
+      "platform": "Mac OS 23.6.0; x86_64",
+      "release": "23.6.0",
+      "type": "Darwin"
+    },
+    {
+      "arch": "x64",
+      "platform": "Linux 6.8.0-45-generic; x86_64",
+      "release": "6.8.0-45-generic",
+      "type": "Linux"
+    },
+    {
+      "arch": "arm64",
+      "platform": "Linux 5.15.0-1052-aws; aarch64",
+      "release": "5.15.0-1052-aws",
+      "type": "Linux"
+    },
+    {
+      "arch": "ia32",
+      "platform": "Linux 6.1.0-13-686; ia32",
+      "release": "6.1.0-13-686",
+      "type": "Linux"
+    },
+    {
+      "arch": "arm",
+      "platform": "Linux 4.19.0; arm",
+      "release": "4.19.0",
+      "type": "Linux"
+    },
+    {
+      "arch": "x64",
+      "platform": "FreeBSD 14.1-RELEASE; x86_64",
+      "release": "14.1-RELEASE",
+      "type": "FreeBSD"
+    }
+  ]
+}

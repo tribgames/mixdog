@@ -3,9 +3,12 @@
 //! ends, and the answer is reported to the bot's home. `chain` reads a session's stored messages,
 //! `follow` waits for the final answer, and `rearm` re-attaches the watches a stopped daemon left.
 
+pub mod background;
 pub mod chain;
 pub mod follow;
+pub mod host;
 pub mod rearm;
+pub mod runtime_state;
 
 /// The queue row of the progress update of task session `session_id` carrying the answer of turn
 /// `answer_id`: one per answer, across restarts and however many open sends reach it.
@@ -26,5 +29,7 @@ pub fn turn_report_run_id(session_id: &str, id: &str, status: &str, approval_id:
     }
 }
 
+#[cfg(test)]
+mod host_tests;
 #[cfg(test)]
 mod tests;

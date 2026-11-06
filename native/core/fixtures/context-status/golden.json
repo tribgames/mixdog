@@ -1,0 +1,3727 @@
+{
+  "cases": [
+    {
+      "active": false,
+      "agentMode": false,
+      "breakdown": {},
+      "cwd": "",
+      "header": null,
+      "messages": [],
+      "mode": "default",
+      "name": "no session",
+      "nativePrefix": 0,
+      "requestTools": [],
+      "route": {
+        "contextWindow": null,
+        "model": "",
+        "provider": ""
+      },
+      "status": null,
+      "tools": []
+    },
+    {
+      "active": false,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_ctx",
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "messages": [],
+      "mode": "default",
+      "name": "empty conversation",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": 100000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 0,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 0,
+          "triggerTokens": 100000
+        },
+        "contextWindow": 100000,
+        "currentEstimatedTokens": 0,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 100000,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 0,
+        "measurement": {
+          "source": "pending",
+          "tokens": null,
+          "updatedAt": null
+        },
+        "messages": {
+          "count": 0,
+          "estimatedTokens": 0,
+          "roles": {
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "user": {
+              "count": 0,
+              "tokens": 0
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "chat": {
+              "count": 0,
+              "tokens": 0
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 0,
+              "otherTokens": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "workflow": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 0,
+          "toolSchemaBreakdown": {},
+          "toolSchemaTokens": 0
+        },
+        "sessionId": "s_ctx",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastContextTokens": 0,
+          "lastInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "usageReadout": null
+        },
+        "usedSource": "empty",
+        "usedTokens": 0
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "active": false,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_ctx",
+        "lastCacheWriteTokens": 10,
+        "lastCachedReadTokens": 500,
+        "lastInputTokens": 900,
+        "lastOutputTokens": 60,
+        "lastUncachedInputTokens": 400,
+        "model": "gpt-test",
+        "provider": "openai",
+        "totalCacheWriteTokens": 40,
+        "totalCachedReadTokens": 3000,
+        "totalInputTokens": 5000,
+        "totalOutputTokens": 300,
+        "totalUncachedInputTokens": 2000
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        }
+      ],
+      "mode": "default",
+      "name": "prepared system context",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": 100000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 0,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 0,
+          "triggerTokens": 100000
+        },
+        "contextWindow": 100000,
+        "currentEstimatedTokens": 0,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 100000,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 0,
+        "measurement": {
+          "source": "pending",
+          "tokens": null,
+          "updatedAt": null
+        },
+        "messages": {
+          "count": 0,
+          "estimatedTokens": 0,
+          "roles": {
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "user": {
+              "count": 0,
+              "tokens": 0
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "chat": {
+              "count": 0,
+              "tokens": 0
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 0,
+              "otherTokens": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "workflow": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 0,
+          "toolSchemaBreakdown": {},
+          "toolSchemaTokens": 0
+        },
+        "sessionId": "s_ctx",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastContextTokens": 0,
+          "lastInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "usageReadout": null
+        },
+        "usedSource": "empty",
+        "usedTokens": 0
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_ctx",
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        },
+        {
+          "content": "Please read the config file.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "config.json"
+              },
+              "id": "c1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "{\"a\":1,\"b\":[1,2,3]}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "The config sets a to 1.",
+          "role": "assistant"
+        },
+        {
+          "content": "<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>",
+          "role": "user"
+        },
+        {
+          "content": "Thanks, now summarise it.",
+          "role": "user"
+        }
+      ],
+      "mode": "default",
+      "name": "estimated, no provider usage",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": null,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 295,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 0,
+          "pressureTokens": 295,
+          "reserveTokens": 0,
+          "triggerTokens": 100000
+        },
+        "contextWindow": 100000,
+        "currentEstimatedTokens": 295,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 99705,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 0,
+        "measurement": {
+          "source": "pending",
+          "tokens": null,
+          "updatedAt": null
+        },
+        "messages": {
+          "count": 7,
+          "estimatedTokens": 134,
+          "roles": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 1,
+              "tokens": 28
+            },
+            "tool": {
+              "count": 1,
+              "tokens": 14
+            },
+            "user": {
+              "count": 3,
+              "tokens": 47
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "chat": {
+              "count": 2,
+              "tokens": 22
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 5
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 1,
+              "otherTokens": 14,
+              "tokens": 25
+            },
+            "system": {
+              "count": 1,
+              "tokens": 20
+            },
+            "toolResults": {
+              "count": 1,
+              "tokens": 14
+            },
+            "workflow": {
+              "tokens": 8
+            },
+            "workspace": {
+              "tokens": 6
+            }
+          },
+          "toolCallCount": 1,
+          "toolCallTokens": 31,
+          "toolResultCount": 1,
+          "toolResultTokens": 14
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 161,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 2,
+              "tokens": 157
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 1
+            }
+          },
+          "toolSchemaTokens": 161
+        },
+        "sessionId": "s_ctx",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastContextTokens": 0,
+          "lastInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "usageReadout": null
+        },
+        "usedSource": "estimated",
+        "usedTokens": 295
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_ctx",
+        "lastCacheWriteTokens": 10,
+        "lastCachedReadTokens": 500,
+        "lastContextTokens": 1200,
+        "lastContextTokensUpdatedAt": 1799999995000,
+        "lastInputTokens": 900,
+        "lastOutputTokens": 60,
+        "lastUncachedInputTokens": 400,
+        "model": "gpt-test",
+        "provider": "openai",
+        "totalCacheWriteTokens": 40,
+        "totalCachedReadTokens": 3000,
+        "totalInputTokens": 5000,
+        "totalOutputTokens": 300,
+        "totalUncachedInputTokens": 2000
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        },
+        {
+          "content": "Please read the config file.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "config.json"
+              },
+              "id": "c1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "{\"a\":1,\"b\":[1,2,3]}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "The config sets a to 1.",
+          "role": "assistant"
+        },
+        {
+          "content": "<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>",
+          "role": "user"
+        },
+        {
+          "content": "Thanks, now summarise it.",
+          "role": "user"
+        }
+      ],
+      "mode": "default",
+      "name": "provider usage",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": null,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 295,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 1200,
+          "pressureTokens": 295,
+          "reserveTokens": 0,
+          "triggerTokens": 100000
+        },
+        "contextWindow": 100000,
+        "currentEstimatedTokens": 295,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 99705,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 1200,
+        "measurement": {
+          "source": "last_api_request",
+          "tokens": 1200,
+          "updatedAt": 1799999995000
+        },
+        "messages": {
+          "count": 7,
+          "estimatedTokens": 134,
+          "roles": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 1,
+              "tokens": 28
+            },
+            "tool": {
+              "count": 1,
+              "tokens": 14
+            },
+            "user": {
+              "count": 3,
+              "tokens": 47
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "chat": {
+              "count": 2,
+              "tokens": 22
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 5
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 1,
+              "otherTokens": 14,
+              "tokens": 25
+            },
+            "system": {
+              "count": 1,
+              "tokens": 20
+            },
+            "toolResults": {
+              "count": 1,
+              "tokens": 14
+            },
+            "workflow": {
+              "tokens": 8
+            },
+            "workspace": {
+              "tokens": 6
+            }
+          },
+          "toolCallCount": 1,
+          "toolCallTokens": 31,
+          "toolResultCount": 1,
+          "toolResultTokens": 14
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 161,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 2,
+              "tokens": 157
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 1
+            }
+          },
+          "toolSchemaTokens": 161
+        },
+        "sessionId": "s_ctx",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 10,
+          "lastCachedReadTokens": 500,
+          "lastContextTokens": 1200,
+          "lastInputTokens": 900,
+          "lastOutputTokens": 60,
+          "lastUncachedInputTokens": 400,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 40,
+          "totalCachedReadTokens": 3000,
+          "totalInputTokens": 5000,
+          "totalOutputTokens": 300,
+          "totalUncachedInputTokens": 2000,
+          "usageReadout": null
+        },
+        "usedSource": "estimated",
+        "usedTokens": 295
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "compactBoundaryTokens": 60000,
+        "compaction": {
+          "boundaryTokens": 60000,
+          "lastCompactAt": 1799999910000
+        },
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_ctx",
+        "lastCacheWriteTokens": 10,
+        "lastCachedReadTokens": 500,
+        "lastContextTokens": 1200,
+        "lastContextTokensUpdatedAt": 1799999995000,
+        "lastInputTokens": 900,
+        "lastOutputTokens": 60,
+        "lastUncachedInputTokens": 400,
+        "model": "gpt-test",
+        "provider": "openai",
+        "totalCacheWriteTokens": 40,
+        "totalCachedReadTokens": 3000,
+        "totalInputTokens": 5000,
+        "totalOutputTokens": 300,
+        "totalUncachedInputTokens": 2000
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        },
+        {
+          "content": "Please read the config file.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "config.json"
+              },
+              "id": "c1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "{\"a\":1,\"b\":[1,2,3]}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "The config sets a to 1.",
+          "role": "assistant"
+        },
+        {
+          "content": "<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>",
+          "role": "user"
+        },
+        {
+          "content": "Thanks, now summarise it.",
+          "role": "user"
+        }
+      ],
+      "mode": "default",
+      "name": "provider usage with a compaction boundary",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": 60000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 295,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 1200,
+          "lastCompactAt": 1799999910000,
+          "pressureTokens": 295,
+          "reserveTokens": 0,
+          "triggerTokens": 60000
+        },
+        "contextWindow": 60000,
+        "currentEstimatedTokens": 295,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 59705,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 1200,
+        "measurement": {
+          "source": "last_api_request",
+          "tokens": 1200,
+          "updatedAt": 1799999995000
+        },
+        "messages": {
+          "count": 7,
+          "estimatedTokens": 134,
+          "roles": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 1,
+              "tokens": 28
+            },
+            "tool": {
+              "count": 1,
+              "tokens": 14
+            },
+            "user": {
+              "count": 3,
+              "tokens": 47
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "chat": {
+              "count": 2,
+              "tokens": 22
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 5
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 1,
+              "otherTokens": 14,
+              "tokens": 25
+            },
+            "system": {
+              "count": 1,
+              "tokens": 20
+            },
+            "toolResults": {
+              "count": 1,
+              "tokens": 14
+            },
+            "workflow": {
+              "tokens": 8
+            },
+            "workspace": {
+              "tokens": 6
+            }
+          },
+          "toolCallCount": 1,
+          "toolCallTokens": 31,
+          "toolResultCount": 1,
+          "toolResultTokens": 14
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 161,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 2,
+              "tokens": 157
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 1
+            }
+          },
+          "toolSchemaTokens": 161
+        },
+        "sessionId": "s_ctx",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 10,
+          "lastCachedReadTokens": 500,
+          "lastContextTokens": 1200,
+          "lastInputTokens": 900,
+          "lastOutputTokens": 60,
+          "lastUncachedInputTokens": 400,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 40,
+          "totalCachedReadTokens": 3000,
+          "totalInputTokens": 5000,
+          "totalOutputTokens": 300,
+          "totalUncachedInputTokens": 2000,
+          "usageReadout": null
+        },
+        "usedSource": "estimated",
+        "usedTokens": 295
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "compaction": {
+          "boundaryTokens": 60000,
+          "lastCompactAt": 1799999910000
+        },
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_ctx",
+        "lastCacheWriteTokens": 10,
+        "lastCachedReadTokens": 500,
+        "lastContextTokens": 1200,
+        "lastContextTokensStaleAfterCompact": true,
+        "lastContextTokensUpdatedAt": 1799999900000,
+        "lastInputTokens": 900,
+        "lastOutputTokens": 60,
+        "lastUncachedInputTokens": 400,
+        "model": "gpt-test",
+        "provider": "openai",
+        "totalCacheWriteTokens": 40,
+        "totalCachedReadTokens": 3000,
+        "totalInputTokens": 5000,
+        "totalOutputTokens": 300,
+        "totalUncachedInputTokens": 2000
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        },
+        {
+          "content": "Please read the config file.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "config.json"
+              },
+              "id": "c1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "{\"a\":1,\"b\":[1,2,3]}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "The config sets a to 1.",
+          "role": "assistant"
+        },
+        {
+          "content": "<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>",
+          "role": "user"
+        },
+        {
+          "content": "Thanks, now summarise it.",
+          "role": "user"
+        }
+      ],
+      "mode": "default",
+      "name": "usage stale after compact",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": 60000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 295,
+          "lastApiRequestStale": true,
+          "lastApiRequestTokens": 1200,
+          "lastCompactAt": 1799999910000,
+          "pressureTokens": 295,
+          "reserveTokens": 0,
+          "triggerTokens": 60000
+        },
+        "contextWindow": 60000,
+        "currentEstimatedTokens": 295,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 59705,
+        "lastApiRequestStale": true,
+        "lastApiRequestTokens": 1200,
+        "measurement": {
+          "source": "pending",
+          "tokens": null,
+          "updatedAt": null
+        },
+        "messages": {
+          "count": 7,
+          "estimatedTokens": 134,
+          "roles": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 1,
+              "tokens": 28
+            },
+            "tool": {
+              "count": 1,
+              "tokens": 14
+            },
+            "user": {
+              "count": 3,
+              "tokens": 47
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "chat": {
+              "count": 2,
+              "tokens": 22
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 5
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 1,
+              "otherTokens": 14,
+              "tokens": 25
+            },
+            "system": {
+              "count": 1,
+              "tokens": 20
+            },
+            "toolResults": {
+              "count": 1,
+              "tokens": 14
+            },
+            "workflow": {
+              "tokens": 8
+            },
+            "workspace": {
+              "tokens": 6
+            }
+          },
+          "toolCallCount": 1,
+          "toolCallTokens": 31,
+          "toolResultCount": 1,
+          "toolResultTokens": 14
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 161,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 2,
+              "tokens": 157
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 1
+            }
+          },
+          "toolSchemaTokens": 161
+        },
+        "sessionId": "s_ctx",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 10,
+          "lastCachedReadTokens": 500,
+          "lastContextTokens": 1200,
+          "lastInputTokens": 900,
+          "lastOutputTokens": 60,
+          "lastUncachedInputTokens": 400,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 40,
+          "totalCachedReadTokens": 3000,
+          "totalInputTokens": 5000,
+          "totalOutputTokens": 300,
+          "totalUncachedInputTokens": 2000,
+          "usageReadout": null
+        },
+        "usedSource": "estimated",
+        "usedTokens": 295
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineMessageCount": 7,
+        "contextPressureBaselineModel": "gpt-test",
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselinePrefixSignature": "2d77d37c073dec894afb84d2d34c323c611b7958210ab07d57bbdf94575a882d",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineRequestReserveTokens": 161,
+        "contextPressureBaselineShapeSignature": "6af84ebf76f7d7ad7d56dcd493156d17281ca5b927a7b8a6f8cf09ed840beaf7",
+        "contextPressureBaselineSource": "provider",
+        "contextPressureBaselineTokens": 1200,
+        "contextPressureBaselineToolSignature": "1312f8f294e87737e3713910788748e829893279f608c916459db8b790beb024",
+        "contextPressureBaselineUpdatedAt": 1800000000000,
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_base",
+        "lastCacheWriteTokens": 10,
+        "lastCachedReadTokens": 500,
+        "lastContextTokens": 1200,
+        "lastContextTokensStaleAfterCompact": false,
+        "lastContextTokensUpdatedAt": 1799999995000,
+        "lastInputTokens": 900,
+        "lastOutputTokens": 60,
+        "lastUncachedInputTokens": 400,
+        "model": "gpt-test",
+        "provider": "openai",
+        "totalCacheWriteTokens": 40,
+        "totalCachedReadTokens": 3000,
+        "totalInputTokens": 5000,
+        "totalOutputTokens": 300,
+        "totalUncachedInputTokens": 2000
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        },
+        {
+          "content": "Please read the config file.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "config.json"
+              },
+              "id": "c1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "{\"a\":1,\"b\":[1,2,3]}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "The config sets a to 1.",
+          "role": "assistant"
+        },
+        {
+          "content": "<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>",
+          "role": "user"
+        },
+        {
+          "content": "Thanks, now summarise it.",
+          "role": "user"
+        }
+      ],
+      "mode": "default",
+      "name": "provider baseline over the whole transcript",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": null,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 1200,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 1200,
+          "pressureTokens": 1200,
+          "reserveTokens": 0,
+          "triggerTokens": 100000
+        },
+        "contextWindow": 100000,
+        "currentEstimatedTokens": 1200,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 98800,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 1200,
+        "measurement": {
+          "source": "last_api_request",
+          "tokens": 1200,
+          "updatedAt": 1799999995000
+        },
+        "messages": {
+          "count": 7,
+          "estimatedTokens": 134,
+          "roles": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 1,
+              "tokens": 28
+            },
+            "tool": {
+              "count": 1,
+              "tokens": 14
+            },
+            "user": {
+              "count": 3,
+              "tokens": 47
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "chat": {
+              "count": 2,
+              "tokens": 22
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 5
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 1,
+              "otherTokens": 14,
+              "tokens": 25
+            },
+            "system": {
+              "count": 1,
+              "tokens": 20
+            },
+            "toolResults": {
+              "count": 1,
+              "tokens": 14
+            },
+            "workflow": {
+              "tokens": 8
+            },
+            "workspace": {
+              "tokens": 6
+            }
+          },
+          "toolCallCount": 1,
+          "toolCallTokens": 31,
+          "toolResultCount": 1,
+          "toolResultTokens": 14
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 161,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 2,
+              "tokens": 157
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 1
+            }
+          },
+          "toolSchemaTokens": 161
+        },
+        "sessionId": "s_base",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 10,
+          "lastCachedReadTokens": 500,
+          "lastContextTokens": 1200,
+          "lastInputTokens": 900,
+          "lastOutputTokens": 60,
+          "lastUncachedInputTokens": 400,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 40,
+          "totalCachedReadTokens": 3000,
+          "totalInputTokens": 5000,
+          "totalOutputTokens": 300,
+          "totalUncachedInputTokens": 2000,
+          "usageReadout": null
+        },
+        "usedSource": "provider",
+        "usedTokens": 1200
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineMessageCount": 7,
+        "contextPressureBaselineModel": "gpt-test",
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselinePrefixSignature": "2d77d37c073dec894afb84d2d34c323c611b7958210ab07d57bbdf94575a882d",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineRequestReserveTokens": 161,
+        "contextPressureBaselineShapeSignature": "6af84ebf76f7d7ad7d56dcd493156d17281ca5b927a7b8a6f8cf09ed840beaf7",
+        "contextPressureBaselineSource": "provider",
+        "contextPressureBaselineTokens": 1200,
+        "contextPressureBaselineToolSignature": "1312f8f294e87737e3713910788748e829893279f608c916459db8b790beb024",
+        "contextPressureBaselineUpdatedAt": 1800000000000,
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_base",
+        "lastCacheWriteTokens": 10,
+        "lastCachedReadTokens": 500,
+        "lastContextTokens": 1200,
+        "lastContextTokensStaleAfterCompact": false,
+        "lastContextTokensUpdatedAt": 1799999995000,
+        "lastInputTokens": 900,
+        "lastOutputTokens": 60,
+        "lastUncachedInputTokens": 400,
+        "model": "gpt-test",
+        "provider": "openai",
+        "totalCacheWriteTokens": 40,
+        "totalCachedReadTokens": 3000,
+        "totalInputTokens": 5000,
+        "totalOutputTokens": 300,
+        "totalUncachedInputTokens": 2000
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        },
+        {
+          "content": "Please read the config file.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "config.json"
+              },
+              "id": "c1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "{\"a\":1,\"b\":[1,2,3]}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "The config sets a to 1.",
+          "role": "assistant"
+        },
+        {
+          "content": "<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>",
+          "role": "user"
+        },
+        {
+          "content": "Thanks, now summarise it.",
+          "role": "user"
+        },
+        {
+          "content": "and one more question please",
+          "role": "user"
+        }
+      ],
+      "mode": "default",
+      "name": "provider baseline plus growth",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": null,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 1211,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 1200,
+          "pressureTokens": 1211,
+          "reserveTokens": 0,
+          "triggerTokens": 100000
+        },
+        "contextWindow": 100000,
+        "currentEstimatedTokens": 1211,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 98789,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 1200,
+        "measurement": {
+          "source": "last_api_request",
+          "tokens": 1200,
+          "updatedAt": 1799999995000
+        },
+        "messages": {
+          "count": 8,
+          "estimatedTokens": 145,
+          "roles": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 1,
+              "tokens": 28
+            },
+            "tool": {
+              "count": 1,
+              "tokens": 14
+            },
+            "user": {
+              "count": 4,
+              "tokens": 58
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "chat": {
+              "count": 3,
+              "tokens": 33
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 5
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 1,
+              "otherTokens": 14,
+              "tokens": 25
+            },
+            "system": {
+              "count": 1,
+              "tokens": 20
+            },
+            "toolResults": {
+              "count": 1,
+              "tokens": 14
+            },
+            "workflow": {
+              "tokens": 8
+            },
+            "workspace": {
+              "tokens": 6
+            }
+          },
+          "toolCallCount": 1,
+          "toolCallTokens": 31,
+          "toolResultCount": 1,
+          "toolResultTokens": 14
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 161,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 2,
+              "tokens": 157
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 1
+            }
+          },
+          "toolSchemaTokens": 161
+        },
+        "sessionId": "s_base",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 10,
+          "lastCachedReadTokens": 500,
+          "lastContextTokens": 1200,
+          "lastInputTokens": 900,
+          "lastOutputTokens": 60,
+          "lastUncachedInputTokens": 400,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 40,
+          "totalCachedReadTokens": 3000,
+          "totalInputTokens": 5000,
+          "totalOutputTokens": 300,
+          "totalUncachedInputTokens": 2000,
+          "usageReadout": null
+        },
+        "usedSource": "provider",
+        "usedTokens": 1211
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "compaction": {
+          "boundaryTokens": 60000,
+          "lastCompactAt": 1799999910000
+        },
+        "contextUsageSnapshot": {
+          "boundaryTokens": 60000,
+          "contextWindow": 100000,
+          "limitTokens": 60000,
+          "messageCount": 7,
+          "messageTokensEst": 0,
+          "messagesSignature": "2d77d37c073dec894afb84d2d34c323c611b7958210ab07d57bbdf94575a882d",
+          "model": "gpt-test",
+          "provider": "openai",
+          "source": "post_compact",
+          "tailId": "",
+          "tailRole": "user",
+          "toolSchemaSignature": "1312f8f294e87737e3713910788748e829893279f608c916459db8b790beb024",
+          "triggerTokens": 60000,
+          "updatedAt": 1799999999000,
+          "usageMetricsEpoch": 0,
+          "usageMetricsTurnId": "",
+          "usedTokens": 777,
+          "version": 1
+        },
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_snap",
+        "lastCacheWriteTokens": 10,
+        "lastCachedReadTokens": 500,
+        "lastContextTokens": 0,
+        "lastInputTokens": 900,
+        "lastOutputTokens": 60,
+        "lastUncachedInputTokens": 400,
+        "model": "gpt-test",
+        "provider": "openai",
+        "totalCacheWriteTokens": 40,
+        "totalCachedReadTokens": 3000,
+        "totalInputTokens": 5000,
+        "totalOutputTokens": 300,
+        "totalUncachedInputTokens": 2000
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        },
+        {
+          "content": "Please read the config file.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "config.json"
+              },
+              "id": "c1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "{\"a\":1,\"b\":[1,2,3]}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "The config sets a to 1.",
+          "role": "assistant"
+        },
+        {
+          "content": "<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>",
+          "role": "user"
+        },
+        {
+          "content": "Thanks, now summarise it.",
+          "role": "user"
+        }
+      ],
+      "mode": "default",
+      "name": "post-compact snapshot",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": 60000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 777,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 0,
+          "lastCompactAt": 1799999910000,
+          "pressureTokens": 777,
+          "reserveTokens": 0,
+          "triggerTokens": 60000
+        },
+        "contextWindow": 60000,
+        "currentEstimatedTokens": 777,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 59223,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 0,
+        "measurement": {
+          "source": "pending",
+          "tokens": null,
+          "updatedAt": null
+        },
+        "messages": {
+          "count": 7,
+          "estimatedTokens": 134,
+          "roles": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 1,
+              "tokens": 28
+            },
+            "tool": {
+              "count": 1,
+              "tokens": 14
+            },
+            "user": {
+              "count": 3,
+              "tokens": 47
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "chat": {
+              "count": 2,
+              "tokens": 22
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 5
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 1,
+              "otherTokens": 14,
+              "tokens": 25
+            },
+            "system": {
+              "count": 1,
+              "tokens": 20
+            },
+            "toolResults": {
+              "count": 1,
+              "tokens": 14
+            },
+            "workflow": {
+              "tokens": 8
+            },
+            "workspace": {
+              "tokens": 6
+            }
+          },
+          "toolCallCount": 1,
+          "toolCallTokens": 31,
+          "toolResultCount": 1,
+          "toolResultTokens": 14
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 161,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 2,
+              "tokens": 157
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 1
+            }
+          },
+          "toolSchemaTokens": 161
+        },
+        "sessionId": "s_snap",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 10,
+          "lastCachedReadTokens": 500,
+          "lastContextTokens": 0,
+          "lastInputTokens": 900,
+          "lastOutputTokens": 60,
+          "lastUncachedInputTokens": 400,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 40,
+          "totalCachedReadTokens": 3000,
+          "totalInputTokens": 5000,
+          "totalOutputTokens": 300,
+          "totalUncachedInputTokens": 2000,
+          "usageReadout": null
+        },
+        "usedSource": "post_compact",
+        "usedTokens": 777
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_ctx",
+        "model": "gpt-test",
+        "provider": "openai",
+        "reasoningUsage": {
+          "reasoningTokens": 17,
+          "reasoningTokensComplete": true
+        }
+      },
+      "messages": [
+        {
+          "content": "Think about it.",
+          "role": "user"
+        },
+        {
+          "content": "Done thinking.",
+          "role": "assistant",
+          "thinkingBlocks": [
+            {
+              "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "thinking": "Let me weigh the options carefully before answering.",
+              "type": "thinking"
+            }
+          ]
+        },
+        {
+          "content": "ok",
+          "role": "user"
+        }
+      ],
+      "mode": "default",
+      "name": "reasoning blocks",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": null,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 242,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 0,
+          "pressureTokens": 242,
+          "reserveTokens": 0,
+          "triggerTokens": 100000
+        },
+        "contextWindow": 100000,
+        "currentEstimatedTokens": 242,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 99758,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 0,
+        "measurement": {
+          "source": "pending",
+          "tokens": null,
+          "updatedAt": null
+        },
+        "messages": {
+          "count": 3,
+          "estimatedTokens": 81,
+          "roles": {
+            "assistant": {
+              "count": 1,
+              "tokens": 68
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "user": {
+              "count": 2,
+              "tokens": 13
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 1,
+              "tokens": 8
+            },
+            "chat": {
+              "count": 2,
+              "tokens": 13
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 1,
+              "tokens": 60
+            },
+            "reminders": {
+              "count": 0,
+              "otherTokens": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "workflow": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 161,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 2,
+              "tokens": 157
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 1
+            }
+          },
+          "toolSchemaTokens": 161
+        },
+        "sessionId": "s_ctx",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastContextTokens": 0,
+          "lastInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "reasoningUsage": {
+            "reasoningTokens": 17,
+            "reasoningTokensComplete": true
+          },
+          "totalCacheWriteTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "usageReadout": null
+        },
+        "usedSource": "estimated",
+        "usedTokens": 242
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {},
+      "cwd": "",
+      "header": {
+        "id": "s_route"
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        },
+        {
+          "content": "Please read the config file.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "config.json"
+              },
+              "id": "c1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "{\"a\":1,\"b\":[1,2,3]}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "The config sets a to 1.",
+          "role": "assistant"
+        },
+        {
+          "content": "<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>",
+          "role": "user"
+        },
+        {
+          "content": "Thanks, now summarise it.",
+          "role": "user"
+        }
+      ],
+      "mode": "default",
+      "name": "window from the route only",
+      "nativePrefix": 0,
+      "requestTools": [],
+      "route": {
+        "contextWindow": null,
+        "model": "",
+        "provider": ""
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": null,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 134,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 0,
+          "pressureTokens": 134,
+          "reserveTokens": 0,
+          "triggerTokens": null
+        },
+        "contextWindow": null,
+        "currentEstimatedTokens": 134,
+        "cwd": "",
+        "effectiveContextWindow": null,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 0,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 0,
+        "measurement": {
+          "source": "pending",
+          "tokens": null,
+          "updatedAt": null
+        },
+        "messages": {
+          "count": 7,
+          "estimatedTokens": 134,
+          "roles": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 1,
+              "tokens": 28
+            },
+            "tool": {
+              "count": 1,
+              "tokens": 14
+            },
+            "user": {
+              "count": 3,
+              "tokens": 47
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "chat": {
+              "count": 2,
+              "tokens": 22
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 5
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 1,
+              "otherTokens": 14,
+              "tokens": 25
+            },
+            "system": {
+              "count": 1,
+              "tokens": 20
+            },
+            "toolResults": {
+              "count": 1,
+              "tokens": 14
+            },
+            "workflow": {
+              "tokens": 8
+            },
+            "workspace": {
+              "tokens": 6
+            }
+          },
+          "toolCallCount": 1,
+          "toolCallTokens": 31,
+          "toolResultCount": 1,
+          "toolResultTokens": 14
+        },
+        "model": "",
+        "provider": "",
+        "rawContextWindow": null,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 0,
+          "toolSchemaBreakdown": {},
+          "toolSchemaTokens": 0
+        },
+        "sessionId": "s_route",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastContextTokens": 0,
+          "lastInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "usageReadout": null
+        },
+        "usedSource": "estimated",
+        "usedTokens": 134
+      },
+      "tools": []
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 1,
+          "tokens": 83
+        },
+        "other": {
+          "count": 1,
+          "tokens": 17
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "id": "s_bare",
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        },
+        {
+          "content": "Please read the config file.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "config.json"
+              },
+              "id": "c1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "{\"a\":1,\"b\":[1,2,3]}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "The config sets a to 1.",
+          "role": "assistant"
+        },
+        {
+          "content": "<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>",
+          "role": "user"
+        },
+        {
+          "content": "Thanks, now summarise it.",
+          "role": "user"
+        }
+      ],
+      "mode": "default",
+      "name": "tool without a schema",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "No schema",
+          "name": "bare"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "gpt-test",
+        "provider": "openai"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": null,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 238,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 0,
+          "pressureTokens": 238,
+          "reserveTokens": 0,
+          "triggerTokens": 100000
+        },
+        "contextWindow": 100000,
+        "currentEstimatedTokens": 238,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 99762,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 0,
+        "measurement": {
+          "source": "pending",
+          "tokens": null,
+          "updatedAt": null
+        },
+        "messages": {
+          "count": 7,
+          "estimatedTokens": 134,
+          "roles": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 1,
+              "tokens": 28
+            },
+            "tool": {
+              "count": 1,
+              "tokens": 14
+            },
+            "user": {
+              "count": 3,
+              "tokens": 47
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "chat": {
+              "count": 2,
+              "tokens": 22
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 5
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 1,
+              "otherTokens": 14,
+              "tokens": 25
+            },
+            "system": {
+              "count": 1,
+              "tokens": 20
+            },
+            "toolResults": {
+              "count": 1,
+              "tokens": 14
+            },
+            "workflow": {
+              "tokens": 8
+            },
+            "workspace": {
+              "tokens": 6
+            }
+          },
+          "toolCallCount": 1,
+          "toolCallTokens": 31,
+          "toolResultCount": 1,
+          "toolResultTokens": 14
+        },
+        "model": "gpt-test",
+        "provider": "openai",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 104,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 1,
+              "tokens": 83
+            },
+            "other": {
+              "count": 1,
+              "tokens": 17
+            }
+          },
+          "toolSchemaTokens": 104
+        },
+        "sessionId": "s_bare",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastContextTokens": 0,
+          "lastInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "usageReadout": null
+        },
+        "usedSource": "estimated",
+        "usedTokens": 238
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "No schema",
+          "name": "bare"
+        },
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        }
+      ]
+    },
+    {
+      "active": true,
+      "agentMode": false,
+      "breakdown": {
+        "code": {
+          "count": 2,
+          "tokens": 157
+        },
+        "mcp": {
+          "count": 1,
+          "tokens": 1
+        },
+        "memory": {
+          "count": 1,
+          "tokens": 1
+        },
+        "other": {
+          "count": 1,
+          "tokens": 1
+        },
+        "setup": {
+          "count": 1,
+          "tokens": 1
+        },
+        "web": {
+          "count": 1,
+          "tokens": 1
+        }
+      },
+      "cwd": "C:/w",
+      "header": {
+        "contextWindow": 100000,
+        "cwd": "C:/w",
+        "deferredDiscoveredTools": [
+          "web_search",
+          "mcp__ok__found",
+          "mcp__no__hidden"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "Late",
+            "inputSchema": {
+              "type": "object"
+            },
+            "name": "late_tool"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__ok__found"
+        ],
+        "deferredNativeTools": true,
+        "deferredToolCatalog": [
+          {
+            "description": "Search the web",
+            "inputSchema": {
+              "properties": {
+                "q": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "web_search"
+          },
+          {
+            "description": "Recall memory",
+            "inputSchema": {
+              "type": "object"
+            },
+            "name": "recall"
+          },
+          {
+            "description": "Listed MCP tool",
+            "inputSchema": {
+              "type": "object"
+            },
+            "name": "mcp__ok__found"
+          },
+          {
+            "description": "Unlisted MCP tool",
+            "inputSchema": {
+              "type": "object"
+            },
+            "name": "mcp__no__hidden"
+          }
+        ],
+        "id": "s_defer",
+        "model": "claude-test",
+        "provider": "anthropic"
+      },
+      "messages": [
+        {
+          "content": "# Core Memory\n- prefers short answers\n\n# Active Workflow\nDo the task.\n\n# Environment\ncwd: C:/w",
+          "role": "system"
+        },
+        {
+          "content": "Please read the config file.",
+          "role": "user"
+        },
+        {
+          "content": "Reading it.",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "config.json"
+              },
+              "id": "c1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "content": "{\"a\":1,\"b\":[1,2,3]}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "The config sets a to 1.",
+          "role": "assistant"
+        },
+        {
+          "content": "<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>",
+          "role": "user"
+        },
+        {
+          "content": "Thanks, now summarise it.",
+          "role": "user"
+        },
+        {
+          "content": "found",
+          "nativeToolSearch": {
+            "provider": "anthropic-oauth",
+            "toolReferences": [
+              "recall",
+              "late_tool"
+            ]
+          },
+          "role": "tool",
+          "toolCallId": "c9"
+        },
+        {
+          "content": "found",
+          "nativeToolSearch": {
+            "provider": "openai",
+            "toolReferences": [
+              "read"
+            ]
+          },
+          "role": "tool",
+          "toolCallId": "c10"
+        }
+      ],
+      "mode": "default",
+      "name": "anthropic deferred expansion",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        },
+        {
+          "deferLoading": true,
+          "description": "Search the web",
+          "inputSchema": {
+            "properties": {
+              "q": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "web_search"
+        },
+        {
+          "deferLoading": true,
+          "description": "Recall memory",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "recall"
+        },
+        {
+          "deferLoading": true,
+          "description": "Listed MCP tool",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "mcp__ok__found"
+        },
+        {
+          "deferLoading": true,
+          "description": "Late",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "late_tool"
+        }
+      ],
+      "route": {
+        "contextWindow": 100000,
+        "model": "claude-test",
+        "provider": "anthropic"
+      },
+      "status": {
+        "compaction": {
+          "boundaryTokens": null,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "currentEstimatedTokens": 431,
+          "lastApiRequestStale": false,
+          "lastApiRequestTokens": 0,
+          "pressureTokens": 431,
+          "reserveTokens": 0,
+          "triggerTokens": 100000
+        },
+        "contextWindow": 100000,
+        "currentEstimatedTokens": 431,
+        "cwd": "C:/w",
+        "effectiveContextWindow": 100000,
+        "effectiveContextWindowPercent": null,
+        "freeTokens": 99569,
+        "lastApiRequestStale": false,
+        "lastApiRequestTokens": 0,
+        "measurement": {
+          "source": "pending",
+          "tokens": null,
+          "updatedAt": null
+        },
+        "messages": {
+          "count": 9,
+          "estimatedTokens": 147,
+          "roles": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            },
+            "system": {
+              "count": 1,
+              "tokens": 28
+            },
+            "tool": {
+              "count": 3,
+              "tokens": 27
+            },
+            "user": {
+              "count": 3,
+              "tokens": 47
+            }
+          },
+          "semantic": {
+            "assistant": {
+              "count": 2,
+              "tokens": 45
+            },
+            "chat": {
+              "count": 2,
+              "tokens": 22
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 5
+            },
+            "other": {
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 1,
+              "otherTokens": 14,
+              "tokens": 25
+            },
+            "system": {
+              "count": 1,
+              "tokens": 20
+            },
+            "toolResults": {
+              "count": 3,
+              "tokens": 27
+            },
+            "workflow": {
+              "tokens": 8
+            },
+            "workspace": {
+              "tokens": 6
+            }
+          },
+          "toolCallCount": 1,
+          "toolCallTokens": 31,
+          "toolResultCount": 3,
+          "toolResultTokens": 27
+        },
+        "model": "claude-test",
+        "provider": "anthropic",
+        "rawContextWindow": 100000,
+        "request": {
+          "requestOverheadTokens": 0,
+          "reserveTokens": 161,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 2,
+              "tokens": 157
+            },
+            "mcp": {
+              "count": 1,
+              "tokens": 1
+            },
+            "memory": {
+              "count": 1,
+              "tokens": 1
+            },
+            "other": {
+              "count": 1,
+              "tokens": 1
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 1
+            },
+            "web": {
+              "count": 1,
+              "tokens": 1
+            }
+          },
+          "toolSchemaTokens": 161
+        },
+        "sessionId": "s_defer",
+        "toolMode": "default",
+        "usage": {
+          "lastCacheWriteTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastContextTokens": 0,
+          "lastInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "reasoningUsage": null,
+          "totalCacheWriteTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "usageReadout": null
+        },
+        "usedSource": "estimated",
+        "usedTokens": 431
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    }
+  ],
+  "note": "contextStatusForSession over crafted sessions at a fixed clock; request tools, breakdown, mode and history flag from the same Node functions",
+  "now": 1800000000000
+}

@@ -190,7 +190,7 @@ impl Tool for GoalTool {
         let thread = &ctx.thread_id;
         let action = validate(&args).map_err(|m| invalid("action", m))?;
         // A Goal keeps working in its session across turns: a heartbeat's would run on unseen.
-        if action == "create" && self.facts.is_heartbeat(thread) {
+        if action == "create" && self.facts.is_heartbeat(thread).await {
             return Err(refused("heartbeat", format!("goal: {HEARTBEAT_NO_HANDOFF}")));
         }
         let snapshot = match action.as_str() {
@@ -358,14 +358,15 @@ mod tests {
 
     struct Facts;
 
+    #[async_trait]
     impl CallerFacts for Facts {
-        fn is_heartbeat(&self, _: &ThreadId) -> bool {
+        async fn is_heartbeat(&self, _: &ThreadId) -> bool {
             false
         }
-        fn is_unattended(&self, _: &ThreadId) -> bool {
+        async fn is_unattended(&self, _: &ThreadId) -> bool {
             false
         }
-        fn user_available(&self, _: &ThreadId) -> bool {
+        async fn user_available(&self, _: &ThreadId) -> bool {
             true
         }
     }

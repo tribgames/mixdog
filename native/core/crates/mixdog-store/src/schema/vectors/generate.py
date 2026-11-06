@@ -115,6 +115,8 @@ RECORDS = [
     ("compacted", {"k": "compacted", "cid": "cmp_1", "summary_iid": "msg_sum",
                    "replacement": {"inline": [{"iid": "msg_sum", "body": {"content": "summary", "role": "user"}},
                                               {"iid": "msg_kept", "body": {"content": "kept", "role": "assistant"}}]}}),
+    ("compacted_silent", {"k": "compacted", "cid": "cmp_2", "at": 1793306569000, "dropped_count": 0, "silent": True,
+                          "replacement": {"inline": [{"iid": "msg_kept", "body": {"content": "kept", "role": "assistant"}}]}}),
     ("run_started", {"k": "run", "rid": "run_1", "phase": "started",
                      "attribution": {"provider": "anthropic", "model": "claude-opus", "account": "acct_1",
                                      "route": "anthropic-oauth", "preset": "default", "effort": "high"},

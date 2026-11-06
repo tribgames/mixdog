@@ -1,0 +1,223 @@
+{
+  "redact": [
+    {
+      "name": "a secret in text",
+      "out": "my pw is [redacted].",
+      "secrets": [
+        "hunter2"
+      ],
+      "text": "my pw is hunter2."
+    },
+    {
+      "name": "every occurrence",
+      "out": "[redacted] b [redacted] b [redacted]",
+      "secrets": [
+        "a"
+      ],
+      "text": "a b a b a"
+    },
+    {
+      "name": "the longest secret first",
+      "out": "[redacted] [redacted]",
+      "secrets": [
+        "abcd",
+        "abc"
+      ],
+      "text": "abcd abc"
+    },
+    {
+      "name": "a secret inside a marker is left",
+      "out": "a[redacted][redacted]",
+      "secrets": [
+        "e"
+      ],
+      "text": "a[redacted]e"
+    },
+    {
+      "name": "a secret in the saved-login marker is left",
+      "out": "pw [saved login] and [redacted]",
+      "secrets": [
+        "saved",
+        "s"
+      ],
+      "text": "pw [saved login] and s"
+    },
+    {
+      "name": "a secret holding marker text is replaced whole",
+      "out": "[redacted]",
+      "secrets": [
+        "x[redacted]y"
+      ],
+      "text": "xx[redacted]yy"
+    },
+    {
+      "name": "a secret partly overlapping a marker replaces the marker",
+      "out": "[redacted] tail",
+      "secrets": [
+        "pa[red"
+      ],
+      "text": "pa[redacted] tail"
+    },
+    {
+      "name": "a secret overlapping the end of a marker",
+      "out": "head [redacted][redacted]ail",
+      "secrets": [
+        "ed t"
+      ],
+      "text": "head [redacted]ed tail"
+    },
+    {
+      "name": "astral characters",
+      "out": "[redacted] pw [redacted]",
+      "secrets": [
+        "😀😀",
+        "😀"
+      ],
+      "text": "😀 pw 😀😀"
+    },
+    {
+      "name": "overlapping occurrences",
+      "out": "[redacted]a",
+      "secrets": [
+        "aa"
+      ],
+      "text": "aaa"
+    },
+    {
+      "name": "a replacement joining a secret to its neighbour needs another pass",
+      "out": "[redacted][redacted]",
+      "secrets": [
+        "a[redacted]",
+        "b"
+      ],
+      "text": "ba[redacted]"
+    },
+    {
+      "name": "no secrets",
+      "out": "nothing to hide",
+      "secrets": [],
+      "text": "nothing to hide"
+    },
+    {
+      "name": "empty text",
+      "out": "",
+      "secrets": [
+        "x"
+      ],
+      "text": ""
+    },
+    {
+      "name": "markers only",
+      "out": "[redacted][saved login]",
+      "secrets": [
+        "d",
+        "e",
+        "saved login"
+      ],
+      "text": "[redacted][saved login]"
+    },
+    {
+      "name": "adjacent secrets",
+      "out": "[redacted][redacted]",
+      "secrets": [
+        "ab"
+      ],
+      "text": "abab"
+    }
+  ],
+  "sessions": [
+    {
+      "focus1": false,
+      "focus2": false,
+      "redacted1": "[redacted]cdef [redacted]c [redacted] a",
+      "redacted2": "abcdef abc ab a",
+      "s1": [
+        "ab"
+      ],
+      "s2": [],
+      "step": "one secret"
+    },
+    {
+      "focus1": false,
+      "focus2": false,
+      "redacted1": "[redacted]def [redacted] [redacted] a",
+      "redacted2": "abcdef abc ab a",
+      "s1": [
+        "ab",
+        "abc"
+      ],
+      "s2": [],
+      "step": "a longer one and a repeat"
+    },
+    {
+      "focus1": false,
+      "focus2": false,
+      "redacted1": "[redacted]def [redacted] [redacted] a",
+      "redacted2": "[redacted]bcdef [redacted]bc [redacted]b [redacted]",
+      "s1": [
+        "ab",
+        "abc"
+      ],
+      "s2": [
+        "a"
+      ],
+      "step": "empties are not kept; sessions are separate"
+    },
+    {
+      "focus1": false,
+      "focus2": false,
+      "redacted1": "[redacted] [redacted] [redacted] a",
+      "redacted2": "[redacted]bcdef [redacted]bc [redacted]b [redacted]",
+      "s1": [
+        "ab",
+        "abc",
+        "abcdef"
+      ],
+      "s2": [
+        "a"
+      ],
+      "step": "the longest is replaced first"
+    },
+    {
+      "focus1": true,
+      "focus2": false,
+      "redacted1": "[redacted] [redacted] [redacted] a",
+      "redacted2": "[redacted]bcdef [redacted]bc [redacted]b [redacted]",
+      "s1": [
+        "ab",
+        "abc",
+        "abcdef"
+      ],
+      "s2": [
+        "a"
+      ],
+      "step": "focus is armed"
+    },
+    {
+      "focus1": false,
+      "focus2": false,
+      "redacted1": "[redacted] [redacted] [redacted] a",
+      "redacted2": "[redacted]bcdef [redacted]bc [redacted]b [redacted]",
+      "s1": [
+        "ab",
+        "abc",
+        "abcdef"
+      ],
+      "s2": [
+        "a"
+      ],
+      "step": "focus is cleared"
+    },
+    {
+      "focus1": false,
+      "focus2": true,
+      "redacted1": "abcdef abc ab a",
+      "redacted2": "[redacted]bcdef [redacted]bc [redacted]b [redacted]",
+      "s1": [],
+      "s2": [
+        "a"
+      ],
+      "step": "forget drops the secrets and the focus of one session"
+    }
+  ]
+}

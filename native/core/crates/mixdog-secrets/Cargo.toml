@@ -37,6 +37,7 @@ secret-service = { workspace = true, features = ["rt-async-io-crypto-rust"] }
 zbus = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 mixdog-secrets = { path = ".", features = ["test-support"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

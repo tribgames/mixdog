@@ -6,10 +6,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::host::CloseOptions;
 use mixdog_agent::agent_tool::host::Sessions;
-use mixdog_core_api::ThreadHandle;
-use mixdog_core_api::call::CallContext;
-use mixdog_core_api::call::CoreRequest;
-use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use serde_json::Map;
 use serde_json::Value;
@@ -116,27 +112,7 @@ impl Sessions for AgentSessions {
         if self.threads.patch_header(&thread, set, Vec::new()).await.is_err() {
             return false;
         }
-        // `cancelOwnedShellProcesses`: before the runtime entry is cleared, so a close cannot
-        // orphan a tree; the close does not wait for the kills to be confirmed.
-        self.shells.cancel_owned(&thread);
-        if let Some(handle) = self.directory.handle(&thread) {
-            if let Some(run) = handle.cell.run.load_full() {
-                let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::close_session_reason(session_id, reason));
-            }
-            let queued: Vec<String> = handle.cell.queued.load().iter().cloned().collect();
-            for qid in queued {
-                let request = CoreRequest {
-                    method: Method("thread/queue/delete"),
-                    params: json!({ "threadId": thread, "queuedId": qid }),
-                    op: None,
-                    ctx: CallContext::internal("agent-close"),
-                };
-                let _ = handle.request(request).await;
-            }
-        }
-        // `releaseSessionReadCaches`: pure caches a resumed turn rebuilds from the transcript; the
-        // stored snapshots stay for the resume.
-        self.read_state.release_session(session_id);
+        crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;
         true
     }
 

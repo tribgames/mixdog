@@ -1,0 +1,1376 @@
+{
+  "scenarios": [
+    {
+      "config": {},
+      "files": {
+        "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\ndescription: Review pack\n---\n# Review\n\nBody.\n"
+      },
+      "name": "workflow-configured",
+      "reach": true,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {
+            "builtins": {},
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "method": "setWorkflow",
+          "params": {
+            "workflowId": "review"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "delegatesAgents": true,
+            "description": "Review pack",
+            "id": "review",
+            "name": "Review",
+            "source": "user"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {},
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "method": "setWorkflow",
+          "params": {
+            "workflowId": "Review"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "delegatesAgents": true,
+            "description": "Review pack",
+            "id": "review",
+            "name": "Review",
+            "source": "user"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {}
+          },
+          "method": "setWorkflow",
+          "params": {
+            "workflowId": "solo"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "delegatesAgents": true,
+            "description": "Handle tasks as requested.",
+            "id": "default",
+            "name": "Default",
+            "source": "built-in"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {},
+            "workflow": {
+              "active": "headless"
+            }
+          },
+          "method": "setWorkflow",
+          "params": {
+            "workflowId": "headless"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "delegatesAgents": true,
+            "description": "No user mid-run; requests are approved. Complete, then report.",
+            "id": "headless",
+            "name": "Headless",
+            "source": "built-in"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {}
+          },
+          "method": "setWorkflow",
+          "params": {
+            "workflowId": "  "
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "delegatesAgents": true,
+            "description": "Handle tasks as requested.",
+            "id": "default",
+            "name": "Default",
+            "source": "built-in"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {}
+          },
+          "error": "workflow \"nope\" not found",
+          "method": "setWorkflow",
+          "params": {
+            "workflowId": "nope"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {}
+          },
+          "method": "setWorkflow",
+          "params": {
+            "workflowId": "!!!"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "delegatesAgents": true,
+            "description": "Handle tasks as requested.",
+            "id": "default",
+            "name": "Default",
+            "source": "built-in"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {},
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "method": "setWorkflow",
+          "params": {
+            "options": {
+              "scope": "global"
+            },
+            "workflowId": "review"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "delegatesAgents": true,
+            "description": "Review pack",
+            "id": "review",
+            "name": "Review",
+            "source": "user"
+          },
+          "root": {}
+        }
+      ]
+    },
+    {
+      "config": {
+        "workflow": {
+          "active": "review"
+        }
+      },
+      "files": {
+        "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\ndescription: Review pack\n---\n# Review\n\nBody.\n"
+      },
+      "name": "workflow-reach-false",
+      "reach": false,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {
+            "builtins": {}
+          },
+          "method": "setWorkflow",
+          "params": {
+            "workflowId": "default"
+          },
+          "result": {
+            "appliedToCurrentSession": false,
+            "delegatesAgents": true,
+            "description": "Handle tasks as requested.",
+            "id": "default",
+            "name": "Default",
+            "source": "built-in"
+          },
+          "root": {}
+        }
+      ]
+    },
+    {
+      "config": {},
+      "files": {
+        "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\ndescription: Review pack\n---\n# Review\n\nBody.\n"
+      },
+      "name": "workflow-reach-unknown",
+      "reach": null,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {
+            "builtins": {},
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "method": "setWorkflow",
+          "params": {
+            "workflowId": "review"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "delegatesAgents": true,
+            "description": "Review pack",
+            "id": "review",
+            "name": "Review",
+            "source": "user"
+          },
+          "root": {}
+        }
+      ]
+    },
+    {
+      "config": {
+        "workflow": {
+          "active": "default"
+        }
+      },
+      "files": {
+        "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\ndescription: Review pack\n---\n# Review\n\nBody.\n"
+      },
+      "name": "workflow-session-switched",
+      "reach": false,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "method": "setWorkflow",
+          "params": {
+            "options": {
+              "scope": "session"
+            },
+            "workflowId": "review"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "id": "review",
+            "name": "Review",
+            "workflow": {
+              "id": "review",
+              "name": "Review"
+            },
+            "workflowSwitch": {
+              "at": 1,
+              "from": "Default",
+              "fromId": "default",
+              "to": "Review",
+              "toId": "review"
+            }
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "workflow": {
+              "active": "default"
+            }
+          },
+          "error": "workflow \"nope\" not found",
+          "method": "setWorkflow",
+          "params": {
+            "options": {
+              "scope": "session"
+            },
+            "workflowId": "nope"
+          },
+          "root": {}
+        }
+      ],
+      "switchedWorkflow": {
+        "appliedToCurrentSession": true,
+        "workflow": {
+          "id": "review",
+          "name": "Review"
+        },
+        "workflowSwitch": {
+          "at": 1,
+          "from": "Default",
+          "fromId": "default",
+          "to": "Review",
+          "toId": "review"
+        }
+      }
+    },
+    {
+      "config": {},
+      "files": {
+        "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\ndescription: Review pack\n---\n# Review\n\nBody.\n"
+      },
+      "name": "workflow-session-deferred",
+      "reach": false,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {},
+          "method": "setWorkflow",
+          "params": {
+            "options": {
+              "scope": "session"
+            },
+            "workflowId": "review"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "deferred": true,
+            "id": "review",
+            "name": "Review",
+            "workflow": {
+              "id": "review",
+              "name": "Review"
+            },
+            "workflowSwitch": null
+          },
+          "root": {}
+        }
+      ],
+      "switchedWorkflow": {
+        "appliedToCurrentSession": true,
+        "deferred": true,
+        "workflow": {
+          "id": "review",
+          "name": "Review"
+        },
+        "workflowSwitch": null
+      }
+    },
+    {
+      "config": {},
+      "files": {
+        "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\ndescription: Review pack\n---\n# Review\n\nBody.\n"
+      },
+      "name": "workflow-session-empty",
+      "reach": true,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {
+            "builtins": {},
+            "workflow": {
+              "active": "review"
+            }
+          },
+          "method": "setWorkflow",
+          "params": {
+            "options": {
+              "scope": "session"
+            },
+            "workflowId": "review"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "delegatesAgents": true,
+            "description": "Review pack",
+            "id": "review",
+            "name": "Review",
+            "source": "user"
+          },
+          "root": {}
+        }
+      ],
+      "switchedWorkflow": null
+    },
+    {
+      "config": {},
+      "files": {},
+      "name": "mode-configured",
+      "reach": true,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {
+            "builtins": {},
+            "orchestrationMode": "swarm"
+          },
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "swarm"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "mode": "swarm"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {},
+            "orchestrationMode": "none"
+          },
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "none"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "mode": "none"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {}
+          },
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "balanced"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "mode": "balanced"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {},
+            "orchestrationMode": "focused"
+          },
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "focused",
+            "options": {
+              "scope": "global"
+            }
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "mode": "focused"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {},
+            "orchestrationMode": "focused"
+          },
+          "error": "orchestration mode must be one of none, focused, balanced, swarm",
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "parallel"
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "builtins": {},
+            "orchestrationMode": "focused"
+          },
+          "error": "orchestration mode must be one of none, focused, balanced, swarm",
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": ""
+          },
+          "root": {}
+        }
+      ]
+    },
+    {
+      "config": {
+        "orchestrationMode": "swarm"
+      },
+      "files": {},
+      "name": "mode-reach-false",
+      "reach": false,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {
+            "builtins": {},
+            "orchestrationMode": "none"
+          },
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "none"
+          },
+          "result": {
+            "appliedToCurrentSession": false,
+            "mode": "none"
+          },
+          "root": {}
+        }
+      ]
+    },
+    {
+      "config": {},
+      "files": {},
+      "name": "mode-reach-unknown",
+      "reach": null,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {
+            "builtins": {},
+            "orchestrationMode": "focused"
+          },
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "focused"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "mode": "focused"
+          },
+          "root": {}
+        }
+      ]
+    },
+    {
+      "config": {
+        "orchestrationMode": "balanced"
+      },
+      "files": {},
+      "name": "mode-session-switched",
+      "reach": false,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {
+            "orchestrationMode": "balanced"
+          },
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "swarm",
+            "options": {
+              "scope": "session"
+            }
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "mode": "swarm",
+            "orchestrationModeSwitch": {
+              "at": 1,
+              "from": "balanced",
+              "to": "swarm"
+            }
+          },
+          "root": {}
+        },
+        {
+          "agent": {
+            "orchestrationMode": "balanced"
+          },
+          "error": "orchestration mode must be one of none, focused, balanced, swarm",
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "bogus",
+            "options": {
+              "scope": "session"
+            }
+          },
+          "root": {}
+        }
+      ],
+      "switchedMode": {
+        "appliedToCurrentSession": true,
+        "mode": "swarm",
+        "orchestrationModeSwitch": {
+          "at": 1,
+          "from": "balanced",
+          "to": "swarm"
+        }
+      }
+    },
+    {
+      "config": {},
+      "files": {},
+      "name": "mode-session-deferred",
+      "reach": false,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {},
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "swarm",
+            "options": {
+              "scope": "session"
+            }
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "deferred": true,
+            "mode": "swarm",
+            "orchestrationModeSwitch": null
+          },
+          "root": {}
+        }
+      ],
+      "switchedMode": {
+        "appliedToCurrentSession": true,
+        "deferred": true,
+        "mode": "swarm",
+        "orchestrationModeSwitch": null
+      }
+    },
+    {
+      "config": {},
+      "files": {},
+      "name": "mode-session-empty",
+      "reach": true,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {
+            "builtins": {},
+            "orchestrationMode": "swarm"
+          },
+          "method": "setOrchestrationMode",
+          "params": {
+            "mode": "swarm",
+            "options": {
+              "scope": "session"
+            }
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "mode": "swarm"
+          },
+          "root": {}
+        }
+      ],
+      "switchedMode": null
+    },
+    {
+      "config": {},
+      "files": {},
+      "name": "style",
+      "reach": true,
+      "rootKeys": {},
+      "steps": [
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": "detailed"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "configured": "detailed",
+            "current": {
+              "aliases": [
+                "long",
+                "full"
+              ],
+              "description": "Deep answers",
+              "id": "detailed",
+              "label": "Detailed",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {
+            "outputStyle": "detailed"
+          }
+        },
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": "Simple"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "configured": "simple",
+            "current": {
+              "aliases": [],
+              "description": "Plain answers",
+              "id": "simple",
+              "label": "Simple",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {}
+        },
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": " MINIMAL "
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "configured": "minimal",
+            "current": {
+              "aliases": [
+                "mini"
+              ],
+              "description": "Short",
+              "id": "minimal",
+              "label": "Minimal",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {
+            "outputStyle": "minimal"
+          }
+        },
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": "extreme minimal"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "configured": "extreme-minimal",
+            "current": {
+              "aliases": [
+                "xmin"
+              ],
+              "description": "",
+              "id": "extreme-minimal",
+              "label": "Extreme Minimal",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {
+            "outputStyle": "extreme-minimal"
+          }
+        },
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": "xmin"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "configured": "extreme-minimal",
+            "current": {
+              "aliases": [
+                "xmin"
+              ],
+              "description": "",
+              "id": "extreme-minimal",
+              "label": "Extreme Minimal",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {
+            "outputStyle": "extreme-minimal"
+          }
+        },
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": "long"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "configured": "detailed",
+            "current": {
+              "aliases": [
+                "long",
+                "full"
+              ],
+              "description": "Deep answers",
+              "id": "detailed",
+              "label": "Detailed",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {
+            "outputStyle": "detailed"
+          }
+        },
+        {
+          "agent": {},
+          "error": "output style must be one of Detailed, Simple, Minimal, Extreme Minimal",
+          "method": "setOutputStyle",
+          "params": {
+            "value": "nope"
+          },
+          "root": {
+            "outputStyle": "detailed"
+          }
+        },
+        {
+          "agent": {},
+          "error": "output style must be one of Detailed, Simple, Minimal, Extreme Minimal",
+          "method": "setOutputStyle",
+          "params": {
+            "value": ""
+          },
+          "root": {
+            "outputStyle": "detailed"
+          }
+        },
+        {
+          "agent": {},
+          "error": "output style must be one of Detailed, Simple, Minimal, Extreme Minimal",
+          "method": "setOutputStyle",
+          "params": {
+            "value": "---"
+          },
+          "root": {
+            "outputStyle": "detailed"
+          }
+        }
+      ]
+    },
+    {
+      "config": {},
+      "files": {},
+      "name": "style-reach-false",
+      "reach": false,
+      "rootKeys": {
+        "outputStyle": "minimal"
+      },
+      "steps": [
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": "simple"
+          },
+          "result": {
+            "appliedToCurrentSession": false,
+            "configured": "simple",
+            "current": {
+              "aliases": [],
+              "description": "Plain answers",
+              "id": "simple",
+              "label": "Simple",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {}
+        },
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": "detailed"
+          },
+          "result": {
+            "appliedToCurrentSession": false,
+            "configured": "detailed",
+            "current": {
+              "aliases": [
+                "long",
+                "full"
+              ],
+              "description": "Deep answers",
+              "id": "detailed",
+              "label": "Detailed",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {
+            "outputStyle": "detailed"
+          }
+        }
+      ]
+    },
+    {
+      "config": {},
+      "files": {},
+      "name": "style-reach-unknown",
+      "reach": null,
+      "rootKeys": {
+        "outputStyle": "detailed"
+      },
+      "steps": [
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": "minimal"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "configured": "minimal",
+            "current": {
+              "aliases": [
+                "mini"
+              ],
+              "description": "Short",
+              "id": "minimal",
+              "label": "Minimal",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {
+            "outputStyle": "minimal"
+          }
+        }
+      ]
+    },
+    {
+      "config": {
+        "outputStyle": "minimal"
+      },
+      "files": {},
+      "name": "style-stored-agent-copy",
+      "reach": true,
+      "rootKeys": {
+        "outputStyle": "minimal"
+      },
+      "steps": [
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": "detailed"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "configured": "detailed",
+            "current": {
+              "aliases": [
+                "long",
+                "full"
+              ],
+              "description": "Deep answers",
+              "id": "detailed",
+              "label": "Detailed",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {
+            "outputStyle": "detailed"
+          }
+        },
+        {
+          "agent": {},
+          "method": "setOutputStyle",
+          "params": {
+            "value": "simple"
+          },
+          "result": {
+            "appliedToCurrentSession": true,
+            "configured": "simple",
+            "current": {
+              "aliases": [],
+              "description": "Plain answers",
+              "id": "simple",
+              "label": "Simple",
+              "source": "builtin"
+            },
+            "styles": [
+              {
+                "aliases": [
+                  "long",
+                  "full"
+                ],
+                "description": "Deep answers",
+                "id": "detailed",
+                "label": "Detailed",
+                "source": "builtin"
+              },
+              {
+                "aliases": [],
+                "description": "Plain answers",
+                "id": "simple",
+                "label": "Simple",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "mini"
+                ],
+                "description": "Short",
+                "id": "minimal",
+                "label": "Minimal",
+                "source": "builtin"
+              },
+              {
+                "aliases": [
+                  "xmin"
+                ],
+                "description": "",
+                "id": "extreme-minimal",
+                "label": "Extreme Minimal",
+                "source": "builtin"
+              }
+            ]
+          },
+          "root": {}
+        }
+      ]
+    }
+  ]
+}

@@ -399,6 +399,56 @@ impl SpawnFlowImpl {
         })
     }
 
+    /// `runToCompletion`: one workflow agent run to its end for a caller with no session to hand
+    /// the result to (a routine's executor). `context.caller_session_id` is the id the agent is
+    /// created under. Resolves the agent's session id and final content; fails when the agent
+    /// fails or is cancelled, or `cancel` fires (which cancels it silently). The agent's session is
+    /// closed afterwards.
+    pub async fn run_to_completion(
+        self: &Arc<Self>,
+        args: &Value,
+        caller_cwd: &str,
+        context: &SpawnContext,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<(Option<String>, String), String> {
+        const ABORTED: &str = "agent run aborted";
+        if cancel.is_cancelled() {
+            return Err(ABORTED.into());
+        }
+        let mut spawn_args = args.clone();
+        spawn_args["type"] = Value::String("spawn".into());
+        let job = self.start_deferred_spawn_job(&spawn_args, caller_cwd, context, context, SpawnOptions::default())?;
+        let task = job.task_id().to_owned();
+        let row = tokio::select! {
+            row = self.board.wait_terminal(&task) => row,
+            () = cancel.cancelled() => {
+                self.board.cancel(&task, ABORTED, crate::agent_tool::board::CancelNotice::Never);
+                self.board.wait_terminal(&task).await
+            }
+        };
+        let row = row.ok_or_else(|| "the agent run failed".to_owned())?;
+        let result_value = match &row.result {
+            Some(mixdog_tools::orch::agent::TaskResult::Json(value)) => value.clone(),
+            _ => Value::Null,
+        };
+        let session = row.meta.session_id.clone().filter(|s| !s.is_empty()).or_else(|| Some(clean(result_value.get("sessionId"))).filter(|s| !s.is_empty()));
+        if let Some(session) = &session {
+            // The run's result stands; a close that fails is swept with the idle agents.
+            self.sessions.close_session(session, "routine-executor-finished", CloseOptions { tombstone: false, owner_close: false }).await;
+        }
+        if cancel.is_cancelled() {
+            return Err(ABORTED.into());
+        }
+        match row.status.as_str() {
+            "cancelled" => Err("the agent run was cancelled".into()),
+            "completed" => {
+                let content = result_value.get("content").filter(|c| !c.is_null()).map(mixdog_js::value_to_string).unwrap_or_default();
+                Ok((session, content))
+            }
+            _ => Err(row.error.filter(|e| !e.is_empty()).unwrap_or_else(|| "the agent run failed".into())),
+        }
+    }
+
     /// The preset a pending card shows; an error shows nothing.
     fn pending_preset(&self, args: &Value) -> Option<Value> {
         let config = self.world.loaded_config()?;

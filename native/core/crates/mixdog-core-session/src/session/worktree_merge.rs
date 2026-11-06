@@ -60,7 +60,7 @@ impl FolderAdmission for Admission {
         for folder in &wanted {
             let checkout = inner.of(folder, &cancel).await?;
             holds.push(Box::new(inner.hold_project_folder(actor, folder, !checkout.as_ref().is_some_and(|c| c.external))?));
-            checkouts.push((folder.clone(), checkout.ok_or_else(|| errors::unsupported_repo(Some(folder.clone()), None))?));
+            checkouts.push((folder.clone(), checkout.ok_or_else(|| errors::coded_text(errors::WORKTREE_UNSUPPORTED_REPO, "This repository does not support managed worktrees."))?));
         }
         holds.push(Box::new(inner.gate.hold_activity(&checkouts, actor)?));
         let live = inner.host.live_sessions();

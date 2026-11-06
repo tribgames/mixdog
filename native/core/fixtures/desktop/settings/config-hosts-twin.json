@@ -1,0 +1,6328 @@
+{
+  "cases": [
+    {
+      "expected": false,
+      "model": null,
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": "gpt-5",
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o",
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o-mini",
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": "o1",
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": "text-embedding-3-small",
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": "grok-4",
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": "grok-2-image",
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": "gemini-2.5-pro",
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": "gemini-embedding-001",
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": "claude-opus-4-5",
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": "claude-3-haiku",
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku"
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": " gpt-5 ",
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 "
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": "",
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": ""
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportsWebSearch": true
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": false
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "tools": []
+      },
+      "provider": "openai"
+    },
+    {
+      "expected": false,
+      "model": null,
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": "gpt-5",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o-mini",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": "o1",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": "text-embedding-3-small",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": "grok-4",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": "grok-2-image",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": "gemini-2.5-pro",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": "gemini-embedding-001",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": "claude-opus-4-5",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": "claude-3-haiku",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku"
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": " gpt-5 ",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 "
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": "",
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": ""
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportsWebSearch": true
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": false
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "tools": []
+      },
+      "provider": "openai-oauth"
+    },
+    {
+      "expected": false,
+      "model": null,
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": "gpt-5",
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o",
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o-mini",
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": "o1",
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": "text-embedding-3-small",
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": "grok-4",
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": "grok-2-image",
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": "gemini-2.5-pro",
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": "gemini-embedding-001",
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": "claude-opus-4-5",
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": "claude-3-haiku",
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku"
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": " gpt-5 ",
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 "
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": "",
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": ""
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportsWebSearch": true
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": false
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "tools": []
+      },
+      "provider": "xai"
+    },
+    {
+      "expected": false,
+      "model": null,
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "gpt-5",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "gpt-4o",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "gpt-4o-mini",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "o1",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "text-embedding-3-small",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "grok-4",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "grok-2-image",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "gemini-2.5-pro",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "gemini-embedding-001",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "claude-opus-4-5",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "claude-3-haiku",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku"
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": " gpt-5 ",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 "
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": "",
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": ""
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": true
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": false
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "tools": []
+      },
+      "provider": "grok"
+    },
+    {
+      "expected": false,
+      "model": null,
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": "gpt-5",
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o",
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": "gpt-4o-mini",
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": "o1",
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": "text-embedding-3-small",
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": "grok-4",
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": "grok-2-image",
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": "gemini-2.5-pro",
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": "gemini-embedding-001",
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": "claude-opus-4-5",
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": "claude-3-haiku",
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku"
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": " gpt-5 ",
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 "
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": "",
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": ""
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportsWebSearch": true
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": false
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "tools": []
+      },
+      "provider": "gemini"
+    },
+    {
+      "expected": false,
+      "model": null,
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": "gpt-5",
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o",
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o-mini",
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": "o1",
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": "text-embedding-3-small",
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": "grok-4",
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": "grok-2-image",
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": "gemini-2.5-pro",
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": "gemini-embedding-001",
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": "claude-opus-4-5",
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": "claude-3-haiku",
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku"
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": " gpt-5 ",
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 "
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": "",
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": ""
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "tools": []
+      },
+      "provider": "anthropic"
+    },
+    {
+      "expected": false,
+      "model": null,
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": "gpt-5",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": "gpt-4o-mini",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gpt-4o-mini",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": "o1",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "o1",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": "text-embedding-3-small",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "text-embedding-3-small",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": "grok-4",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-4",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": "grok-2-image",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "grok-2-image",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": "gemini-2.5-pro",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": "gemini-embedding-001",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "gemini-embedding-001",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": "claude-opus-4-5",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-opus-4-5",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": "claude-3-haiku",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku"
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": " gpt-5 ",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 "
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": " gpt-5 ",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": "",
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": ""
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportsWebSearch": true
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": false
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": true,
+      "model": {
+        "id": "",
+        "tools": []
+      },
+      "provider": "anthropic-oauth"
+    },
+    {
+      "expected": false,
+      "model": null,
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "gpt-5",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "gpt-4o",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "gpt-4o-mini",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "o1",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "text-embedding-3-small",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "grok-4",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "grok-2-image",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "gemini-2.5-pro",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "gemini-embedding-001",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "claude-opus-4-5",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "claude-3-haiku",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku"
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": " gpt-5 ",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 "
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": "",
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": ""
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": true
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": false
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "tools": []
+      },
+      "provider": "mixdog-local"
+    },
+    {
+      "expected": false,
+      "model": null,
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "gpt-5",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "gpt-4o",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "gpt-4o-mini",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "o1",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "text-embedding-3-small",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "grok-4",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "grok-2-image",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "gemini-2.5-pro",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "gemini-embedding-001",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "claude-opus-4-5",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "claude-3-haiku",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku"
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": " gpt-5 ",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 "
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": "",
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": ""
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": true
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": false
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "tools": []
+      },
+      "provider": "custom-x"
+    },
+    {
+      "expected": false,
+      "model": null,
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "gpt-5",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-5",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "gpt-4o",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "gpt-4o-mini",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gpt-4o-mini",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "o1",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "o1",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "text-embedding-3-small",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "text-embedding-3-small",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "grok-4",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-4",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "grok-2-image",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "grok-2-image",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "gemini-2.5-pro",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-2.5-pro",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "gemini-embedding-001",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "gemini-embedding-001",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "claude-opus-4-5",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-opus-4-5",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "claude-3-haiku",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku"
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "claude-3-haiku",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": " gpt-5 ",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 "
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": " gpt-5 ",
+        "tools": []
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": "",
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": ""
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": true
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportsWebSearch": false
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "supportedTools": [
+          {
+            "name": "web_search"
+          }
+        ]
+      },
+      "provider": ""
+    },
+    {
+      "expected": false,
+      "model": {
+        "id": "",
+        "tools": []
+      },
+      "provider": ""
+    }
+  ],
+  "catalog": {
+    "claude-opus-4-5": {
+      "id": "claude-opus-4-5",
+      "supportsWebSearch": true
+    },
+    "gemini-2.5-pro": {
+      "capabilities": {
+        "tools": [
+          "code_execution"
+        ]
+      },
+      "id": "gemini-2.5-pro"
+    },
+    "gpt-4o": {
+      "id": "gpt-4o",
+      "supportedTools": [
+        {
+          "type": "web_search"
+        }
+      ]
+    },
+    "gpt-5": {
+      "id": "gpt-5",
+      "supportsWebSearch": false
+    },
+    "grok-4": {
+      "id": "grok-4",
+      "tools": [
+        "web_search"
+      ]
+    }
+  },
+  "domain": "config-hosts-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-config-hosts.mjs"
+}

@@ -6,7 +6,7 @@
     "ports": 3,
     "search": 10
   },
-  "fileCount": 35,
+  "fileCount": 38,
   "files": [
     {
       "bytes": 43749,
@@ -64,9 +64,9 @@
       "sha256": "fd7aab315c746866a19c759b87c246d439becc176e710c908b29ae966d875889"
     },
     {
-      "bytes": 125775,
+      "bytes": 164601,
       "path": "settings/agent-api-twin.json",
-      "sha256": "8502204b005379920205697a92215f28ffe8259ec0d5e936be9ef427ca665dcd"
+      "sha256": "2d094a73507a5b94d5e748a51262817eb51073c45d93f7694d32c1fd4266be27"
     },
     {
       "bytes": 4388088,
@@ -79,9 +79,14 @@
       "sha256": "2cb05c6b3ca683eaf7fbdd869235eb7abe16aefd152a9ff252c736db437be8d6"
     },
     {
-      "bytes": 249087,
+      "bytes": 313717,
       "path": "settings/agent-home-api-twin.json",
-      "sha256": "bb16492f8ae4d2e92dde89585f319e0fa52457867bebb7282c1b1acbda420c49"
+      "sha256": "2a0f6bb9003c2493e8b7378d98b54f4030ecb651b5e2f5515bddb79bbc08e4b9"
+    },
+    {
+      "bytes": 116041,
+      "path": "settings/config-hosts-twin.json",
+      "sha256": "09f16b0e9bf8df080d01daa0688f4837bbb3b5b93c7faa99342b4ff8eda6abb8"
     },
     {
       "bytes": 1878785,
@@ -119,9 +124,19 @@
       "sha256": "ef509e02fa3865894ae3172fa432721d6b20964f17d2e1d8068b85ffee92b56a"
     },
     {
-      "bytes": 19656358,
+      "bytes": 1894,
+      "path": "settings/errno-texts-twin.json",
+      "sha256": "606ecf3f21fe41c3179bf93c588f88219bf100c35c18f112f989a0541c60ff28"
+    },
+    {
+      "bytes": 12186,
+      "path": "settings/errno-win32-twin.json",
+      "sha256": "f0e396c8eb521910b228d69069afa89d5250de772cd542bd3792495865aa2a4e"
+    },
+    {
+      "bytes": 19779186,
       "path": "settings/lead-identity-twin.json",
-      "sha256": "ec8a2a8e89e417aed694872d7ded023154fa5fc869f5e1bdc0c89f507e2f7267"
+      "sha256": "c93f2e62ad40136168cedc0414a826cee89996f080eb63021d24badeadb0189"
     },
     {
       "bytes": 49430,
@@ -202,5 +217,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 40723727
+  "totalBytes": 41080132
 }

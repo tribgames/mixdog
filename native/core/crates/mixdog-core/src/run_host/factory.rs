@@ -8,6 +8,7 @@
 //! outcome.
 
 use std::collections::HashMap;
+use super::failed_turn_rewind;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -466,24 +467,38 @@ pub(crate) fn system_messages(header: &mixdog_store::schema::record::Header) -> 
 }
 
 async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
-    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, .. } = run;
+    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, skill_selection: routine_selection, input: submitted, input_item, .. } = run;
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
         Some(turn) => {
             let hook = turn.hooks.notify;
             let notify = mixdog_core_api::domain::tool::ToolNotify(Arc::new(move |text, meta| hook(text, meta)));
             (turn.slot, turn.skill_selection, Some(turn.hooks.on_tool_result), Some(notify))
         }
-        None => (None, None, None, None),
+        None => (None, routine_selection, None, None),
     };
     let surface_now = surface.borrow().clone();
     let hints = ToolHints::start(progress.subscribe(), port.clone());
     let tool_progress = RunToolProgress::new(progress.clone());
-    let stored = match context.read().await {
+    let mut stored = match context.read().await {
         Ok(stored) => stored,
         Err(error) => return failed(format!("model context unreadable: {error:?}"), Value::Null),
     };
-    let prior: Vec<Value> = stored.iter().map(|(_, body)| body.clone()).collect();
     let request = prompt_text(&input_body);
+    // A failed-turn retry starts without the stale copy of its prompt (`prepareAskTurn`). The
+    // context is restarted durably (the chained provider state re-baselines with it), at the rows
+    // that remain and this run's input, so the next turn reads the prompt once.
+    match failed_turn_rewind::rewound(&mut stored, submitted.options.as_ref(), &request) {
+        Ok(true) => {
+            let mut restart = stored.clone();
+            restart.push((input_item.clone(), input_body.clone()));
+            if port.context_rewound(restart).await.is_err() {
+                return failed("the failed prompt could not be removed from the model context", Value::Null);
+            }
+        }
+        Ok(false) => {}
+        Err(text) => return failed(text, Value::Null),
+    }
+    let prior: Vec<Value> = stored.iter().map(|(_, body)| body.clone()).collect();
     let injected = input_body.pointer("/meta/source").is_some_and(Value::is_string);
     let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, prior: &prior, request: &request, injected, notify, progress: tool_progress }).await {
         Ok(assembled) => assembled,
@@ -656,6 +671,8 @@ mod tests {
         codec: MockCodec,
         script: Mutex<VecDeque<Vec<StreamEvent>>>,
         requests: Mutex<Vec<Arc<ModelRequest>>>,
+        /// The next attempt is refused (a failed turn); it clears as it fires.
+        fail_first: std::sync::atomic::AtomicBool,
     }
 
     #[async_trait]
@@ -673,6 +690,9 @@ mod tests {
             &self.keepalive
         }
         async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            if self.fail_first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                return Err(ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::InvalidRequest, DeliveryState::NotSent));
+            }
             lock(&self.requests).push(request);
             let steps = lock(&self.script).pop_front().expect("provider script exhausted");
             Ok(Box::new(Steps(steps.into())))
@@ -793,6 +813,7 @@ mod tests {
                 vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
             ])),
             requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
         });
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
@@ -842,6 +863,71 @@ mod tests {
         let _ = AtomicI64::new(0);
     }
 
+    /// A failed turn's retry removes the stale copy of its prompt from the model context for good
+    /// (`prepareAskTurn`): the retry's own request and the next turn's both carry the prompt once,
+    /// while the transcript keeps every row it showed.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_retried_prompt_is_in_the_next_turns_model_context_once() {
+        let done = |text: &str| vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([done("fixed"), done("welcome")])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(true),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new() })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        let ended = || {
+            rig.store
+                .records(&id)
+                .into_iter()
+                .filter(|(_, record)| matches!(record, Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Completed | mixdog_store::schema::record::RunPhase::Failed)))
+                .count()
+        };
+        let turn = |input: Value, op: &str, want: usize| {
+            let (handle, op, thread) = (handle.clone(), op.to_owned(), id.clone());
+            let ended = &ended;
+            async move {
+                let started = handle.request(request("turn/start", json!({ "threadId": thread, "opId": op, "input": input }), &op)).await.expect("turn/start");
+                let Reply::Value(started) = started else { panic!("turn/start answers a value") };
+                assert_eq!(started["kind"], "started");
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+                while ended() < want {
+                    assert!(tokio::time::Instant::now() < deadline, "turn {op} did not end");
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }
+        };
+        turn(json!({ "prompt": "fix it" }), "op-1", 1).await;
+        assert!(lock(&provider.requests).is_empty(), "the first attempt was refused");
+        turn(json!({ "prompt": "fix it", "options": { "retryFailedTurn": true } }), "op-2", 2).await;
+        turn(json!({ "prompt": "thanks" }), "op-3", 3).await;
+
+        let prompts_of = |request: &ModelRequest| request.messages.iter().filter(|m| m.role == Role::User && format!("{:?}", m.content).contains("fix it")).count();
+        let requests = lock(&provider.requests).clone();
+        assert_eq!(requests.len(), 2, "the retry and the next turn each asked once");
+        assert_eq!(prompts_of(&requests[0]), 1, "the retry's request carries the prompt once");
+        assert_eq!(prompts_of(&requests[1]), 1, "the next turn's request carries it once, not the failed copy and the retry's");
+        assert_eq!(requests[1].messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::User]);
+        let transcript_prompts = rig
+            .store
+            .records(&id)
+            .into_iter()
+            .filter(|(_, record)| matches!(record, Record::Item(item) if item.visible && matches!(&item.body, Slot::Inline(body) if body["content"] == "fix it")))
+            .count();
+        assert_eq!(transcript_prompts, 2, "the transcript keeps the failed prompt beside the retry's");
+    }
+
     /// A tool that reports its output through `ctx.progress`, then waits to be released.
     struct Reporter {
         spec: ToolSpec,
@@ -880,6 +966,7 @@ mod tests {
                 vec![StreamEvent::TextDelta("ok".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
             ])),
             requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
         });
         let (reported, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
         let reporter = Reporter {
@@ -1180,6 +1267,7 @@ mod tests {
                 vec![StreamEvent::TextDelta("rebuilt".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
             ])),
             requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
         });
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();

@@ -74,7 +74,7 @@ async fn the_skill_lookup_answers_what_node_does() {
     let catalog = SkillCatalog::new(
         Path::new(&base).join("data"),
         tokens.maintenance_io,
-        Arc::new(move || vec![root.clone()]),
+        Arc::new(move |_| vec![root.clone()]),
         Arc::new(Settings(settings)),
         &SkillsWatch::new(),
     );

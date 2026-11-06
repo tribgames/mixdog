@@ -2,9 +2,12 @@
 //! by `record-home-delivery.mjs`: the real `createAgentHomeDelivery` over a real
 //! `routine-results.json`, driven by a script of operations. The Rust delivery replays the script
 //! over fakes of the same seams and must leave, after every operation, the same queue file, the
-//! same thread messages, the same live notices and the same wake turns (generated wake ids masked).
+//! same thread messages, the same live notices, the same wake turns and the same retry delays. Wake ids
+//! compare exactly: the recorder replaced Node's `crypto.randomUUID` with a counter and the queue's id
+//! source here is the same counter.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -40,6 +43,7 @@ impl Handoffs for NoHandoffs {
 
 #[derive(Default)]
 struct Ctl {
+    extra_drains: bool,
     busy: bool,
     refuse: u64,
     presence: BTreeMap<String, Presence>,
@@ -54,6 +58,9 @@ struct World {
     wakes: Mutex<Vec<Value>>,
     turns: Mutex<VecDeque<oneshot::Sender<String>>>,
     retries: Mutex<Vec<Box<dyn FnOnce() + Send>>>,
+    /// Every delay a retry was asked for, in order.
+    scheduled: Mutex<Vec<u64>>,
+    uuids: AtomicU64,
 }
 
 struct Threads(Arc<World>);
@@ -127,18 +134,13 @@ impl RoomRelay for NoRooms {
 
 struct Retries(Arc<World>);
 impl RetryTimer for Retries {
-    fn arm(&self, _: Duration, fire: Box<dyn FnOnce() + Send>) {
+    fn arm(&self, delay: Duration, fire: Box<dyn FnOnce() + Send>) {
+        self.0.scheduled.lock().unwrap().push(delay.as_millis() as u64);
         self.0.retries.lock().unwrap().push(fire);
     }
 }
 
 const HOMES: [&str; 4] = ["sess_home_reviewer", "sess_home_lead", "sess_home_ghost", "sess_home_critic"];
-
-/// Generated wake ids are masked as `<uuid>`.
-fn mask(value: Value) -> Value {
-    let uuid = regex::Regex::new("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
-    serde_json::from_str(&uuid.replace_all(&value.to_string(), "<uuid>")).unwrap()
-}
 
 fn text(value: &Value, key: &str) -> String {
     value.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
@@ -194,7 +196,9 @@ struct Replay {
 
 fn build(world: &Arc<World>, clock: &Arc<FixedClock>, dir: &std::path::Path, limit: usize) -> Arc<AgentHomeDelivery> {
     let state = StateJson::new(dir.join("routine-results.json"), mixdog_rt::testing::tokens().durability_io);
-    let queue = Arc::new(RoutineResultQueue::new(state, limit, QUEUE_CAPS, clock.clone(), Arc::new(NoHandoffs)));
+    let ids = world.clone();
+    let uuids = Arc::new(move || format!("00000000-0000-4000-8000-{:012x}", ids.uuids.fetch_add(1, Ordering::SeqCst) + 1));
+    let queue = Arc::new(RoutineResultQueue::new(state, limit, QUEUE_CAPS, clock.clone(), Arc::new(NoHandoffs)).with_uuids(uuids));
     let live = LiveSlot::new();
     live.set(Some(Arc::new(Live(world.clone()))));
     AgentHomeDelivery::new(
@@ -212,12 +216,14 @@ fn build(world: &Arc<World>, clock: &Arc<FixedClock>, dir: &std::path::Path, lim
 impl Replay {
     fn new() -> Self {
         let world = Arc::new(World {
-            ctl: Mutex::new(Ctl { mixy_exists: true, ..Ctl::default() }),
+            ctl: Mutex::new(Ctl { extra_drains: true, mixy_exists: true, ..Ctl::default() }),
             threads: Mutex::default(),
             notices: Mutex::default(),
             wakes: Mutex::default(),
             turns: Mutex::default(),
             retries: Mutex::default(),
+            scheduled: Mutex::default(),
+            uuids: AtomicU64::new(0),
         });
         let clock = Arc::new(FixedClock(Mutex::new(T0)));
         let dir = tempfile::tempdir().unwrap();
@@ -230,14 +236,37 @@ impl Replay {
         std::fs::read_to_string(self.dir.path().join("routine-results.json")).ok().and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or(Value::Null)
     }
 
+    /// What can still move: the queue file, the thread lengths and the counts of what the
+    /// delivery emitted.
+    fn fingerprint(&self) -> String {
+        let lengths: Vec<usize> = self.world.threads.lock().unwrap().values().map(Vec::len).collect();
+        format!(
+            "{}{lengths:?}{}{}{}",
+            self.queue_file(),
+            self.world.notices.lock().unwrap().len(),
+            self.world.wakes.lock().unwrap().len(),
+            self.world.scheduled.lock().unwrap().len()
+        )
+    }
+
+    /// The step's end: with xtraDrains every home is drained twice (joining a pass in flight),
+    /// then the passes the delivery started on its own (a fired retry, a settled wake) are waited
+    /// for until nothing moves, as the recorder does.
     async fn quiesce(&self) {
-        for _ in 0..20 {
-            tokio::task::yield_now().await;
-        }
-        for _ in 0..2 {
-            for home in HOMES {
-                self.delivery.drain(home).wait().await;
+        let extra = self.world.ctl.lock().unwrap().extra_drains;
+        if extra {
+            for _ in 0..2 {
+                for home in HOMES {
+                    self.delivery.drain(home).wait().await;
+                }
             }
+        }
+        let (mut last, mut same) = (String::new(), 0);
+        while same < 5 {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            let now = self.fingerprint();
+            same = if now == last { same + 1 } else { 0 };
+            last = now;
         }
     }
 
@@ -264,6 +293,10 @@ impl Replay {
             }
             "thread" => {
                 self.world.threads.lock().unwrap().insert(text(o, "id"), o["messages"].as_array().unwrap().clone());
+                Value::Null
+            }
+            "extraDrains" => {
+                self.world.ctl.lock().unwrap().extra_drains = o["value"].as_bool().unwrap();
                 Value::Null
             }
             "busy" => {
@@ -347,7 +380,7 @@ impl Replay {
 async fn replays_the_node_delivery_script() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let mut replay = Replay::new();
-    let (mut seen_notices, mut seen_wakes) = (0, 0);
+    let (mut seen_notices, mut seen_wakes, mut seen_delays) = (0, 0, 0);
     for (index, step) in golden["steps"].as_array().unwrap().iter().enumerate() {
         let out = replay.run(step).await;
         replay.quiesce().await;
@@ -355,11 +388,14 @@ async fn replays_the_node_delivery_script() {
         let notices = replay.world.notices.lock().unwrap().clone();
         let wakes = replay.world.wakes.lock().unwrap().clone();
         let threads = replay.world.threads.lock().unwrap().iter().map(|(id, messages)| (id.clone(), Value::Array(messages.clone()))).collect::<serde_json::Map<_, _>>();
-        assert_eq!(mask(out), step["out"], "{label}: result");
-        assert_eq!(mask(replay.queue_file()), step["queue"], "{label}: routine-results.json");
-        assert_eq!(mask(Value::Object(threads)), step["threads"], "{label}: threads");
-        assert_eq!(mask(Value::Array(notices[seen_notices..].to_vec())), step["notices"], "{label}: notices");
-        assert_eq!(mask(Value::Array(wakes[seen_wakes..].to_vec())), step["wakes"], "{label}: wakes");
+        let delays = replay.world.scheduled.lock().unwrap().clone();
+        assert_eq!(out, step["out"], "{label}: result");
+        assert_eq!(replay.queue_file(), step["queue"], "{label}: routine-results.json");
+        assert_eq!(Value::Object(threads), step["threads"], "{label}: threads");
+        assert_eq!(Value::Array(notices[seen_notices..].to_vec()), step["notices"], "{label}: notices");
+        assert_eq!(Value::Array(wakes[seen_wakes..].to_vec()), step["wakes"], "{label}: wakes");
+        assert_eq!(json!(delays[seen_delays..]), step["delays"], "{label}: retry delays");
+        seen_delays = delays.len();
         seen_notices = notices.len();
         seen_wakes = wakes.len();
     }

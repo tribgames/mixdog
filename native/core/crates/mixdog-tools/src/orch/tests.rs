@@ -24,14 +24,15 @@ use super::util::PortError;
 
 struct Facts;
 
+#[async_trait]
 impl CallerFacts for Facts {
-    fn is_heartbeat(&self, _: &ThreadId) -> bool {
+    async fn is_heartbeat(&self, _: &ThreadId) -> bool {
         false
     }
-    fn is_unattended(&self, _: &ThreadId) -> bool {
+    async fn is_unattended(&self, _: &ThreadId) -> bool {
         false
     }
-    fn user_available(&self, _: &ThreadId) -> bool {
+    async fn user_available(&self, _: &ThreadId) -> bool {
         true
     }
 }
@@ -79,7 +80,9 @@ impl SessionPort for Stub {
     async fn rename(&self, _: &ThreadId, _: &str) -> Result<String, RenameError> {
         Err(RenameError::UserTitle)
     }
-    async fn schedule_compact(&self, _: &ThreadId) {}
+    async fn schedule_compact(&self, _: &ThreadId) -> Result<(), PortError> {
+        Ok(())
+    }
     async fn fork(&self, _: &ThreadId, compact: bool) -> Result<(String, bool), PortError> {
         Ok(("sess_fork1".into(), compact))
     }

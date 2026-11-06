@@ -70,6 +70,8 @@ mod worktree_setup_run;
 mod worktree_setup_tests;
 #[path = "worktree_steps.rs"]
 mod worktree_steps;
+#[path = "worktree_project.rs"]
+mod worktree_project;
 #[path = "worktree_texts.rs"]
 mod worktree_texts;
 #[cfg(test)]
@@ -116,6 +118,7 @@ pub use self::worktree_setup_run::SetupReport;
 pub use self::worktree_setup_run::SetupRunner;
 pub use self::worktree_setup_run::SetupStatus;
 pub use self::worktree_service::ThreadScmService;
+pub(crate) use self::worktree_service::scm_error;
 pub use self::worktree_setup_run::SetupStep;
 pub use self::worktree_state::Resumed;
 pub use self::worktree_texts::RECOVERY_TURN_REFUSAL;
@@ -538,6 +541,12 @@ impl Inner {
 
     /// `WORKTREE_BUSY_JOBS` while this Lead has a turn, workers or background shells running.
     async fn assert_lead_idle(&self, session: &str, own_turn: bool) -> Result<(), ScmFailure> {
+        self.assert_lead_idle_with(session, own_turn, true).await
+    }
+
+    /// `assertLeadIdle(session, { ownTurn, shellJobs })`: `check_shells` false tolerates
+    /// background shells.
+    async fn assert_lead_idle_with(&self, session: &str, own_turn: bool, check_shells: bool) -> Result<(), ScmFailure> {
         let activity = self.host.activity(session).await;
         if !own_turn && activity.turn_running {
             return Err(busy("turn", |_| {}));
@@ -550,7 +559,7 @@ impl Inner {
                 }
             }));
         }
-        if activity.shell_jobs > 0 {
+        if check_shells && activity.shell_jobs > 0 {
             return Err(busy("shell-jobs", |d| {
                 if let DomainErrorDetail::WorktreeBusyJobs { shell_jobs, .. } = d {
                     *shell_jobs = Some(activity.shell_jobs);
@@ -563,6 +572,10 @@ impl Inner {
     /// A worktree-bound record with the branch its checkout has now (a `git branch -m` or switch
     /// inside it); a detached HEAD keeps the recorded branch.
     async fn follow_checkout_branch(&self, view: &mut Workspace, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        // Node reads the checkout's HEAD file (`readGitHead`), which a vanished folder has none of.
+        if !self.ops.exists(&view.cwd, cancel).await? {
+            return Ok(());
+        }
         let head = self
             .ops
             .wt

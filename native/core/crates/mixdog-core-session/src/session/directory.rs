@@ -10,7 +10,6 @@ use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
-use std::sync::atomic::Ordering::SeqCst;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::thread::ThreadStartParams;
@@ -112,6 +111,9 @@ pub(crate) struct DirInner {
     pub(super) deps: Arc<SessionDeps>,
     shards: Box<[Mutex<HashMap<ThreadId, Slot_>>]>,
     me: std::sync::Weak<DirInner>,
+    /// Opens begun, ever: a retention delete that read its tree's stored activity at one count
+    /// and finds another knows a member may have been opened, used and unloaded in between.
+    opens: std::sync::atomic::AtomicU64,
     /// `onGoalStatusChange`: each change goes to its loaded thread's Goal lane.
     goal_events: Mutex<Option<mixdog_core_goal::goal::Subscription>>,
 }
@@ -144,6 +146,7 @@ impl SessionDirectory {
             deps,
             shards: (0..SHARDS).map(|_| Mutex::new(HashMap::new())).collect(),
             me: me.clone(),
+            opens: Default::default(),
             goal_events: Mutex::new(None),
         });
         let me = Arc::downgrade(&inner);
@@ -197,6 +200,20 @@ impl SessionDirectory {
             let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::abort_session_turn_reason(id.as_str(), reason));
         }
         true
+    }
+
+    /// `abortSession({sessionId})` for the `session` tool's cancel: the user's interrupt of the
+    /// turn running in the session. `true` when a turn was running and is now cancelled; a
+    /// session that is not loaded or runs no turn is `false`.
+    pub fn interrupt_running_turn(&self, id: &ThreadId) -> Result<bool, CoreError> {
+        let Some(handle) = self.inner.loaded(id).filter(|handle| !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst)) else {
+            return Ok(false);
+        };
+        let Some(run) = handle.cell.run.load_full() else {
+            return Ok(false);
+        };
+        handle.cell.interrupt(&run.turn)?;
+        Ok(true)
     }
 
     /// A thread's model context (`session.messages`), read from the store; a thread need not be
@@ -284,17 +301,25 @@ impl SessionDirectory {
     /// A session's header: the live one of a loaded thread, else the stored record read on the io
     /// lane. `None` when the session is unknown or deleted.
     pub async fn stored_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
-        if let Some(handle) = self.handle(id) {
-            return Some(handle.cell.header.load_full().as_ref().clone());
-        }
-        let deps = &self.inner.deps;
-        let (store, thread) = (deps.store.clone(), id.clone());
-        deps.lanes.io.submit(&CancellationToken::new(), move |lane| store.read_header(lane, &thread)).ok()?.await.ok()?.ok()
+        self.inner.stored_header(id).await
     }
 
-    /// `deleteSession(id)` for a session not open in this process: `true` once it is gone.
-    pub async fn delete_stored(&self, id: &str) -> Result<bool, CoreError> {
-        super::delete::delete_session(&self.inner, id).await
+    /// `deleteSession(id, { isSessionLive: treeChanged })` for a session not open in this
+    /// process: `true` once it is gone. The thread's own admission rechecks, before it closes
+    /// anything, that nobody opened or used the session since the pass read `activity`, that
+    /// no other member of its tree (`peers`, each with the activity the pass read) is open or
+    /// has moved, and that `cancel` (the sweep's shutdown) has not fired; any refuses with
+    /// `false`.
+    pub async fn delete_stored(
+        &self,
+        id: &str,
+        activity: f64,
+        peers: &[(String, f64)],
+        cancel: &CancellationToken,
+    ) -> Result<bool, CoreError> {
+        let peers = peers.iter().map(|(peer, at)| (ThreadId::from(peer.as_str()), *at)).collect();
+        let guard = super::control::DeleteGuard { activity, cancel: cancel.clone(), peers, opens: 0 };
+        super::delete::delete_session(&self.inner, id, Some(guard)).await
     }
 
     /// The ids of every loaded thread (the threads this process hosts).
@@ -326,6 +351,13 @@ impl SessionDirectory {
             })
             .await
             .map(|_| ())
+    }
+
+    /// Creates a thread under a minted id with `header` as its first durable write (an internal
+    /// `createSession`: nobody subscribes to it).
+    pub async fn create_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
+        let spec = CreateSpec { id: None, header, base: None, op: None, method: Method("thread/start"), params };
+        self.inner.create(spec).await.map(|handle| handle.id.clone())
     }
 
     /// A session's title, agent, owner session and source type, from the index without loading
@@ -429,17 +461,50 @@ impl DirInner {
     pub(crate) fn unload(&self, id: &ThreadId, cell: &Arc<ControlCell>) -> bool {
         let mut shard = lock(self.shard(id));
         let ours = matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell));
-        if !ours || cell.subscribers.load(SeqCst) != 0 {
+        // The check and the close are one transition of the admission word: an attach that
+        // comes after it fails, one before it makes the close fail.
+        if !ours || !cell.close_unattached() {
             return false;
         }
-        // An attach that counts itself after the check sees `closed` and fails.
-        cell.closed.store(true, SeqCst);
         shard.remove(id);
         true
     }
 
     pub(crate) fn deps(&self) -> &Arc<SessionDeps> {
         &self.deps
+    }
+
+    /// A session's header: the live one of a loaded thread, else the stored record read on the io
+    /// lane. `None` when the session is unknown or deleted.
+    async fn stored_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
+        if let Some(handle) = self.loaded(id) {
+            return Some(handle.cell.header.load_full().as_ref().clone());
+        }
+        let (store, thread) = (self.deps.store.clone(), id.clone());
+        self.deps.lanes.io.submit(&CancellationToken::new(), move |lane| store.read_header(lane, &thread)).ok()?.await.ok()?.ok()
+    }
+
+    /// `treeChanged` for a delete, in the thread's own admission: a peer is open (or opening),
+    /// or an open began since `opens`, the count the peers' stored activity was read at.
+    pub(crate) fn peers_changed(&self, peers: &[(ThreadId, f64)], opens: u64) -> bool {
+        self.opens.load(std::sync::atomic::Ordering::SeqCst) != opens
+            || peers.iter().any(|(peer, _)| lock(self.shard(peer)).contains_key(peer))
+    }
+
+    /// Whether a peer is open or its stored activity is not what the sweep read (an unreadable
+    /// record counts as moved), read at the open count `guard.opens` records.
+    async fn peers_moved(&self, guard: &mut super::control::DeleteGuard) -> bool {
+        guard.opens = self.opens.load(std::sync::atomic::Ordering::SeqCst);
+        for (peer, read) in &guard.peers {
+            if lock(self.shard(peer)).contains_key(peer) {
+                return true;
+            }
+            let stored = self.stored_header(peer).await.map(|header| super::sub_agent_retention::activity_at(&header));
+            if stored != Some(*read) {
+                return true;
+            }
+        }
+        false
     }
 
     pub(crate) fn loaded_handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
@@ -455,14 +520,22 @@ impl DirInner {
         id: &ThreadId,
         reason: &str,
         idle: bool,
+        mut guard: Option<super::control::DeleteGuard>,
     ) -> Result<Result<DeleteHold, &'static str>, CoreError> {
         let Some(handle) = self.delete_target(id).await? else {
             return Ok(Err("missing"));
         };
+        // The tree's stored activity is read after the target is open (its own open is not a
+        // peer's), and the thread's admission re-asks, synchronously, that nothing opened since.
+        if let Some(guard) = guard.as_mut()
+            && self.peers_moved(guard).await
+        {
+            return Ok(Err("changed"));
+        }
         let (closed, closed_rx) = oneshot::channel();
         let (mark, mark_rx) = oneshot::channel();
         let (marked_tx, marked) = oneshot::channel();
-        let delete = Ctl::Delete { reason: reason.to_owned(), idle, closed, mark: mark_rx, marked: marked_tx };
+        let delete = Ctl::Delete { reason: reason.to_owned(), idle, guard, closed, mark: mark_rx, marked: marked_tx };
         let closing = || CoreError::ThreadClosing { thread_id: id.clone() };
         handle.cell.ctl_tx.send(delete).await.map_err(|_| closing())?;
         match closed_rx.await.map_err(|_| closing())? {
@@ -504,6 +577,7 @@ impl DirInner {
                 Some(Slot_::Loading(rx)) => rx.clone(),
                 None => {
                     let (tx, rx) = watch::channel(None);
+                    self.opens.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     shard.insert(id.clone(), Slot_::Loading(rx.clone()));
                     let me = self.me.upgrade().expect("the directory is alive while used");
                     let thread = id.clone();
@@ -648,6 +722,7 @@ impl DirInner {
             thread: id.clone(),
             run: Default::default(),
             queued: Default::default(),
+            queue: arc_swap::ArcSwap::from_pointee(state.queue.clone()),
             approvals: Default::default(),
             view: arc_swap::ArcSwap::new(view),
             header: arc_swap::ArcSwap::from_pointee(state.header.clone()),
@@ -656,11 +731,11 @@ impl DirInner {
             turn_messages: watch::Sender::new(Default::default()),
             turn_listeners: Default::default(),
             agent_start: Default::default(),
+            routine_starts: Default::default(),
             grants: Default::default(),
             ctl_tx,
             steer_cap: limits.steer_queue,
             subscribers: Default::default(),
-            ever_subscribed: Default::default(),
             closed: Default::default(),
         });
         let handle = Arc::new(SessionHandle {

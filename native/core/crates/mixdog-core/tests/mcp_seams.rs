@@ -433,7 +433,7 @@ async fn the_skill_listing_answers_from_the_catalog() {
     let catalog = SkillCatalog::new(
         dir.path().to_path_buf(),
         tokens.maintenance_io,
-        Arc::new(move || vec![skill_root.clone()]),
+        Arc::new(move |_lane| vec![skill_root.clone()]),
         Arc::new(NoSettings),
         &SkillsWatch::new(),
     );

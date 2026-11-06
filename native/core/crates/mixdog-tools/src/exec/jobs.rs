@@ -1142,12 +1142,31 @@ impl ExecRuntime {
             state.cancelled = cancelled;
         }
         let status = if cancelled { SpawnStatus::Cancelled } else { SpawnStatus::Completed };
-        let _ = self.config.tasks.finish(&job.id, TaskOutcome { status, exit_code: None });
+        self.finish_row(&job.id, TaskOutcome { status, exit_code: None });
         // The tracked task's end, like `completeBackgroundTask`: its folder may have changed.
         super::settle::note_command_settled(job.review.as_ref(), &job.cwd);
         let word = if cancelled { "cancelled" } else { "completed" };
         job.report_finished(self.config.notifier.as_deref(), word, job.survivors_notification(word)).await;
         job.settled.send_replace(true);
+    }
+
+    /// A cancel of `job` could not confirm its processes gone: the row is held
+    /// (`terminationUnconfirmed`) so the surfaces list it, the user may release it and a closed
+    /// owner's hold is found. A job that has already ended is confirmed gone, so nothing is held.
+    pub(crate) fn hold_unconfirmed(&self, job: &Job) {
+        // The state lock orders this against the job's end: `finished` is set under it before
+        // `finish_row` clears the hold, so a hold set here is always cleared by that end.
+        let state = job.state();
+        if !state.finished {
+            let _ = self.config.tasks.set_termination_unconfirmed(&job.id, true);
+        }
+    }
+
+    /// The job ended, so its processes are confirmed gone: a hold a cancel left on the row ends
+    /// with it, and the row finishes.
+    fn finish_row(&self, id: &str, outcome: TaskOutcome) {
+        let _ = self.config.tasks.set_termination_unconfirmed(id, false);
+        let _ = self.config.tasks.finish(id, outcome);
     }
 
     /// Forgets a finished foreground job; its row leaves the registry.
@@ -1209,7 +1228,7 @@ async fn collect(
             exit_code: f.exit_code,
         },
     );
-    let _ = runtime.config.tasks.finish(&job.id, outcome);
+    runtime.finish_row(&job.id, outcome);
     if detached {
         // A background task's end is a boundary for the review of its folder (`completeBackgroundTask`).
         super::settle::note_command_settled(job.review.as_ref(), &job.cwd);

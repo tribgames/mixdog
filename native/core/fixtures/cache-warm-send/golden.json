@@ -1,0 +1,1047 @@
+{
+  "deadlines": {
+    "firstByteMs": 30000,
+    "sseIdleMs": 10000
+  },
+  "gate": [
+    {
+      "name": "empty roster, no stored reading",
+      "nowPlusMs": 0,
+      "provider": "anthropic-oauth",
+      "reason": "no fresh quota reading",
+      "ref": ""
+    },
+    {
+      "name": "a provider without a roster",
+      "nowPlusMs": 0,
+      "provider": "anthropic",
+      "reason": null,
+      "ref": ""
+    },
+    {
+      "name": "a fresh account",
+      "nowPlusMs": 0,
+      "provider": "anthropic-oauth",
+      "reason": null,
+      "ref": "ok"
+    },
+    {
+      "name": "the account is unknown",
+      "nowPlusMs": 0,
+      "provider": "anthropic-oauth",
+      "reason": "account holding the cache unknown",
+      "ref": ""
+    },
+    {
+      "name": "the account is not connected",
+      "nowPlusMs": 0,
+      "provider": "anthropic-oauth",
+      "reason": "account not connected",
+      "ref": "nobody"
+    },
+    {
+      "name": "an account never measured",
+      "nowPlusMs": 0,
+      "provider": "anthropic-oauth",
+      "reason": "no fresh quota reading",
+      "ref": "unmeasured"
+    },
+    {
+      "name": "a reading older than the roster trusts",
+      "nowPlusMs": 7200000,
+      "provider": "anthropic-oauth",
+      "reason": "no fresh quota reading",
+      "ref": "ok"
+    },
+    {
+      "name": "a full window",
+      "nowPlusMs": 0,
+      "provider": "anthropic-oauth",
+      "reason": "account blocked or quota exhausted",
+      "ref": "full"
+    },
+    {
+      "name": "a blocked account",
+      "nowPlusMs": 0,
+      "provider": "anthropic-oauth",
+      "reason": "account blocked or quota exhausted",
+      "ref": "blocked"
+    }
+  ],
+  "roster": [
+    {
+      "ref": "ok",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "unmeasured",
+      "usage": null
+    },
+    {
+      "ref": "full",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "resetAt": "in-1h",
+            "usedPct": 100
+          }
+        ]
+      }
+    },
+    {
+      "blockMs": 600000,
+      "ref": "blocked",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-0",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-4",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-5",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-6",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-7",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-8",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-9",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-10",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-11",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-12",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-13",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-16",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-17",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-18",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    },
+    {
+      "ref": "send-19",
+      "usage": {
+        "quotaWindows": [
+          {
+            "label": "5H",
+            "usedPct": 10
+          }
+        ]
+      }
+    }
+  ],
+  "sends": [
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "a roster account with room",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-0",
+      "responses": [
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+          ],
+          "kind": "sse"
+        }
+      ],
+      "runs": [
+        {
+          "laneBlock": null,
+          "reports": [
+            {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          ],
+          "usage": {
+            "cacheWriteTokens": 0,
+            "cachedTokens": 70000,
+            "inputTokens": 3,
+            "outputTokens": 1,
+            "promptTokens": 70003
+          }
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "a provider without a roster",
+      "posts": 1,
+      "provider": "anthropic",
+      "ref": "",
+      "responses": [
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+          ],
+          "kind": "sse"
+        }
+      ],
+      "runs": [
+        {
+          "laneBlock": null,
+          "reports": [
+            {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          ],
+          "usage": {
+            "cacheWriteTokens": 0,
+            "cachedTokens": 70000,
+            "inputTokens": 3,
+            "outputTokens": 1,
+            "promptTokens": 70003
+          }
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "the account is unknown: skipped before any POST",
+      "posts": 0,
+      "provider": "anthropic-oauth",
+      "ref": "",
+      "responses": [
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+          ],
+          "kind": "sse"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "ECACHEWARMBLOCKED",
+            "message": "cache warm skipped: account holding the cache unknown",
+            "providerErrorType": null,
+            "status": null,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "the account is blocked: skipped",
+      "posts": 0,
+      "provider": "anthropic-oauth",
+      "ref": "blocked",
+      "responses": [
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+          ],
+          "kind": "sse"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "ECACHEWARMBLOCKED",
+            "message": "cache warm skipped: account blocked or quota exhausted",
+            "providerErrorType": null,
+            "status": null,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "a 429 lands in the lane cooldown and the next warm is skipped",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-4",
+      "responses": [
+        {
+          "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down\"}}",
+          "headers": {
+            "retry-after": "20"
+          },
+          "kind": "status",
+          "status": 429
+        },
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+          ],
+          "kind": "sse"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "rate_limit_error",
+            "message": "Anthropic OAuth API 429 request rejected retryAfter=20s: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down\"}}",
+            "providerErrorType": null,
+            "status": 429,
+            "usage": null
+          },
+          "laneBlock": "rate-limit cooldown",
+          "reports": []
+        },
+        {
+          "error": {
+            "code": "ECACHEWARMBLOCKED",
+            "message": "cache warm skipped: rate-limit cooldown",
+            "providerErrorType": null,
+            "status": null,
+            "usage": null
+          },
+          "laneBlock": "rate-limit cooldown",
+          "reports": []
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "a 529 is not retried and leaves no cooldown",
+      "posts": 2,
+      "provider": "anthropic-oauth",
+      "ref": "send-5",
+      "responses": [
+        {
+          "body": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+          "kind": "status",
+          "status": 529
+        },
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+          ],
+          "kind": "sse"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "overloaded_error",
+            "message": "Anthropic OAuth API 529 request rejected: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+            "providerErrorType": null,
+            "status": 529,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        },
+        {
+          "laneBlock": null,
+          "reports": [
+            {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          ],
+          "usage": {
+            "cacheWriteTokens": 0,
+            "cachedTokens": 70000,
+            "inputTokens": 3,
+            "outputTokens": 1,
+            "promptTokens": 70003
+          }
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "a 429 with the unified quota headers",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-6",
+      "responses": [
+        {
+          "body": "",
+          "headers": {
+            "anthropic-ratelimit-unified-representative-claim": "five_hour",
+            "retry-after": "120"
+          },
+          "kind": "status",
+          "status": 429
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "rate_limit_error",
+            "message": "Anthropic OAuth API 429 quota/rate limit retryAfter=2m",
+            "providerErrorType": null,
+            "status": 429,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "a 401 body",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-7",
+      "responses": [
+        {
+          "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
+          "kind": "status",
+          "status": 401
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "authentication_error",
+            "message": "Anthropic OAuth API 401 request rejected: {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
+            "providerErrorType": null,
+            "status": 401,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "a 500 without a body",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-8",
+      "responses": [
+        {
+          "body": "",
+          "kind": "status",
+          "status": 500
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "api_error",
+            "message": "Anthropic OAuth API 500 request rejected",
+            "providerErrorType": null,
+            "status": 500,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "the POST itself fails",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-9",
+      "responses": [
+        {
+          "kind": "throw",
+          "message": "connect ECONNREFUSED"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": null,
+            "message": "connect ECONNREFUSED",
+            "providerErrorType": null,
+            "status": null,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "an error frame after usage carries the usage",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-10",
+      "responses": [
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}\n\n"
+          ],
+          "kind": "sse"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "overloaded_error",
+            "message": "Anthropic cache warm SSE error overloaded_error: busy",
+            "providerErrorType": "overloaded_error",
+            "status": 529,
+            "usage": {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          },
+          "laneBlock": null,
+          "reports": [
+            {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          ]
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "an SSE rate_limit_error is a 429 with its type; without advice the lane stays open",
+      "posts": 2,
+      "provider": "anthropic-oauth",
+      "ref": "send-11",
+      "responses": [
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down\"}}\n\n"
+          ],
+          "kind": "sse"
+        },
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+          ],
+          "kind": "sse"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "rate_limit_error",
+            "message": "Anthropic cache warm SSE error rate_limit_error: slow down",
+            "providerErrorType": "rate_limit_error",
+            "status": 429,
+            "usage": {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          },
+          "laneBlock": null,
+          "reports": [
+            {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          ]
+        },
+        {
+          "laneBlock": null,
+          "reports": [
+            {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          ],
+          "usage": {
+            "cacheWriteTokens": 0,
+            "cachedTokens": 70000,
+            "inputTokens": 3,
+            "outputTokens": 1,
+            "promptTokens": 70003
+          }
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "the message ends without content",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-12",
+      "responses": [
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+          ],
+          "kind": "sse"
+        }
+      ],
+      "runs": [
+        {
+          "laneBlock": null,
+          "reports": [
+            {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            },
+            {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          ],
+          "usage": {
+            "cacheWriteTokens": 0,
+            "cachedTokens": 70000,
+            "inputTokens": 3,
+            "outputTokens": 1,
+            "promptTokens": 70003
+          }
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": true,
+      "name": "a caller that aborted first is no refusal",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-13",
+      "responses": [
+        {
+          "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down\"}}",
+          "headers": {
+            "retry-after": "20"
+          },
+          "kind": "status",
+          "status": 429
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "rate_limit_error",
+            "message": "Anthropic OAuth API 429 request rejected retryAfter=20s: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down\"}}",
+            "providerErrorType": null,
+            "status": 429,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "an API-key POST refused with a 401",
+      "posts": 1,
+      "provider": "anthropic",
+      "ref": "",
+      "responses": [
+        {
+          "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
+          "kind": "status",
+          "status": 401
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "authentication_error",
+            "message": "Anthropic OAuth API 401 request rejected: {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
+            "providerErrorType": null,
+            "status": 401,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "an API-key 429 lands in the lane cooldown",
+      "posts": 1,
+      "provider": "anthropic",
+      "ref": "",
+      "responses": [
+        {
+          "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down\"}}",
+          "headers": {
+            "retry-after": "20"
+          },
+          "kind": "status",
+          "status": 429
+        },
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+          ],
+          "kind": "sse"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": "rate_limit_error",
+            "message": "Anthropic OAuth API 429 request rejected retryAfter=20s: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down\"}}",
+            "providerErrorType": null,
+            "status": 429,
+            "usage": null
+          },
+          "laneBlock": "rate-limit cooldown",
+          "reports": []
+        },
+        {
+          "error": {
+            "code": "ECACHEWARMBLOCKED",
+            "message": "cache warm skipped: rate-limit cooldown",
+            "providerErrorType": null,
+            "status": null,
+            "usage": null
+          },
+          "laneBlock": "rate-limit cooldown",
+          "reports": []
+        }
+      ],
+      "timed": false
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "a POST that never answers ends at the first-byte deadline",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-16",
+      "responses": [
+        {
+          "kind": "hang"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": null,
+            "message": "cache warm first byte timed out after 30000ms",
+            "providerErrorType": null,
+            "status": null,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        }
+      ],
+      "timed": true
+    },
+    {
+      "abortAfterMs": 0,
+      "aborted": false,
+      "name": "a stream that goes quiet after usage ends at the idle deadline",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-17",
+      "responses": [
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\n"
+          ],
+          "kind": "sse-hang"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": null,
+            "message": "cache warm stream timed out after 10000ms",
+            "providerErrorType": null,
+            "status": null,
+            "usage": {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          },
+          "laneBlock": null,
+          "reports": [
+            {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          ]
+        }
+      ],
+      "timed": true
+    },
+    {
+      "abortAfterMs": 100,
+      "aborted": false,
+      "name": "a caller aborting while the POST is pending",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-18",
+      "responses": [
+        {
+          "kind": "hang"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": 20,
+            "message": "This operation was aborted",
+            "providerErrorType": null,
+            "status": null,
+            "usage": null
+          },
+          "laneBlock": null,
+          "reports": []
+        }
+      ],
+      "timed": true
+    },
+    {
+      "abortAfterMs": 100,
+      "aborted": false,
+      "name": "a caller aborting mid-stream after usage",
+      "posts": 1,
+      "provider": "anthropic-oauth",
+      "ref": "send-19",
+      "responses": [
+        {
+          "chunks": [
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":70000,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\n"
+          ],
+          "kind": "sse-hang"
+        }
+      ],
+      "runs": [
+        {
+          "error": {
+            "code": 20,
+            "message": "This operation was aborted",
+            "providerErrorType": null,
+            "status": null,
+            "usage": {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          },
+          "laneBlock": null,
+          "reports": [
+            {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 70000,
+              "inputTokens": 3,
+              "outputTokens": 1,
+              "promptTokens": 70003
+            }
+          ]
+        }
+      ],
+      "timed": true
+    }
+  ]
+}

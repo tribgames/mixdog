@@ -91,8 +91,12 @@ pub enum FsStep {
     Rename(PathBuf, PathBuf),
     /// `unlinkSync(path)`, as `rmSync(path, { force: true })` ends in for a file.
     Unlink(PathBuf),
+    /// `rmdirSync(path)`.
+    Rmdir(PathBuf),
     /// `rmSync(path)` on a directory, which Node refuses before any syscall.
     RemoveDirectory(PathBuf),
+    /// `statSync(path)`.
+    Stat(PathBuf),
 }
 
 /// A file operation that failed, with the step Node would have failed at.
@@ -102,31 +106,233 @@ pub struct FsFailure {
     pub step: FsStep,
 }
 
-impl FsFailure {
-    fn at(step: FsStep) -> impl FnOnce(std::io::Error) -> FsFailure {
-        move |error| FsFailure { error, step }
-    }
-}
 
-/// libuv's errno name and description for a failed call. Windows reports a denied access as
-/// `EPERM` (libuv translates `ERROR_ACCESS_DENIED` so), other systems as `EACCES`.
+/// libuv's name and description of every errno a file operation of the publication path (open,
+/// write, fsync, rename, unlink) can fail with: `uv_err_name` and `uv_strerror`, which are what
+/// Node's `<CODE>: <description>, <syscall>` text prints.
+const ERRNOS: &[(&str, &str)] = &[
+    ("EPERM", "operation not permitted"),
+    ("ENOENT", "no such file or directory"),
+    ("EIO", "i/o error"),
+    ("EBADF", "bad file descriptor"),
+    ("EACCES", "permission denied"),
+    ("EBUSY", "resource busy or locked"),
+    ("EEXIST", "file already exists"),
+    ("EXDEV", "cross-device link not permitted"),
+    ("ENOTDIR", "not a directory"),
+    ("EISDIR", "illegal operation on a directory"),
+    ("EINVAL", "invalid argument"),
+    ("EMFILE", "too many open files"),
+    ("ENFILE", "file table overflow"),
+    ("ENOSPC", "no space left on device"),
+    ("EROFS", "read-only file system"),
+    ("EMLINK", "too many links"),
+    ("ENAMETOOLONG", "name too long"),
+    ("ENOTEMPTY", "directory not empty"),
+    ("ELOOP", "too many symbolic links encountered"),
+    ("ETXTBSY", "text file is busy"),
+    ("EFBIG", "file too large"),
+    ("ENOMEM", "not enough memory"),
+    ("ENOTSUP", "operation not supported on socket"),
+    ("EAGAIN", "resource temporarily unavailable"),
+    ("EINTR", "interrupted system call"),
+    ("EFAULT", "bad address in system call argument"),
+    ("ENODEV", "no such device"),
+    ("ESPIPE", "invalid seek"),
+    ("EOVERFLOW", "value too large for defined data type"),
+    ("ECANCELED", "operation canceled"),
+    ("ETIMEDOUT", "connection timed out"),
+    ("ENXIO", "no such device or address"),
+    ("E2BIG", "argument list too long"),
+    ("EADDRINUSE", "address already in use"),
+    ("EADDRNOTAVAIL", "address not available"),
+    ("EAFNOSUPPORT", "address family not supported"),
+    ("EALREADY", "connection already in progress"),
+    ("ECHARSET", "invalid Unicode character"),
+    ("ECONNABORTED", "software caused connection abort"),
+    ("ECONNREFUSED", "connection refused"),
+    ("ECONNRESET", "connection reset by peer"),
+    ("EFTYPE", "inappropriate file type or format"),
+    ("EHOSTUNREACH", "host is unreachable"),
+    ("EISCONN", "socket is already connected"),
+    ("EMSGSIZE", "message too long"),
+    ("ENETUNREACH", "network is unreachable"),
+    ("ENOBUFS", "no buffer space available"),
+    ("ENOTCONN", "socket is not connected"),
+    ("ENOTSOCK", "socket operation on non-socket"),
+    ("EOF", "end of file"),
+    ("EPIPE", "broken pipe"),
+    ("EPROTONOSUPPORT", "protocol not supported"),
+    ("ESOCKTNOSUPPORT", "socket type not supported"),
+    ("UNKNOWN", "unknown error"),
+];
+
+/// libuv's translation of a Win32 error, `uv_translate_sys_error` (src/win/error.c) entry for entry;
+/// pinned to the source by `errno-win32-twin.json` (`record-errno-win32.mjs`).
+#[cfg(windows)]
+const OS_ERRORS: &[(i32, &str)] = &[
+    (10013, "EACCES"), // WSAEACCES
+    (740, "EACCES"), // ERROR_ELEVATION_REQUIRED
+    (1920, "EACCES"), // ERROR_CANT_ACCESS_FILE
+    (1227, "EADDRINUSE"), // ERROR_ADDRESS_ALREADY_ASSOCIATED
+    (10048, "EADDRINUSE"), // WSAEADDRINUSE
+    (10049, "EADDRNOTAVAIL"), // WSAEADDRNOTAVAIL
+    (10047, "EAFNOSUPPORT"), // WSAEAFNOSUPPORT
+    (10035, "EAGAIN"), // WSAEWOULDBLOCK
+    (232, "EAGAIN"), // ERROR_NO_DATA
+    (10037, "EALREADY"), // WSAEALREADY
+    (1004, "EBADF"), // ERROR_INVALID_FLAGS
+    (6, "EBADF"), // ERROR_INVALID_HANDLE
+    (33, "EBUSY"), // ERROR_LOCK_VIOLATION
+    (231, "EBUSY"), // ERROR_PIPE_BUSY
+    (32, "EBUSY"), // ERROR_SHARING_VIOLATION
+    (995, "ECANCELED"), // ERROR_OPERATION_ABORTED
+    (10004, "ECANCELED"), // WSAEINTR
+    (1113, "ECHARSET"), // ERROR_NO_UNICODE_TRANSLATION
+    (1236, "ECONNABORTED"), // ERROR_CONNECTION_ABORTED
+    (10053, "ECONNABORTED"), // WSAECONNABORTED
+    (1225, "ECONNREFUSED"), // ERROR_CONNECTION_REFUSED
+    (10061, "ECONNREFUSED"), // WSAECONNREFUSED
+    (64, "ECONNRESET"), // ERROR_NETNAME_DELETED
+    (10054, "ECONNRESET"), // WSAECONNRESET
+    (183, "EEXIST"), // ERROR_ALREADY_EXISTS
+    (80, "EEXIST"), // ERROR_FILE_EXISTS
+    (998, "EFAULT"), // ERROR_NOACCESS
+    (10014, "EFAULT"), // WSAEFAULT
+    (1232, "EHOSTUNREACH"), // ERROR_HOST_UNREACHABLE
+    (10065, "EHOSTUNREACH"), // WSAEHOSTUNREACH
+    (122, "EINVAL"), // ERROR_INSUFFICIENT_BUFFER
+    (13, "EINVAL"), // ERROR_INVALID_DATA
+    (87, "EINVAL"), // ERROR_INVALID_PARAMETER
+    (1464, "EINVAL"), // ERROR_SYMLINK_NOT_SUPPORTED
+    (10022, "EINVAL"), // WSAEINVAL
+    (10046, "EINVAL"), // WSAEPFNOSUPPORT
+    (1102, "EIO"), // ERROR_BEGINNING_OF_MEDIA
+    (1111, "EIO"), // ERROR_BUS_RESET
+    (23, "EIO"), // ERROR_CRC
+    (1166, "EIO"), // ERROR_DEVICE_DOOR_OPEN
+    (1165, "EIO"), // ERROR_DEVICE_REQUIRES_CLEANING
+    (1393, "EIO"), // ERROR_DISK_CORRUPT
+    (1129, "EIO"), // ERROR_EOM_OVERFLOW
+    (1101, "EIO"), // ERROR_FILEMARK_DETECTED
+    (31, "EIO"), // ERROR_GEN_FAILURE
+    (1106, "EIO"), // ERROR_INVALID_BLOCK_LENGTH
+    (1117, "EIO"), // ERROR_IO_DEVICE
+    (1104, "EIO"), // ERROR_NO_DATA_DETECTED
+    (205, "EIO"), // ERROR_NO_SIGNAL_SENT
+    (110, "EIO"), // ERROR_OPEN_FAILED
+    (1103, "EIO"), // ERROR_SETMARK_DETECTED
+    (156, "EIO"), // ERROR_SIGNAL_REFUSED
+    (10056, "EISCONN"), // WSAEISCONN
+    (1921, "ELOOP"), // ERROR_CANT_RESOLVE_FILENAME
+    (4, "EMFILE"), // ERROR_TOO_MANY_OPEN_FILES
+    (10024, "EMFILE"), // WSAEMFILE
+    (10040, "EMSGSIZE"), // WSAEMSGSIZE
+    (111, "ENAMETOOLONG"), // ERROR_BUFFER_OVERFLOW
+    (206, "ENAMETOOLONG"), // ERROR_FILENAME_EXCED_RANGE
+    (1231, "ENETUNREACH"), // ERROR_NETWORK_UNREACHABLE
+    (10051, "ENETUNREACH"), // WSAENETUNREACH
+    (10055, "ENOBUFS"), // WSAENOBUFS
+    (161, "ENOENT"), // ERROR_BAD_PATHNAME
+    (267, "ENOENT"), // ERROR_DIRECTORY
+    (203, "ENOENT"), // ERROR_ENVVAR_NOT_FOUND
+    (2, "ENOENT"), // ERROR_FILE_NOT_FOUND
+    (123, "ENOENT"), // ERROR_INVALID_NAME
+    (15, "ENOENT"), // ERROR_INVALID_DRIVE
+    (4392, "ENOENT"), // ERROR_INVALID_REPARSE_DATA
+    (126, "ENOENT"), // ERROR_MOD_NOT_FOUND
+    (3, "ENOENT"), // ERROR_PATH_NOT_FOUND
+    (11001, "ENOENT"), // WSAHOST_NOT_FOUND
+    (11004, "ENOENT"), // WSANO_DATA
+    (8, "ENOMEM"), // ERROR_NOT_ENOUGH_MEMORY
+    (14, "ENOMEM"), // ERROR_OUTOFMEMORY
+    (82, "ENOSPC"), // ERROR_CANNOT_MAKE
+    (112, "ENOSPC"), // ERROR_DISK_FULL
+    (277, "ENOSPC"), // ERROR_EA_TABLE_FULL
+    (1100, "ENOSPC"), // ERROR_END_OF_MEDIA
+    (39, "ENOSPC"), // ERROR_HANDLE_DISK_FULL
+    (2250, "ENOTCONN"), // ERROR_NOT_CONNECTED
+    (10057, "ENOTCONN"), // WSAENOTCONN
+    (145, "ENOTEMPTY"), // ERROR_DIR_NOT_EMPTY
+    (10038, "ENOTSOCK"), // WSAENOTSOCK
+    (50, "ENOTSUP"), // ERROR_NOT_SUPPORTED
+    (109, "EOF"), // ERROR_BROKEN_PIPE
+    (5, "EPERM"), // ERROR_ACCESS_DENIED
+    (1314, "EPERM"), // ERROR_PRIVILEGE_NOT_HELD
+    (230, "EPIPE"), // ERROR_BAD_PIPE
+    (233, "EPIPE"), // ERROR_PIPE_NOT_CONNECTED
+    (10058, "EPIPE"), // WSAESHUTDOWN
+    (10043, "EPROTONOSUPPORT"), // WSAEPROTONOSUPPORT
+    (19, "EROFS"), // ERROR_WRITE_PROTECT
+    (121, "ETIMEDOUT"), // ERROR_SEM_TIMEOUT
+    (10060, "ETIMEDOUT"), // WSAETIMEDOUT
+    (17, "EXDEV"), // ERROR_NOT_SAME_DEVICE
+    (1, "EISDIR"), // ERROR_INVALID_FUNCTION
+    (208, "E2BIG"), // ERROR_META_EXPANSION_TOO_LONG
+    (10044, "ESOCKTNOSUPPORT"), // WSAESOCKTNOSUPPORT
+    (193, "EFTYPE"), // ERROR_BAD_EXE_FORMAT
+];
+
+/// The errno of a Unix failure: what the system call returned.
+#[cfg(not(windows))]
+const OS_ERRORS: &[(i32, &str)] = &[
+    (libc::EPERM, "EPERM"),
+    (libc::ENOENT, "ENOENT"),
+    (libc::EIO, "EIO"),
+    (libc::EBADF, "EBADF"),
+    (libc::EACCES, "EACCES"),
+    (libc::EBUSY, "EBUSY"),
+    (libc::EEXIST, "EEXIST"),
+    (libc::EXDEV, "EXDEV"),
+    (libc::ENOTDIR, "ENOTDIR"),
+    (libc::EISDIR, "EISDIR"),
+    (libc::EINVAL, "EINVAL"),
+    (libc::EMFILE, "EMFILE"),
+    (libc::ENFILE, "ENFILE"),
+    (libc::ENOSPC, "ENOSPC"),
+    (libc::EROFS, "EROFS"),
+    (libc::EMLINK, "EMLINK"),
+    (libc::ENAMETOOLONG, "ENAMETOOLONG"),
+    (libc::ENOTEMPTY, "ENOTEMPTY"),
+    (libc::ELOOP, "ELOOP"),
+    (libc::ETXTBSY, "ETXTBSY"),
+    (libc::EFBIG, "EFBIG"),
+    (libc::ENOMEM, "ENOMEM"),
+    (libc::ENOTSUP, "ENOTSUP"),
+    (libc::EAGAIN, "EAGAIN"),
+    (libc::EINTR, "EINTR"),
+    (libc::EFAULT, "EFAULT"),
+    (libc::ENODEV, "ENODEV"),
+    (libc::ESPIPE, "ESPIPE"),
+    (libc::EOVERFLOW, "EOVERFLOW"),
+    (libc::ECANCELED, "ECANCELED"),
+    (libc::ETIMEDOUT, "ETIMEDOUT"),
+    (libc::ENXIO, "ENXIO"),
+];
+
+/// libuv's errno name and description for a failed call: by the system's own error number when
+/// it has one, else by the kind Rust gave it. Windows reports a denied access as `EPERM` (libuv
+/// translates `ERROR_ACCESS_DENIED` so), other systems as `EACCES`.
 fn errno_of(error: &std::io::Error) -> Option<(&'static str, &'static str)> {
     use std::io::ErrorKind as Kind;
-    Some(match error.kind() {
-        Kind::NotFound => ("ENOENT", "no such file or directory"),
-        Kind::PermissionDenied if cfg!(windows) => ("EPERM", "operation not permitted"),
-        Kind::PermissionDenied => ("EACCES", "permission denied"),
-        Kind::AlreadyExists => ("EEXIST", "file already exists"),
-        Kind::IsADirectory => ("EISDIR", "illegal operation on a directory"),
-        Kind::NotADirectory => ("ENOTDIR", "not a directory"),
-        Kind::DirectoryNotEmpty => ("ENOTEMPTY", "directory not empty"),
-        Kind::StorageFull => ("ENOSPC", "no space left on device"),
-        Kind::ReadOnlyFilesystem => ("EROFS", "read-only file system"),
-        Kind::ResourceBusy => ("EBUSY", "resource busy or locked"),
-        _ => return None,
-    })
+    let by_number = error.raw_os_error().and_then(|raw| OS_ERRORS.iter().find(|(number, _)| *number == raw)).map(|(_, name)| *name);
+    // A Win32 error libuv has no translation for is `UNKNOWN` to Node, whatever Rust makes of it.
+    let unknown = cfg!(windows).then(|| error.raw_os_error().map(|_| "UNKNOWN")).flatten();
+    let name = by_number.or(unknown).or(match error.kind() {
+        Kind::NotFound => Some("ENOENT"),
+        Kind::PermissionDenied if cfg!(windows) => Some("EPERM"),
+        Kind::PermissionDenied => Some("EACCES"),
+        Kind::AlreadyExists => Some("EEXIST"),
+        Kind::IsADirectory => Some("EISDIR"),
+        Kind::NotADirectory => Some("ENOTDIR"),
+        Kind::DirectoryNotEmpty => Some("ENOTEMPTY"),
+        Kind::StorageFull => Some("ENOSPC"),
+        Kind::ReadOnlyFilesystem => Some("EROFS"),
+        Kind::ResourceBusy => Some("EBUSY"),
+        _ => None,
+    })?;
+    ERRNOS.iter().find(|(code, _)| *code == name).copied()
 }
-
 /// A failed file operation as Node throws it: `code` is the errno name and the text
 /// `<code>: <description>, <syscall> '<path>'` (`rename '<from>' -> '<to>'`). Kinds without a
 /// known errno keep Rust's text and no code.
@@ -152,6 +358,8 @@ pub fn io_failure(domain: &'static str, failure: &FsFailure) -> CoreError {
         FsStep::Fsync => "fsync".to_owned(),
         FsStep::Rename(from, to) => format!("rename '{}' -> '{}'", from.display(), to.display()),
         FsStep::Unlink(path) => format!("unlink '{}'", path.display()),
+        FsStep::Rmdir(path) => format!("rmdir '{}'", path.display()),
+        FsStep::Stat(path) => format!("stat '{}'", path.display()),
         FsStep::RemoveDirectory(_) => unreachable!("answered above"),
     };
     coded(domain, code, format!("{code}: {description}, {call}"))
@@ -315,6 +523,155 @@ pub fn write_atomic<L: mixdog_statefile::WriteLane>(
 }
 
 /// Fixtures the tests of every domain service share.
+/// The errno wording against Node's own (`errno-texts-twin.json`, `record-errno-texts.mjs`).
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "reads the recorded twins and makes real failing files on the test thread")]
+mod errno_tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    fn fixture(name: &str) -> serde_json::Value {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings").join(name);
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    }
+
+    fn twin() -> serde_json::Value {
+        fixture("errno-texts-twin.json")
+    }
+
+    /// libuv's description of every errno either recorded twin holds.
+    fn descriptions() -> BTreeMap<String, String> {
+        let mut all = BTreeMap::new();
+        for (twin, key) in [(twin(), "errnos"), (fixture("errno-win32-twin.json"), "descriptions")] {
+            for (name, description) in twin[key].as_object().unwrap() {
+                all.insert(name.clone(), description.as_str().unwrap().to_owned());
+            }
+        }
+        all
+    }
+
+    fn text(error: std::io::Error, step: FsStep) -> String {
+        match io_failure("test", &FsFailure { error, step }) {
+            CoreError::DomainError { message: Some(message), .. } => message.to_string(),
+            other => panic!("{other:?}"),
+        }
+    }
+    #[test]
+    fn every_errno_the_publication_path_reaches_has_the_description_node_prints() {
+        let twin = twin();
+        let recorded = twin["errnos"].as_object().unwrap();
+        let known = descriptions();
+        for name in recorded.keys() {
+            assert!(ERRNOS.iter().any(|(code, _)| code == name), "{name} unmapped");
+        }
+        for (name, description) in ERRNOS {
+            assert_eq!(known.get(*name).map(String::as_str), (*name != "UNKNOWN").then_some(*description), "{name}");
+        }
+        assert!(ERRNOS.iter().any(|(code, description)| *code == "UNKNOWN" && *description == fixture("errno-win32-twin.json")["unknown"]["description"]));
+    }
+
+    #[test]
+    fn a_failure_of_each_mapped_system_error_reads_as_node_words_it_for_write_and_fsync() {
+        let known = descriptions();
+        for (number, name) in OS_ERRORS {
+            let description = known.get(*name).unwrap_or_else(|| panic!("{name} unrecorded"));
+            for write in [true, false] {
+                let (step, call) = if write { (FsStep::Write, "write") } else { (FsStep::Fsync, "fsync") };
+                let error = std::io::Error::from_raw_os_error(*number);
+                assert_eq!(text(error, step), format!("{name}: {description}, {call}"), "system error {number}");
+            }
+        }
+    }
+    #[test]
+    fn open_rename_and_unlink_name_their_paths_as_the_recorded_node_does() {
+        let twin = twin();
+        for call in twin["real"].as_array().unwrap() {
+            let message = call["message"].as_str().unwrap();
+            let paths: Vec<&str> = message.split('\'').skip(1).step_by(2).collect();
+            let step = match call["syscall"].as_str().unwrap() {
+                "open" => FsStep::Open(paths[0].into()),
+                "rename" => FsStep::Rename(paths[0].into(), paths[1].into()),
+                _ => FsStep::Unlink(paths[0].into()),
+            };
+            assert_eq!(text(std::io::Error::from(std::io::ErrorKind::NotFound), step), message);
+        }
+    }
+
+    /// `uv_translate_sys_error` of the libuv Node bundles, entry for entry (`record-errno-win32.mjs`
+    /// parses its source, `source.url`, and takes the numbers from the Windows SDK's winerror.h).
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_table_is_libuvs_translation_entry_for_entry() {
+        let twin = fixture("errno-win32-twin.json");
+        assert!(twin["source"]["url"].as_str().unwrap().contains("/libuv/libuv/v"), "{}", twin["source"]);
+        let pairs = twin["pairs"].as_array().unwrap();
+        assert_eq!(OS_ERRORS.len(), pairs.len());
+        for pair in pairs {
+            let (number, errno) = (pair["number"].as_i64().unwrap() as i32, pair["errno"].as_str().unwrap());
+            let found: Vec<&str> = OS_ERRORS.iter().filter(|(n, _)| *n == number).map(|(_, name)| *name).collect();
+            assert_eq!(found, [errno], "{}", pair["win"]);
+        }
+        // What libuv does not translate, Node words as `UNKNOWN`.
+        // ERROR_NO_SYSTEM_RESOURCES (1450) is not among its cases.
+        assert!(OS_ERRORS.iter().all(|(number, _)| *number != 1450));
+        let text = text(std::io::Error::from_raw_os_error(1450), FsStep::Write);
+        assert_eq!(text, format!("UNKNOWN: {}, write", twin["unknown"]["description"].as_str().unwrap()));
+    }
+
+    /// Real Windows failures, performed here and in Node: the same call fails with the same
+    /// whole message.
+    #[cfg(windows)]
+    #[test]
+    fn real_failures_read_as_the_recorded_nodes_do() {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        let twin = fixture("errno-win32-twin.json");
+        let dir = tempfile::tempdir().unwrap();
+        let at = |name: &str| dir.path().join(name);
+        let mut open_new = std::fs::OpenOptions::new();
+        open_new.write(true).create_new(true);
+        let make = |name: &str| std::fs::write(at(name), "x").unwrap();
+        let mut got: BTreeMap<&str, String> = BTreeMap::new();
+        let mut note = |name: &'static str, error: std::io::Error, step: FsStep| {
+            got.insert(name, text(error, step).replace(&dir.path().display().to_string(), "<dir>"));
+        };
+        note("a file that is not there", std::fs::File::open(at("absent.json")).unwrap_err(), FsStep::Open(at("absent.json")));
+        note("a directory that is not there", open_new.open(at("no-dir").join("a.json")).unwrap_err(), FsStep::Open(at("no-dir").join("a.json")));
+        make("exists.json");
+        note("a file that already exists", open_new.open(at("exists.json")).unwrap_err(), FsStep::Open(at("exists.json")));
+        note("a name Windows refuses", open_new.open(at("a|b")).unwrap_err(), FsStep::Open(at("a|b")));
+        std::fs::create_dir(at("made")).unwrap();
+        note("a directory that already exists", std::fs::create_dir(at("made")).unwrap_err(), FsStep::Mkdir(at("made")));
+        make("locked.json");
+        let mut permissions = std::fs::metadata(at("locked.json")).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(at("locked.json"), permissions).unwrap();
+        make("from.json");
+        note("a rename onto a read-only file", std::fs::rename(at("from.json"), at("locked.json")).unwrap_err(), FsStep::Rename(at("from.json"), at("locked.json")));
+        std::fs::create_dir(at("target-dir")).unwrap();
+        make("from2.json");
+        note("a rename onto a directory", std::fs::rename(at("from2.json"), at("target-dir")).unwrap_err(), FsStep::Rename(at("from2.json"), at("target-dir")));
+        std::fs::create_dir(at("full")).unwrap();
+        make("full/inner.json");
+        note("a directory with something in it removed", std::fs::remove_dir(at("full")).unwrap_err(), FsStep::Rmdir(at("full")));
+        make("held.json");
+        let _held = std::fs::OpenOptions::new().read(true).write(true).share_mode(0).open(at("held.json")).unwrap();
+        note("a file another process holds open, removed", std::fs::remove_file(at("held.json")).unwrap_err(), FsStep::Unlink(at("held.json")));
+        make("over.json");
+        note("a file another process holds open, renamed over", std::fs::rename(at("over.json"), at("held.json")).unwrap_err(), FsStep::Rename(at("over.json"), at("held.json")));
+        let recorded = twin["real"].as_array().unwrap();
+        assert_eq!(got.len(), recorded.len());
+        for call in recorded {
+            let name = call["name"].as_str().unwrap();
+            assert_eq!(got.get(name), call["message"].as_str().map(str::to_owned).as_ref(), "{name}");
+        }
+    }
+    #[test]
+    fn an_error_with_no_errno_keeps_rusts_text() {
+        let error = std::io::Error::other("plain");
+        assert_eq!(text(error, FsStep::Write), "plain");
+    }
+}
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing {
     use std::sync::Arc;

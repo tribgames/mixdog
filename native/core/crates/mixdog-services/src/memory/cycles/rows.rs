@@ -140,7 +140,8 @@ pub fn row_of(row: &tokio_postgres::Row) -> Row {
         role: row.get("role"),
         content: row.get("content"),
         session_id: row.get("session_id"),
-        project_id: row.get("project_id"),
+        // The commit's locking read (Node) selects no project_id: absent there.
+        project_id: row.try_get::<_, Option<String>>("project_id").ok().flatten(),
         element: None,
     }
 }

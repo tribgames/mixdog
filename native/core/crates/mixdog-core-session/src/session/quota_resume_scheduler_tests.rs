@@ -1,28 +1,159 @@
 //! The quota-resume clock against the Node recording
 //! (`fixtures/quota-scheduler/golden.json`, Node's real `createQuotaResumeScheduler` over its real
 //! store): the delay the one timer is armed for, and per tick the log, the usage readings, the
-//! retries fired and the queue left behind.
+//! retries fired and the queue left behind. The timer's own wakeups, a restart over the file Node's
+//! store wrote, overlapping ticks and stop are driven on a clock the test moves.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
-use mixdog_core_base::quota_resume::QuotaResumeStore;
+use mixdog_core_base::quota_resume::{QUOTA_RESUME_FILE, QuotaResumeStore};
+use mixdog_core_base::support::on_lane;
 use mixdog_js::json_number;
+use mixdog_rt::CancellationToken;
 use serde_json::{Value, json};
+use tokio::sync::{Notify, Semaphore};
 
-use super::quota_resume_scheduler::{FireOutcome, QuotaResumeScheduler, ResumeClock, ResumeHost, SessionRoute, UsageError};
+use super::quota_resume_scheduler::{FireOutcome, QuotaResumeScheduler, ResumeClock, ResumeHost, ResumeLog, SessionRoute, UsageError};
 
-struct FakeClock(Mutex<f64>);
+/// A clock only the test moves: `sleep` returns when `advance` brings the clock to its deadline.
+struct ManualClock {
+    now: Mutex<f64>,
+    sleepers: Arc<Mutex<Vec<Sleeper>>>,
+    next: Mutex<u64>,
+}
+
+struct Sleeper {
+    id: u64,
+    ms: u64,
+    deadline: f64,
+    wake: Arc<Notify>,
+}
+
+/// Removes the sleeper when its sleep ends or is dropped, as clearing a timer does.
+struct Registered {
+    sleepers: Arc<Mutex<Vec<Sleeper>>>,
+    id: u64,
+}
+
+impl Drop for Registered {
+    fn drop(&mut self) {
+        self.sleepers.lock().unwrap().retain(|s| s.id != self.id);
+    }
+}
+
+impl ManualClock {
+    fn new(now: f64) -> Self {
+        Self { now: Mutex::new(now), sleepers: Arc::default(), next: Mutex::new(0) }
+    }
+
+    fn advance(&self, ms: f64) {
+        let now = {
+            let mut now = self.now.lock().unwrap();
+            *now += ms;
+            *now
+        };
+        for sleeper in self.sleepers.lock().unwrap().iter().filter(|s| s.deadline <= now) {
+            sleeper.wake.notify_one();
+        }
+    }
+
+    /// The delay the live timer was set for, none when no timer is set.
+    fn armed(&self) -> Option<u64> {
+        self.sleepers.lock().unwrap().last().map(|s| s.ms)
+    }
+}
 
 #[async_trait]
-impl ResumeClock for FakeClock {
+impl ResumeClock for ManualClock {
     fn now_ms(&self) -> f64 {
-        *self.0.lock().unwrap()
+        *self.now.lock().unwrap()
     }
-    async fn sleep(&self, _ms: u64) {
-        std::future::pending::<()>().await;
+    async fn sleep(&self, ms: u64) {
+        let wake = Arc::new(Notify::new());
+        let id = {
+            let mut next = self.next.lock().unwrap();
+            *next += 1;
+            *next
+        };
+        let deadline = self.now_ms() + ms as f64;
+        self.sleepers.lock().unwrap().push(Sleeper { id, ms, deadline, wake: wake.clone() });
+        let _registered = Registered { sleepers: self.sleepers.clone(), id };
+        wake.notified().await;
     }
+}
+
+async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
+    for _ in 0..500 {
+        if ready() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("timed out waiting for {what}");
+}
+
+async fn open_store(dir: &Path) -> Arc<QuotaResumeStore> {
+    Arc::new(QuotaResumeStore::open(dir, mixdog_rt::testing::tokens().durability_io, CancellationToken::new()).await.unwrap())
+}
+
+/// A store file as another process left it.
+async fn put_store_file(dir: &Path, text: &str) {
+    let (path, bytes) = (dir.join(QUOTA_RESUME_FILE), text.as_bytes().to_vec());
+    on_lane(mixdog_rt::testing::tokens().durability_io, &CancellationToken::new(), move |lane| mixdog_statefile::append_file(lane, &path, &bytes))
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+fn golden() -> Value {
+    serde_json::from_str(include_str!("../../../../fixtures/quota-scheduler/golden.json")).unwrap()
+}
+
+fn scheduler_over(store: &Arc<QuotaResumeStore>, host: Arc<dyn ResumeHost>, clock: &Arc<ManualClock>, log: &Arc<Mutex<Vec<String>>>) -> Arc<QuotaResumeScheduler> {
+    let sink = log.clone();
+    let line_log: ResumeLog = Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_owned()));
+    Arc::new(QuotaResumeScheduler::new(store.clone(), host, clock.clone(), Arc::new(|| true), line_log))
+}
+
+/// Holds every fire until the test lets it through.
+struct GateHost {
+    fires: Mutex<Vec<(String, u64)>>,
+    gate: Semaphore,
+}
+
+impl GateHost {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { fires: Mutex::default(), gate: Semaphore::new(0) })
+    }
+}
+
+#[async_trait]
+impl ResumeHost for GateHost {
+    async fn materialize(&self, _session_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+    async fn route(&self, _session_id: &str) -> SessionRoute {
+        SessionRoute { provider: "openai-oauth".to_owned(), model: "gpt-x".to_owned() }
+    }
+    async fn usable(&self, _provider: &str, _model: &str) -> Result<bool, UsageError> {
+        Ok(true)
+    }
+    async fn fire(&self, session_id: &str, generation: u64) -> Result<FireOutcome, String> {
+        self.fires.lock().unwrap().push((session_id.to_owned(), generation));
+        self.gate.acquire().await.unwrap().forget();
+        Ok(FireOutcome::Fired)
+    }
+}
+
+async fn schedule(store: &QuotaResumeStore, id: &str, reset_at: f64) {
+    store
+        .schedule(&json!({ "sessionId": id, "turnKey": format!("turn:{id}"), "provider": "openai-oauth", "model": "gpt-x", "resetAt": reset_at }))
+        .await
+        .unwrap();
 }
 
 #[derive(Default)]
@@ -83,19 +214,19 @@ impl ResumeHost for Host {
     }
 }
 
-fn queue(store: &QuotaResumeStore, now: f64) -> Value {
+fn queue(store: &QuotaResumeStore, now: f64, base: u64) -> Value {
     Value::Array(
         store
             .list()
             .iter()
-            .map(|e| json!({ "sessionId": e.session_id, "generation": e.generation, "resetAt": json_number(e.reset_at.as_f64().unwrap() - now), "attempts": e.attempts }))
+            .map(|e| json!({ "sessionId": e.session_id, "generation": e.generation - base, "resetAt": json_number(e.reset_at.as_f64().unwrap() - now), "attempts": e.attempts }))
             .collect(),
     )
 }
 
 #[tokio::test]
 async fn the_clock_matches_node() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/quota-scheduler/golden.json")).unwrap();
+    let golden = golden();
     let now = golden["now"].as_f64().unwrap();
     for case in golden["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
@@ -108,7 +239,7 @@ async fn the_clock_matches_node() {
             request["resetAt"] = json!(now + entry["resetIn"].as_f64().unwrap());
             store.schedule(&request).await.unwrap();
         }
-        let clock = Arc::new(FakeClock(Mutex::new(now)));
+        let clock = Arc::new(ManualClock::new(now));
         let host = Arc::new(Host { spec: case.clone(), calls: Mutex::default() });
         let log: Arc<Mutex<Vec<String>>> = Arc::default();
         let sink = log.clone();
@@ -138,7 +269,7 @@ async fn the_clock_matches_node() {
         }
         assert_eq!(scheduler.armed_ms().map(|ms| json!(ms)).unwrap_or(Value::Null), case["armed"], "{name}: armed");
         for (i, step) in case["steps"].as_array().unwrap().iter().enumerate() {
-            *clock.0.lock().unwrap() += step["advance"].as_f64().unwrap();
+            clock.advance(step["advance"].as_f64().unwrap());
             log.lock().unwrap().clear();
             {
                 let mut calls = host.calls.lock().unwrap();
@@ -150,8 +281,152 @@ async fn the_clock_matches_node() {
             assert_eq!(json!(*log.lock().unwrap()), step["log"], "{at}: log");
             assert_eq!(Value::Array(host.calls.lock().unwrap().usable.clone()), step["usable"], "{at}: usable");
             assert_eq!(Value::Array(host.calls.lock().unwrap().fire.clone()), step["fire"], "{at}: fire");
-            assert_eq!(queue(&store, now), step["queue"], "{at}: queue");
+            assert_eq!(queue(&store, now, 0), step["queue"], "{at}: queue");
             assert_eq!(armed.map(|ms| json!(ms)).unwrap_or(Value::Null), step["armed"], "{at}: armed");
         }
     }
+}
+#[tokio::test]
+async fn the_timer_matches_node() {
+    let golden = golden();
+    let now = golden["now"].as_f64().unwrap();
+    for case in golden["timerCases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let base = case["base"].as_u64().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        // The store file is the one Node's real store wrote for these entries.
+        put_store_file(dir.path(), case["storeFile"].as_str().unwrap()).await;
+        let clock = Arc::new(ManualClock::new(now));
+        let host = Arc::new(Host { spec: case.clone(), calls: Mutex::default() });
+        let log: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mut store = open_store(dir.path()).await;
+        let mut scheduler = scheduler_over(&store, host.clone(), &clock, &log);
+        scheduler.start();
+        for (i, step) in case["steps"].as_array().unwrap().iter().enumerate() {
+            let at = format!("{name} step {i}");
+            let armed = step["armed"].as_u64();
+            if step.get("restart").is_some() {
+                scheduler.stop().await;
+                store = open_store(dir.path()).await;
+                scheduler = scheduler_over(&store, host.clone(), &clock, &log);
+                scheduler.start();
+                wait_until(&format!("{at}: the timer is set again"), || clock.armed() == armed).await;
+                assert_eq!(queue(&store, now, base), step["queue"], "{at}: the pending resumes survive");
+                continue;
+            }
+            let wait = step["wait"].as_u64();
+            wait_until(&format!("{at}: the timer is set for {wait:?}"), || clock.armed() == wait).await;
+            log.lock().unwrap().clear();
+            {
+                let mut calls = host.calls.lock().unwrap();
+                calls.usable.clear();
+                calls.fire.clear();
+            }
+            clock.advance(step["advance"].as_f64().unwrap());
+            let want_log = step["log"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+            wait_until(&format!("{at}: the pass ran and the timer is set for {armed:?}"), || *log.lock().unwrap() == want_log && clock.armed() == armed).await;
+            assert_eq!(Value::Array(host.calls.lock().unwrap().usable.clone()), step["usable"], "{at}: usable");
+            let fired: Vec<Value> = host.calls.lock().unwrap().fire.iter().map(|f| json!({ "sessionId": f["sessionId"], "generation": f["generation"].as_u64().unwrap() - base })).collect();
+            assert_eq!(Value::Array(fired), step["fire"], "{at}: fire");
+            assert_eq!(queue(&store, now, base), step["queue"], "{at}: queue");
+        }
+        scheduler.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn overlapping_ticks_fire_once() {
+    let golden = golden();
+    let want = &golden["coalesce"];
+    let now = golden["now"].as_f64().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = open_store(dir.path()).await;
+    schedule(&store, "s1", now).await;
+    let host = GateHost::new();
+    let clock = Arc::new(ManualClock::new(now));
+    let scheduler = scheduler_over(&store, host.clone(), &clock, &Arc::default());
+    let first = tokio::spawn({
+        let scheduler = scheduler.clone();
+        async move { scheduler.tick().await }
+    });
+    wait_until("the first pass reaches the fire", || host.fires.lock().unwrap().len() == 1).await;
+    let second = tokio::spawn({
+        let scheduler = scheduler.clone();
+        async move { scheduler.tick().await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!second.is_finished(), "the second tick waits for the pass in flight");
+    assert_eq!(host.fires.lock().unwrap().len() as u64, want["firesWhileHeld"].as_u64().unwrap());
+    host.gate.add_permits(1);
+    first.await.unwrap();
+    second.await.unwrap();
+    let fires: Vec<u64> = host.fires.lock().unwrap().iter().map(|(_, generation)| *generation).collect();
+    assert_eq!(json!(fires), want["fires"], "one fire for the generation");
+    assert_eq!(store.list().len() as u64, want["queue"].as_u64().unwrap());
+}
+
+#[tokio::test]
+async fn nothing_fires_after_stop() {
+    let now = golden()["now"].as_f64().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = open_store(dir.path()).await;
+    schedule(&store, "s1", now + 5000.0).await;
+    let host = GateHost::new();
+    host.gate.add_permits(10);
+    let clock = Arc::new(ManualClock::new(now));
+    let scheduler = scheduler_over(&store, host.clone(), &clock, &Arc::default());
+    scheduler.start();
+    wait_until("the timer is set", || clock.armed() == Some(5000)).await;
+    scheduler.stop().await;
+    assert_eq!(clock.armed(), None, "the timer is gone once stop returns");
+    clock.advance(5000.0);
+    assert_eq!(scheduler.tick().await, None, "a tick after stop runs nothing");
+    scheduler.start();
+    assert_eq!(clock.armed(), None, "a stopped clock stays stopped");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(host.fires.lock().unwrap().is_empty(), "nothing fired after stop");
+    assert_eq!(store.list().len(), 1, "the resume is still pending");
+}
+
+#[tokio::test]
+async fn stop_waits_for_the_pass_in_flight_and_starts_no_further_entry() {
+    let now = golden()["now"].as_f64().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = open_store(dir.path()).await;
+    schedule(&store, "s1", now).await;
+    schedule(&store, "s2", now).await;
+    let host = GateHost::new();
+    let clock = Arc::new(ManualClock::new(now));
+    let scheduler = scheduler_over(&store, host.clone(), &clock, &Arc::default());
+    scheduler.start();
+    wait_until("the timer is set", || clock.armed() == Some(0)).await;
+    clock.advance(0.0);
+    wait_until("the first fire is held", || host.fires.lock().unwrap().len() == 1).await;
+    let stopping = tokio::spawn({
+        let scheduler = scheduler.clone();
+        async move { scheduler.stop().await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!stopping.is_finished(), "stop waits for the fire in flight");
+    host.gate.add_permits(10);
+    stopping.await.unwrap();
+    let fired: Vec<String> = host.fires.lock().unwrap().iter().map(|(id, _)| id.clone()).collect();
+    assert_eq!(fired, ["s1"], "the second entry never started");
+    assert_eq!(store.list().iter().map(|e| e.session_id.as_str()).collect::<Vec<_>>(), ["s2"]);
+}
+
+/// The file the 1.4.5 app left in a real data directory (`migration-corpus/v145/quota-resume.json`):
+/// nothing pending, the generation counter at 31.
+#[tokio::test]
+async fn a_store_file_written_by_1_4_5_is_read() {
+    let dir = tempfile::tempdir().unwrap();
+    put_store_file(dir.path(), include_str!("../../../../fixtures/quota-scheduler/v145-quota-resume.json")).await;
+    let store = open_store(dir.path()).await;
+    assert!(store.list().is_empty());
+    let clock = Arc::new(ManualClock::new(1_000_000.0));
+    let scheduler = scheduler_over(&store, GateHost::new(), &clock, &Arc::default());
+    assert_eq!(scheduler.armed_ms(), None, "nothing queued, no timer");
+    schedule(&store, "s1", 1_005_000.0).await;
+    assert_eq!(store.entry("s1").unwrap().generation, 32, "the counter continues from the file");
+    assert_eq!(scheduler.armed_ms(), Some(5000));
 }

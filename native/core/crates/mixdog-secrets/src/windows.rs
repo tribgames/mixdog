@@ -150,4 +150,8 @@ impl SecretStore for DpapiStore {
         let path = file(&self.dir, account);
         on_lane(self.io, move || path.exists()).await.unwrap_or(false)
     }
+
+    async fn is_fallback(&self, _account: &str) -> bool {
+        false
+    }
 }

@@ -114,6 +114,7 @@ pub(crate) struct TestCore {
     pub(crate) mock: MockCore,
     pub(crate) gated: HashMap<&'static str, Arc<GateDomain>>,
     threads: Mutex<Threads>,
+    scoped: Mutex<HashMap<mixdog_core_api::ids::FeedId, Arc<dyn FeedSource>>>,
     opens: AtomicUsize,
     loads: AtomicUsize,
 }
@@ -127,6 +128,11 @@ struct Threads {
 }
 
 impl TestCore {
+    /// `feed` is the live scoped feed `id`, as its owner holds it.
+    pub(crate) fn hold_scoped(&self, id: &str, feed: Arc<dyn FeedSource>) {
+        crate::sharded::lock(&self.scoped).insert(mixdog_core_api::ids::FeedId::from(id), feed);
+    }
+
     /// `handle` serves thread `id` from now on.
     pub(crate) fn load(&self, id: &str, handle: Arc<dyn ThreadHandle>) {
         crate::sharded::lock(&self.threads)
@@ -199,7 +205,7 @@ impl CoreHandle for TestCore {
     }
 
     fn scoped_feed(&self, id: &mixdog_core_api::ids::FeedId) -> Option<Arc<dyn FeedSource>> {
-        self.mock.scoped_feed(id)
+        crate::sharded::lock(&self.scoped).get(id).cloned()
     }
 
     fn ops(&self) -> &dyn OpIndex {
@@ -312,6 +318,7 @@ impl Rig {
                 })
                 .collect(),
             threads: Mutex::default(),
+            scoped: Mutex::default(),
             opens: AtomicUsize::new(0),
             loads: AtomicUsize::new(0),
         });

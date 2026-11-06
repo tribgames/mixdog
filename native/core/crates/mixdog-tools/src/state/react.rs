@@ -112,7 +112,7 @@ impl Tool for ReactTool {
         let Some(seat) = self.reactions.seat(&ctx.thread_id) else {
             return Err(denied("react: reactions belong to a bot's own chat with the user"));
         };
-        if self.facts.is_unattended(&ctx.thread_id) {
+        if self.facts.is_unattended(&ctx.thread_id).await {
             return Err(denied("react: nobody is in this run to see a reaction"));
         }
         let (emoji, back) = validate(&args).map_err(|m| invalid("emoji", m))?;

@@ -160,9 +160,8 @@ pub struct LastKnown {
     now: Clock,
 }
 
-#[allow(clippy::disallowed_methods, reason = "the body of a lane job")]
 fn read_remembered(path: &std::path::Path, key: &str) -> Option<String> {
-    let raw: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    let raw: Value = serde_json::from_slice(&mixdog_statefile::read_content(path).ok()??).ok()?;
     if raw.get("version").and_then(Value::as_i64) != Some(LAST_KNOWN_SCHEMA) {
         return None;
     }

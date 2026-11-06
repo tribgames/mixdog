@@ -17,12 +17,19 @@ use mixdog_ai::catalog::{CatalogService, ListingLookup};
 use mixdog_ai::effort::RejectionEntry;
 use mixdog_ai::netproxy::NetworkProxy;
 use mixdog_ai::registry::accounting::UsageSink;
-use mixdog_ai::registry::keys::{Environment, SecretVault};
+use mixdog_ai::registry::keys::{Environment, ProcessEnv, SecretVault};
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
+use mixdog_ai::service::model_proxy_inline::AttachmentReader;
+use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_rt::{LaneToken, LaneTokens};
+use mixdog_services::local_provider::LocalProvider;
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
+
+use super::local_models::ManagedLocalModels;
+use super::media::AttachmentFacts;
+use super::vault::KeychainVault;
 
 use mixdog_core_run::run_host::route_wiring::LocalEntry;
 use mixdog_core_config::config::Config;
@@ -81,6 +88,59 @@ pub struct ProcessServices {
     /// `markEffortConfigurationUnsupported`'s set, one per process.
     pub unsupported: Arc<UnsupportedEfforts>,
     pub local: Arc<dyn LocalModels>,
+}
+
+/// What the composition root owns that [`ProcessServices::production`] cannot derive from the
+/// process: the stores it already opened and the session directory's headers.
+pub struct ProcessInputs {
+    pub config: Config,
+    pub catalog: Arc<CatalogService>,
+    pub listing: ListingLookup,
+    pub network: Arc<NetworkProxy>,
+    pub lanes: LaneTokens,
+    /// Node's `resolvePluginData()`: the keychain's `secrets/` folder, the OAuth credential
+    /// files, `installation_id` and `effort-rejections.json` live in it.
+    pub plugin_data: PathBuf,
+    /// Node's `os.homedir()`.
+    pub home_dir: PathBuf,
+    pub build_version: String,
+    pub ledger: Arc<dyn Fn() -> Option<Arc<dyn UsageSink>> + Send + Sync>,
+    pub sessions: Arc<dyn SessionHeaders>,
+    /// The process's one managed local runtime, and the media layer its text-only requests lower
+    /// attachments through.
+    pub local_provider: Arc<LocalProvider>,
+    pub documents: Arc<dyn DocumentText>,
+    pub attachments: Arc<dyn AttachmentReader>,
+    pub attachment_facts: Arc<dyn AttachmentFacts>,
+}
+
+impl ProcessServices {
+    /// The services of a real daemon: the host's keychain, the process environment, the machine
+    /// it runs on, the Codex installation id (read or created in the plugin data directory), the
+    /// effort rejections file, one unsupported-efforts set and the managed local runtime.
+    pub async fn production(inputs: ProcessInputs) -> std::io::Result<Self> {
+        let env: Arc<dyn Environment> = Arc::new(ProcessEnv);
+        let installation_id = resolve_installation_id(&*env, &inputs.lanes, &inputs.plugin_data).await;
+        Ok(Self {
+            config: inputs.config,
+            catalog: inputs.catalog,
+            listing: inputs.listing,
+            network: inputs.network,
+            vault: Arc::new(KeychainVault::open(inputs.lanes.durability_io, &inputs.plugin_data)),
+            env,
+            rejections: FileRejections::new(&inputs.lanes, &inputs.plugin_data),
+            lanes: inputs.lanes,
+            plugin_data: inputs.plugin_data,
+            home_dir: inputs.home_dir,
+            host: HostInfo::current()?,
+            build_version: inputs.build_version,
+            installation_id,
+            ledger: inputs.ledger,
+            sessions: inputs.sessions,
+            unsupported: Arc::new(UnsupportedEfforts::default()),
+            local: Arc::new(ManagedLocalModels::new(inputs.local_provider, inputs.documents, inputs.attachments, inputs.attachment_facts)),
+        })
+    }
 }
 
 /// `MIXDOG_MODEL_PROXY=client`: this daemon serves a server that holds no model credentials.

@@ -1,0 +1,50 @@
+{
+  "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-secret-input.mjs --tree <tree>)",
+  "fileCount": 5,
+  "files": [
+    {
+      "bytes": 14328,
+      "path": "browser.json",
+      "sha256": "a5375c4c38d3bf72b866baf4687739d55fb49127a3615f2496f108e1863a8a3e"
+    },
+    {
+      "bytes": 27928,
+      "path": "computer.json",
+      "sha256": "f5b24d5d0fbc4498b13dcd6b3eb49cd849287ba09eda34dae903f80396265075"
+    },
+    {
+      "bytes": 4781,
+      "path": "redaction.json",
+      "sha256": "6f7caf183ea249a6a77540eda76643dfb37fbec1fb85774a4f58ca00f053cfdb"
+    },
+    {
+      "bytes": 6433,
+      "path": "remote.json",
+      "sha256": "0d47c2a89a317bc2ec979ff7c106c08d70184e0468f6967b668c3b3c59aa6e27"
+    },
+    {
+      "bytes": 47674,
+      "path": "slots.json",
+      "sha256": "bb5156dca79ed1bb8f89a10931a814cf49e9a9048d82a2e4fe510ead9e74ff3b"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34407
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-secret-input.mjs",
+  "set": "secret-input",
+  "totalBytes": 101144
+}

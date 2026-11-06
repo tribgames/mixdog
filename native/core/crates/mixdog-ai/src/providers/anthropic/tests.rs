@@ -52,6 +52,8 @@ use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
 
+mod warm;
+
 // ---------------------------------------------------------------------------
 // Fixtures and helpers
 // ---------------------------------------------------------------------------

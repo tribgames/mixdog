@@ -13,6 +13,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::log;
+use crate::bots::delivery::env::RetryTimer;
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::pg::db::Db;
 
@@ -166,35 +167,69 @@ pub async fn consume_cycle_requests(db: &Db, kind: &str, signature: &str, now: i
     Ok(count)
 }
 
-fn resolve_setting(config: &Value, direct: &str, nested: &str, env_var: &str, fallback: f64, min: f64, max: f64) -> f64 {
-    let env = std::env::var(env_var).map_or(f64::NAN, |text| string_to_number(&text));
+/// The environment the coalescing limits read: a variable's value, none when unset.
+pub type EnvLookup<'a> = &'a dyn Fn(&str) -> Option<String>;
+
+/// The process environment.
+pub fn process_env(name: &str) -> Option<String> {
+    std::env::var(name).ok()
+}
+
+/// `names`: the direct key, the key under `coalesce` and the environment variable.
+fn resolve_setting(env: EnvLookup<'_>, config: &Value, names: (&str, &str, &str), fallback: f64, min: f64, max: f64) -> f64 {
+    let (direct, nested, env_var) = names;
+    let env = env(env_var).map_or(f64::NAN, |text| string_to_number(&text));
     let candidates = [to_number_of(config.get(direct)), to_number_of(config.get("coalesce").and_then(|c| c.get(nested))), env];
     let value = candidates.into_iter().find(|n| n.is_finite()).unwrap_or(fallback);
     value.floor().clamp(min, max)
 }
 
 pub fn resolve_coalesce_max_drains(config: &Value, fallback: f64) -> f64 {
-    resolve_setting(config, "coalesce_max_drains", "max_drains", "MIXDOG_MEMORY_CYCLE_COALESCE_MAX_DRAINS", fallback, 0.0, 10.0)
+    resolve_coalesce_max_drains_in(&process_env, config, fallback)
+}
+
+pub fn resolve_coalesce_max_drains_in(env: EnvLookup<'_>, config: &Value, fallback: f64) -> f64 {
+    resolve_setting(env, config, ("coalesce_max_drains", "max_drains", "MIXDOG_MEMORY_CYCLE_COALESCE_MAX_DRAINS"), fallback, 0.0, 10.0)
 }
 
 pub fn resolve_coalesce_retry_delay_ms(config: &Value, fallback: f64) -> f64 {
-    resolve_setting(config, "coalesce_retry_delay_ms", "retry_delay_ms", "MIXDOG_MEMORY_CYCLE_COALESCE_RETRY_MS", fallback, 50.0, 60_000.0)
+    resolve_coalesce_retry_delay_ms_in(&process_env, config, fallback)
+}
+
+pub fn resolve_coalesce_retry_delay_ms_in(env: EnvLookup<'_>, config: &Value, fallback: f64) -> f64 {
+    resolve_setting(env, config, ("coalesce_retry_delay_ms", "retry_delay_ms", "MIXDOG_MEMORY_CYCLE_COALESCE_RETRY_MS"), fallback, 50.0, 60_000.0)
 }
 
 pub fn resolve_coalesce_max_retries(config: &Value, fallback: f64) -> f64 {
-    resolve_setting(config, "coalesce_max_retries", "max_retries", "MIXDOG_MEMORY_CYCLE_COALESCE_MAX_RETRIES", fallback, 0.0, 10.0)
+    resolve_coalesce_max_retries_in(&process_env, config, fallback)
+}
+
+pub fn resolve_coalesce_max_retries_in(env: EnvLookup<'_>, config: &Value, fallback: f64) -> f64 {
+    resolve_setting(env, config, ("coalesce_max_retries", "max_retries", "MIXDOG_MEMORY_CYCLE_COALESCE_MAX_RETRIES"), fallback, 0.0, 10.0)
 }
 
 /// What a retry timer runs once it fires.
 pub type RetryRunner = Box<dyn FnOnce() -> BoxFuture<'static, std::result::Result<(), String>> + Send>;
 
 /// `_retryTimersByDb` of one database: at most one pending retry per request key.
-#[derive(Default)]
 pub struct RetryTimers {
     pending: Mutex<HashMap<String, CancellationToken>>,
+    /// How a retry waits: the daemon's retry timer, a test's own.
+    timer: Arc<dyn RetryTimer>,
+}
+
+/// Resolves once `timer` has run out `delay`.
+pub async fn wait(timer: &dyn RetryTimer, delay: Duration) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    timer.arm(delay, Box::new(move || { let _ = tx.send(()); }));
+    let _ = rx.await;
 }
 
 impl RetryTimers {
+    pub fn new(timer: Arc<dyn RetryTimer>) -> Arc<Self> {
+        Arc::new(Self { pending: Mutex::default(), timer })
+    }
+
     /// `scheduleCoalescedCycleRetry`: false when one is already pending for the key. The delay
     /// runs on `spawn`; once it elapses the key is free again and `runner` runs to its end
     /// (cancelling only stops timers still waiting).
@@ -209,11 +244,11 @@ impl RetryTimers {
             pending.insert(key.clone(), token.clone());
         }
         let delay = Duration::from_millis(resolve_coalesce_retry_delay_ms(config, 1000.0) as u64);
-        let (timers, kind) = (Arc::clone(self), kind.to_owned());
+        let (timers, kind, timer) = (Arc::clone(self), kind.to_owned(), Arc::clone(&self.timer));
         spawn_work("memory-cycle-retry", async move {
             tokio::select! {
                 () = token.cancelled() => return,
-                () = tokio::time::sleep(delay) => {}
+                () = wait(timer.as_ref(), delay) => {}
             }
             timers.pending.lock().expect("retry timers").remove(&key);
             if let Err(error) = runner().await {

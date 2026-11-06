@@ -27,6 +27,7 @@ pub use edit::EditTool;
 pub use list::ListTool;
 pub use patch::ApplyPatchTool;
 pub use read::ReadTool;
+pub use read_state::Persistence;
 pub use read_state::ReadState;
 pub use read_state::SnapshotPersist;
 pub use search::FindTool;

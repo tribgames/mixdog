@@ -48,7 +48,7 @@ fn resolves_to_agent_mode(header: &Header) -> bool {
 }
 
 /// `isAgentModeSession(session)`: the stored mode, else the one the record's ids resolve to.
-fn is_agent_mode_session(header: &Header) -> bool {
+pub fn is_agent_mode_session(header: &Header) -> bool {
     match header.get("sessionMode").and_then(Value::as_str) {
         Some("agent") => true,
         Some("coding") => false,

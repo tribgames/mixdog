@@ -326,6 +326,765 @@
       }
     }
   ],
+  "outcomes": [
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1780021440000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "under three days stays",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1780021440000
+          },
+          "id": "a"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [
+        "a"
+      ],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1780012800000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "exactly three days archives",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1780012800000
+          },
+          "id": "a"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [
+        "a"
+      ],
+      "archivedIds": [
+        "b"
+      ],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1779840000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1779840000000,
+          "parentIds": [
+            "a"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "an archived member is not archived again",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a",
+        "b"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1779840000000
+          },
+          "id": "a"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1779840000000,
+            "ownerSessionId": "a"
+          },
+          "id": "b"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [
+        "a"
+      ],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1777688640000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "under thirty days only archives",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1777688640000
+          },
+          "id": "a"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [
+        "a"
+      ],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1777680000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "exactly thirty days deletes",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1777680000000
+          },
+          "id": "a"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1780185600000,
+          "parentIds": [
+            "a"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "one recent member keeps the whole tree",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a",
+        "b"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000
+          },
+          "id": "a"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1780185600000,
+            "ownerSessionId": "a"
+          },
+          "id": "b"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [
+        "a"
+      ],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1780185600000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "two trees are judged apart",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "b"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000
+          },
+          "id": "a"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1780185600000
+          },
+          "id": "b"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [
+        "c",
+        "b",
+        "a"
+      ],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "a"
+          ]
+        },
+        {
+          "id": "c",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "b"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "a tree deletes children first",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000
+          },
+          "id": "a"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000,
+            "ownerSessionId": "a"
+          },
+          "id": "b"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000,
+            "ownerSessionId": "b"
+          },
+          "id": "c"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [
+        "b"
+      ],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "a"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "an open member keeps its tree",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a",
+        "b"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000
+          },
+          "id": "a"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000,
+            "ownerSessionId": "a"
+          },
+          "id": "b"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [
+        "a"
+      ],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1779840000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "an open member keeps an archive",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1779840000000
+          },
+          "id": "a"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "a"
+          ]
+        }
+      ],
+      "move": {
+        "a": 1780272000000
+      },
+      "name": "a member that moved after the read keeps its tree",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a",
+        "b"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000
+          },
+          "id": "a"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000,
+            "ownerSessionId": "a"
+          },
+          "id": "b"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 0,
+          "parentIds": [
+            "sess_lead"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "a member of unknown age keeps its tree",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "updatedAt": 0
+          },
+          "id": "a"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "a"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "a member that can no longer be read keeps its tree",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a",
+        "b"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000
+          },
+          "id": "a"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000,
+            "ownerSessionId": "a"
+          },
+          "id": "b"
+        }
+      ],
+      "unreadable": [
+        "b"
+      ]
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [
+        "c"
+      ],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "a"
+          ]
+        },
+        {
+          "id": "c",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "b"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "a member opened while an earlier delete ran is not deleted",
+      "now": 1780272000000,
+      "openAfterDeleted": [
+        "b",
+        "c"
+      ],
+      "remaining": [
+        "a",
+        "b"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000
+          },
+          "id": "a"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000,
+            "ownerSessionId": "a"
+          },
+          "id": "b"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000,
+            "ownerSessionId": "b"
+          },
+          "id": "c"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [
+        "a"
+      ],
+      "archived": [],
+      "archivedIds": [
+        "b"
+      ],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1779840000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        },
+        {
+          "id": "b",
+          "lastActive": 1779840000000,
+          "parentIds": [
+            "a"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "a failed archive is not counted",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a",
+        "b"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1779840000000
+          },
+          "id": "a"
+        },
+        {
+          "fields": {
+            "lastUsedAt": 1779840000000,
+            "ownerSessionId": "a"
+          },
+          "id": "b"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [
+        "a"
+      ],
+      "archivedIds": [],
+      "deletedIds": [
+        "a"
+      ],
+      "forgotten": [
+        "a"
+      ],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1776816000000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "a deleted member that was archived is forgotten",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [],
+      "sessions": [
+        {
+          "fields": {
+            "lastUsedAt": 1776816000000
+          },
+          "id": "a"
+        }
+      ],
+      "unreadable": []
+    },
+    {
+      "archiveFails": [],
+      "archived": [],
+      "archivedIds": [],
+      "deletedIds": [],
+      "forgotten": [],
+      "live": [],
+      "members": [
+        {
+          "id": "a",
+          "lastActive": 1780185600000,
+          "parentIds": [
+            "sess_lead"
+          ]
+        }
+      ],
+      "move": {},
+      "name": "the heartbeat counts as activity",
+      "now": 1780272000000,
+      "openAfterDeleted": null,
+      "remaining": [
+        "a"
+      ],
+      "sessions": [
+        {
+          "fields": {
+            "lastHeartbeatAt": 1780185600000,
+            "lastUsedAt": 1776816000000
+          },
+          "id": "a"
+        }
+      ],
+      "unreadable": []
+    }
+  ],
   "trees": [
     {
       "input": [],

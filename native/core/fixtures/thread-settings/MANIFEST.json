@@ -1,0 +1,75 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-thread-settings.mjs --tree <tree>",
+  "fileCount": 10,
+  "files": [
+    {
+      "bytes": 28073,
+      "path": "context-switch.json",
+      "sha256": "3f15f4e6960f004342a2655dcf8a73b4ad3fc81d99b3de01aec650cf334ce908"
+    },
+    {
+      "bytes": 72457,
+      "path": "route-set-wire.json",
+      "sha256": "b8e600ee0ba561227eb42ab73245e70edb5be1dabff4e67c59e7258cdfab1ca8"
+    },
+    {
+      "bytes": 144919,
+      "path": "session-switches.json",
+      "sha256": "e9bb9a186e9e3dcae45a2d82d708845fdff66f699d01596c711d2af29261c08e"
+    },
+    {
+      "bytes": 35393,
+      "path": "settings-scenarios.json",
+      "sha256": "7edc19d25f5dfa32b86ce8eeea523e40c54cc026553fa316fea78d8c6259dc4b"
+    },
+    {
+      "bytes": 60,
+      "path": "shipped/output-styles/detailed.md",
+      "sha256": "e6f4433b9fa4788e675571a39c2abffa3f61924e70d2c626b290cb50e645fe3a"
+    },
+    {
+      "bytes": 51,
+      "path": "shipped/output-styles/extreme-minimal.md",
+      "sha256": "00e3ec513de7aa65a77090fa122480ad219850f7dda764cfc6a404747dbc5cfa"
+    },
+    {
+      "bytes": 47,
+      "path": "shipped/output-styles/minimal.md",
+      "sha256": "f586041a1d54062baa2dc95e03a61238240852909f18f11d2c65ac088c7958fb"
+    },
+    {
+      "bytes": 55,
+      "path": "shipped/output-styles/simple.md",
+      "sha256": "578fe0733ddd0f157110832aee45d012ba137434144383b6dcfbe3abb263fe5e"
+    },
+    {
+      "bytes": 732,
+      "path": "shipped/workflows/default/WORKFLOW.md",
+      "sha256": "de965c18698d67926c2195d25244ec1417b7714fdd3a913ccd3c7acea05581ce"
+    },
+    {
+      "bytes": 251,
+      "path": "shipped/workflows/headless/WORKFLOW.md",
+      "sha256": "b48911bc9051bdd3beb76868ee44613d8c926c3d73b5b2c14f8c027402cf8ddc"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34407
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-thread-settings.mjs",
+  "set": "thread-settings",
+  "totalBytes": 282038
+}

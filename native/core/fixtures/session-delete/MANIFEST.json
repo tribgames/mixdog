@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-delete.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 33795,
+      "path": "populated_delete.json",
+      "sha256": "be6e96f360d1dcfd788f24f67a4b78d3e35ebc56b26b741548895f28a6103e7b"
+    }
+  ],
+  "product": {
+    "appsSha256": "04b921c4ae348576f68a0a015207ce668e374e6d3cae8c8fdeff8ff229de0afa",
+    "commit": "433c7dfbb0d6763b0200667fabbf7f76e3f4abc7",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9241,
+    "refComparison": {
+      "closestCommit": "433c7dfbb0d6763b0200667fabbf7f76e3f4abc7",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-delete.mjs",
+  "set": "session-delete",
+  "totalBytes": 33795
+}

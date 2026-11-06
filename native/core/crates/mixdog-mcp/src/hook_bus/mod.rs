@@ -76,6 +76,15 @@ pub struct HookCommon {
     pub effort: Option<Value>,
 }
 
+/// The session transcript a hook is told about (`hookTranscriptPath`): derived on demand, so
+/// the bus asks just before a handler runs.
+#[async_trait]
+pub trait TranscriptExport: Send + Sync {
+    /// The payload's `transcript_path` for a session with a non-empty id: the path of its
+    /// refreshed transcript file, or `null` for an id that cannot name a session.
+    async fn transcript_path(&self, session_id: &str) -> Value;
+}
+
 /// A tool call as the hooks see it. `cwd` is the call's effective directory
 /// ([`after::effective_tool_cwd`]).
 pub struct ToolCall<'a> {
@@ -115,6 +124,8 @@ pub struct HookBus {
     prompt: Option<Arc<dyn PromptRunner>>,
     observer: Option<Arc<dyn HookObserver>>,
     cache: Mutex<Option<Arc<HookConfig>>>,
+    /// Bound once by the session service, which owns the transcript (built after the bus).
+    transcripts: std::sync::OnceLock<Arc<dyn TranscriptExport>>,
 }
 
 fn base_payload(event: &str, session_id: &str, cwd: &Path, common: &HookCommon) -> Map<String, Value> {
@@ -132,6 +143,18 @@ fn base_payload(event: &str, session_id: &str, cwd: &Path, common: &HookCommon) 
         payload.insert("effort".into(), effort.clone());
     }
     payload
+}
+
+/// `payload` with `transcript_path` right after `hook_event_name`, where `base_payload` puts it.
+fn with_transcript_path(payload: &Value, path: Value) -> Value {
+    let mut out = Map::new();
+    for (key, value) in payload.as_object().into_iter().flatten().filter(|(key, _)| key.as_str() != "transcript_path") {
+        out.insert(key.clone(), value.clone());
+        if key.as_str() == "hook_event_name" {
+            out.insert("transcript_path".into(), path.clone());
+        }
+    }
+    Value::Object(out)
 }
 
 /// `response` is the tool's result (after events only).
@@ -165,7 +188,13 @@ impl HookBus {
             prompt,
             observer,
             cache: Mutex::new(None),
+            transcripts: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Makes every payload carry the transcript path `export` gives. Err: already bound.
+    pub fn bind_transcripts(&self, export: Arc<dyn TranscriptExport>) -> Result<(), Arc<dyn TranscriptExport>> {
+        self.transcripts.set(export)
     }
 
     fn emit(&self, event: &str, payload: Value) {
@@ -275,6 +304,12 @@ impl HookBus {
     /// lands on an event that can be denied, the remaining handlers do not run.
     async fn run_event(&self, event: &str, payload: &Value, loaded: &Loaded) -> Aggregate {
         let handlers = self.select_handlers(&loaded.config, event, payload);
+        let session_id = payload.get("session_id").and_then(Value::as_str).filter(|id| !id.is_empty());
+        let exported = match (handlers.is_empty(), session_id, self.transcripts.get()) {
+            (false, Some(id), Some(export)) => Some(with_transcript_path(payload, export.transcript_path(id).await)),
+            _ => None,
+        };
+        let payload = exported.as_ref().unwrap_or(payload);
         let mut agg = Aggregate { handlers_run: handlers.len(), ..Aggregate::default() };
         let short_circuit = output::EXIT2_BLOCK_EVENTS.contains(&event) || output::TOP_LEVEL_DECISION_EVENTS.contains(&event);
         let error_name = payload.get("tool_name").and_then(Value::as_str).filter(|n| !n.is_empty()).unwrap_or(event);
@@ -366,6 +401,17 @@ impl HookBus {
         let event = if stop { "SubagentStop" } else { "SubagentStart" };
         let mut payload = base_payload(event, session_id, cwd, common);
         payload.insert("agent_type".into(), agent_type.filter(|a| !a.is_empty()).map_or(Value::Null, |a| json!(a)));
+        self.dispatch(event, Value::Object(payload), cwd).await;
+    }
+
+    /// `PreCompact` / `PostCompact` (the session's `preCompactHook` / `postCompactHook`):
+    /// `trigger` is what started the compaction (`manual`, `auto_clear`, `auto`; an empty one is
+    /// `auto`) and the event's matcher field. Best-effort: nothing the handlers decide changes
+    /// the compaction.
+    pub async fn compact(&self, post: bool, session_id: &str, trigger: &str, cwd: &Path, common: &HookCommon) {
+        let event = if post { "PostCompact" } else { "PreCompact" };
+        let mut payload = base_payload(event, session_id, cwd, common);
+        payload.insert("trigger".into(), json!(if trigger.is_empty() { "auto" } else { trigger }));
         self.dispatch(event, Value::Object(payload), cwd).await;
     }
 

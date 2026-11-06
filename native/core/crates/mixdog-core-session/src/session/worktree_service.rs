@@ -55,7 +55,7 @@ pub struct ThreadScmService {
 
 /// A failure as the 1.4.5 daemon threw it: a plain `Error` or `TypeError` answers its sentence
 /// alone, a typed worktree error its code, the runtime's own text and its details.
-fn scm_error(failure: ScmFailure) -> CoreError {
+pub(crate) fn scm_error(failure: ScmFailure) -> CoreError {
     match &failure {
         ScmFailure::Command { text, .. } => failed(WORKTREE_DOMAIN, text.clone()),
         ScmFailure::Coded { domain, code, detail, .. } => CoreError::DomainError {

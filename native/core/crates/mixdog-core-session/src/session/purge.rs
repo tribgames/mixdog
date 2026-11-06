@@ -14,13 +14,14 @@ use mixdog_agent::agent_tool::board::CancelAll;
 use mixdog_agent::agent_tool::board::CancelNotice;
 use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::flow::worker_turns::WorkerTurns;
-use mixdog_ai::registry::warm::WarmLedger;
+use mixdog_ai::warmer::chain::Warmer;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
 use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
 use mixdog_services::memory::session_search::ingest::SessionSearchIngest;
+use mixdog_services::memory::transcript::TranscriptIngest;
 use mixdog_tools::fs::ReadState;
 
 use super::agent_registry::AgentRegistry;
@@ -34,6 +35,21 @@ use super::worktree::WorktreeMaintenance;
 use mixdog_store::schema::record::Header;
 use mixdog_core_base::state::SectionFeedState;
 
+/// The memory service's transcript ingest as the transcript hook sees it: the read positions
+/// kept per transcript file (`memoryRuntime.forgetTranscripts`).
+#[async_trait]
+pub trait IngestOffsets: Send + Sync {
+    /// Drops the persisted position of each transcript; the number of entries removed.
+    async fn forget_transcripts(&self, paths: &[PathBuf]) -> usize;
+}
+
+#[async_trait]
+impl IngestOffsets for TranscriptIngest {
+    async fn forget_transcripts(&self, paths: &[PathBuf]) -> usize {
+        TranscriptIngest::forget_transcripts(self, paths).await
+    }
+}
+
 /// The owners the purge hooks drop a deleted session's state from.
 pub struct PurgeOwners {
     /// `resolvePluginData()`.
@@ -43,8 +59,11 @@ pub struct PurgeOwners {
     pub maintenance: MaintenanceIo,
     /// The one read state of the read, edit and apply_patch tools.
     pub read_state: Arc<ReadState>,
-    /// The provider registry's cache-warm ledger.
-    pub warm: WarmLedger,
+    /// The prompt-cache warmer: its chain, turns, touch and idle-gap stores and warm use.
+    pub warm: Arc<Warmer>,
+    /// The memory service's transcript ingest; `None` when memory is off (Node's
+    /// `memoryRuntime?.forgetTranscripts`).
+    pub ingest_offsets: Option<Arc<dyn IngestOffsets>>,
     /// The provider registry: each provider's connections of the session.
     pub providers: Arc<mixdog_ai::registry::providers::ProviderRegistry>,
     /// The agent tool's worker-turn observer.
@@ -92,46 +111,58 @@ pub(crate) fn project_slug(cwd: &str) -> String {
 }
 
 /// `clearOffloadSessionSync`: the session's offloaded tool results (`*.txt`), then its folder.
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a maintenance-lane job body (lane proof argument)")]
-fn clear_offloaded(_lane: &InLane<MaintenanceIo>, dir: &Path) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    for entry in entries.flatten() {
-        if entry.file_name().to_string_lossy().ends_with(".txt") {
-            let _ = std::fs::remove_file(entry.path());
-        }
+fn clear_offloaded(lane: &InLane<MaintenanceIo>, dir: &Path) {
+    let Ok(names) = mixdog_statefile::list_dir(lane, dir) else { return };
+    for name in names.iter().filter(|name| name.ends_with(".txt")) {
+        let _ = mixdog_statefile::remove_file(lane, &dir.join(name));
     }
-    let _ = std::fs::remove_dir(dir);
+    // `rmdirSync`: only an empty folder goes.
+    if mixdog_statefile::list_dir(lane, dir).is_ok_and(|left| left.is_empty()) {
+        let _ = mixdog_statefile::remove_dir_all(lane, dir);
+    }
 }
 
 /// `purgeSessionTranscripts`: `<id>.jsonl` and its rotated `.1` under each known cwd's project.
-#[allow(clippy::disallowed_methods, reason = "a maintenance-lane job body (lane proof argument)")]
 fn remove_transcripts(_lane: &InLane<MaintenanceIo>, paths: &[PathBuf]) {
     for path in paths {
         let mut rotated = path.clone().into_os_string();
         rotated.push(".1");
         for target in [path.clone(), PathBuf::from(rotated)] {
-            if let Err(error) = std::fs::remove_file(&target)
-                && error.kind() != std::io::ErrorKind::NotFound
-            {
-                tracing::warn!(path = %target.display(), %error, "session delete: could not remove the transcript");
+            if let Err(failure) = mixdog_core_base::support::remove_file_forced(&target) {
+                tracing::warn!(path = %target.display(), ?failure, "session delete: could not remove the transcript");
             }
         }
     }
 }
 
 /// `rmSync(dir, { recursive: true, force: true })` / `unlinkSync` that ignores what is gone.
-#[allow(clippy::disallowed_methods, reason = "a maintenance-lane job body (lane proof argument)")]
-fn remove_all(_lane: &InLane<MaintenanceIo>, targets: &[PathBuf]) {
+fn remove_all(lane: &InLane<MaintenanceIo>, targets: &[PathBuf]) {
     for target in targets {
-        let _ = if target.is_dir() { std::fs::remove_dir_all(target) } else { std::fs::remove_file(target) };
+        let _ = match mixdog_statefile::metadata(lane, target) {
+            Ok(meta) if meta.is_dir() => mixdog_statefile::remove_dir_all(lane, target),
+            Ok(_) => mixdog_statefile::remove_file(lane, target),
+            Err(error) => Err(error),
+        };
     }
 }
 
 impl PurgeHooks {
     /// The hooks bound to `owners`, in a booted 1.4.5 daemon's order.
     pub fn new(owners: PurgeOwners) -> Self {
-        let PurgeOwners { data_dir, mixdog_home, maintenance, read_state, warm, providers, worker_turns, agents } = owners;
+        let PurgeOwners { data_dir, mixdog_home, maintenance, read_state, warm, ingest_offsets, providers, worker_turns, agents } = owners;
         let lane = maintenance;
+        let data = data_dir.clone();
+        let transcript_export = hook(move |id, _| {
+            if !stored_id(id) {
+                return done();
+            }
+            let path = super::transcript_export::export_path(&data, id);
+            on_lane(lane, move |_| {
+                if let Err(failure) = mixdog_core_base::support::remove_file_forced(&path) {
+                    tracing::warn!(?failure, path = %path.display(), "session delete: could not remove the transcript export");
+                }
+            })
+        });
         let data = data_dir.clone();
         let tool_result_offload = hook(move |id, _| {
             if id.is_empty() {
@@ -145,17 +176,36 @@ impl PurgeHooks {
                 return done();
             }
             let projects = mixdog_home.join("projects");
-            let paths: Vec<PathBuf> =
-                cwds.iter().filter(|cwd| !cwd.is_empty()).map(|cwd| projects.join(project_slug(cwd)).join(format!("{id}.jsonl"))).collect();
-            on_lane(lane, move |lane| remove_transcripts(lane, &paths))
+            let mut paths: Vec<PathBuf> = Vec::new();
+            for cwd in cwds.iter().filter(|cwd| !cwd.is_empty()) {
+                let path = projects.join(project_slug(cwd)).join(format!("{id}.jsonl"));
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+            let removal = on_lane(lane, {
+                let paths = paths.clone();
+                move |lane| remove_transcripts(lane, &paths)
+            });
+            let offsets = ingest_offsets.clone().filter(|_| !paths.is_empty());
+            Box::pin(async move {
+                removal.await;
+                // Not awaited: the position blob is a best-effort request to the memory service.
+                if let Some(offsets) = offsets {
+                    drop(mixdog_rt::spawn("session-delete-offsets", mixdog_rt::TaskClass::Work, async move {
+                        offsets.forget_transcripts(&paths).await;
+                    }));
+                }
+            })
         });
         let cache_warm = hook(move |id, _| {
-            warm.forget(id);
+            warm.purge_session(id);
             done()
         });
         let read_cache = hook(move |id, _| {
             read_state.forget_session(id);
-            done()
+            let state = read_state.clone();
+            Box::pin(async move { state.settle().await })
         });
         let provider_connections = hook(move |id, _| {
             providers.release_session(id);
@@ -185,8 +235,11 @@ impl PurgeHooks {
             if !stored_id(id) {
                 return done();
             }
-            let path = data.join("sessions").join(format!("{id}.compaction-archive.jsonl"));
-            on_lane(lane, move |lane| remove_all(lane, &[path]))
+            // The archive (`deleteCompactionArchive`) and the pending sidecar a 1.4.5 daemon left
+            // for jobs it never published (`removePendingSidecar`, `compaction-archive-capture.mjs:738`).
+            let sessions = data.join("sessions");
+            let paths = [format!("{id}.compaction-archive.jsonl"), format!("{id}.compaction-archive.pending")].map(|name| sessions.join(name));
+            on_lane(lane, move |lane| remove_all(lane, &paths))
         });
         let scratch_dir = hook(move |id, _| {
             let Some(dir) = mixdog_tools::exec::session_scratch_dir(&data_dir, id) else { return done() };
@@ -195,6 +248,7 @@ impl PurgeHooks {
             on_lane(lane, move |lane| remove_all(lane, &[dir, legacy]))
         });
         Self {
+            transcript_export,
             tool_result_offload,
             transcripts,
             cache_warm,
@@ -228,8 +282,8 @@ pub struct SessionDeletion {
 
 #[async_trait]
 impl DeleteSeams for SessionDeletion {
-    fn session_closed(&self, session_id: &str, reason: &str, header: &Header) {
-        self.tool_events.session_closed(session_id, header, reason);
+    fn session_closed(&self, session_id: &str, reason: &str, header: &Header, closed_at_ms: i64) {
+        self.tool_events.session_closed(session_id, header, reason, closed_at_ms);
     }
 
     async fn release_session_work(&self, session_id: &str, reason: &str) {

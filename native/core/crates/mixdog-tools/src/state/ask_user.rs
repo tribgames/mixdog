@@ -227,7 +227,7 @@ impl Tool for AskUserTool {
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let questions = validate_questions(&args).map_err(|m| invalid("questions", m))?;
-        if !self.facts.user_available(&ctx.thread_id) {
+        if !self.facts.user_available(&ctx.thread_id).await {
             return text(NO_USER);
         }
         let ask = ApprovalAsk {

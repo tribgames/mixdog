@@ -1,27 +1,15 @@
 //! The session's assembly constructors over real process services: thread feeds, approval ids,
-//! the search and memory ingests, the delete purge hooks and the Auto effort prewarm gate.
+//! the search and memory ingests and the Auto effort prewarm gate (the delete purge hooks are
+//! tested against a recorded Node delete in `mixdog-core`'s `purge_populated_delete`).
 
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use mixdog_agent::agent_tool::flow::seams::RowUpdate;
-use mixdog_agent::agent_tool::flow::seams::SessionNames;
-use mixdog_agent::agent_tool::flow::seams::TurnListener;
-use mixdog_agent::agent_tool::flow::seams::TurnSource;
-use mixdog_agent::agent_tool::flow::seams::Unobserve;
-use mixdog_agent::agent_tool::flow::seams::WorkerRows;
-use mixdog_agent::agent_tool::flow::worker_turns::WorkerTurns;
 use mixdog_core_api::ids::ThreadId;
 use serde_json::Value;
 use serde_json::json;
 
-use super::agent_registry::AgentRegistry;
-use super::agent_registry::LiveSessions;
-use super::agent_registry::ReapWindow;
-use super::agent_registry::Row;
-use super::agent_registry::WorkerStore;
 use super::seams::CloseIngest;
 use super::testing::Rig;
 use super::testing::lock;
@@ -119,160 +107,6 @@ async fn the_thread_store_opens_over_a_fresh_data_dir() {
         .expect("job ran")
         .expect("sessions exists");
     assert!(meta.is_dir());
-}
-
-struct NoTurns;
-impl TurnSource for NoTurns {
-    fn observe_session_turns(&self, _: &str, _: Arc<dyn TurnListener>) -> Option<Unobserve> {
-        None
-    }
-}
-impl SessionNames for NoTurns {
-    fn tag_for_session(&self, _: &str) -> Option<String> {
-        None
-    }
-    fn agent(&self, _: &str) -> Option<String> {
-        None
-    }
-}
-impl WorkerRows for NoTurns {
-    fn upsert(&self, _: &str, _: Option<&str>, _: RowUpdate) {}
-}
-impl mixdog_agent::env::Clock for NoTurns {
-    fn now_ms(&self) -> i64 {
-        0
-    }
-}
-
-/// The worker index of one deleted session's settled row.
-#[derive(Default)]
-struct Workers(Mutex<Vec<(String, Row)>>);
-
-#[async_trait]
-impl WorkerStore for Workers {
-    async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String> {
-        Ok(lock(&self.0).clone())
-    }
-    async fn agent_sessions(&self) -> Result<Vec<Row>, String> {
-        Ok(Vec::new())
-    }
-    async fn header(&self, _: &str) -> Option<Row> {
-        None
-    }
-    async fn is_directory(&self, _: &str) -> bool {
-        false
-    }
-    fn write(&self, session: &str, worker: Option<Row>) {
-        let mut maps = lock(&self.0);
-        maps.retain(|(id, _)| id != session);
-        if let Some(worker) = worker {
-            maps.push((session.to_owned(), worker));
-        }
-    }
-}
-
-impl LiveSessions for Workers {
-    fn loaded(&self) -> Vec<String> {
-        Vec::new()
-    }
-    fn header(&self, _: &str) -> Option<Row> {
-        None
-    }
-    fn running(&self, _: &str) -> bool {
-        false
-    }
-    fn has_live_work(&self, _: &str) -> bool {
-        false
-    }
-    fn runtime_stage(&self, _: &str) -> Option<String> {
-        None
-    }
-}
-
-impl ReapWindow for Workers {
-    fn terminal_reap_ms(&self, _: &str) -> f64 {
-        3_600_000.0
-    }
-}
-
-/// A provider registry with nothing registered (its release is `mixdog-ai`'s test).
-struct NoProviders;
-
-#[async_trait]
-impl mixdog_ai::registry::providers::ProviderBuilder for NoProviders {
-    async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
-        Err(format!("no {name}"))
-    }
-    async fn custom_key_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
-    }
-    fn available(&self, _: &str) -> bool {
-        false
-    }
-    async fn oauth_credentials_usable(&self, _: &str) -> bool {
-        false
-    }
-}
-
-#[allow(clippy::disallowed_methods, reason = "test setup writes the deleted session's files")]
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().expect("a parent")).unwrap();
-    std::fs::write(path, text).unwrap();
-}
-
-/// `_runSessionPurgeHooks` over the real owners: when it returns, the session's offloaded tool
-/// results, its conversation transcripts under each known cwd, its connector account choices,
-/// its worker row (a tombstone now), its compaction archive and its scratch folders are gone
-/// (Node's hooks finish before the delete does); another session's stay.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[allow(clippy::disallowed_methods, reason = "the test reads what the hooks left")]
-async fn the_purge_hooks_have_dropped_a_deleted_sessions_state_when_they_return() {
-    let (data, home) = (tempfile::tempdir().expect("data"), tempfile::tempdir().expect("home"));
-    let (d, h) = (data.path(), home.path());
-    let id = "sess_gone";
-    let cwd = d.join("ws").to_string_lossy().into_owned();
-    let transcript = h.join("projects").join(super::purge::project_slug(&cwd)).join(format!("{id}.jsonl"));
-    let offloaded = d.join("tool-results").join(id).join("call-1.txt");
-    let scratch = mixdog_tools::exec::session_scratch_dir(d, id).expect("a scratch dir");
-    let created = [
-        offloaded.clone(),
-        transcript.clone(),
-        transcript.with_extension("jsonl.1"),
-        d.join("sessions").join(format!("{id}.compaction-archive.jsonl")),
-        scratch.join("note.txt"),
-        d.join("scratch").join(id).join("old.txt"),
-    ];
-    for path in &created {
-        write(path, "x");
-    }
-    let accounts = d.join("connector-accounts-by-conversation.json");
-    write(&accounts, &json!({ id: { "accounts": { "gmail": "a" } }, "sess_kept": { "accounts": { "gmail": "b" } } }).to_string());
-    let workers = Arc::new(Workers::default());
-    let row = json!({ "tag": "w1", "sessionId": id, "agent": "worker", "status": "idle", "parentSessionId": "lead-a" });
-    workers.write(id, Some(row.as_object().cloned().unwrap()));
-    let agents = Arc::new(AgentRegistry::new(workers.clone(), workers.clone(), workers.clone(), Arc::new(super::SystemClock)));
-    let turns = Arc::new(NoTurns);
-    let hooks = super::delete::PurgeHooks::new(super::purge::PurgeOwners {
-        data_dir: d.to_path_buf(),
-        mixdog_home: h.to_path_buf(),
-        maintenance: mixdog_rt::testing::tokens().maintenance_io,
-        read_state: Arc::new(mixdog_tools::fs::ReadState::new(None)),
-        warm: mixdog_ai::registry::warm::WarmLedger::new(),
-        providers: Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoProviders))),
-        worker_turns: WorkerTurns::new(turns.clone(), turns.clone(), turns.clone(), turns, Arc::new(|| {})),
-        agents,
-    });
-    let rig = Rig::new();
-    let review = rig.deps_parts(rig.store.clone()).turn_review;
-    hooks.run(review.as_ref(), id, &[cwd]).await;
-
-    let left: Vec<_> = created.iter().filter(|path| path.exists()).collect();
-    assert!(left.is_empty(), "{left:?}");
-    assert!(!offloaded.parent().unwrap().exists() && !scratch.exists());
-    let accounts: Value = serde_json::from_str(&std::fs::read_to_string(&accounts).unwrap()).unwrap();
-    assert_eq!(accounts, json!({ "sess_kept": { "accounts": { "gmail": "b" } } }));
-    let tombstoned = lock(&workers.0).iter().find(|(s, _)| s == id).map(|(_, m)| m.clone()).expect("the row");
-    assert!(tombstoned.contains_key("tombstone") && !tombstoned.contains_key("sessionId"), "{tombstoned:?}");
 }
 
 /// `autoEffortMode`: a set `MIXDOG_AUTO_EFFORT` wins (an unknown spelling is off), else the

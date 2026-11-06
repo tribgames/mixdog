@@ -58,6 +58,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::computer_screen::Screen;
+use crate::state::secrets::ComputerSecretHost;
 
 const RESPONSE_MARKER: &str = "@@MIXCU@@";
 /// Per-command ceiling for one helper round trip (Node `COMMAND_TIMEOUT_MS`).
@@ -91,6 +92,24 @@ const READ_ACTIONS: [&str; 19] = [
     "ocr_status",
     "process_fate",
     "list_installed_apps",
+];
+/// Commands the desktop host serves as reads (`computerActionsWith('hostRead')`): withheld while a
+/// secret field may be focused.
+const HOST_READ_ACTIONS: [&str; 14] = [
+    "list_windows",
+    "snapshot",
+    "find",
+    "clipboard_read",
+    "wait",
+    "window_bounds",
+    "window_predicates",
+    "list_apps",
+    "list_history",
+    "capture",
+    "screenshot",
+    "zoom",
+    "verify",
+    "wait_for_user",
 ];
 /// Helper actions that keep the session's element refs (`retainNativeRefs`): the reads plus
 /// the ones that hand input back.
@@ -274,6 +293,8 @@ pub struct ProcessComputerBackend {
     turn: tokio::sync::Mutex<()>,
     next_id: AtomicI64,
     screen: Screen,
+    /// A typed secret's field may still hold focus: reads are refused until the next action.
+    secret_focus: AtomicBool,
 }
 
 impl ProcessComputerBackend {
@@ -288,6 +309,7 @@ impl ProcessComputerBackend {
             turn: tokio::sync::Mutex::new(()),
             next_id: AtomicI64::new(1),
             screen: Screen::default(),
+            secret_focus: AtomicBool::new(false),
         }
     }
 
@@ -899,6 +921,22 @@ fn host_command(action: ComputerAction, input: &Map<String, Value>) -> Map<Strin
 }
 
 #[async_trait]
+impl ComputerSecretHost for ProcessComputerBackend {
+    async fn execute(&self, command: Map<String, Value>) -> Result<Map<String, Value>, String> {
+        self.call(command, &CancellationToken::new()).await.map_err(|error| match error {
+            ComputerError::Failed { message, .. } => message,
+            ComputerError::Unavailable { reason } | ComputerError::InvalidInput { reason } => reason,
+            ComputerError::Denied => "denied".to_owned(),
+            ComputerError::Cancelled => "cancelled".to_owned(),
+        })
+    }
+
+    fn arm_focus(&self) {
+        self.secret_focus.store(true, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
 impl ComputerBackend for ProcessComputerBackend {
     async fn run(&self, request: ComputerRequest, cancel: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
         let Some(input) = request.input.as_object() else {
@@ -909,6 +947,17 @@ impl ComputerBackend for ProcessComputerBackend {
         validate(request.action, input).map_err(|reason| ComputerError::InvalidInput { reason })?;
         let mut command = host_command(request.action, input);
         let name = text(&command, "action").to_string();
+        // While a typed secret's field may hold focus no capture leaves the host: a read is
+        // refused, and the next action (which moves on) lifts the hold.
+        if self.secret_focus.load(Ordering::SeqCst) {
+            if HOST_READ_ACTIONS.contains(&name.as_str()) {
+                return Err(ComputerError::Failed {
+                    code: "capture_withheld".into(),
+                    message: "capture_withheld: a secret field may be focused; move focus (Tab or a click elsewhere) first".into(),
+                });
+            }
+            self.secret_focus.store(false, Ordering::SeqCst);
+        }
         match name.as_str() {
             "sequence" => self.act(command, &cancel).await,
             "capture" => self.capture(command, &cancel).await,

@@ -39,6 +39,8 @@ struct Marked {
 /// what a session's own record says.
 pub struct UnattendedRunRegistry {
     marked: Mutex<HashMap<String, Arc<Marked>>>,
+    /// `run.humanNeeded` of a marked run: the `(outcome, site)` that ended it for a person.
+    human: Mutex<HashMap<String, (String, String)>>,
     stamps: Arc<dyn RunStamps>,
 }
 
@@ -54,13 +56,29 @@ impl Drop for RunMark {
         let mut marked = self.registry.marked.lock().unwrap_or_else(PoisonError::into_inner);
         if marked.get(&self.thread).is_some_and(|current| Arc::ptr_eq(current, &self.run)) {
             marked.remove(&self.thread);
+            self.registry.human.lock().unwrap_or_else(PoisonError::into_inner).remove(&self.thread);
         }
     }
 }
 
 impl UnattendedRunRegistry {
     pub fn new(stamps: Arc<dyn RunStamps>) -> Arc<Self> {
-        Arc::new(Self { marked: Mutex::new(HashMap::new()), stamps })
+        Arc::new(Self { marked: Mutex::new(HashMap::new()), human: Mutex::new(HashMap::new()), stamps })
+    }
+
+    /// `failRunForHuman` (the registry half): a marked run now ends for a person; false for a
+    /// thread that is no marked run. The caller aborts the turn.
+    pub fn fail_for_human(&self, thread: &str, outcome: &str, site: &str) -> bool {
+        if !self.marked.lock().unwrap_or_else(PoisonError::into_inner).contains_key(thread) {
+            return false;
+        }
+        self.human.lock().unwrap_or_else(PoisonError::into_inner).insert(thread.to_owned(), (outcome.to_owned(), site.to_owned()));
+        true
+    }
+
+    /// `unattendedRunOf(thread)?.humanNeeded`.
+    pub fn human_needed_of(&self, thread: &str) -> Option<(String, String)> {
+        self.human.lock().unwrap_or_else(PoisonError::into_inner).get(thread).cloned()
     }
 
     /// `markUnattendedRun(sessionId, { kind, agentId, name })`: `kind` other than a webhook is a
@@ -73,6 +91,7 @@ impl UnattendedRunRegistry {
         let agent_id = if agent_id.is_empty() { MIXY_AGENT_ID } else { agent_id };
         let run = Arc::new(Marked { kind, agent_id: agent_id.to_owned(), name: name.to_owned() });
         self.marked.lock().unwrap_or_else(PoisonError::into_inner).insert(thread.to_owned(), run.clone());
+        self.human.lock().unwrap_or_else(PoisonError::into_inner).remove(thread);
         Some(RunMark { registry: self.clone(), thread: thread.to_owned(), run })
     }
 }

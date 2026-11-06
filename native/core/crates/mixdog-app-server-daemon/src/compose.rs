@@ -76,6 +76,8 @@ use mixdog_core_api::CoreState as LifecycleState;
 use mixdog_core_api::DomainService;
 use mixdog_core_api::FeedSource;
 use mixdog_core_api::HostChannel;
+use mixdog_app_protocol::limits::Limits;
+use mixdog_app_server::HostMedia;
 use mixdog_core_api::HostMediaSink;
 use mixdog_core_api::OpIndex;
 use mixdog_core_api::ThreadDirectory;
@@ -90,9 +92,9 @@ const APP_RING_BYTES: usize = 1 << 20;
 const MAX_SNAPSHOT_BYTES: usize = 3 << 20;
 
 /// The non-thread op scopes (protocol §9.2); each has a gate over its rows in state/core.sqlite.
-const OP_SCOPES: [&str; 14] = [
+const OP_SCOPES: [&str; 15] = [
     "config", "account", "agent", "project", "media", "channel", "mcp", "skills", "plugins",
-    "localProvider", "terminal", "git", "remoteAccess", "core",
+    "localProvider", "terminal", "git", "remoteAccess", "core", "workflow",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -132,6 +134,8 @@ impl ThreadOpGates for NoThreadGates {
 
 pub struct ComposedCore {
     base: MockCore,
+    /// The real [HostMediaSink]; the browser view binds its stream targets here.
+    host_media: Arc<HostMedia>,
     app_feed: Arc<CoreFeed>,
     /// Every scoped feed a service created, found by id for `feed/subscribe`.
     feed_index: Arc<CoreScopedFeeds>,
@@ -146,6 +150,7 @@ pub struct ComposedCore {
     catalog: CatalogHost,
     tidy_processes: Processes,
     stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
+    final_barriers: std::sync::Mutex<Vec<(&'static str, crate::lifecycle::Hook)>>,
 }
 
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -209,6 +214,11 @@ fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime) -
 }
 
 impl ComposedCore {
+    /// The host media router: bind a stream's target here, then host/browser/viewFrames pictures reach it.
+    pub fn host_media_router(&self) -> &Arc<HostMedia> {
+        &self.host_media
+    }
+
     /// The shell/task runtime; Exec::wakes is the hub SessionDeps::wakes shares.
     pub fn exec(&self) -> &Exec {
         &self.exec
@@ -255,11 +265,37 @@ impl ComposedCore {
         self.stop_steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, Box::pin(step)));
     }
 
+    /// Registers a barrier the release procedure runs before it closes connections: a session
+    /// actor Clean or reported storage_indeterminate (LR §5.3 step 1). Runs in registration order.
+    pub fn on_final_barrier(&self, name: &'static str, barrier: crate::lifecycle::Hook) {
+        self.final_barriers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, barrier));
+    }
+
+    /// Runs every registered final barrier. Blocks: call it from the release thread only.
+    pub fn run_final_barriers(&self) {
+        let barriers = std::mem::take(&mut *self.final_barriers.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for (name, barrier) in barriers {
+            tracing::debug!(barrier = name, "final barrier");
+            barrier();
+        }
+    }
+
+    /// The extension host pool, for the lifecycle's release procedure.
+    pub fn ext_host(&self) -> &Arc<ExtHostPool> {
+        &self.ext_host
+    }
+
     /// The one stop procedure of the core, for the daemon and the in-process server alike: closes
     /// the extension host, then runs each registered step in order. Returns once all of it is
     /// done; a second call finds nothing left to run.
     pub async fn stop(&self) {
         self.close_ext_host().await;
+        self.run_stop_steps().await;
+    }
+
+    /// The registered stop steps alone, for the release procedure that closes the extension host
+    /// at its own point (RuntimeCore::close_ext_host).
+    pub async fn run_stop_steps(&self) {
         let steps = std::mem::take(&mut *self.stop_steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         for (name, step) in steps {
             tracing::debug!(step = name, "stopping");
@@ -310,7 +346,7 @@ impl CoreHandle for ComposedCore {
     }
 
     fn host_media(&self) -> &dyn HostMediaSink {
-        self.base.host_media()
+        self.host_media.as_ref()
     }
 
     fn lifecycle(&self) -> watch::Receiver<LifecycleState> {
@@ -485,6 +521,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
     }
     Ok(ComposedCore {
         base: MockCore::new(&[], MockLimits::default()),
+        host_media: HostMedia::new(Limits::default().max_media_frame_bytes),
         app_feed,
         feed_index,
         ops: CoreOpIndex::new(gates, Arc::new(NoThreadGates)),
@@ -498,6 +535,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         catalog,
         tidy_processes,
         stop_steps: std::sync::Mutex::new(Vec::new()),
+        final_barriers: std::sync::Mutex::new(Vec::new()),
     })
 }
 
@@ -607,5 +645,36 @@ mod tests {
                 Reply::Subscribe(_) => panic!("mock domain subscribed"),
             }
         }
+    }
+
+    /// The release procedure runs the final barriers in registration order, then (after the
+    /// extension host has closed) the stop steps; neither runs twice.
+    #[tokio::test]
+    async fn release_runs_the_barriers_then_the_stop_steps_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = compose(
+            &mixdog_rt::testing::tokens(),
+            ComposeConfig {
+                data_dir: dir.path().to_path_buf(),
+                user_data_dir: dir.path().join("userdata"),
+                js_runtime: crate::js_runtime::fixture(dir.path()),
+                ort_library: OrtRuntime::NoBinding,
+                host: Arc::new(mixdog_core_api::mock::MockHostChannel::default()),
+            },
+        )
+        .await
+        .unwrap();
+        let order = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
+        for name in ["first", "second"] {
+            let order = order.clone();
+            core.on_final_barrier(name, Arc::new(move || order.lock().unwrap().push(name)));
+        }
+        let steps = order.clone();
+        core.on_stop("step", async move { steps.lock().unwrap().push("step") });
+        core.run_final_barriers();
+        core.run_stop_steps().await;
+        core.run_final_barriers();
+        core.run_stop_steps().await;
+        assert_eq!(*order.lock().unwrap(), ["first", "second", "step"]);
     }
 }

@@ -1,0 +1,40 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-process-services.mjs --tree <tree>",
+  "fileCount": 3,
+  "files": [
+    {
+      "bytes": 1250,
+      "path": "host.json",
+      "sha256": "dbcf8916e084f378c3a13b43fa6c1ec91f0b91c0845c1203582283e4d64c85cb"
+    },
+    {
+      "bytes": 4840,
+      "path": "local-models.json",
+      "sha256": "25ccc90f2886da2ef23109891be1b1e116d36ec4504042d9659de4f0a26a1988"
+    },
+    {
+      "bytes": 10423,
+      "path": "secrets.json",
+      "sha256": "169e23e341db0de5ace309e3ad3dc432b4cba69627754739b61ed4ac11ee1586"
+    }
+  ],
+  "product": {
+    "appsSha256": "04b921c4ae348576f68a0a015207ce668e374e6d3cae8c8fdeff8ff229de0afa",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9241,
+    "refComparison": {
+      "closestCommit": "eb086b749340f18c47b33f1568929ece8467e18d",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-process-services.mjs",
+  "set": "process-services",
+  "totalBytes": 16513
+}

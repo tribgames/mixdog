@@ -50,7 +50,6 @@ use serde_json::json;
 
 use super::SessionDeps;
 use super::directory::DirInner;
-use super::seams::Shown;
 use super::view::meta;
 
 /// `PAGE_MIN_ROWS` (`store-transcript-projection.mjs`): a byte budget never cuts a page below
@@ -87,21 +86,24 @@ fn params<T: DeserializeOwned>(req: &CoreRequest, expected: &str) -> Result<T, C
 /// A thread's whole stored history as the transcript shows it, oldest first
 /// (`readSessionHistory`); the thread need not be loaded.
 pub(super) async fn history_items(deps: &SessionDeps, id: &ThreadId) -> Result<Vec<ThreadItem>, CoreError> {
+    Ok(history(deps, id).await?.rows.into_iter().map(|(item, _)| item).collect())
+}
+
+/// The stored history: each item with the byte length of its display row, at the history
+/// revision it was read at.
+pub(super) struct History {
+    pub rev: u64,
+    pub rows: Vec<(ThreadItem, usize)>,
+}
+
+pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History, CoreError> {
     let token = CancellationToken::new();
     let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
     let (store, thread) = (deps.store.clone(), id.clone());
-    let rows = deps.lanes.io.submit(&token, move |lane| store.history_rows(lane, &thread))?.await.map_err(|_| dropped())??;
+    let (rev, records) = deps.lanes.io.submit(&token, move |lane| store.history_rows(lane, &thread))?.await.map_err(|_| dropped())??;
     let transcript = deps.transcript.clone();
-    let items = deps.lanes.cpu.submit(&token, move |lane| {
-        rows.iter()
-            .flat_map(|row| transcript.items(lane, row))
-            .filter_map(|shown| match shown {
-                Shown::Item(item) => Some(item),
-                Shown::Update(_) => None,
-            })
-            .collect()
-    })?;
-    items.await.map_err(|_| dropped())
+    let rows = deps.lanes.cpu.submit(&token, move |lane| records.iter().flat_map(|record| transcript.rows(lane, record)).collect())?;
+    Ok(History { rev, rows: rows.await.map_err(|_| dropped())? })
 }
 
 impl DirInner {
@@ -113,9 +115,10 @@ impl DirInner {
             .and_then(Value::as_str)
             .map(ThreadId::from)
             .ok_or_else(|| invalid("threadId", "a thread id"))?;
-        let items = history_items(&self.deps, &id).await?;
+        let History { rev, rows } = history(&self.deps, &id).await?;
+        let items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
         match req.method.as_str() {
-            "thread/items/list" => items_list(&id, &items, params(req, "ThreadItemsListParams")?),
+            "thread/items/list" => items_list(&id, rev, &rows, params(req, "ThreadItemsListParams")?),
             "thread/items/read" => items_read(&id, &items, params(req, "ThreadItemsReadParams")?),
             "thread/turns/list" => turns_list(&items, params(req, "ThreadTurnsListParams")?, self.active_turn(&id)),
             "thread/attachment/list" => attachment_list(&items, params(req, "ThreadPageParams")?),
@@ -154,7 +157,11 @@ impl DirInner {
     }
 }
 
-fn items_list(id: &ThreadId, items: &[ThreadItem], p: ThreadItemsListParams) -> Result<Reply, CoreError> {
+/// `thread/items/list`: the page around the cursor's row. The cursor names a row by its id, so a
+/// row a rewind or a clear removed answers `cursorInvalidated` (protocol §5.5, retracting
+/// D-reads-1's `itemNotFound`): the client restarts from its snapshot. The page's byte budget
+/// counts `rows`' display-row lengths, as Node's `budgetedEdge` counts the transcript rows.
+fn items_list(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], p: ThreadItemsListParams) -> Result<Reply, CoreError> {
     let limit = match p.limit {
         None => MAX_ROWS,
         Some(n) if (1..=MAX_ROWS as u32).contains(&n) => n as usize,
@@ -171,22 +178,22 @@ fn items_list(id: &ThreadId, items: &[ThreadItem], p: ThreadItemsListParams) -> 
         Some(ItemsCursor::Item { kind, item_id }) if kind == "item" => Some(item_id.as_str()),
         Some(ItemsCursor::Item { .. }) => return Err(invalid("cursor.type", "item")),
     };
-    let turn: Vec<&ThreadItem> = items
+    let turn: Vec<&(ThreadItem, usize)> = rows
         .iter()
-        .filter(|item| p.turn_id.as_ref().is_none_or(|turn| meta(item).turn_id.as_ref().is_some_and(|t| t.as_str() == turn.as_str())))
+        .filter(|(item, _)| p.turn_id.as_ref().is_none_or(|turn| meta(item).turn_id.as_ref().is_some_and(|t| t.as_str() == turn.as_str())))
         .collect();
     let at = match anchor {
         None => None,
         Some(item) => Some(
             turn.iter()
-                .position(|row| row.id().as_str() == item)
-                .ok_or_else(|| CoreError::ItemNotFound { thread_id: id.clone(), item_id: ItemId::from(item) })?,
+                .position(|(row, _)| row.id().as_str() == item)
+                .ok_or_else(|| CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev })?,
         ),
     };
     let older = !matches!(p.sort_direction, Some(SortDirection::Asc));
-    let sizes: Vec<usize> = turn.iter().map(|item| serde_json::to_vec(item).expect("protocol types serialize").len()).collect();
+    let sizes: Vec<usize> = turn.iter().map(|(_, bytes)| *bytes).collect();
     let page = page_of(&sizes, at, older, limit, budget).expect("the anchor is a position of the rows");
-    let data: Vec<ThreadItem> = turn[page.start..page.end].iter().map(|item| (*item).clone()).collect();
+    let data: Vec<ThreadItem> = turn[page.start..page.end].iter().map(|(item, _)| item.clone()).collect();
     let edge = |row: Option<&ThreadItem>, wanted: bool| row.filter(|_| wanted).map(|item| item.id().as_str().to_owned());
     // The cursor onward in the page's own direction, and the one back.
     let (next, back) = if older {
@@ -536,7 +543,8 @@ mod tests {
 
     fn golden() -> Value {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-reads/golden.json");
-        serde_json::from_slice(&std::fs::read(path).expect("golden.json")).expect("golden.json parses")
+        let bytes = mixdog_statefile::read_content(&path).expect("read golden.json").expect("golden.json exists");
+        serde_json::from_slice(&bytes).expect("golden.json parses")
     }
 
     /// `sessionFinalAnswer` of the recorded snapshots; `None` for Node's `null`.
@@ -623,30 +631,89 @@ mod tests {
         }
     }
 
-    /// `storedHistorySlice({cursor})`: the page, its edges, and the cursor Node reports missing.
+    fn history_of(sizes: &[usize]) -> Vec<(ThreadItem, usize)> {
+        sizes
+            .iter()
+            .enumerate()
+            .map(|(i, bytes)| (serde_json::from_value(json!({ "type": "agentMessage", "id": format!("r{i}"), "text": "x" })).expect("an agent message"), *bytes))
+            .collect()
+    }
+
+    fn page(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], params: Value) -> Result<Value, CoreError> {
+        match items_list(id, rev, rows, serde_json::from_value(params).expect("params"))? {
+            Reply::Value(v) => Ok(v),
+            _ => panic!("a value"),
+        }
+    }
+
+    /// `storedHistorySlice({cursor})`: the recorded Node pages replayed through `thread/items/list`
+    /// (cursor, `limit`, `byteBudget`, `sortDirection`), edges and `cursorMissing` included. Node's
+    /// own row sizes feed the rows here; that production measures a row as Node does is the
+    /// `display_rows_measure_as_nodes_do` test of `transcript_convert`.
     #[test]
     fn the_page_around_a_row_equals_nodes() {
         let golden = golden();
         let sizes: Vec<usize> = golden["pages"]["sizes"].as_array().expect("sizes").iter().map(|n| n.as_u64().expect("size") as usize).collect();
+        let rows = history_of(&sizes);
+        let id = ThreadId::from("t");
         let requests = golden["pages"]["requests"].as_array().expect("requests");
         assert!(requests.len() > 200);
+        let mut replayed = 0;
         for case in requests {
             let request = &case["request"];
-            let older = !request["before"].is_null();
-            let id = request[if older { "before" } else { "after" }].as_str().expect("anchor");
-            let at = id.strip_prefix('r').and_then(|n| n.parse::<usize>().ok()).filter(|n| *n < sizes.len());
-            let rows = request["maxRows"].as_u64().expect("maxRows") as usize;
-            let budget = request["byteBudget"].as_u64();
-            let got = at.and_then(|at| page_of(&sizes, Some(at), older, rows, budget));
-            let want = &case["expected"];
-            match got {
-                None => assert_eq!(want["cursorMissing"], json!(true), "{request}"),
-                Some(page) => assert_eq!(
-                    json!({ "start": page.start, "end": page.end, "hasOlder": page.has_older, "hasNewer": page.has_newer }),
-                    *want,
-                    "{request}"
-                ),
+            let max_rows = request["maxRows"].as_u64().expect("maxRows");
+            // The protocol's `limit` is 1..=512; Node clamps the others, and `thread/items/list` refuses them.
+            if !(1..=512).contains(&max_rows) {
+                continue;
             }
+            let older = !request["before"].is_null();
+            let anchor = request[if older { "before" } else { "after" }].as_str().expect("anchor");
+            let mut params = json!({ "threadId": "t", "limit": max_rows, "cursor": anchor, "sortDirection": if older { "desc" } else { "asc" } });
+            if let Some(budget) = request["byteBudget"].as_u64() {
+                params["byteBudget"] = json!(budget);
+            }
+            replayed += 1;
+            let want = &case["expected"];
+            let got = page(&id, 0, &rows, params);
+            if want["cursorMissing"] == json!(true) {
+                assert!(matches!(got, Err(CoreError::CursorInvalidated { .. })), "{request}");
+                continue;
+            }
+            let got = got.unwrap_or_else(|e| panic!("{request}: {e:?}"));
+            let ids: Vec<usize> = got["data"].as_array().expect("data").iter().map(|item| item["id"].as_str().expect("id")[1..].parse().expect("index")).collect();
+            let anchor_at: usize = anchor[1..].parse().expect("anchor index");
+            let start = ids.first().copied().unwrap_or(if older { anchor_at } else { anchor_at + 1 });
+            let end = ids.last().map_or(start, |last| last + 1);
+            assert_eq!(
+                json!({ "start": start, "end": end, "hasOlder": got["hasOlder"], "hasNewer": got["hasNewer"] }),
+                *want,
+                "{request}"
+            );
         }
+        assert!(replayed > 200, "{replayed}");
+    }
+
+    /// Protocol §5.5: a cursor into history a rewind or a clear removed is `cursorInvalidated`,
+    /// at the history revision the read found; the page before it was valid.
+    #[test]
+    fn a_cursor_into_removed_history_is_invalidated() {
+        let id = ThreadId::from("t");
+        let before = history_of(&[10, 10, 10, 10]);
+        let first = page(&id, 0, &before, json!({ "threadId": "t", "limit": 2 })).expect("page");
+        let cursor = first["nextCursor"].as_str().expect("more rows").to_owned();
+        assert_eq!(cursor, "r2");
+        // A rewind to r2 removes r2 and r3 and moves the revision; the cursor named r2.
+        let rewound = history_of(&[10, 10]);
+        match page(&id, 1, &rewound, json!({ "threadId": "t", "limit": 2, "cursor": cursor })) {
+            Err(CoreError::CursorInvalidated { thread_id, history_rev }) => assert_eq!((thread_id, history_rev), (id.clone(), 1)),
+            other => panic!("{other:?}"),
+        }
+        // A clear removes every row; the `{type:"item"}` form is the same cursor.
+        match page(&id, 2, &[], json!({ "threadId": "t", "cursor": { "type": "item", "itemId": "r0" } })) {
+            Err(CoreError::CursorInvalidated { history_rev, .. }) => assert_eq!(history_rev, 2),
+            other => panic!("{other:?}"),
+        }
+        // A cursor that survived keeps paging.
+        assert!(page(&id, 1, &rewound, json!({ "threadId": "t", "cursor": "r1" })).is_ok());
     }
 }

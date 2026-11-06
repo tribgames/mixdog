@@ -25,7 +25,9 @@ use crate::skills::parse_document;
 use crate::skills_watch::SkillsWatch;
 
 /// The skill roots, in precedence order (global, plugins, bundled).
-pub type SkillRoots = Arc<dyn Fn() -> Vec<SkillRoot> + Send + Sync>;
+///
+/// Evaluated on the maintenance lane: the plugin roots come from the registry file.
+pub type SkillRoots = Arc<dyn Fn(&mixdog_rt::InLane<MaintenanceIo>) -> Vec<SkillRoot> + Send + Sync>;
 
 /// What gates a skill right now: the disabled names and active features, and the project
 /// scopes.
@@ -140,8 +142,8 @@ impl SkillCatalog {
         {
             return Ok(Arc::clone(&cached.skills));
         }
-        let (data_dir, roots) = (self.data_dir.clone(), (self.roots)());
-        let collected = self.run(move |lane| collect_skills(lane, &data_dir, &roots)).await?;
+        let (data_dir, roots) = (self.data_dir.clone(), Arc::clone(&self.roots));
+        let collected = self.run(move |lane| collect_skills(lane, &data_dir, &roots(lane))).await?;
         let skills = Arc::new(collected);
         self.cache.store(Arc::new(Some(Cached { generation, skills: Arc::clone(&skills) })));
         Ok(skills)
@@ -222,13 +224,10 @@ impl SkillCatalog {
     }
 }
 
-#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
 fn read_text(_lane: &mixdog_rt::InLane<MaintenanceIo>, path: &Path) -> std::io::Result<Option<String>> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
-    }
+    mixdog_statefile::read_content(path)?
+        .map(|bytes| String::from_utf8(bytes).map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error)))
+        .transpose()
 }
 
 #[cfg(test)]

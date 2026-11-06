@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-agent-pool.mjs --tree <dir with node_modules>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1297860,
+      "path": "pool-twin.json",
+      "sha256": "1e25cdd995bffb15677c034a5c35a3536dd90fe4579a8d88806ee6ba4a838f15"
+    }
+  ],
+  "product": {
+    "appsSha256": "aea90486849b02f92891b7def4ed21ffafa4d67ead160c9aa5b8b157e284f2af",
+    "commit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9241,
+    "refComparison": {
+      "closestCommit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "0b9580cca2e51de41503da0fe8b30237f981f0c584bdc7511bc05a7a45b7ed84",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-pool.mjs",
+  "set": "agent-pool",
+  "totalBytes": 1297860
+}

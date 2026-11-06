@@ -1,0 +1,698 @@
+[
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": {
+      "form": "password",
+      "username": "",
+      "value": "Tr0ub4dor&3"
+    },
+    "gateHeld": false,
+    "name": "a password goes to the page it was bound to",
+    "outcome": "entered",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "login",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": {
+      "form": "login",
+      "username": "alice",
+      "value": "Tr0ub4dor&3"
+    },
+    "gateHeld": false,
+    "name": "a login with a username and the save choice is saved",
+    "outcome": "entered",
+    "page": "at-origin",
+    "provide": {
+      "save": "1",
+      "username": "alice",
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": {
+      "origin": "https://example.com",
+      "password": "Tr0ub4dor&3",
+      "username": "alice"
+    },
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "login",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": {
+      "form": "login",
+      "username": "alice",
+      "value": "Tr0ub4dor&3"
+    },
+    "gateHeld": false,
+    "name": "a login with a username and no save choice is not saved",
+    "outcome": "entered",
+    "page": "at-origin",
+    "provide": {
+      "username": "alice",
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "login",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": {
+      "form": "login",
+      "username": "alice",
+      "value": "Tr0ub4dor&3"
+    },
+    "gateHeld": false,
+    "name": "a login with a save choice other than 1 is not saved",
+    "outcome": "entered",
+    "page": "at-origin",
+    "provide": {
+      "save": "0",
+      "username": "alice",
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "login",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": {
+      "form": "login",
+      "username": "",
+      "value": "Tr0ub4dor&3"
+    },
+    "gateHeld": false,
+    "name": "a save choice with no username saves nothing",
+    "outcome": "entered",
+    "page": "at-origin",
+    "provide": {
+      "save": "1",
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": {
+      "form": "password",
+      "username": "alice",
+      "value": "Tr0ub4dor&3"
+    },
+    "gateHeld": false,
+    "name": "a save choice on a password form saves nothing",
+    "outcome": "entered",
+    "page": "at-origin",
+    "provide": {
+      "save": "1",
+      "username": "alice",
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "otp",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": {
+      "form": "otp",
+      "username": "",
+      "value": "482190"
+    },
+    "gateHeld": false,
+    "name": "a one-time code form is filled",
+    "outcome": "entered",
+    "page": "at-origin",
+    "provide": {
+      "value": "482190"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "core",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": null,
+    "gateHeld": false,
+    "name": "a request never provided is expired",
+    "outcome": "expired",
+    "page": "at-origin",
+    "provide": null,
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": null,
+    "checkedBy": "core",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": null,
+    "gateHeld": false,
+    "name": "a request with no binding is blocked",
+    "outcome": "blocked",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S2",
+      "targets": true
+    },
+    "checkedBy": "core",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": null,
+    "gateHeld": false,
+    "name": "a binding of another session is blocked",
+    "outcome": "blocked",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": null,
+    "checkedBy": "core",
+    "computerBind": true,
+    "fill": {
+      "filled": true
+    },
+    "filled": null,
+    "gateHeld": false,
+    "name": "a computer binding is no page binding",
+    "outcome": "blocked",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "core",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": null,
+    "gateHeld": true,
+    "name": "a held takeover blocks before the value is taken",
+    "outcome": "blocked",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": null,
+    "gateHeld": false,
+    "name": "a page that is gone is page_changed",
+    "outcome": "page_changed",
+    "page": "missing",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": null,
+    "gateHeld": false,
+    "name": "a destroyed page is page_changed",
+    "outcome": "page_changed",
+    "page": "destroyed",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": null,
+    "gateHeld": false,
+    "name": "a page that left the origin is page_changed",
+    "outcome": "page_changed",
+    "page": "other-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": false,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": null,
+    "gateHeld": false,
+    "name": "a binding with no document is page_changed",
+    "outcome": "page_changed",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": false
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": true
+    },
+    "filled": null,
+    "gateHeld": false,
+    "name": "a binding with no elements is no_field",
+    "outcome": "no_field",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "filled": false
+    },
+    "filled": {
+      "form": "password",
+      "username": "",
+      "value": "Tr0ub4dor&3"
+    },
+    "gateHeld": false,
+    "name": "a stale element is no_field",
+    "outcome": "no_field",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "throw": "page_changed"
+    },
+    "filled": {
+      "form": "password",
+      "username": "",
+      "value": "Tr0ub4dor&3"
+    },
+    "gateHeld": false,
+    "name": "a fill failing on the page changing is page_changed",
+    "outcome": "page_changed",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "movesDuringFill": true,
+      "throw": "generic"
+    },
+    "filled": {
+      "form": "password",
+      "username": "",
+      "value": "Tr0ub4dor&3"
+    },
+    "gateHeld": false,
+    "name": "a fill failing after the page left the origin is page_changed",
+    "outcome": "page_changed",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  },
+  {
+    "after": {
+      "browser": null,
+      "computer": null,
+      "held": false,
+      "redacted": "pw=Tr0ub4dor&3!",
+      "save": false,
+      "username": false
+    },
+    "bind": {
+      "document": true,
+      "form": "password",
+      "session": "S1",
+      "targets": true
+    },
+    "checkedBy": "host",
+    "computerBind": false,
+    "fill": {
+      "throw": "generic"
+    },
+    "filled": {
+      "form": "password",
+      "username": "",
+      "value": "Tr0ub4dor&3"
+    },
+    "gateHeld": false,
+    "name": "another fill failure is blocked",
+    "outcome": "blocked",
+    "page": "at-origin",
+    "provide": {
+      "value": "Tr0ub4dor&3"
+    },
+    "saved": null,
+    "session": "S1"
+  }
+]

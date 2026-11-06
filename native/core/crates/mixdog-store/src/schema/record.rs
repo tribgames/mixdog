@@ -258,6 +258,10 @@ pub struct CompactedRecord {
     /// when the pass reported none). Present, it decides by id whatever the count says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dropped: Option<CompactedDropped>,
+    /// `true`: only the model context restarts. No divider is listed for it, live or restored
+    /// (a failed turn's retry removes its stale prompt from the context, which shows nothing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub silent: Option<bool>,
     pub replacement: Slot<Vec<ReplacementEntry>>,
 }
 

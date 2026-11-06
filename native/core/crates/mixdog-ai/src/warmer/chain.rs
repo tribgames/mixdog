@@ -215,6 +215,15 @@ struct State {
     on: Option<bool>,
 }
 
+/// The facts of one finished warm.
+struct Finished<'a> {
+    target: &'a WarmTarget,
+    sent_at: f64,
+    reported_at: Option<f64>,
+    usage: Option<&'a WarmUsage>,
+    failure: Option<String>,
+}
+
 pub struct Warmer {
     deps: Arc<dyn WarmDeps>,
     touches: Arc<TouchStore>,
@@ -684,7 +693,7 @@ impl Warmer {
             Ok(usage) => (Some(usage), None),
             Err(failure) => (failure.usage.clone().or(reported_usage), Some(failure.message)),
         };
-        self.settle(session_id, chain, &target, sent_at, reported_at, usage.as_ref(), failure);
+        self.settle(session_id, chain, Finished { target: &target, sent_at, reported_at, usage: usage.as_ref(), failure });
         // Billed whatever happened next: success, failure or cancellation.
         if let Some(usage) = usage
             && let Err(message) = self.deps.record_usage(chain.request.as_ref(), &usage, sent_at, &target.account_id).await
@@ -694,17 +703,8 @@ impl Warmer {
     }
 
     /// What a finished warm means for its chain.
-    #[allow(clippy::too_many_arguments, reason = "the facts of one warm, read once")]
-    fn settle(
-        self: &Arc<Self>,
-        session_id: &str,
-        chain: &Arc<Chain>,
-        target: &WarmTarget,
-        sent_at: f64,
-        reported_at: Option<f64>,
-        usage: Option<&WarmUsage>,
-        failure: Option<String>,
-    ) {
+    fn settle(self: &Arc<Self>, session_id: &str, chain: &Arc<Chain>, finished: Finished<'_>) {
+        let Finished { target, sent_at, reported_at, usage, failure } = finished;
         if !self.is_current(session_id, chain) {
             return;
         }
