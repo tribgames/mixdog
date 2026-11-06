@@ -1,0 +1,112 @@
+#!/usr/bin/env node
+// Chat Completions lowering of multipart message content (WP-AI-COMPAT): Node's
+// REAL `toOpenAIMessages` over system, developer, user, assistant and tool
+// messages whose content is a list of parts (text plus non-text parts).
+//
+//   node benchmarks/rust-core/recorders/record-chat-parts.mjs [--tree <dir>]
+//
+// Output: native/core/fixtures/providers/oracles/chat-parts-messages.json. Each
+// message is a neutral spec (`parts` of kind text / image_url / image_base64 /
+// image_file_id / file_text / file_binary) that the recorder turns into Node's
+// part shapes and the Rust test into `ContentPart`s.
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson } from './lib/common.mjs';
+
+const P = 'src/runtime/agent/orchestrator/providers';
+
+const ALL = [
+  { kind: 'text', text: 'alpha' },
+  { kind: 'image_url', url: 'https://img.example/a.png' },
+  { kind: 'text', text: 'beta' },
+  { kind: 'image_base64', mime: 'image/png', data: 'AAAA' },
+  { kind: 'image_file_id', id: 'file-123' },
+  { kind: 'file_text', filename: 'notes.txt', text: 'hello file' },
+  { kind: 'file_binary', filename: 'blob.bin' },
+];
+const IMAGE_ONLY = [{ kind: 'image_url', url: 'https://img.example/b.png' }];
+const TEXTS = [
+  { kind: 'text', text: 'one' },
+  { kind: 'text', text: 'two' },
+];
+
+const CASES = [
+  { name: 'system', messages: [{ role: 'system', parts: ALL }, { role: 'user', parts: [{ kind: 'text', text: 'hi' }] }] },
+  { name: 'developer', messages: [{ role: 'developer', parts: ALL }] },
+  { name: 'system-texts-only', messages: [{ role: 'system', parts: TEXTS }] },
+  { name: 'system-image-only', messages: [{ role: 'system', parts: IMAGE_ONLY }] },
+  { name: 'user', messages: [{ role: 'user', parts: ALL }] },
+  // Node lowers an empty text part to its own JSON (`{"type":"text","text":""}`) as text.
+  { name: 'empty-text-part', messages: [{ role: 'user', parts: [{ kind: 'text', text: '' }, { kind: 'text', text: 'x' }] }] },
+  { name: 'user-image-only', messages: [{ role: 'user', parts: IMAGE_ONLY }] },
+  { name: 'assistant', messages: [{ role: 'assistant', parts: ALL }] },
+  {
+    name: 'assistant-tool-calls-image-only',
+    messages: [
+      { role: 'assistant', parts: IMAGE_ONLY, toolCalls: [{ id: 'call_1', name: 'read', arguments: { path: 'a' } }] },
+      { role: 'tool', toolCallId: 'call_1', parts: TEXTS },
+    ],
+  },
+  {
+    name: 'tool-with-media',
+    messages: [
+      { role: 'assistant', parts: [{ kind: 'text', text: 'calling' }], toolCalls: [{ id: 'call_1', name: 'read', arguments: {} }] },
+      { role: 'tool', toolCallId: 'call_1', parts: ALL },
+    ],
+  },
+  {
+    name: 'tool-media-only',
+    messages: [
+      { role: 'assistant', parts: IMAGE_ONLY, toolCalls: [{ id: 'call_1', name: 'read', arguments: {} }] },
+      { role: 'tool', toolCallId: 'call_1', parts: [...IMAGE_ONLY, { kind: 'image_base64', mime: 'image/png', data: 'BBBB' }] },
+    ],
+  },
+];
+
+const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
+
+function nodePart(part) {
+  switch (part.kind) {
+    case 'text':
+      return { type: 'text', text: part.text };
+    case 'image_url':
+      return { type: 'image_url', image_url: { url: part.url } };
+    case 'image_base64':
+      return { type: 'image', source: { type: 'base64', media_type: part.mime, data: part.data } };
+    case 'image_file_id':
+      return { type: 'input_image', file_id: part.id };
+    case 'file_text':
+      return { type: 'file', data: b64(part.text), mimeType: 'text/plain', filename: part.filename };
+    case 'file_binary':
+      return { type: 'file', data: Buffer.from([0, 1, 2, 255]).toString('base64'), mimeType: 'application/octet-stream', filename: part.filename };
+    default:
+      throw new Error(`unknown part kind ${part.kind}`);
+  }
+}
+
+function nodeMessage(spec) {
+  const message = { role: spec.role, content: spec.parts.map(nodePart) };
+  if (spec.toolCallId) message.toolCallId = spec.toolCallId;
+  if (spec.toolCalls) message.toolCalls = spec.toolCalls;
+  return message;
+}
+
+export async function recordChatParts(tree, outFile) {
+  const wire = await importFrom(tree, `${P}/openai-compat-wire.mjs`);
+  const cases = CASES.map(({ name, messages }) => ({
+    name,
+    messages,
+    node: wire.toOpenAIMessages(messages.map(nodeMessage), 'deepseek'),
+  }));
+  writeJson(outFile, {
+    _doc: "Recorded from Node's real toOpenAIMessages (default options) over multipart message content. `messages` are neutral specs; `node` is the lowered Chat Completions message list.",
+    recorder: 'benchmarks/rust-core/recorders/record-chat-parts.mjs',
+    cases,
+  });
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const tree = resolveTree(parseArgs());
+  await recordChatParts(tree, join(FIXTURES_ROOT, 'providers', 'oracles', 'chat-parts-messages.json'));
+  console.log('recorded chat-parts-messages; providers/MANIFEST.json is regenerated by record-providers.mjs');
+}

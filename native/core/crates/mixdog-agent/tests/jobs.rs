@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
+use mixdog_agent::agent_tool::board::CancelAll;
 use mixdog_agent::agent_tool::board::CancelNotice;
 use mixdog_agent::agent_tool::board::Completion;
 use mixdog_agent::agent_tool::board::JobBoard;
@@ -49,7 +50,8 @@ struct Notices(Mutex<Vec<(String, String)>>);
 
 #[async_trait]
 impl TaskNotifier for Notices {
-    async fn finished(&self, owner: &ThreadId, _task_id: &str, _status: &str, notification: String) {
+    async fn finished(&self, owner: &ThreadId, surface: &str, _task_id: &str, _status: &str, notification: String) {
+        assert_eq!(surface, "agent");
         self.0.lock().unwrap().push((owner.as_str().to_owned(), notification));
     }
 }
@@ -84,6 +86,7 @@ fn row(t: &JobSnapshot) -> Value {
         "notified": t.notified,
         "tag": t.meta.tag,
         "sessionId": t.meta.session_id,
+        "terminalReason": t.terminal_reason,
     })
 }
 
@@ -95,12 +98,19 @@ async fn settle() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_board_equals_nodes_background_tasks() {
     long_lived_ticker();
+    let board_rows = |board: &JobBoard, scope: &Scope| Value::Array(board.list_jobs(scope).iter().map(row).collect());
     for scenario in fixture("board.json") {
         let name = scenario["name"].as_str().unwrap();
         let start = scenario["start"].as_i64().unwrap();
         let clock = Arc::new(TestClock(AtomicI64::new(start)));
         let notices = Arc::new(Notices::default());
         let board = JobBoard::new(clock.clone(), Some(notices.clone()), None);
+        let settled: Arc<Mutex<Vec<String>>> = Arc::default();
+        {
+            let settled = settled.clone();
+            board.on_command_settled(Arc::new(move |cwd| settled.lock().unwrap().push(cwd.to_owned())));
+        }
+        let mut runs: std::collections::HashMap<String, tokio::sync::oneshot::Sender<Result<Option<TaskResult>, String>>> = Default::default();
         for (i, op) in scenario["ops"].as_array().unwrap().iter().enumerate() {
             let want = &scenario["results"][i];
             let id = text(op, "id").unwrap_or_default();
@@ -120,10 +130,52 @@ async fn the_board_equals_nodes_background_tasks() {
                         notify_on_cancel: op.get("notifyOnCancel") == Some(&Value::Bool(true)),
                         started_at_ms: op.get("startedAt").and_then(Value::as_i64).map(|offset| start + offset),
                         cancel: None,
+                        cwd: text(op, "cwd"),
                     });
                     if let Err(error) = result {
                         got.insert("error".into(), Value::String(error));
                     }
+                }
+                "start" => {
+                    let (send, receive) = tokio::sync::oneshot::channel();
+                    runs.insert(id.clone(), send);
+                    let tag = text(op, "tag");
+                    board
+                        .start(
+                            NewJob {
+                                task_id: Some(id.clone()),
+                                label: tag.clone().or_else(|| Some("spawn".to_owned())),
+                                operation: "spawn".into(),
+                                owner: JobOwner { caller_session_id: text(op, "caller"), ..JobOwner::default() },
+                                meta: JobMeta { tag, session_id: text(op, "sessionId"), ..JobMeta::default() },
+                                notify_on_cancel: op.get("notifyOnCancel") == Some(&Value::Bool(true)),
+                                ..NewJob::default()
+                            },
+                            async move { receive.await.unwrap() },
+                        )
+                        .unwrap();
+                }
+                "resolveRun" => {
+                    let _ = runs.remove(&id).unwrap().send(Ok(content("content")));
+                }
+                "rejectRun" => {
+                    let _ = runs.remove(&id).unwrap().send(Err(text(op, "error").unwrap()));
+                }
+                "cancelAll" => {
+                    let notice = match op.get("notice").and_then(Value::as_str) {
+                        Some("now") => CancelNotice::Now,
+                        Some("never") => CancelNotice::Never,
+                        _ => CancelNotice::Default,
+                    };
+                    let cancelled = board.cancel_all(&CancelAll {
+                        reason: text(op, "reason").unwrap_or_default(),
+                        terminal_reason: text(op, "terminalReason"),
+                        execution_session_id: text(op, "execution"),
+                        scope: scope(op),
+                        started_since_ms: op.get("startedSince").and_then(Value::as_i64).map_or(0, |offset| start + offset),
+                        notice,
+                    });
+                    got.insert("cancelled".into(), json!(cancelled));
                 }
                 "complete" => {
                     board.complete(
@@ -166,7 +218,7 @@ async fn the_board_equals_nodes_background_tasks() {
                     clock.0.fetch_add(op["ms"].as_i64().unwrap(), Ordering::SeqCst);
                 }
                 "list" => {
-                    got.insert("rows".into(), Value::Array(board.list_jobs(&scope(op)).iter().map(row).collect()));
+                    got.insert("rows".into(), board_rows(&board, &scope(op)));
                 }
                 "get" => {
                     let found = board.get(&id, &scope(op));
@@ -191,6 +243,7 @@ async fn the_board_equals_nodes_background_tasks() {
             settle().await;
             let sent: Vec<Value> = notices.0.lock().unwrap().drain(..).map(|(session, text)| json!({ "session": session, "text": text })).collect();
             got.insert("notices".into(), Value::Array(sent));
+            got.insert("settled".into(), json!(settled.lock().unwrap().drain(..).collect::<Vec<_>>()));
             assert_eq!(&Value::Object(got), want, "{name} op {i} ({})", op["op"]);
         }
     }

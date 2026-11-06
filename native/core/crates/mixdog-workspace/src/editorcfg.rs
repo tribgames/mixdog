@@ -148,7 +148,6 @@ pub fn parse_jsonc(source: &str) -> WsResult<Value> {
     if source.encode_utf16().count() > 2_000_000 {
         return Err(WsError::invalid("JSON configuration is too large."));
     }
-    let source = source.strip_prefix('\u{feff}').unwrap_or(source);
     serde_json::from_str(&strip_trailing_commas(&strip_comments(source))).map_err(|e| WsError::invalid(e.to_string()))
 }
 
@@ -410,7 +409,7 @@ const MAX_BACKUP_CONTENT: usize = 4_194_304;
 const MAX_BACKUP_AGE_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 const MAX_BACKUP_FILES: usize = 100;
 
-fn now_ms() -> i64 {
+pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 

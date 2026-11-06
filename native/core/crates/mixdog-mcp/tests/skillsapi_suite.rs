@@ -76,6 +76,26 @@ impl ExtensionHost for Host {
         vec!["read".to_owned(), "bash".to_owned()]
     }
 
+    async fn reconnect_mcp_and_announce(&self, _: Option<&str>, _: bool, _: &[String]) -> Value {
+        Value::Null
+    }
+
+    async fn reconnect_all_mcp_and_announce(&self) -> Value {
+        Value::Null
+    }
+
+    async fn schedule_mcp_toggle(&self, _: &str, _: bool) -> Value {
+        Value::Null
+    }
+
+    async fn publish_mcp_changes(&self, _: &[(String, bool)]) {}
+
+    async fn announce_mcp_changes(&self, _: &[(String, bool)]) {}
+
+    async fn connect_configured_mcp(&self, _: &str, _: bool) -> Value {
+        Value::Null
+    }
+
     fn invalidate_skills(&self) {
         self.log.lock().unwrap().push("invalidateSkills".to_owned());
     }

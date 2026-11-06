@@ -125,11 +125,12 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
         clock: Arc::new(move || Clock { now_ms, zone: chrono_tz::Asia::Seoul }),
         embedder: Some(Arc::new(Provider(provider))),
         session_cwd: None,
+        lane: mixdog_rt::testing::tokens().durability_io,
         estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
         trace: None,
     });
-    let ingest = SessionIngest::new(db.clone(), None, None, system_now());
-    let memory = Arc::new(LocalMemory::new(db, pg.dir.path().join("data"), recall.clone(), ingest));
+    let ingest = SessionIngest::new(db.clone(), None, None, system_now(), mixdog_rt::testing::tokens().durability_io);
+    let memory = Arc::new(LocalMemory::new(db, pg.dir.path().join("data"), recall.clone(), ingest, mixdog_rt::testing::tokens().durability_io));
     let service = MemoryService::new(memory, Arc::new(Sessions { session: None, cwd: None, title: String::new() }));
 
     // The composition adds `query` to the arguments, so cases that already carry one are the
@@ -156,9 +157,9 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
         title: String::new(),
     };
     let scoped_db = service_db(&pg).await;
-    let ingest = SessionIngest::new(scoped_db.clone(), None, None, system_now());
+    let ingest = SessionIngest::new(scoped_db.clone(), None, None, system_now(), mixdog_rt::testing::tokens().durability_io);
     let service = MemoryService::new(
-        Arc::new(LocalMemory::new(scoped_db, pg.dir.path().join("data"), recall.clone(), ingest)),
+        Arc::new(LocalMemory::new(scoped_db, pg.dir.path().join("data"), recall.clone(), ingest, mixdog_rt::testing::tokens().durability_io)),
         Arc::new(sessions),
     );
     let mut expected_args = scoped["calls"][1][1].clone();

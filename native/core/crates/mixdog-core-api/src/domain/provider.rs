@@ -909,7 +909,7 @@ pub struct PickerFields {
 /// One model as the provider lists it, before catalog enrichment (pricing
 /// and capability metadata from LiteLLM/models.dev are merged by the
 /// catalog, PW §9). Capabilities the provider does not state are `None`.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 #[non_exhaustive]
 pub struct ModelRecord {
     /// The picker's row fields.
@@ -927,6 +927,13 @@ pub struct ModelRecord {
     /// states one above the served `context_window` (`maxContextWindow`).
     pub max_context_window: Option<u64>,
     pub max_output_tokens: Option<u64>,
+    /// The listing's own prices, USD per million tokens (`inputCostPerM` …),
+    /// left out when not finite. They describe the row; the ledger prices a
+    /// request from the catalog lookup, which never reads them.
+    pub input_cost_per_m: Option<f64>,
+    pub output_cost_per_m: Option<f64>,
+    pub cache_read_cost_per_m: Option<f64>,
+    pub cache_write_cost_per_m: Option<f64>,
     pub supports_reasoning: Option<bool>,
     /// Reasoning effort levels the model accepts, in the provider's order.
     pub reasoning_levels: Vec<String>,
@@ -964,6 +971,10 @@ impl ModelRecord {
             context_window: None,
             max_context_window: None,
             max_output_tokens: None,
+            input_cost_per_m: None,
+            output_cost_per_m: None,
+            cache_read_cost_per_m: None,
+            cache_write_cost_per_m: None,
             supports_reasoning: None,
             reasoning_levels: Vec::new(),
             default_reasoning_level: None,

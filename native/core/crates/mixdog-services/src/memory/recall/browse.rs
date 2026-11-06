@@ -874,9 +874,9 @@ pub async fn recall_core_rows(db: &Db, clock: &Clock, query_text: &str, options:
     }
     let scope = {
         let raw = js_trim(options.project_scope.as_deref().filter(|s| !s.is_empty()).unwrap_or("common")).to_owned();
-        if raw.is_empty() || (raw.to_lowercase() == "common") {
+        if raw.is_empty() || raw.to_lowercase() == "common" {
             "common".to_owned()
-        } else if (raw.to_lowercase() == "all") {
+        } else if raw.to_lowercase() == "all" {
             "all".to_owned()
         } else {
             raw

@@ -72,7 +72,7 @@ async fn ingest_session_matches_the_recorded_node_runs() {
     ensure_memory_schema(&db, 384, &json!({ "model": "Xenova/multilingual-e5-small" })).await.expect("schema");
     let provider = provider();
     provider.warmup().await.expect("model loads").expect("model installed");
-    let ingest = SessionIngest::new(db.clone(), Some(provider), None, Arc::new(move || now));
+    let ingest = SessionIngest::new(db.clone(), Some(provider), None, Arc::new(move || now), mixdog_rt::testing::tokens().durability_io);
 
     let mut failures = Vec::new();
     for case in golden["cases"].as_array().expect("cases") {

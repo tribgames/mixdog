@@ -371,6 +371,11 @@ pub struct ProxyModel {
     pub max_context_window: Option<u64>,
     #[ts(type = "number | null")]
     pub max_output_tokens: Option<u64>,
+    /// The row's own prices, USD per million tokens; absent when not finite.
+    pub input_cost_per_m: Option<f64>,
+    pub output_cost_per_m: Option<f64>,
+    pub cache_read_cost_per_m: Option<f64>,
+    pub cache_write_cost_per_m: Option<f64>,
     pub supports_reasoning: Option<bool>,
     pub reasoning_levels: Vec<String>,
     pub default_reasoning_level: Option<String>,

@@ -20,9 +20,10 @@ pub fn is_notification(entry: &Value) -> bool {
 }
 
 /// A queued completion: its id and the persisted entry without it (`markCompletionEntry`
-/// through `normalizePersistedEntryBase`). The id is addressed by the execution, so the same
-/// completion queued twice is one entry. `None` for blank text, which Node never queues.
-pub fn entry(task_id: &str, status: &str, text: &str, now: i64) -> Option<(String, Value)> {
+/// through `normalizePersistedEntryBase`, with `meta: {execution_surface, execution_id,
+/// status}`). The id is addressed by the execution, so the same completion queued twice is
+/// one entry. `None` for blank text, which Node never queues.
+pub fn entry(surface: &str, task_id: &str, status: &str, text: &str, now: i64) -> Option<(String, Value)> {
     let message = mixdog_js::js_trim(text);
     if message.is_empty() {
         return None;
@@ -36,8 +37,9 @@ pub fn entry(task_id: &str, status: &str, text: &str, now: i64) -> Option<(Strin
     let digest = Sha256::digest(identity.as_bytes());
     let id = format!("completion_{}", &hex(&digest)[..24]);
     let mut execution = Map::new();
-    if let Some(parsed) = mixdog_agent::project::parse_task_notification(text) {
-        execution.insert("surface".into(), Value::String(parsed.surface));
+    let surface = mixdog_js::js_trim(surface);
+    if !surface.is_empty() {
+        execution.insert("surface".into(), Value::String(surface.to_owned()));
     }
     if !execution_id.is_empty() {
         execution.insert("id".into(), Value::String(execution_id.to_owned()));
@@ -90,7 +92,7 @@ mod tests {
     /// `markCompletionEntry(text, {meta: {execution_id, status}})` persisted.
     #[test]
     fn a_completion_is_queued_as_nodes_persisted_entry() {
-        let (id, entry) = entry("job-7", "completed", &format!("  {SHELL}\n"), 42).unwrap();
+        let (id, entry) = entry("shell", "job-7", "completed", &format!("  {SHELL}\n"), 42).unwrap();
         // sha256("execution:job-7"), first 24 hex digits.
         assert_eq!(id, format!("completion_{}", &hex(&Sha256::digest(b"execution:job-7"))[..24]));
         assert_eq!(
@@ -118,6 +120,6 @@ mod tests {
                 },
             })
         );
-        assert!(super::entry("job-7", "completed", " \n", 1).is_none());
+        assert!(super::entry("shell", "job-7", "completed", " \n", 1).is_none());
     }
 }

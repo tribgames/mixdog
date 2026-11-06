@@ -38,7 +38,10 @@ fn seed() -> Vec<(&'static str, Vec<u8>)> {
 }
 
 async fn context(root: &AbsPath) -> ToolContext {
-    let files = Arc::new(MockFileService::default());
+    context_over(root, Arc::new(MockFileService::default())).await
+}
+
+async fn context_over(root: &AbsPath, files: Arc<dyn FileService>) -> ToolContext {
     let tokens = mixdog_rt::testing::tokens();
     for (rel, bytes) in seed() {
         let path = AbsPath::new(root.as_path().join(rel)).unwrap();
@@ -101,19 +104,43 @@ fn text_of(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, String
     }
 }
 
+const GOLDEN_CASES: [&str; 16] = [
+    "read/read-file", "read/read-range", "read/read-binary", "read/read-missing",
+    "list/list-root", "list/list-hidden", "list/list-paged",
+    "glob/glob-mjs", "find/find-math",
+    "grep/grep-files", "grep/grep-content-context", "grep/grep-count",
+    "edit/edit-replace", "edit/edit-no-match",
+    "apply_patch/patch-update", "apply_patch/patch-stale-dry-run",
+];
+
 #[tokio::test]
 async fn file_tools_match_golden_fixtures() {
     let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-golden").join("ws")).unwrap();
     let ctx = context(&root).await;
+    run_golden(&ctx, &root, &GOLDEN_CASES).await;
+}
+
+/// The same fixtures over the real file service, plus `list-meta` (real mtimes and modes).
+#[tokio::test]
+async fn file_tools_match_golden_fixtures_on_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = AbsPath::new(dir.path().join("ws")).unwrap();
+    let ctx = context_over(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new())).await;
+    let stamp = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_767_323_045); // 2026-01-02T03:04:05Z
+    for rel in ["src/lib", "src/main.mjs"] {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true);
+        #[cfg(windows)]
+        std::os::windows::fs::OpenOptionsExt::custom_flags(&mut options, 0x0200_0000); // directories open with backup semantics
+        options.open(root.as_path().join(rel)).unwrap().set_modified(stamp).unwrap();
+    }
+    let mut cases = GOLDEN_CASES.to_vec();
+    cases.insert(7, "list/list-meta");
+    run_golden(&ctx, &root, &cases).await;
+}
+
+async fn run_golden(ctx: &ToolContext, root: &AbsPath, cases: &[&str]) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools");
-    let cases = [
-        "read/read-file", "read/read-range", "read/read-binary", "read/read-missing",
-        "list/list-root", "list/list-hidden", "list/list-paged",
-        "glob/glob-mjs", "find/find-math",
-        "grep/grep-files", "grep/grep-content-context", "grep/grep-count",
-        "edit/edit-replace", "edit/edit-no-match",
-        "apply_patch/patch-update", "apply_patch/patch-stale-dry-run",
-    ];
     let tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ReadTool::new(None)),
         Box::new(ListTool::new()),
@@ -125,7 +152,7 @@ async fn file_tools_match_golden_fixtures() {
     ];
     let root_text = root.as_path().to_string_lossy().replace('\\', "/");
     let mut failures = Vec::new();
-    for case in cases {
+    for case in cases.iter().copied() {
         let fixture: JsonValue =
             serde_json::from_str(&std::fs::read_to_string(dir.join(format!("{case}.json"))).unwrap()).unwrap();
         let name = fixture["tool"].as_str().unwrap();
@@ -134,7 +161,7 @@ async fn file_tools_match_golden_fixtures() {
         if let Some(b) = input.get_mut("base_path") {
             *b = JsonValue::String(root_text.clone());
         }
-        let (is_error, text) = text_of(tool.call(&ctx, schema_args(name, input)).await);
+        let (is_error, text) = text_of(tool.call(ctx, schema_args(name, input)).await);
         let text = text.replace(&root_text, "<ROOT>");
         let want = fixture["text"].as_str().unwrap();
         if text != want || is_error != fixture["isError"].as_bool().unwrap() {

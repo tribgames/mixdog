@@ -2,6 +2,8 @@
 //! runtime directory (`bin/`, `lib/`, `share/`, pgvector) named by
 //! `MIXDOG_PG_RUNTIME`; the cluster lives in a temp dir and is stopped on drop.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
+
 mod core_memory;
 mod embeddings;
 mod ingest;

@@ -13,7 +13,9 @@
 use mixdog_js::{js_trim};
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio::sync::{Mutex, OnceCell};
+#[allow(clippy::disallowed_types, reason = "the install gate is held across the awaited install on purpose: installs run one at a time")]
+use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
 use crate::memory::embed::config::{self, InputType};
@@ -28,6 +30,7 @@ pub struct EmbeddingProvider {
     hub: String,
     /// The load, shared by every caller; a failure stays.
     loaded: OnceCell<Result<Embedder, String>>,
+    #[allow(clippy::disallowed_types, reason = "held across the awaited install on purpose: installs run one at a time")]
     installing: Mutex<()>,
     tick: StateTick,
 }
@@ -39,7 +42,9 @@ impl EmbeddingProvider {
 
     /// `tick` is bumped whenever `info()` may have changed.
     pub fn with_tick(config: EmbedConfig, tick: StateTick) -> Self {
-        Self { config, hub: install::HUB.to_owned(), loaded: OnceCell::new(), installing: Mutex::new(()), tick }
+        #[allow(clippy::disallowed_types, reason = "builds the install gate")]
+        let installing = Mutex::new(());
+        Self { config, hub: install::HUB.to_owned(), loaded: OnceCell::new(), installing, tick }
     }
 
     /// `getEmbeddingInfo()`: metadata only, never loads the model.
@@ -62,8 +67,9 @@ impl EmbeddingProvider {
         self
     }
 
-    pub fn is_installed(&self) -> bool {
-        install::installed(&self.config)
+    /// Whether the model files are present and undamaged, read on the config's lane.
+    pub async fn is_installed(&self) -> Result<bool, InstallError> {
+        Ok(install::missing_on(&self.config).await?.is_none())
     }
 
     pub fn is_ready(&self) -> bool {
@@ -76,7 +82,7 @@ impl EmbeddingProvider {
         if let Some(loaded) = self.loaded.get() {
             return loaded.clone().map(Some);
         }
-        if !self.is_installed() {
+        if !self.is_installed().await.map_err(|e| e.to_string())? {
             return Ok(None);
         }
         let config = self.config.clone();

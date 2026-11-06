@@ -9,6 +9,7 @@ use mixdog_protocol::ProviderId;
 use super::record::Capability;
 use super::record::MetadataSource;
 use super::record::ModelRecord;
+use super::record::Rates;
 
 /// One provider's listing wired to the catalog: the adapter's own
 /// [`ModelListing`], read as catalog records. There is one listing contract;
@@ -77,6 +78,10 @@ mod tests {
         listed.wire = Some(mixdog_core_api::domain::provider::WireIds::Tiers(vec![("high".into(), "m1-high".into())]));
         listed.context_window = Some(272_000);
         listed.max_context_window = Some(1_000_000);
+        listed.input_cost_per_m = Some(0.4);
+        listed.output_cost_per_m = Some(1.6);
+        listed.cache_read_cost_per_m = Some(0.0);
+        listed.cache_write_cost_per_m = Some(f64::INFINITY);
         listed.picker = PickerFields {
             release_date: Some("2026-03-17".into()),
             access_programs: Some(Vec::new()),
@@ -101,6 +106,11 @@ mod tests {
         let cached_json = serde_json::to_value(&records[0]).unwrap();
         assert_eq!(cached_json["maxContextWindow"], 1_000_000, "the cached row carries Node's key");
         assert_eq!(cached.max_context_window, Some(1_000_000));
+        assert_eq!(
+            (cached_json["rates"]["input"].as_f64(), cached_json["rates"]["output"].as_f64(), cached_json["rates"]["cacheRead"].as_f64()),
+            (Some(0.4), Some(1.6), Some(0.0)),
+        );
+        assert_eq!((cached.rates.cache_write, cached.rates), (None, records[0].rates), "a price that is not finite is left out");
         assert_eq!(records[0].picker, listed.picker, "an empty access list stays empty, not absent");
     }
 }
@@ -122,6 +132,12 @@ fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::domain::provid
     record.context_window = listed.context_window;
     record.max_context_window = listed.max_context_window;
     record.output_tokens = listed.max_output_tokens;
+    record.rates = Rates {
+        input: listed.input_cost_per_m.filter(|v| v.is_finite()),
+        output: listed.output_cost_per_m.filter(|v| v.is_finite()),
+        cache_read: listed.cache_read_cost_per_m.filter(|v| v.is_finite()),
+        cache_write: listed.cache_write_cost_per_m.filter(|v| v.is_finite()),
+    };
     record.reasoning = tri(listed.supports_reasoning);
     record.reasoning_efforts = listed.reasoning_levels;
     record.vision = tri(listed.supports_images);

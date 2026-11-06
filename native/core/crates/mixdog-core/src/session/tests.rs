@@ -462,7 +462,7 @@ async fn input_and_task_notifications_release_the_runs_wait() {
     eventually(|| (rig.wakes.active_waits(&handle.id) == 1 && lock(&reasons).len() == 1).then_some(()))
         .await;
 
-    directory.finished(&handle.id, "job-7", "completed", "Async shell task job-7 finished.".into()).await;
+    directory.finished(&handle.id, "shell", "job-7", "completed", "Async shell task job-7 finished.".into()).await;
     eventually(|| (lock(&reasons).len() == 2).then_some(())).await;
     assert_eq!(*lock(&reasons), [WakeReason::UserMessage, WakeReason::Notification]);
 
@@ -472,7 +472,7 @@ async fn input_and_task_notifications_release_the_runs_wait() {
     let bodies = lock(&inputs).clone();
     assert_eq!(bodies[1]["content"], "next");
     assert_eq!(bodies[2]["meta"]["source"], "task-notification");
-    assert_eq!(bodies[2]["meta"]["execution"], json!({ "id": "job-7", "status": "completed" }));
+    assert_eq!(bodies[2]["meta"]["execution"], json!({ "surface": "shell", "id": "job-7", "status": "completed" }));
     assert_eq!(bodies[2]["content"], "Async shell task job-7 finished.");
     assert!(!prompt_list(&handle).iter().any(|p| p.contains("job-7")));
     eventually(|| idle(&handle).then_some(())).await;
@@ -501,7 +501,7 @@ async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "build", "op-1").await;
-    directory.finished(&handle.id, "job-7", "completed", "job-7 finished.".into()).await;
+    directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
     // Durable before the boundary looks.
     eventually(|| {
         rig.store.records(&handle.id).into_iter().any(|(_, record)| {
@@ -516,7 +516,7 @@ async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
     let taken = lock(&taken).clone();
     assert_eq!(taken.len(), 1);
     assert_eq!(taken[0].mode, SteerMode::TaskNotification);
-    assert_eq!(taken[0].execution, Some(json!({ "id": "job-7", "status": "completed" })));
+    assert_eq!(taken[0].execution, Some(json!({ "surface": "shell", "id": "job-7", "status": "completed" })));
     assert_eq!(taken[0].content, "job-7 finished.");
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(runs_started(&rig, &handle.id), 1, "a taken completion starts no turn");
@@ -555,7 +555,7 @@ async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
     turn(&handle, "build", "op-1").await;
     let first = turn(&handle, "first", "op-2").await;
     let second = turn(&handle, "second", "op-3").await;
-    directory.finished(&handle.id, "job-7", "completed", "job-7 finished.".into()).await;
+    directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
     eventually(|| {
         let queued = rig.store.records(&handle.id).into_iter().filter(|(_, record)| {
             matches!(record, mixdog_store::schema::record::Record::Queue(_))
@@ -607,10 +607,10 @@ async fn completions_after_the_woken_turns_last_look_replay_oldest_first() {
     }));
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
-    directory.finished(&handle.id, "job-1", "completed", "job-1 finished.".into()).await;
+    directory.finished(&handle.id, "shell", "job-1", "completed", "job-1 finished.".into()).await;
     eventually(|| (lock(&inputs).len() == 1).then_some(())).await;
-    directory.finished(&handle.id, "job-2", "completed", "job-2 finished.".into()).await;
-    directory.finished(&handle.id, "job-3", "completed", "job-3 finished.".into()).await;
+    directory.finished(&handle.id, "shell", "job-2", "completed", "job-2 finished.".into()).await;
+    directory.finished(&handle.id, "shell", "job-3", "completed", "job-3 finished.".into()).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
     gate.notify_one();
     eventually(|| (lock(&inputs).len() == 3).then_some(())).await;
@@ -687,7 +687,7 @@ async fn a_held_route_leaves_a_completion_to_the_next_turn() {
     let mut set = serde_json::Map::new();
     set.insert("pendingRoute".into(), json!({ "provider": "p", "model": "m" }));
     SessionThreads::new(directory.clone()).patch_header(&handle.id, set, Vec::new()).await.expect("held");
-    directory.finished(&handle.id, "job-7", "completed", "job-7 finished.".into()).await;
+    directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
     gate.notify_one();
     eventually(|| (lock(&took).len() == 2).then_some(())).await;
@@ -736,13 +736,13 @@ async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turn
     }));
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
-    directory.finished(&handle.id, "job-7", "completed", "Async shell task job-7 finished.".into()).await;
+    directory.finished(&handle.id, "shell", "job-7", "completed", "Async shell task job-7 finished.".into()).await;
     eventually(|| (lock(&inputs).len() == 1).then_some(())).await;
     let body = lock(&inputs)[0].clone();
     assert_eq!(body["role"], "user");
     assert_eq!(body["content"], "Async shell task job-7 finished.");
     assert_eq!(body["meta"]["source"], "task-notification");
-    assert_eq!(body["meta"]["execution"], json!({ "id": "job-7", "status": "completed" }));
+    assert_eq!(body["meta"]["execution"], json!({ "surface": "shell", "id": "job-7", "status": "completed" }));
     eventually(|| idle(&handle).then_some(())).await;
     assert_eq!(runs_started(&rig, &handle.id), 1);
     assert!(prompt_list(&handle).is_empty(), "a completion is no prompt");
@@ -758,13 +758,13 @@ async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
     rig.set_script(echo());
     let directory = SessionDirectory::new(rig.deps());
     let quiet = start_with_session(&directory, json!({ "autoWakeCompletions": false })).await;
-    directory.finished(&quiet.id, "job-1", "completed", "job-1 finished.".into()).await;
+    directory.finished(&quiet.id, "shell", "job-1", "completed", "job-1 finished.".into()).await;
 
     let parked = start_thread(&directory).await;
     subscribe(&parked);
     parked.cell.unsubscribed();
     eventually(|| directory.handle(&parked.id).is_none().then_some(())).await;
-    directory.finished(&parked.id, "job-2", "completed", "job-2 finished.".into()).await;
+    directory.finished(&parked.id, "shell", "job-2", "completed", "job-2 finished.".into()).await;
 
     for (handle, task) in [(&quiet, "job-1"), (&parked, "job-2")] {
         let queued = eventually(|| {

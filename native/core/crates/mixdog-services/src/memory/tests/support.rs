@@ -26,7 +26,7 @@ impl TestPg {
         // Parallel tests (and other builds on this machine) scan from different starts.
         let offset = NEXT_PORT.fetch_add(1, Ordering::Relaxed);
         let preferred = 57000 + (std::process::id() % 800) as u16 * 8 + offset;
-        let cluster = PgCluster::ensure(PgRuntime::new(&runtime), dir.path().join("pgdata"), preferred)
+        let cluster = PgCluster::ensure(PgRuntime::new(&runtime), dir.path().join("pgdata"), preferred, mixdog_rt::testing::tokens().durability_io)
             .await
             .expect("postgres starts");
         Self { cluster, dir, runtime }

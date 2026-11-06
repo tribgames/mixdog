@@ -29,7 +29,7 @@ async fn memory_tool_matches_recorded_goldens() {
     ensure_memory_schema(&db, 384, &json!({ "model": "test", "dtype": "q8" })).await.expect("schema");
     let revision = AtomicU64::new(0);
     let data_dir = pg.dir.path().join("data");
-    let ctx = CoreContext { db: &db, data_dir: &data_dir, session_cwd: None, snapshot_revision: &revision };
+    let ctx = CoreContext { db: &db, data_dir: &data_dir, session_cwd: None, snapshot_revision: &revision, lane: mixdog_rt::testing::tokens().durability_io };
 
     let cases = [
         golden(include_str!("../../../../../fixtures/tools/memory/list-empty.json")),
@@ -57,7 +57,7 @@ async fn edit_and_delete_follow_the_listed_revision() {
     ensure_memory_schema(&db, 384, &json!({ "model": "test", "dtype": "q8" })).await.expect("schema");
     let revision = AtomicU64::new(0);
     let data_dir = pg.dir.path().join("data");
-    let ctx = CoreContext { db: &db, data_dir: &data_dir, session_cwd: None, snapshot_revision: &revision };
+    let ctx = CoreContext { db: &db, data_dir: &data_dir, session_cwd: None, snapshot_revision: &revision, lane: mixdog_rt::testing::tokens().durability_io };
 
     run(&ctx, &json!({ "op": "add", "summary": "first standing rule" })).await;
     run(&ctx, &json!({ "op": "add", "summary": "second standing rule" })).await;
@@ -75,7 +75,7 @@ async fn edit_and_delete_follow_the_listed_revision() {
     let stale = run(&ctx, &json!({ "op": "delete", "id": 1, "index_revision": revision_1 })).await;
     assert_eq!(stale.text, "core delete failed: memory indices changed; list memories again before editing or deleting");
 
-    let snapshot = crate::memory::core::snapshot::read(&data_dir).await.expect("snapshot written");
+    let snapshot = crate::memory::core::snapshot::read(mixdog_rt::testing::tokens().durability_io, &data_dir).await.expect("snapshot written");
     let payload = crate::memory::core::snapshot::session_payload(&snapshot, None, "");
     assert_eq!(payload.user_lines, vec!["first standing rule, revised".to_owned()]);
 }

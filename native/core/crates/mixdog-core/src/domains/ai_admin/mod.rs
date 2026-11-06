@@ -6,6 +6,7 @@ pub mod chain;
 pub mod hidden_agents;
 pub mod model_proxy;
 pub mod model_proxy_service;
+pub mod route_actions;
 pub mod route_service;
 
 #[cfg(test)]

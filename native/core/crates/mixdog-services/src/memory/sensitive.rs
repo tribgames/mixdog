@@ -231,20 +231,20 @@ fn settled_end(out: &str, spellings: &[String]) -> usize {
             moved = true;
         }
         let window = end.saturating_sub(longest.saturating_sub(1));
-        for start in window..end {
+        let joined = (window..end).find(|&start| {
             if !out.is_char_boundary(start) {
-                continue;
+                return false;
             }
             let part = &out[start..end];
             let joins = |spelling: &String| {
                 spelling.len() > part.len()
                     && MARKERS.iter().any(|m| spelling.starts_with(&format!("{part}{m}")) || format!("{part}{m}").starts_with(spelling.as_str()))
             };
-            if spellings.iter().any(joins) {
-                end = start;
-                moved = true;
-                break;
-            }
+            spellings.iter().any(joins)
+        });
+        if let Some(start) = joined {
+            end = start;
+            moved = true;
         }
     }
     end
@@ -274,11 +274,11 @@ fn redact_json_value(store: &SensitiveStore, session: &str, value: &Value) -> Va
 /// judged by its decoded values, never its raw text: an escape spells a value
 /// the raw text does not contain.
 fn redact_text_or_json(store: &SensitiveStore, session: &str, text: &str) -> String {
-    if matches!(js_trim_start(text).chars().next(), Some('{' | '[' | '"')) {
-        if let Ok(parsed @ (Value::Object(_) | Value::Array(_) | Value::String(_))) = serde_json::from_str::<Value>(text) {
-            let redacted = redact_json_value(store, session, &parsed);
-            return if redacted == parsed { text.to_owned() } else { json_stringify(&redacted) };
-        }
+    if matches!(js_trim_start(text).chars().next(), Some('{' | '[' | '"'))
+        && let Ok(parsed @ (Value::Object(_) | Value::Array(_) | Value::String(_))) = serde_json::from_str::<Value>(text)
+    {
+        let redacted = redact_json_value(store, session, &parsed);
+        return if redacted == parsed { text.to_owned() } else { json_stringify(&redacted) };
     }
     store.redact_text(session, text)
 }

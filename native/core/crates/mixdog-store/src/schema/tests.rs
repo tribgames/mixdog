@@ -439,6 +439,32 @@ fn invalid_payloads_are_refused() {
     }
 }
 
+/// An out-of-line slot (body or prompt: one `Slot` type) admits only the protocol's digest
+/// form, `sha256:` and 64 lowercase hex, and refuses every other with the digest error.
+#[test]
+fn a_body_blob_admits_only_a_well_formed_digest() {
+    use super::blob::Slot;
+    use super::blob::BODY_MEDIA_TYPE;
+    let slot = |digest: &str| {
+        serde_json::from_value::<Slot<serde_json::Value>>(serde_json::json!(
+            {"blob": {"digest": digest, "bytes": 1, "mediaType": BODY_MEDIA_TYPE}}
+        ))
+    };
+    assert!(slot(&format!("sha256:{}", "0a".repeat(32))).is_ok());
+    for bad in [
+        format!("sha256:{}", "A".repeat(64)),
+        format!("sha256:{}", "a".repeat(63)),
+        format!("sha256:{}", "a".repeat(65)),
+        format!("sha256:{}g", "a".repeat(63)),
+        format!("sha1:{}", "a".repeat(64)),
+        "a".repeat(64),
+        String::new(),
+    ] {
+        let err = slot(&bad).expect_err(&bad).to_string();
+        assert!(err.contains("not a blob digest"), "{bad:?}: {err}");
+    }
+}
+
 /// The largest encoding of every record kind, every non-body field at its type bound
 /// (worst escaping) and the body slot inline at `INLINE_MAX`, fits `MAX_FRAME_PAYLOAD`.
 #[test]

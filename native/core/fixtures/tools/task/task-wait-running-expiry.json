@@ -1,0 +1,11 @@
+{
+  "input": {
+    "action": "wait",
+    "task_id": "JOB",
+    "timeout_ms": 1000
+  },
+  "isError": false,
+  "text": "background task\ntask_id: JOB\nsurface: shell\nstatus: running\nstarted: TS\nlogs: LOGS\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"tick\" — still running, not an error\n\n[stdout]\ntick\n\n\nWait ceiling reached; task still running and its result is delivered automatically. If periodic reports were requested, write the user-facing report now; otherwise continue independent work or end the turn.",
+  "tool": "task",
+  "note": "normalized: JOB task id, TS timestamps, LOGS paths"
+}

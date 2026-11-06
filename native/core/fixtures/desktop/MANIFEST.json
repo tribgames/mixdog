@@ -6,8 +6,13 @@
     "ports": 3,
     "search": 10
   },
-  "fileCount": 21,
+  "fileCount": 22,
   "files": [
+    {
+      "bytes": 43799,
+      "path": "editor-config/corpus.json",
+      "sha256": "6c05cf608ee94ea8b999de4bf9fb41c6361f1400c9039b93ba1bff991f1a967c"
+    },
     {
       "bytes": 3900,
       "path": "files/corpus.json",
@@ -132,5 +137,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 8315587
+  "totalBytes": 8359386
 }

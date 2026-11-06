@@ -5,6 +5,7 @@
 //! revision, so refreshes that finish out of order cannot roll the file back.
 
 use mixdog_js::{js_trim, js_words};
+use mixdog_rt::DurabilityIo;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,7 @@ use crate::memory::core::index;
 use crate::memory::core::access::Pool;
 use crate::memory::error::Result;
 use crate::memory::pg::db::Db;
+use crate::model_install::fsio;
 
 const VERSION: u32 = 1;
 const FILE_NAME: &str = "core-memory.json";
@@ -46,8 +48,8 @@ fn collapse_whitespace(text: &str) -> String {
 }
 
 /// The stored snapshot, or None when absent, unreadable or of another version.
-pub async fn read(data_dir: &Path) -> Option<Snapshot> {
-    let bytes = tokio::fs::read(file_path(data_dir)).await.ok()?;
+pub async fn read(lane: DurabilityIo, data_dir: &Path) -> Option<Snapshot> {
+    let bytes = fsio::read(lane, &file_path(data_dir)).await.ok()?;
     let snapshot: Snapshot = serde_json::from_slice(&bytes).ok()?;
     (snapshot.version == VERSION).then_some(snapshot)
 }
@@ -55,8 +57,8 @@ pub async fn read(data_dir: &Path) -> Option<Snapshot> {
 /// Rebuilds the snapshot from Postgres and writes it unless a newer revision
 /// is already on disk. Returns the revision now on disk and whether this
 /// refresh wrote it.
-pub async fn refresh(db: &Db, data_dir: &Path, reserved: &std::sync::atomic::AtomicU64) -> Result<(u64, bool)> {
-    let on_disk = read(data_dir).await.map_or(0, |snapshot| snapshot.revision);
+pub async fn refresh(lane: DurabilityIo, db: &Db, data_dir: &Path, reserved: &std::sync::atomic::AtomicU64) -> Result<(u64, bool)> {
+    let on_disk = read(lane, data_dir).await.map_or(0, |snapshot| snapshot.revision);
     let revision = reserve(reserved, on_disk);
     let directory = index::sync(db).await?;
     let rows = db
@@ -89,7 +91,7 @@ pub async fn refresh(db: &Db, data_dir: &Path, reserved: &std::sync::atomic::Ato
             updated_at: row.get(4),
         });
     }
-    write(data_dir, Snapshot { version: VERSION, revision, updated_at: super::store::now_ms(), curated }).await
+    write(lane, data_dir, Snapshot { version: VERSION, revision, updated_at: super::store::now_ms(), curated }).await
 }
 
 fn reserve(reserved: &std::sync::atomic::AtomicU64, on_disk: u64) -> u64 {
@@ -104,17 +106,17 @@ fn reserve(reserved: &std::sync::atomic::AtomicU64, on_disk: u64) -> u64 {
     }
 }
 
-async fn write(data_dir: &Path, snapshot: Snapshot) -> Result<(u64, bool)> {
+async fn write(lane: DurabilityIo, data_dir: &Path, snapshot: Snapshot) -> Result<(u64, bool)> {
     let path = file_path(data_dir);
     // A slower refresh may finish after a newer one: never overwrite it.
-    if let Some(current) = read(data_dir).await
+    if let Some(current) = read(lane, data_dir).await
         && current.revision >= snapshot.revision {
             return Ok((current.revision, false));
         }
-    tokio::fs::create_dir_all(data_dir).await?;
+    fsio::create_dir_all(lane, data_dir).await?;
     let temp = data_dir.join(format!("{FILE_NAME}.{}.tmp", uuid::Uuid::new_v4().simple()));
-    tokio::fs::write(&temp, serde_json::to_vec(&snapshot)?).await?;
-    tokio::fs::rename(&temp, &path).await?;
+    fsio::write(lane, &temp, serde_json::to_vec(&snapshot)?).await?;
+    fsio::rename(lane, &temp, &path).await?;
     Ok((snapshot.revision, true))
 }
 

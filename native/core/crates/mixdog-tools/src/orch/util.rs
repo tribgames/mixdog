@@ -156,11 +156,11 @@ pub(crate) fn unavailable(capability: impl Into<String>, message: impl Into<Stri
     )
 }
 
-/// An operation that ran and failed for a reason of its own (not a core defect): the
-/// capability that could not complete it, with the existing wording. A dedicated
-/// `ToolErrorCode` for this is requested from P0-API; `Internal` stays for core defects.
-pub(crate) fn action_failed(capability: impl Into<String>, message: impl Into<String>) -> ToolError {
-    unavailable(capability, message)
+/// An operation that ran and failed for a reason of its own (not a core defect, not a missing
+/// capability), with the existing wording.
+pub(crate) fn action_failed(_capability: impl Into<String>, message: impl Into<String>) -> ToolError {
+    let message = message.into();
+    ToolError::new(ToolErrorCode::Failed { reason: message.clone() }, message)
 }
 
 pub(crate) fn not_found(target: &str, message: impl Into<String>) -> ToolError {

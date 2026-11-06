@@ -1,4 +1,6 @@
 //! Feeds fold independently: a feed waiting on a blob stub never delays another feed's updates.
+// Test code reads the shared scenario files directly.
+#![allow(clippy::disallowed_methods)]
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 

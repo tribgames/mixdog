@@ -302,6 +302,7 @@ async fn every_recorded_case_replays_to_nodes_text() {
     assert!(names.len() >= 17, "git goldens are recorded");
     let mut failures: Vec<String> = Vec::new();
     let mut replayed = 0;
+    let diff_id = Regex::new(r"diff_[0-9a-f]{20}").unwrap();
     for path in names {
         let case: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let tmp = tempfile::tempdir().unwrap();
@@ -327,7 +328,6 @@ async fn every_recorded_case_replays_to_nodes_text() {
         let session = case.get("host").map_or("worker", |h| h["sessionId"].as_str().unwrap());
         let call = case.get("host").map_or("", |h| h["toolCallId"].as_str().unwrap());
         let mut last_diff_id: Option<String> = None;
-        let diff_id = Regex::new(r"diff_[0-9a-f]{20}").unwrap();
         let name = path.file_stem().unwrap().to_string_lossy().into_owned();
         for (index, step) in case["steps"].as_array().unwrap().iter().enumerate() {
             if let Some(write) = step.get("write") {

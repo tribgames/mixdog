@@ -9,9 +9,11 @@
 //! that never settles reports header-only after [`CANCEL_NOTIFY_GRACE`], armed on the core
 //! ticker.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::OnceLock;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -22,6 +24,8 @@ use mixdog_rt::ticker::TimerHandle;
 use mixdog_tools::exec::TaskNotifier;
 use mixdog_tools::orch::agent::TaskResult;
 
+use super::error_text::ErrorText;
+use super::error_text::PlainErrorText;
 use super::host::Cleaned;
 use super::host::TaskFacts;
 use super::host::Tasks;
@@ -68,6 +72,9 @@ pub struct NewJob {
     /// Stops the run; called once when the job is cancelled.
     pub cancel: Option<Arc<dyn Fn() + Send + Sync>>,
     pub started_at_ms: Option<i64>,
+    /// The directory the work ran in (`task.input.cwd || task.meta.cwd`): its end is a command
+    /// boundary for the review (see [`JobBoard::on_command_settled`]).
+    pub cwd: Option<String>,
 }
 
 pub struct Completion {
@@ -110,6 +117,36 @@ pub struct JobSnapshot {
     pub result: Option<TaskResult>,
     pub meta: JobMeta,
     pub notified: bool,
+    /// Why the run ended, when its ender said (`terminalReason`).
+    pub terminal_reason: Option<String>,
+}
+
+/// The cancellation `cancelBackgroundTasks` selects and applies.
+#[derive(Clone, Debug)]
+pub struct CancelAll {
+    /// `cancelled` when blank.
+    pub reason: String,
+    pub terminal_reason: Option<String>,
+    /// Only the jobs this session runs (its bound session, else its owner); without it the
+    /// `scope` selects, and a job with no owner is never claimed.
+    pub execution_session_id: Option<String>,
+    pub scope: Scope,
+    /// Only jobs started at or after this time (a turn's own work); `0` for all.
+    pub started_since_ms: i64,
+    pub notice: CancelNotice,
+}
+
+impl Default for CancelAll {
+    fn default() -> Self {
+        Self {
+            reason: String::new(),
+            terminal_reason: None,
+            execution_session_id: None,
+            scope: Scope::default(),
+            started_since_ms: 0,
+            notice: CancelNotice::Default,
+        }
+    }
 }
 
 impl JobSnapshot {
@@ -149,6 +186,8 @@ struct Record {
     cancel_state: Option<CancelState>,
     cancel_timer: Option<TimerHandle>,
     appendix: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    cwd: Option<String>,
+    terminal_reason: Option<String>,
 }
 
 fn is_terminal(status: &str) -> bool {
@@ -262,6 +301,8 @@ struct Inner {
     clock: Arc<dyn Clock>,
     notifier: Option<Arc<dyn TaskNotifier>>,
     on_change: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    command_settled: OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+    error_text: OnceLock<Arc<dyn ErrorText>>,
     state: Mutex<State>,
 }
 
@@ -270,6 +311,8 @@ struct Inner {
 struct Effects {
     send: Vec<Outgoing>,
     changed: Vec<String>,
+    /// Directories whose work just ended.
+    settled: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -281,7 +324,35 @@ impl JobBoard {
     /// `on_change(owner_session_id)` runs when a row is added or finishes (the session
     /// activity signal).
     pub fn new(clock: Arc<dyn Clock>, notifier: Option<Arc<dyn TaskNotifier>>, on_change: Option<Arc<dyn Fn(&str) + Send + Sync>>) -> Self {
-        Self { inner: Arc::new(Inner { clock, notifier, on_change, state: Mutex::new(State::default()) }) }
+        Self {
+            inner: Arc::new(Inner {
+                clock,
+                notifier,
+                on_change,
+                command_settled: OnceLock::new(),
+                error_text: OnceLock::new(),
+                state: Mutex::new(State::default()),
+            }),
+        }
+    }
+
+    /// `noteCommandToolSettled(cwd)`: runs when a job that worked in a directory finishes, in
+    /// any way (its files may have changed after its turn sealed). Set once, before jobs run.
+    pub fn on_command_settled(&self, listener: Arc<dyn Fn(&str) + Send + Sync>) {
+        let _ = self.inner.command_settled.set(listener);
+    }
+
+    /// How a job's error reads on its row and in its notice (`presentErrorText`); the plain
+    /// rules by default. Set once, before jobs run.
+    pub fn set_error_text(&self, text: Arc<dyn ErrorText>) {
+        let _ = self.inner.error_text.set(text);
+    }
+
+    fn present(&self, message: &str) -> String {
+        match self.inner.error_text.get() {
+            Some(text) => text.present(message),
+            None => PlainErrorText.present(message),
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -298,10 +369,15 @@ impl JobBoard {
                 on_change(owner);
             }
         }
+        if let Some(listener) = self.inner.command_settled.get() {
+            for cwd in &effects.settled {
+                listener(cwd);
+            }
+        }
         for out in effects.send {
             let Some(notifier) = self.inner.notifier.clone() else { continue };
             drop(mixdog_rt::spawn("agent-job-notify", TaskClass::Work, async move {
-                notifier.finished(&ThreadId::from(out.session.as_str()), &out.task_id, &out.status, out.text).await;
+                notifier.finished(&ThreadId::from(out.session.as_str()), "agent", &out.task_id, &out.status, out.text).await;
             }));
         }
     }
@@ -373,10 +449,43 @@ impl JobBoard {
             cancel_state: None,
             cancel_timer: None,
             appendix: None,
+            cwd: job.cwd.filter(|c| !c.is_empty()),
+            terminal_reason: None,
         });
         drop(state);
         self.run(Effects { changed: vec![session_id.unwrap_or_default()], ..Effects::default() });
         Ok(id)
+    }
+
+    /// `startBackgroundTask`: registers the row and runs `run` as its work. What `run` returns
+    /// completes the row; its failure fails it. A row cancelled meanwhile only releases its
+    /// deferred report, carrying whatever was settled onto it.
+    pub fn start<F>(&self, job: NewJob, run: F) -> Result<String, String>
+    where
+        F: Future<Output = Result<Option<TaskResult>, String>> + Send + 'static,
+    {
+        let task_id = self.register(job)?;
+        let board = self.clone();
+        let id = task_id.clone();
+        drop(mixdog_rt::spawn("agent-job", TaskClass::Work, async move {
+            match run.await {
+                Ok(result) => {
+                    board.complete(&id, Completion { result, terminal_reason: Some("run-resolved".to_owned()), ..Completion::new("completed") });
+                    board.deliver_cancelled(&id);
+                }
+                Err(error) => {
+                    if board.lock().tasks.iter().any(|t| t.task_id == id && t.status == "cancelled") {
+                        board.deliver_cancelled(&id);
+                    } else {
+                        board.complete(
+                            &id,
+                            Completion { error: Some(error), terminal_reason: Some("run-rejected".to_owned()), ..Completion::new("failed") },
+                        );
+                    }
+                }
+            }
+        }));
+        Ok(task_id)
     }
 
     fn snapshot(task: &Record) -> JobSnapshot {
@@ -391,6 +500,7 @@ impl JobBoard {
             result: task.result.clone(),
             meta: task.meta.clone(),
             notified: task.notified,
+            terminal_reason: task.terminal_reason.clone(),
         }
     }
 
@@ -458,14 +568,20 @@ impl JobBoard {
         }
         task.status = normalize_status(&completion.status);
         task.finished_ms = Some(self.now());
+        if completion.terminal_reason.is_some() {
+            task.terminal_reason = completion.terminal_reason;
+        }
         task.result = completion.result.or(task.result.take());
         if let Some(text) = completion.result_text {
             task.result_text = Some(text);
         }
-        if completion.error.is_some() {
-            task.error = completion.error;
+        if let Some(error) = completion.error {
+            task.error = Some(self.present(&error));
         }
         effects.changed.push(task.session_id.clone().unwrap_or_default());
+        if let Some(cwd) = task.cwd.clone() {
+            effects.settled.push(cwd);
+        }
         if completion.notify {
             self.notify_locked(task, effects);
         }
@@ -498,7 +614,8 @@ impl JobBoard {
                     self.notify_locked(task, &mut effects);
                 }
             } else {
-                self.complete_locked(task, Completion { terminal_reason: Some("reconciled".to_owned()), ..completion }, &mut effects);
+                let terminal_reason = completion.terminal_reason.clone().or_else(|| Some("reconciled".to_owned()));
+                self.complete_locked(task, Completion { terminal_reason, ..completion }, &mut effects);
             }
         }
         self.run(effects);
@@ -537,6 +654,50 @@ impl JobBoard {
 
     /// `cancelBackgroundTask`: stops the run, marks the row `cancelled` with `reason`.
     pub fn cancel(&self, task_id: &str, reason: &str, notice: CancelNotice) {
+        self.cancel_with(task_id, reason, notice, None);
+    }
+
+    /// `cancelBackgroundTasks`: every running job the selection names is cancelled (its owner
+    /// told per `notice`); finished ones are only silenced when `notice` is `Never`. Returns the
+    /// ids cancelled.
+    pub fn cancel_all(&self, options: &CancelAll) -> Vec<String> {
+        let reason = match js_trim(&options.reason) {
+            "" => "cancelled".to_owned(),
+            reason => reason.to_owned(),
+        };
+        let execution = options.execution_session_id.as_deref().map(js_trim).filter(|s| !s.is_empty());
+        let mut running = Vec::new();
+        {
+            let mut state = self.lock();
+            for task in state.tasks.iter_mut() {
+                if options.started_since_ms > 0 && task.started_ms < options.started_since_ms {
+                    continue;
+                }
+                // Scoped teardown is exact: a job with no owner is not claimed by whichever session closes first.
+                // A delegated job runs in its bound session; before binding it is its registering session's.
+                let selected = match execution {
+                    Some(id) => task.meta.session_id.as_deref().filter(|s| !s.is_empty()).or(task.session_id.as_deref()) == Some(id),
+                    None => matches_scope(task, &options.scope, false),
+                };
+                if !selected {
+                    continue;
+                }
+                if is_terminal(&task.status) {
+                    if options.notice == CancelNotice::Never {
+                        Self::resolve_pending(task, CancelState::Silent);
+                    }
+                    continue;
+                }
+                running.push(task.task_id.clone());
+            }
+        }
+        for id in &running {
+            self.cancel_with(id, &reason, options.notice, options.terminal_reason.clone());
+        }
+        running
+    }
+
+    fn cancel_with(&self, task_id: &str, reason: &str, notice: CancelNotice, terminal_reason: Option<String>) {
         let hook = {
             let mut state = self.lock();
             let Some(task) = state.tasks.iter_mut().find(|t| t.task_id == task_id) else { return };
@@ -556,7 +717,12 @@ impl JobBoard {
         {
             let mut state = self.lock();
             let Some(task) = state.tasks.iter_mut().find(|t| t.task_id == task_id) else { return };
-            let completion = Completion { error: Some(reason.to_owned()), notify: notice == CancelNotice::Now, ..Completion::new("cancelled") };
+            let completion = Completion {
+                error: Some(reason.to_owned()),
+                notify: notice == CancelNotice::Now,
+                terminal_reason,
+                ..Completion::new("cancelled")
+            };
             self.complete_locked(task, completion, &mut effects);
             if task.notify_on_cancel && notice != CancelNotice::Now && task.status == "cancelled" && task.cancel_state.is_none() {
                 if notice == CancelNotice::Never {

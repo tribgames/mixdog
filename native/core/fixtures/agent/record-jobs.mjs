@@ -19,6 +19,7 @@ const stage = stageSet(here, ['jobs']);
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-jobs-'));
 const load = (path) => import(pathToFileURL(join(nodeRoot, path)).href);
 const bg = await load('src/runtime/shared/background-tasks.mjs');
+const { onCommandToolSettled } = await load('src/runtime/shared/turn-boundary-signal.mjs');
 const { mergeJobMeta } = await load('src/session-runtime/services/agent-tool/job-views/spawn-meta.mjs');
 const { buildAgentTaskProgressFields } = await load('src/session-runtime/services/agent-task-status.mjs');
 
@@ -41,14 +42,21 @@ const row = (t) =>
     notified: t.notified,
     tag: t.tag ?? null,
     sessionId: t.sessionId ?? null,
+    terminalReason: bg.getBackgroundTask(t.task_id)?.terminalReason ?? null,
   };
 
-function play(ops) {
+const settledCwds = [];
+onCommandToolSettled((cwd) => void settledCwds.push(cwd));
+const runs = new Map();
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+async function play(ops) {
   const notices = [];
   const live = new Map();
   const results = [];
   for (const op of ops) {
     notices.length = 0;
+    settledCwds.length = 0;
     const out = {};
     switch (op.op) {
       case 'register': {
@@ -60,7 +68,7 @@ function play(ops) {
             surface: 'agent',
             operation: op.operation || 'spawn',
             label: op.tag || op.sessionId || op.operation || 'spawn',
-            input: { tag: op.tag || null },
+            input: { tag: op.tag || null, ...(op.cwd ? { cwd: op.cwd } : {}) },
             context: {
               callerSessionId: op.caller || undefined,
               ownerSessionId: op.owner || undefined,
@@ -75,6 +83,44 @@ function play(ops) {
         } catch (error) {
           out.error = String(error.message);
         }
+        break;
+      }
+      case 'start': {
+        const handoff = op.caller || null;
+        const pending = {};
+        pending.promise = new Promise((resolve, reject) => Object.assign(pending, { resolve, reject }));
+        runs.set(op.id, pending);
+        live.set(op.id, bg.startBackgroundTask({
+          taskId: op.id,
+          surface: 'agent',
+          operation: 'spawn',
+          label: op.tag || 'spawn',
+          input: { tag: op.tag || null },
+          context: { callerSessionId: op.caller || undefined, notifyFn: handoff ? (text) => void notices.push({ session: handoff, text }) : undefined },
+          meta: { tag: op.tag, sessionId: op.sessionId },
+          resultType: 'agent_task_result',
+          notifyOnCancel: op.notifyOnCancel === true,
+          run: () => pending.promise,
+        }));
+        break;
+      }
+      case 'resolveRun':
+        runs.get(op.id).resolve(op.content == null ? null : { content: op.content });
+        break;
+      case 'rejectRun':
+        runs.get(op.id).reject(new Error(op.error));
+        break;
+      case 'cancelAll': {
+        const o = {
+          reason: op.reason,
+          terminalReason: op.terminalReason,
+          executionSessionId: op.execution,
+          callerSessionId: op.scope?.session || undefined,
+          clientHostPid: op.scope?.pid || undefined,
+          startedSinceMs: op.startedSince == null ? undefined : START + op.startedSince,
+          ...(op.notice === 'now' ? { notify: true } : op.notice === 'never' ? { notify: false } : {}),
+        };
+        out.cancelled = bg.cancelBackgroundTasks({ surface: 'agent', ...o }).taskIds;
         break;
       }
       case 'complete':
@@ -131,7 +177,9 @@ function play(ops) {
       default:
         throw new Error(`unknown op ${op.op}`);
     }
+    await tick();
     out.notices = notices.map((n) => ({ ...n }));
+    out.settled = [...settledCwds];
     results.push(out);
   }
   return results;
@@ -262,15 +310,120 @@ const scenarios = [
     name: 'the_table_keeps_the_newest_three_hundred_finished_rows',
     ops: [{ op: 'bulk', n: 310 }],
   },
+  {
+    name: 'cancel_all_by_execution_session_follows_the_bound_session_else_the_owner',
+    ops: [
+      reg('bound', { caller: 's1', sessionId: 'w1' }),
+      reg('unbound', { caller: 'w1', sessionId: null }),
+      reg('other', { caller: 's1', sessionId: 'w2' }),
+      reg('nobody', { caller: null, owner: null, pid: null, sessionId: null }),
+      { op: 'cancelAll', execution: 'w1', reason: 'session closed', terminalReason: 'closing' },
+      { op: 'list' },
+      { op: 'cancelAll', execution: 'w1', reason: 'again' },
+    ],
+  },
+  {
+    name: 'cancel_all_by_scope_never_claims_a_job_with_no_owner',
+    ops: [
+      reg('own', { caller: 's1', pid: 11 }),
+      reg('sibling', { caller: 's2', pid: 11 }),
+      reg('pidonly', { caller: null, owner: 's9', pid: 11, sessionId: null }),
+      reg('loose', { caller: null, owner: null, pid: null, sessionId: null }),
+      { op: 'cancelAll', scope: { session: 's1' } },
+      { op: 'cancelAll', scope: { pid: 11 }, reason: '  stop  ' },
+      { op: 'cancelAll' },
+      { op: 'list' },
+    ],
+  },
+  {
+    name: 'cancel_all_selects_by_start_time',
+    ops: [
+      reg('early', { caller: 's1', startedAt: 0 }),
+      { op: 'advance', ms: 1000 },
+      reg('late', { caller: 's1' }),
+      { op: 'cancelAll', scope: { session: 's1' }, startedSince: 500 },
+      { op: 'list' },
+    ],
+  },
+  {
+    name: 'cancel_all_notice_modes_and_finished_rows',
+    ops: [
+      reg('a', { notifyOnCancel: true }),
+      reg('b', { notifyOnCancel: true }),
+      reg('c', { notifyOnCancel: true }),
+      reg('done', { notifyOnCancel: true }),
+      { op: 'complete', id: 'done', status: 'completed', content: 'x', notify: false },
+      { op: 'cancelAll', execution: 'a-sess', notice: 'now' },
+      { op: 'cancelAll', execution: 'b-sess', notice: 'never' },
+      { op: 'cancelAll', execution: 'c-sess' },
+      { op: 'cancelAll', execution: 'done-sess', notice: 'never' },
+      { op: 'settle', id: 'a', content: 'late a' },
+      { op: 'settle', id: 'b', content: 'late b' },
+      { op: 'settle', id: 'c', content: 'late c' },
+      { op: 'list' },
+    ],
+  },
+  {
+    name: 'a_finished_job_in_a_directory_marks_a_command_boundary_whichever_way_it_ends',
+    ops: [
+      reg('ok', { cwd: '/work/a' }),
+      reg('bad', { cwd: '/work/b' }),
+      reg('stop', { cwd: '/work/c' }),
+      reg('stop2', { cwd: '/work/d' }),
+      reg('none'),
+      { op: 'complete', id: 'ok', status: 'completed', content: 'x' },
+      { op: 'complete', id: 'ok', status: 'completed', content: 'again' },
+      { op: 'complete', id: 'bad', status: 'failed', error: 'boom' },
+      { op: 'cancel', id: 'stop', reason: 'stop' },
+      { op: 'cancelAll', execution: 'stop2-sess' },
+      { op: 'complete', id: 'none', status: 'completed', content: 'x' },
+    ],
+  },
+  {
+    name: 'a_started_job_completes_on_its_run_result',
+    ops: [
+      { op: 'start', id: 's1', tag: 's1', sessionId: 's1-sess', caller: 'lead' },
+      { op: 'list' },
+      { op: 'resolveRun', id: 's1', content: 'all done' },
+      { op: 'list' },
+    ],
+  },
+  {
+    name: 'a_started_job_fails_on_a_rejected_run',
+    ops: [
+      { op: 'start', id: 's1', tag: 's1', caller: 'lead' },
+      { op: 'rejectRun', id: 's1', error: 'provider  said no\n at sess_abcdef0123 end' },
+      { op: 'list' },
+    ],
+  },
+  {
+    name: 'a_cancelled_started_job_reports_once_after_its_run_settles',
+    ops: [
+      { op: 'start', id: 's1', tag: 's1', caller: 'lead', notifyOnCancel: true },
+      { op: 'cancel', id: 's1', reason: 'agent close' },
+      { op: 'rejectRun', id: 's1', error: 'aborted' },
+      { op: 'list' },
+    ],
+  },
+  {
+    name: 'a_cancelled_started_job_that_resolves_keeps_its_cancellation',
+    ops: [
+      { op: 'start', id: 's1', tag: 's1', caller: 'lead', notifyOnCancel: true },
+      { op: 'cancel', id: 's1', reason: 'agent close' },
+      { op: 'resolveRun', id: 's1', content: 'late result' },
+      { op: 'list' },
+    ],
+  },
 ];
 
-const board = scenarios.map((s) => {
+const board = [];
+for (const s of scenarios) {
   // Each scenario starts from a clean table and the same clock.
   clock = START;
   bg.cancelBackgroundTasks({ reason: 'reset', notify: false });
   bg.cleanupBackgroundTasks({ force: true });
-  return { name: s.name, start: START, ops: s.ops, results: play(s.ops) };
-});
+  board.push({ name: s.name, start: START, ops: s.ops, results: await play(s.ops) });
+}
 
 // ---- progress --------------------------------------------------------------------------------
 

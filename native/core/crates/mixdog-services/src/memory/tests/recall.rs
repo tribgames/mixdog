@@ -129,6 +129,7 @@ async fn recall_matches_recorded_goldens() {
         clock: Arc::new(move || Clock { now_ms, zone: chrono_tz::Asia::Seoul }),
         embedder: Some(Arc::new(Provider(provider))),
         session_cwd: None,
+        lane: mixdog_rt::testing::tokens().durability_io,
         estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
         trace: None,
     });

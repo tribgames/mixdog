@@ -711,6 +711,210 @@
     },
     {
       "config": {
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        },
+        "name": "Fixture",
+        "protocol": "openai-chat",
+        "schemaVersion": 2
+      },
+      "requests": [
+        {
+          "headers": {
+            "authorization": "Bearer fixture-custom-key",
+            "x-extra": "e"
+          },
+          "url": "https://gateway.example/v1/models"
+        }
+      ],
+      "rows": [
+        {
+          "contextWindow": 0,
+          "created": null,
+          "customReasoning": {
+            "replay": true,
+            "wireFormat": "standard",
+            "wireValues": {}
+          },
+          "hidden": false,
+          "id": "deepseek-reasoner-fixture",
+          "inherited": {
+            "contextWindow": 0,
+            "maxOutputTokens": null,
+            "name": "deepseek-reasoner-fixture"
+          },
+          "manual": false,
+          "mode": null,
+          "name": "deepseek-reasoner-fixture",
+          "outputTokens": null,
+          "provider": "custom-fixture",
+          "reasoningContentField": "reasoning_content",
+          "supportsReasoning": true
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "customReasoning": {
+            "replay": true,
+            "wireFormat": "standard",
+            "wireValues": {}
+          },
+          "hidden": false,
+          "id": "vendor/deepseek-reasoner-fixture",
+          "inherited": {
+            "contextWindow": 0,
+            "maxOutputTokens": null,
+            "name": "vendor/deepseek-reasoner-fixture"
+          },
+          "manual": false,
+          "mode": null,
+          "name": "vendor/deepseek-reasoner-fixture",
+          "outputTokens": null,
+          "provider": "custom-fixture",
+          "reasoningContentField": "reasoning_content",
+          "supportsReasoning": true
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "customReasoning": {
+            "replay": false,
+            "wireFormat": "standard",
+            "wireValues": {}
+          },
+          "hidden": false,
+          "id": "plain",
+          "inherited": {
+            "contextWindow": 0,
+            "maxOutputTokens": null,
+            "name": "plain"
+          },
+          "manual": false,
+          "name": "plain",
+          "outputTokens": null,
+          "provider": "custom-fixture",
+          "supportsReasoning": false
+        }
+      ],
+      "scenario": "catalog-replay"
+    },
+    {
+      "config": {
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        },
+        "modelOverrides": {
+          "deepseek-reasoner-fixture": {
+            "reasoning": {
+              "replay": false
+            }
+          },
+          "vendor/deepseek-reasoner-fixture": {
+            "reasoning": {
+              "levels": [
+                "low"
+              ]
+            }
+          }
+        },
+        "name": "Fixture",
+        "protocol": "openai-chat",
+        "schemaVersion": 2
+      },
+      "requests": [
+        {
+          "headers": {
+            "authorization": "Bearer fixture-custom-key",
+            "x-extra": "e"
+          },
+          "url": "https://gateway.example/v1/models"
+        }
+      ],
+      "rows": [
+        {
+          "contextWindow": 0,
+          "created": null,
+          "customReasoning": {
+            "replay": false,
+            "wireFormat": "standard",
+            "wireValues": {}
+          },
+          "hidden": false,
+          "id": "deepseek-reasoner-fixture",
+          "inherited": {
+            "contextWindow": 0,
+            "maxOutputTokens": null,
+            "name": "deepseek-reasoner-fixture"
+          },
+          "manual": false,
+          "mode": null,
+          "name": "deepseek-reasoner-fixture",
+          "outputTokens": null,
+          "provider": "custom-fixture",
+          "supportsReasoning": true
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "customReasoning": {
+            "replay": true,
+            "wireFormat": "standard",
+            "wireValues": {}
+          },
+          "hidden": false,
+          "id": "vendor/deepseek-reasoner-fixture",
+          "inherited": {
+            "contextWindow": 0,
+            "maxOutputTokens": null,
+            "name": "vendor/deepseek-reasoner-fixture"
+          },
+          "manual": false,
+          "mode": null,
+          "name": "vendor/deepseek-reasoner-fixture",
+          "outputTokens": null,
+          "provider": "custom-fixture",
+          "reasoningContentField": "reasoning_content",
+          "reasoningLevels": [
+            "low"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low"
+              ]
+            }
+          ],
+          "supportsReasoning": true
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "customReasoning": {
+            "replay": false,
+            "wireFormat": "standard",
+            "wireValues": {}
+          },
+          "hidden": false,
+          "id": "plain",
+          "inherited": {
+            "contextWindow": 0,
+            "maxOutputTokens": null,
+            "name": "plain"
+          },
+          "manual": false,
+          "name": "plain",
+          "outputTokens": null,
+          "provider": "custom-fixture",
+          "supportsReasoning": false
+        }
+      ],
+      "scenario": "catalog-replay-overridden"
+    },
+    {
+      "config": {
         "auth": "none",
         "baseURL": "https://gateway.example/v1",
         "headers": {
@@ -1007,6 +1211,31 @@
       "scenario": "anthropic"
     }
   ],
+  "catalogRoster": [
+    {
+      "id": "deepseek-reasoner-fixture"
+    },
+    {
+      "id": "vendor/deepseek-reasoner-fixture"
+    },
+    {
+      "id": "plain"
+    }
+  ],
+  "modelsDev": {
+    "deepseek-reasoner-fixture": {
+      "id": "deepseek-reasoner-fixture",
+      "interleaved": {
+        "field": "reasoning_content"
+      },
+      "limit": {
+        "context": 64000,
+        "output": 8000
+      },
+      "name": "DeepSeek Reasoner Fixture",
+      "reasoning": true
+    }
+  },
   "recorder": "benchmarks/rust-core/recorders/record-custom-listing.mjs",
   "roster": [
     {

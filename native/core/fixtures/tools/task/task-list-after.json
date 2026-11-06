@@ -1,0 +1,9 @@
+{
+  "input": {
+    "action": "list"
+  },
+  "isError": false,
+  "text": "background tasks: 2\n- JOB shell/shell completed label=echo done-out\n- JOB shell/shell running label=echo tick; Start-Sleep 30",
+  "tool": "task",
+  "note": "normalized: JOB task id, TS timestamps, LOGS paths"
+}

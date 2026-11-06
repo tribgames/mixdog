@@ -140,7 +140,7 @@ async fn download_reports_bytes_checks_size_and_leaves_nothing_on_failure() {
 
     let dest = dir.path().join("ok.bin");
     let url = format!("{}/ok", server.base);
-    let spec = Spec { url: &url, dest: &dest, max_bytes: body.len() as u64, expected_bytes: body.len() as u64, label: "ok" };
+    let spec = Spec { url: &url, dest: &dest, max_bytes: body.len() as u64, expected_bytes: body.len() as u64, label: "ok", lane: lane() };
     assert_eq!(download_to_file(&spec, Some(&sink), &cancel).await.expect("downloads"), body.len() as u64);
     assert_eq!(std::fs::read(&dest).expect("file"), body);
     let progress = log.lock().expect("log").clone();
@@ -150,19 +150,19 @@ async fn download_reports_bytes_checks_size_and_leaves_nothing_on_failure() {
 
     let short = dir.path().join("short.bin");
     let url = format!("{}/short", server.base);
-    let spec = Spec { url: &url, dest: &short, max_bytes: 1 << 20, expected_bytes: 0, label: "short" };
+    let spec = Spec { url: &url, dest: &short, max_bytes: 1 << 20, expected_bytes: 0, label: "short", lane: lane() };
     let error = download_to_file(&spec, None, &cancel).await.expect_err("truncated");
     assert!(matches!(error, DownloadError::Size(_) | DownloadError::Network(_)), "{error}");
     assert!(!short.exists(), "a failed download leaves no file");
     assert_eq!(server.hits("/short"), 4, "a failure is retried a few times");
 
     let url = format!("{}/missing", server.base);
-    let spec = Spec { url: &url, dest: &short, max_bytes: 10, expected_bytes: 0, label: "missing" };
+    let spec = Spec { url: &url, dest: &short, max_bytes: 10, expected_bytes: 0, label: "missing", lane: lane() };
     let error = download_to_file(&spec, None, &cancel).await.expect_err("404");
     assert!(matches!(error, DownloadError::Http { status: 404, .. }), "{error}");
     assert_eq!(server.hits("/missing"), 1, "a 4xx answer is terminal");
 
-    let over = Spec { url: &format!("{}/ok", server.base), dest: &short, max_bytes: 1000, expected_bytes: 0, label: "over" };
+    let over = Spec { url: &format!("{}/ok", server.base), dest: &short, max_bytes: 1000, expected_bytes: 0, label: "over", lane: lane() };
     assert!(matches!(download_to_file(&over, None, &cancel).await, Err(DownloadError::Size(_))));
     assert_eq!(sha256_file(lane(), &dest).await.expect("hash"), sha(&body));
 }
@@ -176,7 +176,7 @@ async fn a_cancelled_download_ends_without_any_timer() {
     let dest = dir.path().join("stall.bin");
     let stopper = cancel.clone();
     let run = async {
-        let spec = Spec { url: &url, dest: &dest, max_bytes: 1000, expected_bytes: 1000, label: "stall" };
+        let spec = Spec { url: &url, dest: &dest, max_bytes: 1000, expected_bytes: 1000, label: "stall", lane: lane() };
         download_to_file(&spec, None, &cancel).await
     };
     let (result, ()) = tokio::join!(run, async {
@@ -295,12 +295,12 @@ async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_
     let cache = tempfile::tempdir().expect("cache");
     let provider = EmbeddingProvider::new(embed_config_with(cache.path(), real_ort())).with_hub(server.base.clone());
 
-    assert!(!provider.is_installed());
+    assert!(!provider.is_installed().await.expect("reads"));
     assert_eq!(provider.query_vector("staging cluster").await, None, "not installed is a defined state, not a wait");
 
     let (sink, log) = recorder();
     provider.install(Some(&sink), &CancellationToken::new()).await.expect("installs");
-    assert!(provider.is_installed());
+    assert!(provider.is_installed().await.expect("reads"));
     assert!(log.lock().expect("log").iter().any(|p| p.label.contains("model_quantized") && p.downloaded == p.total && p.total > 0));
     assert_eq!(server.hits(&format!("/{id}/resolve/main/onnx/model_quantized.onnx_data")), 1, "optional weights are asked for");
     assert!(!embed_install::installed(&embed_config(&cache.path().join("nowhere"))));

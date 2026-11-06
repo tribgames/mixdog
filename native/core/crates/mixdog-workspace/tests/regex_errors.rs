@@ -37,11 +37,8 @@ fn every_recorded_pattern_gets_v8s_verdict_and_text() {
     check(&fixture["fuzz"], &mut failures);
     assert!(failures.is_empty(), "{} mismatches, first 80:\n{}", failures.len(), failures.iter().take(80).cloned().collect::<Vec<_>>().join("\n"));
 }
-/// The shared check, held to the same recorded corpus. It is ignored while it differs from
-/// Node (44 of ~6200 recorded patterns at the time of writing); run with `--ignored` to see
-/// the list, and delete `v8regex` once this passes.
+/// The shared check, held to the same recorded corpus.
 #[test]
-#[ignore = "mixdog-js js_regex_error still differs from Node on the fuzz corpus"]
 fn the_shared_js_check_matches_the_recorded_corpus() {
     let fixture = fixture();
     let mut failures = Vec::new();

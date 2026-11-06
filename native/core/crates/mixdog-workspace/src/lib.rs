@@ -17,7 +17,6 @@ pub mod localfs;
 pub mod textsearch;
 pub mod transfer;
 pub mod zip;
-pub mod v8regex;
 pub mod walk;
 pub mod inplace;
 pub mod killpoint;

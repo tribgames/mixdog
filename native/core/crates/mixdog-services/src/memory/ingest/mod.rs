@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use mixdog_js::{js_trim, to_number, value_to_string};
+use mixdog_rt::DurabilityIo;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
 use tokio::task::JoinHandle;
@@ -49,7 +50,10 @@ struct Inner {
     flush: RawEmbedFlush,
     session_cwd: Option<PathBuf>,
     now: NowMs,
+    #[allow(clippy::disallowed_types, reason = "a session's ingests are held across the awaited write on purpose: they run in call order, as Node's promise chain")]
     chains: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// The lane the project marker files are read on.
+    lane: DurabilityIo,
     ordinals: Mutex<OrdinalStore>,
     /// The tail of the background flush chain: every flush waits for the one
     /// before it, so bursts never run concurrent full-backlog scans.
@@ -100,13 +104,14 @@ fn parse_ts_to_ms(value: Option<&Value>, fallback_ms: i64) -> i64 {
 }
 
 impl SessionIngest {
-    pub fn new(db: Db, provider: Option<Arc<EmbeddingProvider>>, session_cwd: Option<PathBuf>, now: NowMs) -> Self {
+    pub fn new(db: Db, provider: Option<Arc<EmbeddingProvider>>, session_cwd: Option<PathBuf>, now: NowMs, lane: DurabilityIo) -> Self {
         Self(Arc::new(Inner {
             flush: RawEmbedFlush::new(db.clone(), provider),
             db,
             session_cwd,
             now,
             chains: Mutex::new(HashMap::new()),
+            lane,
             ordinals: Mutex::new(OrdinalStore::default()),
             flush_tail: Mutex::new(None),
         }))
@@ -151,11 +156,11 @@ impl SessionIngest {
             len
         } else {
             let n = to_number(args.get("limit").unwrap_or(&Value::Null));
-            (if n.is_nan() || n == 0.0 { DEFAULT_LIMIT } else { n }).min(MAX_LIMIT).max(1.0)
+            (if n.is_nan() || n == 0.0 { DEFAULT_LIMIT } else { n }).clamp(1.0, MAX_LIMIT)
         };
         let start = (len - limit).max(0.0);
         let explicit_cwd = args.get("cwd").and_then(Value::as_str);
-        let project_id = resolve_project_scope(explicit_cwd, inner.session_cwd.as_deref()).await;
+        let project_id = resolve_project_scope(inner.lane, explicit_cwd, inner.session_cwd.as_deref()).await;
 
         let mut state = inner.ordinals.lock().expect("ordinal store").take(session_id);
         state.ensure_durable_loaded(&inner.db, session_id).await;

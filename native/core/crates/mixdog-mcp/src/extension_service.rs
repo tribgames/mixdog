@@ -78,6 +78,22 @@ pub trait ExtensionHost: Send + Sync {
     async fn announce_without_invalidating(&self, kind: &str);
     /// The names of the tools the session offers (`getTools()`).
     async fn tool_names(&self) -> Vec<String>;
+    /// `reconnectMcpAndAnnounce({ only, enabled, drop })`: connect (or, when `enabled` is false,
+    /// disconnect) server `only` and disconnect the `drop` names, reconcile, announce `mcp` with
+    /// that change list to the other runtimes, and answer the MCP status.
+    async fn reconnect_mcp_and_announce(&self, only: Option<&str>, enabled: bool, drop: &[String]) -> Value;
+    /// `reconnectMcpAndAnnounce()`: every configured server reconnects, then `mcp` is announced.
+    async fn reconnect_all_mcp_and_announce(&self) -> Value;
+    /// `scheduleMcpToggle(name, enabled)`: the heavy reconnect of a toggle, one chain per server,
+    /// converging on the last requested state; answers the MCP status.
+    async fn schedule_mcp_toggle(&self, name: &str, enabled: bool) -> Value;
+    /// `publish('mcp', { mcpChanges })`: tell the other runtimes (not this one) what changed.
+    async fn publish_mcp_changes(&self, changes: &[(String, bool)]);
+    /// `announce('mcp', { detail: { mcpChanges } })`: refresh the surface and publish.
+    async fn announce_mcp_changes(&self, changes: &[(String, bool)]);
+    /// `connectConfiguredMcp({ only, enabled })`: connect or disconnect one server in this
+    /// process; answers the MCP status.
+    async fn connect_configured_mcp(&self, only: &str, enabled: bool) -> Value;
     /// Drops the skills cache (and the recursive watchers on plugin roots).
     fn invalidate_skills(&self);
     /// Persists debounced skill-state writes now.
@@ -115,7 +131,7 @@ fn plugin_key(plugin: &Value) -> Result<String, String> {
 }
 
 /// The registered status row a caller means by `plugin` (row, id, name, or title), if any.
-fn find_registered_plugin<'a>(status: &'a Value, plugin: &Value) -> Result<Option<&'a Value>, String> {
+pub(crate) fn find_registered_plugin<'a>(status: &'a Value, plugin: &Value) -> Result<Option<&'a Value>, String> {
     let key = plugin_key(plugin)?;
     if key.is_empty() {
         return Ok(None);
@@ -154,6 +170,15 @@ pub fn decorate_plugins(status: &Value, scopes: &ExtensionScopes, cwd: &Path) ->
     decorated(status, "plugins", |plugin| {
         let id = field(plugin, "id");
         scope_info(scopes, ScopeKind::Plugins, &clean(if truthy(id) { id } else { field(plugin, "name") }), "", cwd)
+    })
+}
+
+/// Project scope on the MCP status rows, including the scope a server inherits from its plugin.
+pub fn decorate_mcp(status: &Value, scopes: &ExtensionScopes, cwd: &Path) -> Value {
+    decorated(status, "servers", |server| {
+        let owner = field(server, "owner");
+        let plugin_id = if field(owner, "kind") == "plugin" { clean(field(owner, "id")) } else { String::new() };
+        scope_info(scopes, ScopeKind::Mcp, &clean(field(server, "name")), &plugin_id, cwd)
     })
 }
 

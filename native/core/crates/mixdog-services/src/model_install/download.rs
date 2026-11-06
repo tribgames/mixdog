@@ -8,9 +8,9 @@ use std::path::Path;
 use mixdog_rt::CpuBulk;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
+use crate::model_install::fsio::{self, LaneWriter};
 use crate::model_install::{Progress, ProgressSink, run_on_lane};
 
 const RETRIES: usize = 3;
@@ -49,6 +49,8 @@ pub struct Spec<'a> {
     /// The exact size, when known (0 otherwise).
     pub expected_bytes: u64,
     pub label: &'a str,
+    /// The lane the partial file is created, written and synced on.
+    pub lane: CpuBulk,
 }
 
 async fn attempt(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<u64, DownloadError> {
@@ -74,9 +76,9 @@ async fn attempt(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &Canc
     }
     let total = if advertised != 0 { advertised } else { spec.expected_bytes };
     if let Some(parent) = spec.dest.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|e| DownloadError::Io(e.to_string()))?;
+        fsio::create_dir_all(spec.lane, parent).await.map_err(|e| DownloadError::Io(e.to_string()))?;
     }
-    let mut file = tokio::fs::File::create(spec.dest).await.map_err(|e| DownloadError::Io(e.to_string()))?;
+    let mut file = LaneWriter::create(spec.lane, spec.dest).await.map_err(|e| DownloadError::Io(e.to_string()))?;
     let step = (total / 100).max(MIN_PROGRESS_STEP);
     let (mut downloaded, mut reported) = (0u64, 0u64);
     let emit = |downloaded: u64| {
@@ -94,7 +96,7 @@ async fn attempt(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &Canc
         if downloaded > spec.max_bytes {
             return Err(DownloadError::Size(format!("{label}: response exceeds the {} byte limit", spec.max_bytes)));
         }
-        file.write_all(&chunk).await.map_err(|e| DownloadError::Io(e.to_string()))?;
+        file.write(&chunk).await.map_err(|e| DownloadError::Io(e.to_string()))?;
         if downloaded - reported >= step {
             reported = downloaded;
             emit(downloaded);
@@ -107,7 +109,7 @@ async fn attempt(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &Canc
     }
     // The bytes reach disk before the caller installs the file, so a crash
     // cannot leave an installed model that is all NUL.
-    file.sync_all().await.map_err(|e| DownloadError::Io(e.to_string()))?;
+    file.finish().await.map_err(|e| DownloadError::Io(e.to_string()))?;
     Ok(downloaded)
 }
 
@@ -122,7 +124,7 @@ pub async fn download_to_file(
         match attempt(spec, progress, cancel).await {
             Ok(bytes) => return Ok(bytes),
             Err(error) => {
-                let _ = tokio::fs::remove_file(spec.dest).await;
+                let _ = fsio::remove_file(spec.lane, spec.dest).await;
                 if error.terminal() {
                     return Err(error);
                 }
@@ -134,6 +136,7 @@ pub async fn download_to_file(
 }
 
 /// Hex sha256 of a file, read on the CPU bulk lane.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the file is read inside a lane job")]
 pub async fn sha256_file(lane: CpuBulk, path: &Path) -> Result<String, DownloadError> {
     use std::io::Read;
     let path = path.to_owned();

@@ -17,7 +17,7 @@ use crate::memory::embed::config::{self, InputType, Pooling};
 use crate::memory::embed::install;
 use crate::memory::embed::tokenizer::UnigramTokenizer;
 use crate::memory::error::{MemoryError, Result};
-use crate::model_install::run_on_lane;
+use crate::model_install::{fsio, run_on_lane};
 
 const QUERY_CACHE_ENTRIES: usize = 1000;
 const QUERY_CACHE_BYTES: usize = 8 * 1024 * 1024;
@@ -107,13 +107,13 @@ impl Embedder {
         let model_id = js_trim(&config.model_id).to_owned();
         let dtype = config::normalize_dtype(&model_id, config.dtype.as_deref());
         let files = install::required_files(&config);
-        if let Some(missing) = install::missing(&config) {
+        if let Some(missing) = install::missing_on(&config).await.map_err(|e| MemoryError::Embedding(e.to_string()))? {
             return Err(MemoryError::Embedding(format!("model file not installed: {missing}")));
         }
         let tokenizer_path = install::model_path(&config.cache_dir, &model_id, "tokenizer.json");
         let tokenizer_config = install::model_path(&config.cache_dir, &model_id, "tokenizer_config.json");
         let graph = install::model_path(&config.cache_dir, &model_id, &files.graph);
-        let max_length = serde_json::from_slice::<serde_json::Value>(&tokio::fs::read(&tokenizer_config).await?)
+        let max_length = serde_json::from_slice::<serde_json::Value>(&fsio::read(config.lane, &tokenizer_config).await?)
             .ok()
             .and_then(|json| json["model_max_length"].as_u64())
             .filter(|n| *n > 0)

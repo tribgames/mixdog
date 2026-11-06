@@ -168,7 +168,7 @@ fn options(case: &Value) -> SetRouteOptions {
 async fn the_adoption_effects_match_node() {
     let thread = ThreadId::from("t");
     for (i, case) in twin()["cases"].as_array().unwrap().iter().enumerate() {
-        let (service, writer, log, _dir) = rig(case).await;
+        let (service, writer, log, dir) = rig(case).await;
         let got = match case["kind"].as_str().unwrap() {
             "setRoute" => service.set_route(&thread, &obj(&case["request"]), &options(case)).await,
             "setFast" => {
@@ -192,7 +192,8 @@ async fn the_adoption_effects_match_node() {
         let label = format!("case {i}: {} {} {}", case["kind"], case["request"], case["options"]);
         assert_eq!(got, want, "{label}");
         assert_eq!(Value::Object(writer.route(&thread)), case["after"]["route"], "{label} route");
-        assert_eq!(subset(&service.config.agent()), case["after"]["file"], "{label} saved config");
+        let on_disk: Value = serde_json::from_slice(&std::fs::read(dir.path().join("mixdog-config.json")).unwrap()).unwrap();
+        assert_eq!(subset(&obj(&on_disk["agent"])), case["after"]["file"], "{label} saved config");
         let log = log.lock().unwrap();
         assert_eq!(Value::Array(log.route_states.clone()), case["log"]["routeStates"], "{label} route states");
         assert_eq!(Value::Array(log.refreshes.clone()), case["log"]["refreshes"], "{label} refreshes");

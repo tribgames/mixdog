@@ -26,7 +26,7 @@ use crate::orch::util::spec_from_def;
 use crate::orch::util::text;
 
 pub const MAX_GOAL_TIME_LIMIT_MS: u64 = 7 * 24 * 60 * 60 * 1000;
-const ACTIONS: [&str; 4] = ["status", "create", "complete", "block"];
+const ACTIONS: [&str; 5] = ["status", "create", "complete", "block", "extend"];
 /// Fields of the retired task/revision schema a restored provider may still fill from a frozen
 /// tool list; they carry nothing now and are ignored.
 const RETIRED_FIELDS: [&str; 4] = ["tasks", "updates", "revision", "time_mode"];
@@ -35,6 +35,7 @@ fn action_fields(action: &str) -> &'static [&'static str] {
     match action {
         "create" => &["action", "objective", "time_limit_minutes"],
         "block" => &["action", "blocker"],
+        "extend" => &["action", "extend_minutes"],
         _ => &["action"],
     }
 }
@@ -66,6 +67,11 @@ pub trait GoalPort: Send + Sync {
         time_limit_ms: Option<u64>,
     ) -> Result<GoalSnapshot, PortError>;
     async fn settle(&self, thread: &ThreadId, settlement: GoalSettlement) -> Result<GoalSnapshot, PortError>;
+    /// The user's explicit ask for more time: the cap of an active or paused Goal that has one
+    /// grows by `extend_ms` (the new total capped at 7 days), the used time is kept and the
+    /// deadline warnings are re-earned, as with the user's own duration edit. Any other Goal
+    /// is refused with the runtime's wording.
+    async fn extend(&self, thread: &ThreadId, extend_ms: u64) -> Result<GoalSnapshot, PortError>;
 }
 
 #[derive(Serialize)]
@@ -116,7 +122,7 @@ fn validate(args: &Value) -> Result<String, String> {
     if !ACTIONS.contains(&action.as_str()) {
         return Err(format!("goal action must be one of: {}", ACTIONS.join(", ")));
     }
-    let tool_fields = ["action", "objective", "time_limit_minutes", "blocker"];
+    let tool_fields = ["action", "objective", "time_limit_minutes", "extend_minutes", "blocker"];
     let extras: Vec<&str> = object
         .keys()
         .map(String::as_str)
@@ -132,23 +138,28 @@ fn validate(args: &Value) -> Result<String, String> {
     Ok(action)
 }
 
-/// `time_limit_minutes` as a duration in ms; `None` when the call carries none.
-fn time_limit_ms(args: &Value) -> Result<Option<u64>, String> {
-    let minutes = match args.get("time_limit_minutes") {
+/// A minutes field (`time_limit_minutes`, `extend_minutes`) as a duration in ms; `None` when the
+/// call carries none.
+fn minutes_ms(args: &Value, field: &str) -> Result<Option<u64>, String> {
+    let max_minutes = MAX_GOAL_TIME_LIMIT_MS as f64 / 60_000.0;
+    let minutes = match args.get(field) {
         None | Some(Value::Null) => return Ok(None),
-        Some(Value::String(s)) if s.is_empty() => return Ok(None),
         Some(Value::Number(n)) => n.as_f64(),
-        Some(Value::String(s)) => Some(mixdog_js::string_to_number(s)),
         Some(_) => None,
     };
     let minutes = minutes
-        .filter(|m| m.is_finite() && *m > 0.0)
-        .ok_or_else(|| "goal time_limit_minutes must be a positive number".to_owned())?;
-    let ms = (minutes * 60_000.0).round();
-    if ms > MAX_GOAL_TIME_LIMIT_MS as f64 {
-        return Err("goal duration exceeds 7 days".to_owned());
-    }
-    Ok(Some(ms as u64))
+        .filter(|m| m.is_finite() && (1.0..=max_minutes).contains(m))
+        .ok_or_else(|| format!("goal {field} must be a number from 1 to {max_minutes} minutes"))?;
+    Ok(Some((minutes * 60_000.0).round() as u64))
+}
+
+fn time_limit_ms(args: &Value) -> Result<Option<u64>, String> {
+    minutes_ms(args, "time_limit_minutes")
+}
+
+/// `extend_minutes` is required: a call without it fails like an out-of-range one.
+fn extend_ms(args: &Value) -> Result<u64, String> {
+    minutes_ms(args, "extend_minutes")?.ok_or_else(|| "goal extend_minutes must be a number from 1 to 10080 minutes".to_owned())
 }
 
 pub struct GoalTool {
@@ -188,6 +199,10 @@ impl Tool for GoalTool {
                 let limit = time_limit_ms(&args).map_err(|m| invalid("time_limit_minutes", m))?;
                 let objective = args.get("objective").and_then(Value::as_str).unwrap_or_default().to_owned();
                 reply(&self.goals.create(thread, objective, limit).await?, true)
+            }
+            "extend" => {
+                let added = extend_ms(&args).map_err(|m| invalid("extend_minutes", m))?;
+                reply(&self.goals.extend(thread, added).await?, true)
             }
             "block" => {
                 let blocker = clean(args.get("blocker"));
@@ -245,8 +260,129 @@ mod tests {
         assert_eq!(validate(&json!({})).unwrap_err(), "goal action is required");
         assert_eq!(
             validate(&json!({"action":"stop"})).unwrap_err(),
-            "goal action must be one of: status, create, complete, block"
+            "goal action must be one of: status, create, complete, block, extend"
         );
+        assert_eq!(
+            validate(&json!({"action":"extend","extend_minutes":5,"bogus":1})).unwrap_err(),
+            "goal arguments contain unknown fields: bogus. Allowed for extend: action, extend_minutes"
+        );
+    }
+
+    #[test]
+    fn extend_minutes_is_required_and_a_json_number_from_1_to_10080() {
+        assert_eq!(extend_ms(&json!({"extend_minutes": 600})), Ok(36_000_000));
+        assert_eq!(extend_ms(&json!({})).unwrap_err(), "goal extend_minutes must be a number from 1 to 10080 minutes");
+    }
+
+    // Twin of the Node test in goal-extend.test.mjs: the same accepted and rejected sets, for
+    // both minutes fields, with nothing coerced.
+    #[test]
+    fn minutes_fields_accept_and_reject_the_same_values_as_node() {
+        for ok in [json!(1), json!(2.5), json!(10080)] {
+            let want = (ok.as_f64().unwrap() * 60_000.0).round() as u64;
+            assert_eq!(extend_ms(&json!({"extend_minutes": ok})), Ok(want), "extend {ok}");
+            assert_eq!(time_limit_ms(&json!({"time_limit_minutes": ok})), Ok(Some(want)), "create {ok}");
+        }
+        for bad in [json!(0.5), json!(0), json!(10081), json!(-5), json!(true), json!([2]), json!("5"), json!("")] {
+            assert_eq!(
+                extend_ms(&json!({"extend_minutes": bad})).unwrap_err(),
+                "goal extend_minutes must be a number from 1 to 10080 minutes",
+                "extend {bad}"
+            );
+            assert_eq!(
+                time_limit_ms(&json!({"time_limit_minutes": bad})).unwrap_err(),
+                "goal time_limit_minutes must be a number from 1 to 10080 minutes",
+                "create {bad}"
+            );
+        }
+        assert_eq!(time_limit_ms(&json!({"time_limit_minutes": null})), Ok(None));
+    }
+
+    #[test]
+    fn definition_restricts_extend_to_the_users_explicit_request() {
+        let def: Value = serde_json::from_str(include_str!("defs/goal.json")).expect("goal.json");
+        let description = def["description"].as_str().expect("description");
+        assert!(description.contains(
+            "extend adds minutes to an active or paused Goal’s time cap, only when the user explicitly asks in this conversation; never on your own initiative."
+        ));
+        let props = &def["inputSchema"]["properties"];
+        assert_eq!(props["action"]["enum"], json!(["status", "create", "complete", "block", "extend"]));
+        assert_eq!(props["extend_minutes"]["minimum"], json!(1));
+        assert_eq!(props["extend_minutes"]["maximum"], json!(MAX_GOAL_TIME_LIMIT_MS / 60_000));
+    }
+
+    struct Port {
+        extended: std::sync::Mutex<Vec<u64>>,
+    }
+
+    #[async_trait]
+    impl GoalPort for Port {
+        async fn status(&self, _: &ThreadId) -> Result<GoalSnapshot, PortError> {
+            Ok(GoalSnapshot::default())
+        }
+        async fn create(&self, _: &ThreadId, _: String, _: Option<u64>) -> Result<GoalSnapshot, PortError> {
+            Ok(GoalSnapshot::default())
+        }
+        async fn settle(&self, _: &ThreadId, _: GoalSettlement) -> Result<GoalSnapshot, PortError> {
+            Ok(GoalSnapshot::default())
+        }
+        async fn extend(&self, _: &ThreadId, extend_ms: u64) -> Result<GoalSnapshot, PortError> {
+            self.extended.lock().unwrap().push(extend_ms);
+            Ok(GoalSnapshot {
+                goal: Some(json!({"id":"g1","status":"active","timeLimitMs":39_600_000,"timeUsedMs":5})),
+                remaining_ms: Some(39_599_995),
+            })
+        }
+    }
+
+    struct NoTodos;
+
+    #[async_trait]
+    impl TodoStore for NoTodos {
+        async fn read(&self, _: &ThreadId) -> super::super::todo::TodoList {
+            Default::default()
+        }
+        async fn update(
+            &self,
+            _: &ThreadId,
+            _: &mut (dyn FnMut(&super::super::todo::TodoList) -> Result<super::super::todo::TodoList, String> + Send),
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn note_user_wait(&self, _: &ThreadId) {}
+    }
+
+    struct Facts;
+
+    impl CallerFacts for Facts {
+        fn is_heartbeat(&self, _: &ThreadId) -> bool {
+            false
+        }
+        fn is_unattended(&self, _: &ThreadId) -> bool {
+            false
+        }
+        fn user_available(&self, _: &ThreadId) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn extend_call_reaches_the_port_with_validated_ms_and_replies_with_the_full_goal() {
+        let port = Arc::new(Port { extended: Default::default() });
+        let tool = GoalTool::new(port.clone(), Arc::new(NoTodos), Arc::new(Facts));
+        let ctx = crate::orch::tests::ctx();
+
+        let out = tool.call(&ctx, json!({"action":"extend","extend_minutes":600})).await.expect("extend");
+        let mixdog_core_api::domain::tool::ToolPart::Text(text) = &out.parts[0] else { panic!("text part") };
+        assert_eq!(
+            text,
+            r#"{"goal":{"id":"g1","status":"active","timeLimitMs":39600000,"timeUsedMs":5},"remaining_ms":39599995}"#
+        );
+        assert_eq!(*port.extended.lock().unwrap(), vec![36_000_000]);
+
+        let refused = tool.call(&ctx, json!({"action":"extend"})).await.unwrap_err();
+        assert!(refused.message_for_model.contains("from 1 to 10080 minutes"), "{}", refused.message_for_model);
+        assert_eq!(port.extended.lock().unwrap().len(), 1);
     }
 
     #[test]
@@ -256,7 +392,7 @@ mod tests {
         assert!(time_limit_ms(&json!({"time_limit_minutes": 0})).is_err());
         assert_eq!(
             time_limit_ms(&json!({"time_limit_minutes": 20000})).unwrap_err(),
-            "goal duration exceeds 7 days"
+            "goal time_limit_minutes must be a number from 1 to 10080 minutes"
         );
     }
 }

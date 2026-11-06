@@ -57,11 +57,13 @@ pub struct LocalMemory {
     revision: AtomicU64,
     recall: Recall,
     ingest: SessionIngest,
+    /// The lane project markers and the snapshot file are read and written on.
+    lane: mixdog_rt::DurabilityIo,
 }
 
 impl LocalMemory {
-    pub fn new(db: Db, data_dir: PathBuf, recall: Recall, ingest: SessionIngest) -> Self {
-        Self { db, data_dir, revision: AtomicU64::new(0), recall, ingest }
+    pub fn new(db: Db, data_dir: PathBuf, recall: Recall, ingest: SessionIngest, lane: mixdog_rt::DurabilityIo) -> Self {
+        Self { db, data_dir, revision: AtomicU64::new(0), recall, ingest, lane }
     }
 }
 
@@ -71,7 +73,7 @@ impl MemoryModule for LocalMemory {
         if args.get("action").and_then(Value::as_str) == Some("ingest_session") {
             return self.ingest.ingest_session(&args).await.unwrap_or_else(|error| error.message());
         }
-        let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision };
+        let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision, lane: self.lane };
         run(&ctx, &args).await.text
     }
 
@@ -179,7 +181,7 @@ pub fn current_session_recall_rows(messages: &[Value], query: &str, limit: Optio
     }
     terms.truncate(16);
     let wanted = limit.map_or(f64::NAN, to_number);
-    let max = (if wanted.is_nan() || wanted == 0.0 { 10.0 } else { wanted }).min(100.0).max(1.0);
+    let max = (if wanted.is_nan() || wanted == 0.0 { 10.0 } else { wanted }).clamp(1.0, 100.0);
     let mut rows = Vec::new();
     for (index, message) in messages.iter().enumerate().rev() {
         if rows.len() as f64 >= max {

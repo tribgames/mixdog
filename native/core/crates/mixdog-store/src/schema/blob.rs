@@ -44,6 +44,8 @@ impl TryFrom<BlobDescriptor> for BodyBlob {
     type Error = String;
 
     fn try_from(value: BlobDescriptor) -> Result<Self, Self::Error> {
+        // The digest form needs no check here: `BlobDigest` admits only `sha256:` and 64
+        // lowercase hex on every way in, so `value.digest` is well formed.
         if value.media_type != BODY_MEDIA_TYPE {
             return Err(format!("body blob media type {:?}", value.media_type));
         }

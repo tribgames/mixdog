@@ -10418,6 +10418,20 @@
             "null"
           ]
         },
+        "cacheReadCostPerM": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "cacheWriteCostPerM": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "contextWindow": {
           "format": "uint64",
           "minimum": 0.0,
@@ -10462,6 +10476,14 @@
         "id": {
           "type": "string"
         },
+        "inputCostPerM": {
+          "description": "The row's own prices, USD per million tokens; absent when not finite.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "maxContextWindow": {
           "description": "The largest window the listing states for the model.",
           "format": "uint64",
@@ -10490,6 +10512,13 @@
           "description": "The row's own `name`, the label when no display name is known.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "outputCostPerM": {
+          "format": "double",
+          "type": [
+            "number",
             "null"
           ]
         },

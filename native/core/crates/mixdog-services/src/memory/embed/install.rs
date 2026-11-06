@@ -9,7 +9,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::memory::embed::config;
 use crate::memory::embed::engine::EmbedConfig;
-use crate::model_install::{DownloadError, InstallError, ProgressSink, Spec, download_to_file};
+use crate::lane::on_lane;
+use crate::model_install::{DownloadError, InstallError, ProgressSink, Spec, download_to_file, fsio};
+use mixdog_rt::CpuBulk;
 
 pub const HUB: &str = "https://huggingface.co";
 const PROBE_BYTES: usize = 4096;
@@ -34,6 +36,7 @@ pub fn model_path(cache_dir: &Path, model_id: &str, file: &str) -> PathBuf {
 
 /// A file counts as present when its first bytes hold data: empty or
 /// NUL-filled (a crash that committed the size but not the bytes) is absent.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a lane-job body: async callers go through the `_on` forms")]
 pub(crate) fn holds_data(path: &Path) -> bool {
     use std::io::Read;
     let Ok(mut file) = std::fs::File::open(path) else { return false };
@@ -42,6 +45,7 @@ pub(crate) fn holds_data(path: &Path) -> bool {
     head[..read].iter().any(|byte| *byte != 0)
 }
 
+#[allow(clippy::disallowed_methods, reason = "a lane-job body, reached through `missing`")]
 fn usable(path: &Path) -> bool {
     if !holds_data(path) {
         return false;
@@ -56,7 +60,8 @@ fn weights_of(graph: &Path) -> PathBuf {
     PathBuf::from(format!("{}_data", graph.display()))
 }
 
-/// The first required file that is absent or damaged.
+/// The first required file that is absent or damaged. Reads files: a lane-job body.
+#[allow(clippy::disallowed_methods, reason = "a lane-job body: async callers use `missing_on`")]
 pub fn missing(config: &EmbedConfig) -> Option<String> {
     let model_id = js_trim(&config.model_id);
     let graph = required_files(config).graph;
@@ -77,26 +82,46 @@ pub fn installed(config: &EmbedConfig) -> bool {
     missing(config).is_none()
 }
 
-async fn fetch(
-    hub: &str,
-    model_id: &str,
-    file: &str,
-    target: &Path,
-    optional: bool,
-    progress: Option<&ProgressSink>,
-    cancel: &CancellationToken,
-) -> Result<(), InstallError> {
-    let mut partial_name = target.file_name().unwrap_or_default().to_owned();
-    partial_name.push(format!(".{}.part", std::process::id()));
-    let partial = target.with_file_name(partial_name);
-    let url = format!("{hub}/{model_id}/resolve/main/{file}");
-    let label = format!("embedding model {model_id}/{file}");
-    let spec = Spec { url: &url, dest: &partial, max_bytes: MAX_FILE_BYTES, expected_bytes: 0, label: &label };
-    match download_to_file(&spec, progress, cancel).await {
-        Ok(_) => tokio::fs::rename(&partial, target).await.map_err(InstallError::io),
-        Err(DownloadError::Http { status: 404, .. }) if optional => Ok(()),
-        Err(DownloadError::Cancelled) => Err(InstallError::Cancelled),
-        Err(error) => Err(error.into()),
+/// [`missing`] as a job on the config's lane.
+pub async fn missing_on(config: &EmbedConfig) -> Result<Option<String>, InstallError> {
+    let owned = config.clone();
+    on_lane(config.lane, move || missing(&owned)).await.map_err(InstallError::io)
+}
+
+async fn holds_data_on(lane: CpuBulk, path: &Path) -> Result<bool, InstallError> {
+    let path = path.to_owned();
+    on_lane(lane, move || holds_data(&path)).await.map_err(InstallError::io)
+}
+
+async fn usable_on(lane: CpuBulk, path: &Path) -> Result<bool, InstallError> {
+    let path = path.to_owned();
+    on_lane(lane, move || usable(&path)).await.map_err(InstallError::io)
+}
+
+/// What one install fetches from: the hub and model, and where its bytes and cancel go.
+struct Fetch<'a> {
+    lane: CpuBulk,
+    hub: &'a str,
+    model_id: &'a str,
+    progress: Option<&'a ProgressSink>,
+    cancel: &'a CancellationToken,
+}
+
+impl Fetch<'_> {
+    async fn file(&self, file: &str, target: &Path, optional: bool) -> Result<(), InstallError> {
+        let Fetch { lane, hub, model_id, progress, cancel } = *self;
+        let mut partial_name = target.file_name().unwrap_or_default().to_owned();
+        partial_name.push(format!(".{}.part", std::process::id()));
+        let partial = target.with_file_name(partial_name);
+        let url = format!("{hub}/{model_id}/resolve/main/{file}");
+        let label = format!("embedding model {model_id}/{file}");
+        let spec = Spec { url: &url, dest: &partial, max_bytes: MAX_FILE_BYTES, expected_bytes: 0, label: &label, lane };
+        match download_to_file(&spec, progress, cancel).await {
+            Ok(_) => fsio::rename(lane, &partial, target).await.map_err(InstallError::io),
+            Err(DownloadError::Http { status: 404, .. }) if optional => Ok(()),
+            Err(DownloadError::Cancelled) => Err(InstallError::Cancelled),
+            Err(error) => Err(error.into()),
+        }
     }
 }
 
@@ -110,21 +135,24 @@ pub async fn install(
     cancel: &CancellationToken,
 ) -> Result<(), InstallError> {
     let model_id = js_trim(&config.model_id);
+    let lane = config.lane;
+    let source = Fetch { lane, hub, model_id, progress, cancel };
     for file in ["tokenizer.json", "tokenizer_config.json"] {
         let target = model_path(&config.cache_dir, model_id, file);
-        if !usable(&target) {
-            fetch(hub, model_id, file, &target, false, progress, cancel).await?;
+        if !usable_on(lane, &target).await? {
+            source.file(file, &target, false).await?;
         }
     }
     let graph = required_files(config).graph;
     let target = model_path(&config.cache_dir, model_id, &graph);
     let weights = weights_of(&target);
-    let graph_present = holds_data(&target);
-    if !graph_present || (weights.exists() && !holds_data(&weights)) {
-        fetch(hub, model_id, &format!("{graph}_data"), &weights, true, progress, cancel).await?;
+    let graph_present = holds_data_on(lane, &target).await?;
+    let weights_damaged = fsio::exists(lane, &weights).await.map_err(InstallError::io)? && !holds_data_on(lane, &weights).await?;
+    if !graph_present || weights_damaged {
+        source.file(&format!("{graph}_data"), &weights, true).await?;
     }
     if !graph_present {
-        fetch(hub, model_id, &graph, &target, false, progress, cancel).await?;
+        source.file(&graph, &target, false).await?;
     }
     Ok(())
 }

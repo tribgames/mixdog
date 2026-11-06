@@ -89,6 +89,9 @@ fn a_listed_model_keeps_its_name_window_and_wire_over_the_wire() {
     listed.name = Some("gpt-5.6-sol".into());
     listed.context_window = Some(272_000);
     listed.max_context_window = Some(1_000_000);
+    listed.input_cost_per_m = Some(0.4);
+    listed.output_cost_per_m = Some(1.6);
+    listed.cache_read_cost_per_m = Some(0.0);
     for wire in [None, Some(p::WireIds::One("sol-wire".into())), Some(p::WireIds::Tiers(vec![("high".into(), "sol-high".into()), ("low".into(), "sol-low".into())]))] {
         listed.wire = wire;
         let text = serde_json::to_string(&model_out(&listed)).unwrap();
