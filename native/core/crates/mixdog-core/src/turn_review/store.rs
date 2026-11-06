@@ -12,6 +12,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use super::chain::Chain;
+use super::chain::ChainGuard;
+
 use indexmap::IndexMap;
 use mixdog_js::json_stringify;
 use mixdog_js::locale_compare;
@@ -171,7 +174,7 @@ fn session_scopes(record: Option<&Obj>) -> Vec<Scope> {
 pub struct Store {
     disk: Arc<dyn ReviewDisk>,
     root: PathBuf,
-    chains: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    chains: Mutex<HashMap<String, Arc<Chain>>>,
     sweep_done: Mutex<(bool, bool)>,
     cache: Mutex<ChangeCache>,
 }
@@ -256,12 +259,12 @@ impl Store {
     }
 
     /// Per-key write chain: two writes of one key never race their own file.
-    async fn chained(&self, key: &str) -> tokio::sync::OwnedMutexGuard<()> {
+    async fn chained(&self, key: &str) -> ChainGuard {
         let cell = {
             let mut chains = self.chains.lock().unwrap_or_else(|e| e.into_inner());
             chains.entry(key.to_owned()).or_default().clone()
         };
-        cell.lock_owned().await
+        cell.acquire().await
     }
 
     fn release_chain(&self, key: &str) {
@@ -583,11 +586,10 @@ impl Store {
         if !outside.is_empty() {
             candidate.insert("outside".into(), Value::Array(outside));
         }
-        if let Some(prior) = &prior {
-            if change_content(prior) == change_content(&candidate) {
+        if let Some(prior) = &prior
+            && change_content(prior) == change_content(&candidate) {
                 return Ok(Some(prior.clone()));
             }
-        }
         let now = self.disk.now_ms();
         let mut record = candidate;
         let prior_revision = prior.as_ref().map_or(0.0, |p| {
@@ -789,7 +791,7 @@ fn bound_change_records(records: &mut Vec<Record>, keep_checkpoint_id: &str) {
             }
         }
     }
-    targets.sort_by(|a, b| b.2.cmp(&a.2));
+    targets.sort_by_key(|t| std::cmp::Reverse(t.2));
     for (list, i, w) in targets {
         if total <= MAX_CHANGE_BYTES_PER_SESSION {
             break;

@@ -19,6 +19,7 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use super::seams::Shown;
+use super::transcript::live_divider_model_switch;
 use super::transcript::live_model_switch;
 use crate::ports::route::model_switch_anchor_index;
 
@@ -54,7 +55,7 @@ pub async fn record_model_switch(directory: &SessionDirectory, thread: &ThreadId
             (ordinal, anchor.turn.map(|t| t.as_str().to_owned()), item)
         }
         // The anchor is a compaction's replacement entry (the summary): it has no history row,
-        // and its boundaries show on the compaction's divider.
+        // and its boundaries show after the compaction's divider.
         None => {
             let Some(compaction) = directory.compaction_entry(thread, &iid).await? else {
                 return Ok(false);
@@ -62,7 +63,11 @@ pub async fn record_model_switch(directory: &SessionDirectory, thread: &ThreadId
             if same(&messages[index]) {
                 return Ok(true);
             }
-            (compaction.ordinal, None, None)
+            let item = match live_divider_model_switch(&compaction.cid, &entry) {
+                Some(Shown::Item(item)) => Some(item),
+                _ => None,
+            };
+            (compaction.ordinal, None, item)
         }
     };
     let ctx = CallContext::internal("route");

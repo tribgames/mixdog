@@ -46,6 +46,19 @@ pub(crate) enum Ctl {
     Unsubscribed,
     /// Core shutdown: the actor stops and hands back its memory ingest.
     Shutdown(tokio::sync::oneshot::Sender<futures::future::BoxFuture<'static, ()>>),
+    /// `thread/delete`'s close (`closeSession(id, reason)`): the thread takes no more work, its
+    /// pending approvals are resolved, a running turn is aborted with `reason`; `closed`
+    /// answers once the turn ended. With `idle`, a running turn or queued input refuses
+    /// instead (`busy`, `queued`) and nothing changes. Then the delete mark is appended when
+    /// `mark` fires, `marked` answering at its ack, and the actor stops; a dropped `mark`
+    /// stops it unmarked.
+    Delete {
+        reason: String,
+        idle: bool,
+        closed: tokio::sync::oneshot::Sender<Result<(), &'static str>>,
+        mark: tokio::sync::oneshot::Receiver<()>,
+        marked: tokio::sync::oneshot::Sender<Result<(), super::run::RunError>>,
+    },
 }
 
 /// The active run as RT-C sees it.

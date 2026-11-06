@@ -1,7 +1,7 @@
 //! The review store's files on the I/O lanes ([`ReviewDisk`]): reads on the interactive lane,
 //! writes and removals on the durability lane, as every other store of the core.
 // Every std::fs call here is the body of a lane job.
-#![allow(clippy::disallowed_methods, reason = "blocking file I/O inside lane jobs")]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file I/O inside lane jobs")]
 
 use std::io::Read;
 use std::path::Path;
@@ -116,7 +116,7 @@ fn safe_current_file(root: &str, path: &str) -> Result<Option<PathBuf>, ()> {
         if meta.file_type().is_symlink() || !meta.is_file() {
             return Err(());
         }
-        let real = real_path(Path::new(&file)).map_err(|e| if missing(&e) { () } else { () })?;
+        let real = real_path(Path::new(&file)).map_err(|_| ())?;
         if change_path_key(&real.display().to_string()) != change_path_key(&file) {
             return Err(());
         }

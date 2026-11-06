@@ -108,6 +108,17 @@ pub(super) fn entry_path(dir: &Path, manifest: &Map<String, Value>) -> PathBuf {
     node_join(dir, &entry_file(manifest))
 }
 
+/// `readBotRoute(dataDir, id)`: `None` when `id` is no store bot, else its own complete route
+/// (`Some(None)` when it has none).
+pub(super) fn store_bot_route(folders: &Folders, lane: &Lane, id: &str) -> Option<Option<Value>> {
+    if !is_store_bot(lane, &folders.data, id) {
+        return None;
+    }
+    let route = manifest_of(&folders.data.join(BOTS_DIR).join(id)).get("route").cloned();
+    let complete = |route: &Value| ["provider", "model"].iter().all(|key| route.get(key).and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty()));
+    Some(route.filter(|route| route.is_object() && complete(route)))
+}
+
 /// `parseManifestText`: the `agent.json` object in `text`, `None` when it is not one.
 fn parse_manifest_text(text: &[u8]) -> Option<Map<String, Value>> {
     match mixdog_statefile::parse_json_text(text) {

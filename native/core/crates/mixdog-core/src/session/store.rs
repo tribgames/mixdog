@@ -18,6 +18,7 @@ use mixdog_rt::CpuInteractive;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
+use mixdog_rt::MaintenanceIo;
 use mixdog_core_api::ids::ItemId;
 use mixdog_store::blobs::BlobStore;
 use mixdog_store::context::ContextBlobs;
@@ -176,24 +177,29 @@ impl SessionLog for StoreLog {
 
 /// [`ThreadStore`] over `<data>/sessions/<id>`, the blob store and the index.
 pub struct StoreThreads {
+    data: PathBuf,
     sessions: PathBuf,
     blobs: BlobStore,
     index: SqliteStore,
     writer: WriterDeps,
     projector: Projector,
+    maintenance: MaintenanceIo,
     runtime: tokio::runtime::Handle,
 }
 
 impl StoreThreads {
-    /// `data` is the data dir; `writer.blobs`/`writer.index` are the same stores. Call on the
-    /// Tokio runtime the catalog writes and projections run on.
-    pub fn new(data: &Path, blobs: BlobStore, index: SqliteStore, writer: WriterDeps) -> Self {
+    /// `data` is the data dir; `writer.blobs`/`writer.index` are the same stores; `maintenance`
+    /// runs the purge after each delete. Call on the Tokio runtime the catalog writes and
+    /// projections run on.
+    pub fn new(data: &Path, blobs: BlobStore, index: SqliteStore, writer: WriterDeps, maintenance: MaintenanceIo) -> Self {
         Self {
+            data: data.to_path_buf(),
             sessions: data.join("sessions"),
             blobs,
             projector: Projector::spawn(index.clone()),
             index,
             writer,
+            maintenance,
             runtime: tokio::runtime::Handle::current(),
         }
     }
@@ -335,6 +341,50 @@ impl StoreThreads {
         super::transcript::fold_model_switches(&mut item, &row.model_switches);
         Ok(item)
     }
+
+    /// The compaction dividers among the window's rows `rows` (newest first, as paged), each
+    /// with the window index it precedes. A divider of `lineage[level]` goes before that
+    /// level's first shown row at or above its boundary, else after the level's rows; the
+    /// window runs deepest level first, so that index counts the rows of deeper levels and this
+    /// level's rows below the boundary. With older rows unread, the oldest shown row bounds its
+    /// level and deeper levels show none.
+    fn window_dividers(
+        &self,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        rows: &[HistoryRow],
+        has_older: bool,
+    ) -> Result<Vec<super::seams::WindowDivider>, CoreError> {
+        let level_of = |row: &HistoryRow| lineage.iter().position(|level| level.session == row.session);
+        let shown: Vec<(usize, u64)> = rows.iter().filter_map(|row| level_of(row).map(|level| (level, row.ordinal))).collect();
+        let (deepest, from) = match rows.last().and_then(|row| level_of(row).map(|level| (level, row.ordinal))) {
+            Some((level, ordinal)) if has_older => (level, ordinal),
+            _ => (lineage.len().saturating_sub(1), 0),
+        };
+        let mut out = Vec::new();
+        for level in (0..=deepest).rev() {
+            let from = if level == deepest { from } else { 0 };
+            let found = self
+                .wait(self.index.dividers(lineage.to_vec(), cut, level, from, u64::MAX))
+                .map_err(|e| internal("dividers", &e))?;
+            for divider in found {
+                let before = shown
+                    .iter()
+                    .filter(|(shown, ordinal)| *shown > level || (*shown == level && *ordinal < divider.boundary))
+                    .count();
+                out.push(super::seams::WindowDivider {
+                    before,
+                    ordinal: divider.pos.ordinal,
+                    cid: divider.cid,
+                    at: divider.at,
+                    model_switches: divider.model_switches,
+                });
+            }
+        }
+        // Stable: at one place, a deeper level's dividers first, each level's in boundary order.
+        out.sort_by_key(|divider| divider.before);
+        Ok(out)
+    }
 }
 
 /// Context rows read per page.
@@ -463,6 +513,7 @@ impl super::seams::CloseIngest for MemoryCloseIngest {
 /// J2's reads, handed to decode.
 struct Window {
     window: Vec<(u64, ItemRecord)>,
+    dividers: Vec<super::seams::WindowDivider>,
     has_older: bool,
     prompts: Vec<String>,
     runs: Vec<(u64, mixdog_store::schema::record::RunRecord)>,
@@ -509,6 +560,7 @@ impl ThreadStore for StoreThreads {
         for row in rows.iter().rev() {
             window.push((row.ordinal, self.history_item(lane, id, row)?));
         }
+        let dividers = self.window_dividers(&lineage, fold.base_cut, &rows, cursor.is_some())?;
         let prompts = self
             .index
             .prompts_on_lane(lane, &lineage, fold.base_cut)
@@ -547,6 +599,7 @@ impl ThreadStore for StoreThreads {
         }
         Ok(WindowRead(Box::new(Window {
             window,
+            dividers,
             has_older: cursor.is_some(),
             prompts,
             runs,
@@ -579,6 +632,7 @@ impl ThreadStore for StoreThreads {
             approvals: read.approvals,
             queue: read.queue,
             window: read.window,
+            dividers: read.dividers,
             has_older: read.has_older,
             prompts: read.prompts,
             log_id: fold.log_id.clone(),
@@ -692,6 +746,14 @@ impl ThreadStore for StoreThreads {
             };
             let title = index.title(&id).await.map_err(|e| internal("meta", &e))?;
             Ok(Some(super::seams::SessionMeta::of(title, &summary)))
+        })
+    }
+
+    fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
+        let (projector, index, lane, data) = (self.projector.clone(), self.index.clone(), self.maintenance, self.data.clone());
+        Box::pin(async move {
+            projector.flush().await;
+            index.purge_deleted(lane, data).await.map_err(|e| internal("purge", &e))
         })
     }
 

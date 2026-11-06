@@ -1,5 +1,6 @@
 //! Goldens of the turn review against Node's real functions (fixtures under
 //! `fixtures/turn-review/`), and the behaviour of the component around them.
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories and a real git")]
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -63,7 +64,7 @@ fn generate(spec: &Value) -> String {
     for i in 0..rows {
         let (head, fill) = if Some(i) == change { ("changed".to_owned(), 'y') } else { (i.to_string(), 'x') };
         out.push_str(&head);
-        out.extend(std::iter::repeat(fill).take(width.saturating_sub(head.len())));
+        out.extend(std::iter::repeat_n(fill, width.saturating_sub(head.len())));
         out.push('\n');
     }
     out

@@ -10,6 +10,7 @@ mod compact;
 mod delivery;
 mod direct;
 mod env;
+pub use env::session_scratch_dir;
 mod fold;
 mod guard;
 mod hoist;

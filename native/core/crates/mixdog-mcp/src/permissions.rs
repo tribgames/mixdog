@@ -162,7 +162,7 @@ impl Policy {
 
     /// The entries for `tool` under connector `group` or any of its accounts, topmost first:
     /// the connector's own, then the lowest-numbered account.
-    fn entries(&self, group: &str, tool: &str) -> Vec<Permission> {
+    pub fn entries(&self, group: &str, tool: &str) -> Vec<Permission> {
         let account_number = |id: &str| -> u64 {
             id.rsplit_once('-')
                 .filter(|(_, n)| n.bytes().all(|b| b.is_ascii_digit()))

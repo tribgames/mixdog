@@ -1277,43 +1277,54 @@ async fn a_deleted_base_keeps_its_files_until_its_last_fork_is_deleted() {
     assert!(purge().await.unwrap().is_empty());
 }
 
-/// A crash right after a purge unlinked the first log file, then a rebuild: the rebuilt
-/// index no longer holds the session, and the boot purge removes its folder, as it does a
-/// half-created one (empty, or holding only the first file's publish tmp). A complete
+/// Opening the store runs the boot purge before it returns the store. A crash right after a
+/// purge unlinked the first log file leaves a folder no rebuild indexes; a half-finished
+/// create leaves an empty folder or one holding only the first file's publish tmp; a crash
+/// before a delete's purge leaves a complete deleted session. The open removes all of them,
+/// with a rebuild and without one (the index still holding their rows); a complete live
 /// session stays.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_boot_purge_removes_folders_a_crash_left_without_their_first_log() {
+async fn opening_the_store_removes_what_a_crash_left_before_any_thread_opens() {
     let env = Env::new();
-    let deleted = rec(json!({"k":"meta","change":{"inline":{"set":{"deleted":true},"unset":[]}}}));
-    let gone = env.create("d0", None).await;
-    let (gone, _) = env.commit(gone, vec![item("d1"), deleted]).await;
-    drop(gone);
+    let deleted = || rec(json!({"k":"meta","change":{"inline":{"set":{"deleted":true},"unset":[]}}}));
+    for id in ["d0", "x0"] {
+        let w = env.create(id, None).await;
+        let (w, _) = env.commit(w, vec![item("i1"), deleted()]).await;
+        drop(w);
+    }
     let kept = env.create("k0", None).await;
     drop(kept);
-    // The purge's first step, then the crash.
+    // The purge's first step on d0, then the crash.
     std::fs::remove_file(env.dir("d0").join(log_name(0))).unwrap();
     std::fs::create_dir_all(env.dir("e0")).unwrap();
     std::fs::create_dir_all(env.dir("t0")).unwrap();
     std::fs::write(crate::fsio::tmp_path(&env.dir("t0").join(log_name(0))), b"half").unwrap();
+    let folders = |data: &Path| -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(data.join("sessions"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    };
 
     let other = tempfile::tempdir().unwrap();
     copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
     let rebuilt = open_index(other.path()).unwrap();
-    assert_eq!(rebuilt.deleted("d0").await.unwrap(), None, "the rebuild skips the folder");
-    let removed = rebuilt.purge_at_boot(tokens().maintenance_io, other.path().to_path_buf()).await.unwrap();
-    assert_eq!(removed, ["d0", "e0", "t0"]);
-    let left: Vec<String> = std::fs::read_dir(other.path().join("sessions"))
-        .unwrap()
-        .map(|e| e.unwrap().file_name().into_string().unwrap())
-        .collect();
-    assert_eq!(left, ["k0"]);
+    assert_eq!(folders(other.path()), ["k0"], "gone when the open returns");
+    for id in ["d0", "x0", "e0", "t0"] {
+        assert_eq!(rebuilt.deleted(id).await.unwrap(), None, "{id}");
+    }
     assert!(rebuilt.summary("k0").await.unwrap().is_some());
-    assert!(rebuilt.purge_at_boot(tokens().maintenance_io, other.path().to_path_buf()).await.unwrap().is_empty());
 
-    // Without a rebuild the index still holds the deleted row: the boot purge drops it too.
-    let removed = env.store.purge_at_boot(tokens().maintenance_io, env.data.clone()).await.unwrap();
-    assert_eq!(removed, ["d0", "e0", "t0"]);
-    assert_eq!(env.store.deleted("d0").await.unwrap(), None);
+    // Without a rebuild the index still holds d0's and x0's rows: the open drops them too.
+    assert_eq!(env.store.deleted("d0").await.unwrap(), Some(true));
+    let reopened = open_index(&env.data).unwrap();
+    assert_eq!(folders(&env.data), ["k0"]);
+    for id in ["d0", "x0"] {
+        assert_eq!(reopened.deleted(id).await.unwrap(), None, "{id}");
+    }
+    assert!(reopened.summary("k0").await.unwrap().is_some());
 }
 
 fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {

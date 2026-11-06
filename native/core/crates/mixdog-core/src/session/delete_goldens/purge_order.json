@@ -1,0 +1,14 @@
+[
+  "src/runtime/agent/orchestrator/session/tool-result-offload.mjs:506",
+  "src/runtime/agent/orchestrator/session/manager/usage-metrics.mjs:21",
+  "src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs:65",
+  "src/session-runtime/session-transcript-purge.mjs:20",
+  "src/runtime/agent/orchestrator/session/cache-warm.mjs:424",
+  "src/runtime/agent/orchestrator/session/cache/read-cache.mjs:317",
+  "src/runtime/agent/orchestrator/session/compaction-archive-capture.mjs:738",
+  "src/runtime/agent/orchestrator/session/manager/session-close.mjs:282",
+  "src/session-runtime/boot/providers.mjs:54",
+  "src/session-runtime/runtime-review-api.mjs:26",
+  "src/session-runtime/services/agent-tool/worker-turns.mjs:208",
+  "src/session-runtime/services/agent-tool.mjs:347"
+]

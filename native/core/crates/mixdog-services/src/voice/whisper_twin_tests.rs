@@ -83,13 +83,13 @@ impl EventSource<ProcessEvent> for Events {
 }
 
 #[derive(Default)]
-struct Scripted {
+pub(super) struct Scripted {
     /// `{kind, file, args, cwd?}` per child the code started, in order.
     calls: Mutex<Vec<Value>>,
     requests_shared: Arc<Mutex<Vec<Value>>>,
     next_pid: AtomicU32,
     pending: Mutex<HashMap<String, mpsc::UnboundedReceiver<ProcessEvent>>>,
-    servers: Mutex<HashMap<String, (mpsc::UnboundedSender<ProcessEvent>, tokio::task::JoinHandle<()>)>>,
+    pub(super) servers: Mutex<HashMap<String, (mpsc::UnboundedSender<ProcessEvent>, tokio::task::JoinHandle<()>)>>,
     /// What the listener query answers: `None` fails it, `Some(pid)` names the listening pid.
     listener_pid: Mutex<Option<u32>>,
     listener_os: Mutex<Option<Os>>,
@@ -97,7 +97,7 @@ struct Scripted {
 }
 
 impl Scripted {
-    fn new() -> Arc<Self> {
+    pub(super) fn new() -> Arc<Self> {
         Arc::new(Self { next_pid: AtomicU32::new(5000), listener_pid: Mutex::new(Some(WHISPER_PID)), ..Default::default() })
     }
 }

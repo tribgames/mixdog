@@ -6,7 +6,7 @@
     "ports": 3,
     "search": 10
   },
-  "fileCount": 27,
+  "fileCount": 29,
   "files": [
     {
       "bytes": 43749,
@@ -64,9 +64,9 @@
       "sha256": "fd7aab315c746866a19c759b87c246d439becc176e710c908b29ae966d875889"
     },
     {
-      "bytes": 1884307,
+      "bytes": 1776434,
       "path": "settings/agent-definition-actions-twin.json",
-      "sha256": "164cad0af4ac88f62e1a22b62556d418df902ddf3004f2b8f18cdcade656322e"
+      "sha256": "4eb0a3a358eb2e32692dfbe5952cf0668688e967fefc7880d14e7e46c0b0b03e"
     },
     {
       "bytes": 1256571,
@@ -94,9 +94,19 @@
       "sha256": "93edcf30e737bd0ebb25b2967dbdd2d3713d323434c2b077abdcc0ad079a9aa3"
     },
     {
+      "bytes": 586089,
+      "path": "settings/connector-policy-twin.json",
+      "sha256": "4ce09b63a3c00287ad0e8885f0f0bb9fdbfd2087b35ba6435afd424f5ae205ef"
+    },
+    {
       "bytes": 7394,
       "path": "settings/corpus.json",
       "sha256": "c790168ec0cac00c3c93a8c25c7acad0860e9e5a62a2ae362165bfb7c92ff67a"
+    },
+    {
+      "bytes": 151545,
+      "path": "settings/definition-kinds-twin.json",
+      "sha256": "ef509e02fa3865894ae3172fa432721d6b20964f17d2e1d8068b85ffee92b56a"
     },
     {
       "bytes": 49430,
@@ -162,5 +172,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 11865592
+  "totalBytes": 12495353
 }

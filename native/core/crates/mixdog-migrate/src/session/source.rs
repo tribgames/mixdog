@@ -32,6 +32,8 @@ use serde_json::value::RawValue;
 use sha1::Digest as _;
 use sha1::Sha1;
 
+use mixdog_core::prompt::migrate::migrate_system_messages;
+
 use super::ids::message_iids;
 use super::model::Row;
 use super::model::RunModel;
@@ -1251,8 +1253,18 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
         None => (Vec::new(), Vec::new()),
     };
     let all: Vec<Value> = messages.iter().chain(turn_messages.iter()).cloned().collect();
+    // The ids are stamped over 1.4.5's array, system messages included, so every row keeps its 1.4.5 id.
     let mut iids = message_iids(id, &all);
     let turn_iids = iids.split_off(messages.len());
+    // The system prefix becomes the header's prompt blocks; the rows start after it.
+    let system = migrate_system_messages(&all, &header)
+        .map_err(|e| Fail::Quarantine(QuarantineCode::SchemaViolation, format!("system messages: {e}")))?;
+    if system.rows_from > messages.len() {
+        return q(QuarantineCode::SchemaViolation, "system messages: the recovered turn opens with one");
+    }
+    system.apply(&mut header);
+    messages.drain(..system.rows_from);
+    iids.drain(..system.rows_from);
     let rid = runs.first().filter(|_| !turn_messages.is_empty()).map(|r| r.rid.clone());
 
     let shared = cx.shared_for(&format!("session/{id}"));

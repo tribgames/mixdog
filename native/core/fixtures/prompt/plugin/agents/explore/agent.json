@@ -1,0 +1,6 @@
+{
+  "id": "explore",
+  "name": "Explore",
+  "description": "Use when Mixdog runs the explore tool. The tool stays off until a model is picked.",
+  "entry": "AGENT.md"
+}

@@ -423,22 +423,20 @@ struct Applied {
 }
 
 fn touch(state: &mut State, at: f64, side: &Side, touched: &mut bool) {
-    if let Some(existing) = state.files.get(&side.key) {
-        if at > existing.latest() {
+    if let Some(existing) = state.files.get(&side.key)
+        && at > existing.latest() {
             let mut next = existing.clone();
             next.touched = Some(at);
             state.files.insert(side.key.clone(), next);
             *touched = true;
         }
-    }
-    if let Some(lost) = state.missing.get(&side.key) {
-        if at > lost.at.unwrap_or(0.0) {
+    if let Some(lost) = state.missing.get(&side.key)
+        && at > lost.at.unwrap_or(0.0) {
             let mut next = lost.clone();
             next.at = Some(at);
             state.missing.insert(side.key.clone(), next);
             *touched = true;
         }
-    }
 }
 
 /// Fold one capture batch into the state. `None` when nothing changed, else the blobs to write
@@ -460,12 +458,11 @@ fn apply_capture(state: &mut State, op: &Op, blobs: Option<&IndexMap<String, Vec
     // `add`: first seen wins; returns the entry it stored.
     let add = |state: &mut State, side: &Side, make: &mut dyn FnMut(&mut State) -> Made, writes: &mut IndexMap<String, Vec<u8>>, dirty: &mut bool, touched: &mut bool| -> Option<Entry> {
         let existing = state.files.get(&side.key).cloned();
-        if let Some(existing) = &existing {
-            if !(at < existing.at) {
+        if let Some(existing) = &existing
+            && at.partial_cmp(&existing.at) != Some(std::cmp::Ordering::Less) {
                 touch(state, at, side, touched);
                 return None;
             }
-        }
         if existing.is_none() && state.files.len() >= MAX_FILES_PER_SESSION {
             *dirty |= !state.inc.flag || at > state.inc.at;
             state.inc.mark(at);
@@ -948,12 +945,11 @@ impl Core {
         let id = session_id.to_owned();
         let (p2, id2) = (path.clone(), id.clone());
         let signature = run_read(&self.disk, move |fs| index_signature(fs, &p2)).await.unwrap_or_default();
-        if let Some(cached) = &cached {
-            if cached.signature == signature {
+        if let Some(cached) = &cached
+            && cached.signature == signature {
                 self.remember(cached.clone());
                 return cached.clone();
             }
-        }
         let fresh = run_read(&self.disk, move |fs| read_state(fs, &path, &id2)).await.unwrap_or_else(|_| {
             let mut s = State::empty(&id);
             s.inc.flag = true;

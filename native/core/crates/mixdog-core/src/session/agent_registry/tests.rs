@@ -403,6 +403,65 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     assert_eq!(runs.load(Ordering::SeqCst), 2);
 }
 
+/// The job board's cancel (`close_session(id, "agent-task-cancel", {tombstone: false,
+/// owner_close: false})`) ends the worker's turn with Node's `closeSession` abort text, and the
+/// session stays open without an owner-close stamp.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::ports::threads::SessionThreads;
+    use crate::session::SessionDirectory;
+    use crate::session::seams::RunOutcome;
+    use crate::session::tests::eventually;
+    use crate::session::tests::idle;
+    use crate::session::tests::start_thread;
+    use crate::session::tests::turn;
+
+    let srig = crate::session::testing::Rig::new();
+    let aborted: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
+    let seen = aborted.clone();
+    srig.set_script(Arc::new(move |run| {
+        let seen = seen.clone();
+        Box::pin(async move {
+            run.cancel.cancelled().await;
+            *seen.lock().unwrap() = Some(run.signal.reason());
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    turn(&handle, "work", "op-1").await;
+    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+
+    let threads = Arc::new(SessionThreads::new(directory.clone()));
+    let sessions = AgentSessions::new(directory.clone(), threads, registry, Arc::new(Statusline::default()), rig.clock.clone());
+    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: false };
+    assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
+    eventually(|| idle(&handle).then_some(())).await;
+    assert_eq!(
+        aborted.lock().unwrap().as_deref(),
+        Some(format!("Session \"{id}\" closed: closeSession (reason=agent-task-cancel)").as_str())
+    );
+    let header = handle.cell.header.load_full();
+    assert_eq!(header["detachedReason"], json!("agent-task-cancel"));
+    assert!(header.get("ownerClosedAt").is_none(), "not an owner close");
+
+    // `abortSessionTurn(id, reason)` for a session no outer turn holds.
+    turn(&handle, "again", "op-2").await;
+    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    assert!(directory.abort_session_turn(&handle.id, "login-required"));
+    eventually(|| idle(&handle).then_some(())).await;
+    assert_eq!(
+        aborted.lock().unwrap().as_deref(),
+        Some(format!("Session \"{id}\" closed: abortSessionTurn (reason=login-required)").as_str())
+    );
+    assert!(!directory.abort_session_turn(&mixdog_core_api::ids::ThreadId::from("sess_none"), "x"));
+}
+
 /// A settled row past its retention and its continuation window becomes a tombstone when the
 /// registry refreshes (`transitionStaleNonterminalRows`); the tombstone keeps the row's keys
 /// for the index, and a reuse of the tag consumes it.

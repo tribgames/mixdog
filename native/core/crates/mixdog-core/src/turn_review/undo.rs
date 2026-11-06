@@ -84,11 +84,10 @@ impl Inner {
     /// counts: an orphan tool tracker is no turn.
     fn session_turn_busy(&self, owner: &str) -> bool {
         let reg = self.reg();
-        if let Some(tracker) = reg.trackers.get(owner) {
-            if tracker.meta.owner_generation > 0 && (!tracker.sealed() || tracker.freezing().is_some()) {
+        if let Some(tracker) = reg.trackers.get(owner)
+            && tracker.meta.owner_generation > 0 && (!tracker.sealed() || tracker.freezing().is_some()) {
                 return true;
             }
-        }
         let prefix = format!("{owner}\0");
         reg.pending_freezes.keys().any(|key| key.starts_with(&prefix))
     }
@@ -310,7 +309,7 @@ impl Inner {
         if let Some(t) = &tracker {
             assert_checkpoint_matches(expected, &t.meta.checkpoint_id)?;
         }
-        if tracker.as_ref().map_or(true, |t| t.sealed()) {
+        if tracker.as_ref().is_none_or(|t| t.sealed()) {
             let own = tracker.as_ref().map(|t| clean(&t.meta.checkpoint_id).to_owned()).filter(|c| !c.is_empty());
             let checkpoint_id = match own {
                 Some(id) => id,

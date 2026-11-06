@@ -16,6 +16,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+
+/// One tool-written file for the baseline index: path, bytes, mode, and whether it is a link.
+type ToolEntry = (String, Option<Vec<u8>>, Option<String>, bool);
+
+use super::chain::Chain;
+use super::chain::ChainGuard;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -168,7 +174,7 @@ pub(super) struct Root {
     canonical_key: String,
     git_dir: PathBuf,
     /// `withStateLock`: one capture at a time.
-    lock: tokio::sync::Mutex<()>,
+    lock: Arc<Chain>,
     state: Mutex<RootState>,
     gc: Mutex<Option<Gc>>,
     repos: Arc<ReposShared>,
@@ -212,10 +218,6 @@ impl ShadowRepos {
         }
     }
 
-    pub(super) fn git(&self) -> &Arc<dyn ReviewGit> {
-        &self.shared.git
-    }
-
     /// `repositoryRoot(worktree)`.
     pub(super) async fn repository_root(&self, worktree: &str) -> Option<String> {
         let cwd = nodepath::resolve_host(&[if clean(worktree).is_empty() { "." } else { clean(worktree) }]);
@@ -233,17 +235,16 @@ impl ShadowRepos {
         let name: String = digest.iter().flat_map(|b| [b >> 4, b & 15]).take(24).map(|n| char::from_digit(n as u32, 16).expect("hex")).collect();
         let git_dir = self.shared.store.join(name);
         let mut states = self.shared.states.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(state) = states.get(&key) {
-            if state.git_dir == git_dir {
+        if let Some(state) = states.get(&key)
+            && state.git_dir == git_dir {
                 return state.clone();
             }
-        }
         let state = Arc::new(Root {
             root: root.to_owned(),
             // Matched beside `root`'s own spelling: a watcher on a canonical root reports this one.
             canonical_key: shadow_key(&canonical_path(root)),
             git_dir,
-            lock: tokio::sync::Mutex::new(()),
+            lock: Arc::new(Chain::default()),
             state: Mutex::new(RootState::default()),
             gc: Mutex::new(None),
             repos: self.shared.clone(),
@@ -311,7 +312,7 @@ impl ShadowRepos {
         }
         let keys: HashSet<String> = [shadow_key(&nodepath::resolve_host(&[text])), shadow_key(&canonical_path(text))].into_iter().collect();
         let mut git_dirs: Vec<PathBuf> = Vec::new();
-        let mut add_dir = |dir: PathBuf, dirs: &mut Vec<PathBuf>| {
+        let add_dir = |dir: PathBuf, dirs: &mut Vec<PathBuf>| {
             if !dirs.contains(&dir) {
                 dirs.push(dir);
             }
@@ -327,7 +328,7 @@ impl ShadowRepos {
                 continue;
             }
             add_dir(state.git_dir.clone(), &mut git_dirs);
-            let _guard = state.lock.lock().await;
+            let _guard = state.lock.acquire().await;
             state.state.lock().unwrap_or_else(|e| e.into_inner()).forgotten = true;
             {
                 let mut states = self.shared.states.lock().unwrap_or_else(|e| e.into_inner());
@@ -381,8 +382,8 @@ impl Root {
         self.st().capture_seq
     }
 
-    pub(super) async fn lock(&self) -> tokio::sync::MutexGuard<'_, ()> {
-        self.lock.lock().await
+    pub(super) async fn lock(&self) -> ChainGuard {
+        self.lock.acquire().await
     }
 
     pub(super) async fn disk_exists(&self, path: &str) -> bool {
@@ -491,11 +492,10 @@ impl Root {
                 for key in ["core.autocrlf", "core.eol"] {
                     if lower.starts_with(key) {
                         let rest = &line[key.len()..];
-                        if rest.starts_with(char::is_whitespace) {
-                            if let Some(value) = rest.split_whitespace().next() {
+                        if rest.starts_with(char::is_whitespace)
+                            && let Some(value) = rest.split_whitespace().next() {
                                 values.insert(key.to_owned(), value.to_owned());
                             }
-                        }
                     }
                 }
             }
@@ -630,8 +630,8 @@ impl Root {
             }
         };
         let target = self.git_dir.join("index");
-        if let Some(source) = source.filter(|s| !s.is_empty()) {
-            if self.exists(Path::new(&source)).await {
+        if let Some(source) = source.filter(|s| !s.is_empty())
+            && self.exists(Path::new(&source)).await {
                 let now = self.disk().now_ms();
                 let temporary = PathBuf::from(format!("{}.{}.{}.tmp", target.display(), std::process::id(), now as u64));
                 self.disk().copy_file(Path::new(&source), &temporary).await.map_err(|e| e.to_string())?;
@@ -639,7 +639,6 @@ impl Root {
                 self.disk().rename(&temporary, &target).await.map_err(|e| e.to_string())?;
                 return Ok(());
             }
-        }
         let _ = self.disk().remove(&target).await;
         self.shadow(&["read-tree", "--empty"], Vec::new()).await?;
         Ok(())
@@ -697,11 +696,10 @@ impl Root {
         self.ensure_state().await?;
         if let Some(after) = after {
             let state = self.st();
-            if let Some(last) = &state.last_capture {
-                if last.seq > after && last.stamp == state.change_stamp && tool_paths.iter().all(|rel| last.explicit.contains(rel)) {
+            if let Some(last) = &state.last_capture
+                && last.seq > after && last.stamp == state.change_stamp && tool_paths.iter().all(|rel| last.explicit.contains(rel)) {
                     return Ok(last.tree.clone());
                 }
-            }
         }
         let seq = {
             let mut state = self.st();
@@ -758,7 +756,7 @@ impl Root {
         for entry in all.iter().filter(|e| e.omitted) {
             files.push(serde_json::json!({"path": safe_relative_path(&self.root, &entry.path)?, "oid": null, "omitted": true, "size": entry.size}));
         }
-        let mut entries: Vec<(String, Option<Vec<u8>>, Option<String>, bool)> = Vec::new();
+        let mut entries: Vec<ToolEntry> = Vec::new();
         for entry in all.iter().filter(|e| !e.omitted) {
             let path = safe_relative_path(&self.root, &entry.path)?;
             let noop = entry.content.is_none() && entry.oid.is_none() && absent.is_some_and(|a| a.contains(&shadow_key(&path)));
@@ -786,7 +784,7 @@ impl Root {
         }
     }
 
-    async fn apply_in_index(&self, tree: &str, entries: &[(String, Option<Vec<u8>>, Option<String>, bool)], files: &mut Vec<Value>, index: Option<&Path>) -> R<String> {
+    async fn apply_in_index(&self, tree: &str, entries: &[ToolEntry], files: &mut Vec<Value>, index: Option<&Path>) -> R<String> {
         let options = GitOptions { index_file: index.map(Path::to_path_buf), max_bytes: None };
         let run = |args: Vec<&str>, input: Vec<u8>| {
             let args = self.shadow_args(&args, None);
@@ -815,7 +813,7 @@ impl Root {
     }
 
     /// `applyInShadowIndex`: the shadow index saved as a tree, used, restored.
-    async fn apply_in_shadow_index(&self, tree: &str, entries: &[(String, Option<Vec<u8>>, Option<String>, bool)], files: &mut Vec<Value>) -> R<String> {
+    async fn apply_in_shadow_index(&self, tree: &str, entries: &[ToolEntry], files: &mut Vec<Value>) -> R<String> {
         let saved = clean(&String::from_utf8_lossy(&self.shadow(&["write-tree"], Vec::new()).await?.stdout)).to_owned();
         let outcome = self.apply_in_index(tree, entries, files, None).await;
         self.shadow(&["read-tree", &saved], Vec::new()).await?;

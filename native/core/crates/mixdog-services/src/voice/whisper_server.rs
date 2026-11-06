@@ -60,12 +60,39 @@ impl Running {
 enum Command {
     Start(ServerContract, oneshot::Sender<Result<(), VoiceError>>),
     /// The host and port of the ready child, for a request.
-    Handle(oneshot::Sender<Result<(String, u16), VoiceError>>),
+    /// The actor registers the request as in flight before it answers, so a release queued right
+    /// behind cannot take the child from the caller that is about to use it.
+    Handle(oneshot::Sender<Result<Handle, VoiceError>>),
+    /// A request that was given a handle is over, however it ended.
+    Done,
     Stop(oneshot::Sender<()>),
     /// A failed request: the contract is no longer satisfiable on this child.
     Teardown(oneshot::Sender<()>),
     /// The idle timer armed at this generation fired.
     IdleRelease(u64),
+}
+
+/// Ends the request it was made for when dropped, even if the caller is abandoned (Node's
+/// `finally` after `inflight.delete`).
+struct InFlight(mpsc::Sender<Command>);
+
+/// A ready child for one request. The actor makes the guard, so a reply nobody receives (the
+/// caller was dropped while it waited) releases the request's usage when the reply is dropped.
+struct Handle {
+    host: String,
+    port: u16,
+    _in_flight: InFlight,
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        if let Err(mpsc::error::TrySendError::Full(done)) = self.0.try_send(Command::Done) {
+            let commands = self.0.clone();
+            tokio::spawn(async move {
+                let _ = commands.send(done).await;
+            });
+        }
+    }
 }
 
 /// Use counters the actor reads when an idle timer fires.
@@ -89,7 +116,7 @@ impl Shared {
         self.commands.get_or_init(|| {
             let (tx, rx) = mpsc::channel(16);
             let core = self.core.lock().unwrap().take().expect("the actor core is taken once");
-            tokio::spawn(run_actor(core, self.usage.clone(), rx));
+            tokio::spawn(run_actor(core, self.usage.clone(), tx.downgrade(), rx));
             tx
         })
     }
@@ -105,14 +132,36 @@ impl Shared {
 /// What the actor needs to start a child.
 struct Core {
     preferred_port: u16,
+    /// `None` never releases an idle child.
+    idle_timeout: Option<Duration>,
     launcher: Arc<SystemLauncher>,
     processes: Processes,
+}
+
+impl Core {
+    /// Node's `armIdleTimer`: any earlier timer is void (the generation moves on), and a new one
+    /// runs only for a resting child with nothing in flight. The timer holds the actor's weak
+    /// sender, so it never keeps the actor alive.
+    fn arm_idle_release(&self, usage: &Usage, commands: &mpsc::WeakSender<Command>, resting: bool) {
+        let Some(after) = self.idle_timeout else { return };
+        let armed = usage.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        if !resting || usage.inflight.load(Ordering::SeqCst) > 0 {
+            return;
+        }
+        let commands = commands.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(after).await;
+            if let Some(commands) = commands.upgrade() {
+                let _ = commands.send(Command::IdleRelease(armed)).await;
+            }
+        });
+    }
 }
 
 /// The one task that owns the `Running` record. Commands run one at a time in the order they
 /// arrived, so a start in flight holds back a stop or a release exactly as a lock would, without
 /// any lock held across an await.
-async fn run_actor(core: Core, usage: Arc<Usage>, mut commands: mpsc::Receiver<Command>) {
+async fn run_actor(core: Core, usage: Arc<Usage>, weak: mpsc::WeakSender<Command>, mut commands: mpsc::Receiver<Command>) {
     let mut running: Option<Running> = None;
     while let Some(command) = commands.recv().await {
         match command {
@@ -124,12 +173,27 @@ async fn run_actor(core: Core, usage: Arc<Usage>, mut commands: mpsc::Receiver<C
                     teardown(&mut running).await;
                     core.start(&contract).await.map(|started| running = Some(started))
                 };
+                // Armed here, not by the caller: a start nobody waits for any more still must not
+                // pin the model (Node's startup `finally`).
+                if result.is_ok() {
+                    core.arm_idle_release(&usage, &weak, running.is_some());
+                }
                 let _ = reply.send(result);
             }
             Command::Handle(reply) => {
-                let _ = reply.send(
-                    running.as_ref().map(|r| (r.contract.host.clone(), r.port)).ok_or_else(|| VoiceError("transcribe: whisper-server not READY (state=STOPPED)".into())),
-                );
+                let handle = match (running.as_ref(), weak.upgrade()) {
+                    (Some(r), Some(commands)) => {
+                        usage.generation.fetch_add(1, Ordering::SeqCst);
+                        usage.inflight.fetch_add(1, Ordering::SeqCst);
+                        Ok(Handle { host: r.contract.host.clone(), port: r.port, _in_flight: InFlight(commands) })
+                    }
+                    _ => Err(VoiceError("transcribe: whisper-server not READY (state=STOPPED)".into())),
+                };
+                let _ = reply.send(handle);
+            }
+            Command::Done => {
+                usage.inflight.fetch_sub(1, Ordering::SeqCst);
+                core.arm_idle_release(&usage, &weak, running.is_some());
             }
             Command::Stop(reply) | Command::Teardown(reply) => {
                 teardown(&mut running).await;
@@ -148,7 +212,6 @@ async fn run_actor(core: Core, usage: Arc<Usage>, mut commands: mpsc::Receiver<C
 #[derive(Clone)]
 pub struct WhisperServer {
     shared: Arc<Shared>,
-    idle_timeout: Option<Duration>,
     http: reqwest::Client,
     processes: Processes,
 }
@@ -168,10 +231,9 @@ impl WhisperServer {
 
     /// `idle_timeout: None` never releases an idle child.
     pub fn new(preferred_port: u16, idle_timeout: Option<Duration>, processes: &Processes) -> Self {
-        let core = Core { preferred_port, launcher: Arc::new(SystemLauncher::new(processes)), processes: processes.clone() };
+        let core = Core { preferred_port, idle_timeout, launcher: Arc::new(SystemLauncher::new(processes)), processes: processes.clone() };
         Self {
             shared: Arc::new(Shared { usage: Arc::default(), commands: OnceLock::new(), core: StdMutex::new(Some(core)) }),
-            idle_timeout,
             http: reqwest::Client::new(),
             processes: processes.clone(),
         }
@@ -179,17 +241,6 @@ impl WhisperServer {
 
     pub async fn stop(&self) {
         self.shared.ask(Command::Stop).await;
-    }
-
-    fn arm_idle_release(&self) {
-        let Some(after) = self.idle_timeout else { return };
-        let armed = self.shared.usage.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        let shared = Arc::downgrade(&self.shared);
-        tokio::spawn(async move {
-            tokio::time::sleep(after).await;
-            let Some(shared) = shared.upgrade() else { return };
-            let _ = shared.sender().send(Command::IdleRelease(armed)).await;
-        });
     }
 }
 
@@ -284,24 +335,20 @@ impl Core {
 impl WhisperEngine for WhisperServer {
     async fn ensure_ready(&self, contract: &ServerContract) -> Result<(), VoiceError> {
         self.shared.usage.generation.fetch_add(1, Ordering::SeqCst);
-        self.shared.ask(|reply| Command::Start(contract.clone(), reply)).await?;
-        self.arm_idle_release();
-        Ok(())
+        self.shared.ask(|reply| Command::Start(contract.clone(), reply)).await
     }
 
     async fn transcribe(&self, wav: &Path, language: Option<&str>) -> Result<String, VoiceError> {
-        // Queued behind a start in flight, as a lock on the record was.
-        let (host, port) = self.shared.ask(Command::Handle).await?;
-        self.shared.usage.generation.fetch_add(1, Ordering::SeqCst);
-        self.shared.usage.inflight.fetch_add(1, Ordering::SeqCst);
-        let result = self.post_inference(&host, port, wav, language).await;
-        self.shared.usage.inflight.fetch_sub(1, Ordering::SeqCst);
+        // Queued behind a start in flight, as a lock on the record was; the actor has counted the
+        // request as in flight when this answers.
+        let handle = self.shared.ask(Command::Handle).await?;
+        let result = self.post_inference(&handle.host, handle.port, wav, language).await;
+        drop(handle);
         if result.is_err() {
             // The contract is no longer satisfiable on this child; the next ensure_ready
             // recreates it.
             self.shared.ask(Command::Teardown).await;
         }
-        self.arm_idle_release();
         result
     }
 }
@@ -482,13 +529,90 @@ mod tests {
                 // The binary does not exist, so every start fails, never hangs.
                 assert!(starts.iter().all(|r| r.as_ref().unwrap_err().0.contains("failed to start")));
                 assert_eq!((stops.len(), teardowns.len()), (3, 3));
-                assert!(handles.iter().all(|r| r.as_ref().unwrap_err().0.contains("not READY")));
+                assert!(handles.iter().all(|r| r.as_ref().err().is_some_and(|e| e.0.contains("not READY"))));
                 server.shared.sender().send(Command::IdleRelease(0)).await.unwrap();
             }
             server.stop().await;
         })
         .await;
         assert!(outcome.is_ok(), "the actor stopped answering");
+    }
+
+    use crate::voice::whisper_twin_tests::Scripted;
+
+    /// A server whose children are the twin tests' scripted whisper-server (it binds the port,
+    /// answers the listener query) and the contract that starts it.
+    fn scripted_server(idle: Option<Duration>) -> (tempfile::TempDir, Arc<Scripted>, WhisperServer, ServerContract) {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = Scripted::new();
+        let processes = Processes::new(manager.clone(), mixdog_rt::testing::tokens().durability_io);
+        let server = WhisperServer::new(0, idle, &processes);
+        let ext = if cfg!(windows) { ".exe" } else { "" };
+        let contract = ServerContract { server_cmd: dir.path().join(format!("whisper-server{ext}")), model_path: dir.path().join("m.bin"), thread_count: 1, host: "127.0.0.1".into() };
+        (dir, manager, server, contract)
+    }
+
+    /// A release queued right behind a handle request, armed before it, must not take the child
+    /// from the request's caller.
+    #[tokio::test]
+    async fn a_release_queued_behind_a_handle_leaves_the_child_to_its_caller() {
+        let (_dir, manager, server, contract) = scripted_server(Some(Duration::from_secs(3600)));
+        server.ensure_ready(&contract).await.unwrap();
+        let armed = server.shared.usage.generation.load(Ordering::SeqCst);
+        let (reply, answer) = oneshot::channel();
+        let commands = server.shared.sender();
+        commands.send(Command::Handle(reply)).await.unwrap();
+        commands.send(Command::IdleRelease(armed)).await.unwrap();
+        answer.await.unwrap().unwrap();
+        assert!(server.shared.ask(Command::Handle).await.is_ok(), "the child was released under its caller");
+        assert_eq!(manager.servers.lock().unwrap().len(), 1);
+        server.stop().await;
+    }
+
+    /// `transcribe` dropped while it waits for the handle reply: the actor has already counted the
+    /// request, and the unreceived reply must give the count back so the idle release still runs.
+    #[tokio::test]
+    async fn a_transcribe_cancelled_before_its_handle_reply_does_not_pin_the_child() {
+        let (dir, manager, server, contract) = scripted_server(Some(Duration::from_millis(200)));
+        server.ensure_ready(&contract).await.unwrap();
+        assert_eq!(manager.servers.lock().unwrap().len(), 1);
+        let wav = dir.path().join("a.wav");
+        // One poll queues `Handle` behind the idle command in the mailbox; the future is then
+        // dropped, so the reply has no receiver.
+        let commands = server.shared.sender();
+        let (reply, answer) = oneshot::channel();
+        commands.send(Command::Handle(reply)).await.unwrap();
+        drop(answer);
+        let mut abandoned = Box::pin(server.transcribe(&wav, None));
+        let _ = futures::poll!(abandoned.as_mut());
+        drop(abandoned);
+        let started = tokio::time::Instant::now();
+        while started.elapsed() < Duration::from_secs(30) {
+            if manager.servers.lock().unwrap().is_empty() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("the cancelled request kept the child pinned");
+    }
+
+    /// The idle timer belongs to the actor: a start whose caller gave up still ends in a release.
+    #[tokio::test]
+    async fn an_abandoned_start_still_arms_the_idle_release() {
+        let (_dir, manager, server, contract) = scripted_server(Some(Duration::from_millis(200)));
+        // Polled once, so the command is queued, then dropped.
+        assert!(tokio::time::timeout(Duration::ZERO, server.ensure_ready(&contract)).await.is_err());
+        let started = tokio::time::Instant::now();
+        let mut seen = false;
+        while started.elapsed() < Duration::from_secs(30) {
+            let live = manager.servers.lock().unwrap().len();
+            seen |= live == 1;
+            if seen && live == 0 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("the abandoned start's child (seen: {seen}) was never released");
     }
 
     #[test]

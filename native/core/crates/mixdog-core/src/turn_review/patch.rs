@@ -12,7 +12,6 @@ use serde_json::Value;
 use sha1::Digest;
 
 use super::content::decode_text;
-use super::content::is_binary_change_content;
 use super::line_diff::LineDiffBudget;
 use super::line_diff::LineDiffer;
 use super::nodepath;
@@ -42,11 +41,10 @@ pub fn safe_change_path(value: &str) -> Option<String> {
         return None;
     }
     let mut chars = text.chars();
-    if let (Some(first), Some(':')) = (chars.next(), chars.next()) {
-        if first.is_ascii_alphabetic() {
+    if let (Some(first), Some(':')) = (chars.next(), chars.next())
+        && first.is_ascii_alphabetic() {
             return None;
         }
-    }
     if text.chars().any(unsafe_path_character) {
         return None;
     }
@@ -211,11 +209,10 @@ fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
 fn patch_section_paths(section: &[u8]) -> (Option<String>, Option<String>) {
     let mut end = section.len();
     for marker in [&b"\n@@ "[..], &b"\nGIT binary patch"[..], &b"\nBinary files "[..]] {
-        if let Some(index) = find(section, marker, 0) {
-            if index < end {
+        if let Some(index) = find(section, marker, 0)
+            && index < end {
                 end = index;
             }
-        }
     }
     let head = String::from_utf8_lossy(&section[..end.min(65_536)]).into_owned();
     let lines: Vec<&str> = head.split('\n').collect();
@@ -747,16 +744,13 @@ pub fn change_display_patch(file: &Obj) -> String {
 
 /// `head.replace(/^index .*\n/m, '')`: the first `index ` line goes.
 fn strip_index_line(head: &str) -> String {
-    let mut offset = 0usize;
     for starts in super::review_diff::line_starts(head) {
         if head[starts..].starts_with("index ") {
             let line_end = head[starts..].find(['\n', '\r', '\u{2028}', '\u{2029}']);
-            if let Some(rel) = line_end {
-                if head[starts + rel..].starts_with('\n') {
-                    offset = starts;
-                    return format!("{}{}", &head[..offset], &head[starts + rel + 1..]);
+            if let Some(rel) = line_end
+                && head[starts + rel..].starts_with('\n') {
+                    return format!("{}{}", &head[..starts], &head[starts + rel + 1..]);
                 }
-            }
         }
     }
     head.to_owned()

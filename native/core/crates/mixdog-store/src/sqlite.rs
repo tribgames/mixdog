@@ -18,6 +18,8 @@ use std::sync::mpsc;
 
 #[cfg(test)]
 mod model_tests;
+#[cfg(test)]
+mod purge_tests;
 
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
@@ -579,30 +581,53 @@ impl Writer {
             && self.purges.is_empty()
     }
 
-    /// One bounded step of the oldest purge: at most `step_rows` of the session's rows,
-    /// then, once none is left, its fork edge and catalog row.
+    /// One bounded step of purging `session`'s index rows: at most `step_rows` deletions,
+    /// its fork edge (one per child) and catalog row counted, those two last. `true` once
+    /// the catalog row is gone.
+    fn purge_rows(&mut self, session: &str) -> rusqlite::Result<bool> {
+        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut budget = self.step_rows;
+        for (table, key) in PURGE_TABLES {
+            let sql = format!(
+                "DELETE FROM {table} WHERE ({key}) IN (SELECT {key} FROM {table} WHERE session = ?1 LIMIT ?2)"
+            );
+            budget -= tx.prepare_cached(&sql)?.execute(params![session, budget as i64])?;
+            if budget == 0 {
+                tx.commit()?;
+                return Ok(false);
+            }
+        }
+        budget -= tx.prepare_cached("DELETE FROM fork_edges WHERE child = ?1")?.execute([session])?;
+        if budget == 0 {
+            tx.commit()?;
+            return Ok(false);
+        }
+        tx.prepare_cached("DELETE FROM sessions WHERE id = ?1")?.execute([session])?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// The boot purge, run by `SqliteStore::open` before the writer thread starts (so before
+    /// any thread opens or is created): the index rows of `incomplete` (folders
+    /// `remove_incomplete_dirs` removed), then every deleted session no fork reads, folder
+    /// first (`purge_deleted`'s order), in bounded steps.
+    fn boot_purge(&mut self, lane: &InLane<MaintenanceIo>, data: &Path, incomplete: &[String]) -> Result<(), DbError> {
+        for session in incomplete {
+            while !self.purge_rows(session)? {}
+        }
+        loop {
+            let next = self.conn.prepare_cached(PURGEABLE_SQL)?.query_row([], |r| r.get::<_, String>(0)).optional()?;
+            let Some(session) = next else { return Ok(()) };
+            remove_session_dir(lane, &data.join("sessions").join(&session))?;
+            while !self.purge_rows(&session)? {}
+        }
+    }
+
+    /// One bounded step of the oldest purge (`purge_rows`).
     fn purge_step(&mut self) {
         let Some((session, _)) = self.purges.front() else { return };
         let session = session.clone();
-        let step_rows = self.step_rows;
-        let step = (|| -> rusqlite::Result<bool> {
-            let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            let mut budget = step_rows;
-            for (table, key) in PURGE_TABLES {
-                let sql = format!(
-                    "DELETE FROM {table} WHERE ({key}) IN (SELECT {key} FROM {table} WHERE session = ?1 LIMIT ?2)"
-                );
-                budget -= tx.prepare_cached(&sql)?.execute(params![session, budget as i64])?;
-                if budget == 0 {
-                    tx.commit()?;
-                    return Ok(false);
-                }
-            }
-            tx.prepare_cached("DELETE FROM fork_edges WHERE child = ?1")?.execute([&session])?;
-            tx.prepare_cached("DELETE FROM sessions WHERE id = ?1")?.execute([&session])?;
-            tx.commit()?;
-            Ok(true)
-        })();
+        let step = self.purge_rows(&session);
         match step {
             Ok(false) => {}
             Ok(true) => {
@@ -1223,6 +1248,12 @@ impl SqliteStore {
     /// one of another `application_id`/`user_version`, is first rebuilt on this maintenance
     /// job from every log under `<data>/sessions` (FORMAT.md §8.2): it is never opened or
     /// altered in place, and `DbError::Rebuild` never reaches the caller.
+    ///
+    /// The boot purge runs here, before the store is returned, so it precedes every thread
+    /// open and create: every session folder without its first log file is removed (a
+    /// create publishes `log.000000` before anything else, and a purge unlinks it first, so
+    /// such a folder is a half-finished create or purge, which no rebuild indexes), with its
+    /// id's index rows; then every deleted session no fork reads (`purge_deleted`).
     #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
     pub fn open(
         lane: &InLane<MaintenanceIo>,
@@ -1230,9 +1261,10 @@ impl SqliteStore {
         read_lane: InteractiveIo,
         data: &Path,
     ) -> Result<SqliteStore, DbError> {
+        let incomplete = remove_incomplete_dirs(lane, &data.join("sessions"))?;
         let path = data.join(INDEX_FILE);
         let path = path.as_path();
-        let writer = match path.exists().then(|| Writer::start(path)) {
+        let mut writer = match path.exists().then(|| Writer::start(path)) {
             Some(Ok(writer)) => writer,
             Some(Err(e)) if !needs_rebuild(&e) => return Err(e),
             _ => {
@@ -1243,6 +1275,7 @@ impl SqliteStore {
                 })?
             }
         };
+        writer.boot_purge(lane, data, &incomplete)?;
         let (sender, rx) = mpsc::channel();
         thread
             .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
@@ -1467,28 +1500,8 @@ impl SqliteStore {
     /// its base's logs. Each removal unlinks the first log file (a rebuild then no longer
     /// sees the folder), then the folder, on the maintenance lane; then the writer drops the
     /// index rows in maintenance steps of `STEP_ROWS` rows, the catalog row last. A base whose
-    /// last fork went is removed in the same call. Run it after a delete; `purge_at_boot`
-    /// runs it at boot, so an interrupted removal resumes.
-    /// The boot purge, before any thread is opened or created: every session folder without
-    /// its first log file goes (a create publishes `log.000000` before anything else, and a
-    /// purge unlinks it first, so such a folder is a half-finished create or purge that no
-    /// rebuild indexes), with whatever index rows its id has; then `purge_deleted`. Returns
-    /// the incomplete folders' ids, then the purged sessions'.
-    pub async fn purge_at_boot(&self, lane: MaintenanceIo, data: PathBuf) -> Result<Vec<String>, DbError> {
-        let sessions = data.join("sessions");
-        let mut removed = lane
-            .submit(&CancellationToken::new(), move |lane| remove_incomplete_dirs(lane, &sessions))
-            .map_err(|_| DbError::LaneFull)?
-            .await
-            .map_err(|_| DbError::Stopped)??;
-        for session in &removed {
-            let session = session.clone();
-            self.ask(|ack| Command::Purge { session, ack }).await?;
-        }
-        removed.extend(self.purge_deleted(lane, data).await?);
-        Ok(removed)
-    }
-
+    /// last fork went is removed in the same call. Run it after a delete; `open` runs the
+    /// same purge at boot, so an interrupted removal resumes.
     pub async fn purge_deleted(&self, lane: MaintenanceIo, data: PathBuf) -> Result<Vec<String>, DbError> {
         let mut purged = Vec::new();
         loop {

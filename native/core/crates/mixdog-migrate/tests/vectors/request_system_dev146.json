@@ -1,0 +1,641 @@
+{
+ "sess_98972_1793880902376_1793881270078_9db21f2e97f91ba0d89fa6e3c6edec79": [
+  {
+   "cacheTier": "tier3",
+   "length": 1308,
+   "sha256": "7afe268f4e3b8cf4bac41f92d745d85fe06c76447f4cbc4ecf585fdf4c19940e"
+  }
+ ],
+ "sess_98972_1793880902377_1793881930084_5c7a33b9c62beae79e046a479d1e7698": [
+  {
+   "cacheTier": "tier3",
+   "length": 1308,
+   "sha256": "7afe268f4e3b8cf4bac41f92d745d85fe06c76447f4cbc4ecf585fdf4c19940e"
+  }
+ ],
+ "sess_circular_after_delete": [],
+ "sess_daemon_1793103478485_a6d73552104e4655ad3c5045f7e90530": [
+  {
+   "cacheTier": null,
+   "length": 7331,
+   "sha256": "70c19e893e376094217775b8dd6f3a59cff7ca77a7883070f32b2976a9be3b18"
+  },
+  {
+   "cacheTier": null,
+   "length": 6661,
+   "sha256": "e133f41d2a0fe77346ce2bf40609d4aa74b76ff6a0dc3a2d26471b2f9cff5db0"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 5406,
+   "sha256": "8fce6e28b24bbbefbc73318b5dfddcccb370945b9bd5b7026f6b55e13c6ffe30"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1429,
+   "sha256": "3ff78726be08fc488b138bd5ffd6b3fdb0da32d327df26156f715572fcab8119"
+  }
+ ],
+ "sess_daemon_1793116769865_1e6dcf101cfa47dfb74ae9f884f0ef97": [
+  {
+   "cacheTier": null,
+   "length": 7044,
+   "sha256": "84e7fbd9634fe2e0efa53ee5b3c40892ff9bf7fa4beb1ccc79ed1f24e609b31f"
+  },
+  {
+   "cacheTier": null,
+   "length": 3654,
+   "sha256": "63589a916e3f93f78f510b10ea8a3be4d99ef140312a817be582c92eb080f5be"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2355,
+   "sha256": "3f53dfb48304dd0c00c9962f4cdbdc963b3e0ca86e38243f1a40100b2dd27617"
+  },
+  {
+   "cacheTier": "env",
+   "length": 856,
+   "sha256": "5f16d2d51d65a688ecb57fa7c3ba5ad51f5b2fe76271e1b318364581891a1e12"
+  }
+ ],
+ "sess_daemon_1793255474736_41674c40bd8940618227678c746a5b0d": [
+  {
+   "cacheTier": null,
+   "length": 7175,
+   "sha256": "2beb95d53d6c180aac09063e3b2086a63daa0d7d19209418cc0db5300dfcc7a4"
+  },
+  {
+   "cacheTier": null,
+   "length": 3767,
+   "sha256": "3026ae3bb35492d6e53ccbd572c2c93ade5b1090996b3849a01bf1bf23e809ef"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2355,
+   "sha256": "3f53dfb48304dd0c00c9962f4cdbdc963b3e0ca86e38243f1a40100b2dd27617"
+  },
+  {
+   "cacheTier": "env",
+   "length": 856,
+   "sha256": "55b6b315be1db8c168c623b9b18b989c50de86f74d57d65ed8a927fe514fab72"
+  }
+ ],
+ "sess_daemon_1793265746767_1482e78a13ea4815a6818a9aca474c9c": [
+  {
+   "cacheTier": null,
+   "length": 7182,
+   "sha256": "88f744874116735afacfcbf97e5219824257f189febd55c7b05a7a534cff1c8b"
+  },
+  {
+   "cacheTier": null,
+   "length": 3767,
+   "sha256": "3026ae3bb35492d6e53ccbd572c2c93ade5b1090996b3849a01bf1bf23e809ef"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 3962,
+   "sha256": "4031096f160ca543026274013e58897d0bbc97c7842a29214999fcebe2dbe639"
+  },
+  {
+   "cacheTier": "env",
+   "length": 856,
+   "sha256": "c923f27624237737298fd9d0239bf5483a00cf93da09a445a24d7b43e0a4ca29"
+  }
+ ],
+ "sess_daemon_1793275171086_b8262bb99e564b60a08c1865745321ca": [
+  {
+   "cacheTier": null,
+   "length": 7182,
+   "sha256": "88f744874116735afacfcbf97e5219824257f189febd55c7b05a7a534cff1c8b"
+  },
+  {
+   "cacheTier": null,
+   "length": 3767,
+   "sha256": "3026ae3bb35492d6e53ccbd572c2c93ade5b1090996b3849a01bf1bf23e809ef"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2512,
+   "sha256": "c64ba97e8a91424648e0d811e5c9b4c3ea260d75e0bd077b93cd7f4838d4fac1"
+  },
+  {
+   "cacheTier": "env",
+   "length": 856,
+   "sha256": "79d61b6bad7d007a1b2ad0dad92400bce1c4ab6e842dba7077b4f870468140b8"
+  }
+ ],
+ "sess_daemon_1793306569908_63cc007835f24226bfc6146003186dce": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 3909,
+   "sha256": "90d90d99df4b25fe7d7ddccf6d65b5b15739dce310436a3fc5ba35e9a2f6406d"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2819,
+   "sha256": "04e5fc35bf92939aad9ebce2d3e4e42616719948422768a572cb269e2006e3b8"
+  },
+  {
+   "cacheTier": "env",
+   "length": 856,
+   "sha256": "c05a754517dad8208b1b26e9fde354c080650e69c5157509eaaacb1a098b56f1"
+  }
+ ],
+ "sess_daemon_1793391870191_ce8f1c45180d4f6c92e76daf8f0539da": [
+  {
+   "cacheTier": null,
+   "length": 7225,
+   "sha256": "7cb67f7d0e44771e645aa83fe9453bc067da3b729dc4d186eb9d38ce13183134"
+  },
+  {
+   "cacheTier": null,
+   "length": 3529,
+   "sha256": "5dfd74e9a04087cffe47ed9fc33c703ffb91f245f37f375d1d72f21992524988"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2373,
+   "sha256": "06a40e933b09840930e7499753df4dbd72dcde2b5fb76a44e1e224e85ace8388"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1274,
+   "sha256": "1318b0cf6bb7756fa52f21bf918b06b8d2923abda04b585dbec93e2d8041f135"
+  }
+ ],
+ "sess_daemon_1793440623917_ac3d0532267140019c71878979e486fe": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 3765,
+   "sha256": "1158244a4365554cb545077ce9cf321c773fe1ee863124514ce9b2eb8b3a6364"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2355,
+   "sha256": "3f53dfb48304dd0c00c9962f4cdbdc963b3e0ca86e38243f1a40100b2dd27617"
+  },
+  {
+   "cacheTier": "env",
+   "length": 856,
+   "sha256": "49c4bf44cbde64d59a2dec2b5b90cbf3480d0bfb608c31796f2ea2755cc1e6b5"
+  }
+ ],
+ "sess_daemon_1793474078724_f10a352f72514a3f8791919127e7b415": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 3765,
+   "sha256": "1158244a4365554cb545077ce9cf321c773fe1ee863124514ce9b2eb8b3a6364"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2495,
+   "sha256": "10fe40be51a0103ba2d1c6d19fd35e5e161fbd574bcc41a24ae56d1c4c258405"
+  },
+  {
+   "cacheTier": "env",
+   "length": 856,
+   "sha256": "b7e19f683ee89b65950483b48664efbe257a5dff19a02a31ae226935083f08f6"
+  }
+ ],
+ "sess_daemon_1793708642505_06011aadc96c45e9b0cecfc9598175ad": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 3675,
+   "sha256": "3ad9a2d540102f68cfe7b18bb59b873f269fc2f322afbf7b5cd2a2b617847116"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2598,
+   "sha256": "9750bf658ea2ca413979b8531479ed69edf7b986f974025eef6d8db624de5455"
+  },
+  {
+   "cacheTier": "env",
+   "length": 816,
+   "sha256": "ea00a15f55535317552aef8987172f70e73abea755b5eacfccdb788b89cc63b3"
+  }
+ ],
+ "sess_daemon_1793780447363_a614b987984f490e9c9c4b9ae7b8c604": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 3765,
+   "sha256": "deea53c82fddd8d8e924e1eb96fbe5bf8c2be758042bd2da80c385ba543c4297"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2738,
+   "sha256": "edd18ba0cfd2e178dea32edb990ae761406a13d5014b5a64a9db30f55fcd6e6a"
+  },
+  {
+   "cacheTier": "env",
+   "length": 816,
+   "sha256": "b31e6bfe32ea0c814889d2a843af31313a9639d30845033a272b0065a6b40eb9"
+  }
+ ],
+ "sess_daemon_1793785705398_e68c06a935b44c438e03ae0a81fc35a4": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 3413,
+   "sha256": "a77a2b2e31efd8f33017ff3189e516521013a16d8367c552c462293aae22381a"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2713,
+   "sha256": "9482b7b129b09e6fd8f00bae50cad72eb35947aae5725c645acfe6babe3d1d37"
+  },
+  {
+   "cacheTier": "env",
+   "length": 626,
+   "sha256": "f2348810745154d7e053bcb35e44e76f3064a63da1fd94c3ebfa915a1aa855a0"
+  }
+ ],
+ "sess_daemon_1793798495925_90fb022e8c3e4639a9f7e08ccbdda1e6": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 3728,
+   "sha256": "ccf1ca5de2b5c05afb7d7bfbdf59b67932b9311c9b087f12d0115df1d8b7cb5e"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2797,
+   "sha256": "fd8ccd41656b0d28d3a220dae4ab504b9f38e9c5599817adbda76ee5fddd66e8"
+  },
+  {
+   "cacheTier": "env",
+   "length": 816,
+   "sha256": "a31669843bd50c27c2947e088bb65cb837fac5a32b4044f862413ea8ccd835f8"
+  }
+ ],
+ "sess_daemon_1793820141688_38d110060e784a52aa9c2668671040df": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 4024,
+   "sha256": "938a8b5fdd760ec97ba90e7f7dd068896fd6b23212f64d1403efb4c3210d381b"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 3043,
+   "sha256": "0b5261cca8f01c24ea63377b7014d05c141493d72ac6f096c2aeafb778bda9a4"
+  },
+  {
+   "cacheTier": "env",
+   "length": 816,
+   "sha256": "60f3dba8fd35922bf5f10d975e73fb24349d71579d900f5bae1861eed54657c1"
+  }
+ ],
+ "sess_daemon_1793864638560_bcf93f6a8c3b465cb23e03d249949f4d": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 4024,
+   "sha256": "938a8b5fdd760ec97ba90e7f7dd068896fd6b23212f64d1403efb4c3210d381b"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 3043,
+   "sha256": "0b5261cca8f01c24ea63377b7014d05c141493d72ac6f096c2aeafb778bda9a4"
+  },
+  {
+   "cacheTier": "env",
+   "length": 816,
+   "sha256": "a5efa5f74d21d031b7bd2814129f765c5f90774613b79c4915eda66fa83dc7fe"
+  }
+ ],
+ "sess_daemon_1793874898692_1fa7dc23f39045329bb680876d8a42eb": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 3765,
+   "sha256": "deea53c82fddd8d8e924e1eb96fbe5bf8c2be758042bd2da80c385ba543c4297"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2898,
+   "sha256": "6b42cbe4b846800ff53ea0be1813c72ab3fce3236f0315fa20adcbd00cc2ce99"
+  },
+  {
+   "cacheTier": "env",
+   "length": 816,
+   "sha256": "e2fe92a19d11efad94aced6f47e72bb622f5db94588e278942d8f21c6e783abf"
+  }
+ ],
+ "sess_daemon_1793879302359_cc71a209ddae449184e60c996950fefd": [
+  {
+   "cacheTier": null,
+   "length": 7225,
+   "sha256": "7cb67f7d0e44771e645aa83fe9453bc067da3b729dc4d186eb9d38ce13183134"
+  },
+  {
+   "cacheTier": null,
+   "length": 3654,
+   "sha256": "c20c8f85d650a2de0fc3ba7d636bf938f250fbc1121e23c34ba20c9daa8113e0"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 3055,
+   "sha256": "e3c4868db51d062322c60c8cf920e1a955db4e1a291706f870ddf8e6a15b9d88"
+  },
+  {
+   "cacheTier": "env",
+   "length": 816,
+   "sha256": "389319f42602af56b9143097ed24bc760d9f599045d46272d2229287532bcbce"
+  }
+ ],
+ "sess_daemon_1793884352819_25565ef8c2c94ef7b80cf2567846a114": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 3765,
+   "sha256": "deea53c82fddd8d8e924e1eb96fbe5bf8c2be758042bd2da80c385ba543c4297"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2898,
+   "sha256": "6b42cbe4b846800ff53ea0be1813c72ab3fce3236f0315fa20adcbd00cc2ce99"
+  },
+  {
+   "cacheTier": "env",
+   "length": 816,
+   "sha256": "cf25a2e30595827c873bcdc0033fa2ce30e5568d1a47fc820d65c216b9e4d8a3"
+  }
+ ],
+ "sess_desktop_6d04784db9909e6576526fa7afb641df1432e8d36214dd6520e60b4936a11e21": [
+  {
+   "cacheTier": null,
+   "length": 7315,
+   "sha256": "e58ccb376b5e498d55512560cb77e5436d878a7b512639d5b970341bb9e5ecdb"
+  },
+  {
+   "cacheTier": null,
+   "length": 6881,
+   "sha256": "8b4ca4554292fd90eaf001972bd969a9d0cadc30b7462cdecdf8b350c784cec9"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 5635,
+   "sha256": "6896f03b3fff3bc2cc654c567743c5b2d8eef1e476553aeb3794437eacaf694c"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1314,
+   "sha256": "ccdd1a4dce1e5aa3f401401fccd118caa77e8db8e3223d91d4370de892a79fe2"
+  }
+ ],
+ "sess_desktop_dde5c634003aff6cc01e891fabd2864d815768fe5505b5b9f0a414c37c68d781": [
+  {
+   "cacheTier": null,
+   "length": 7315,
+   "sha256": "e58ccb376b5e498d55512560cb77e5436d878a7b512639d5b970341bb9e5ecdb"
+  },
+  {
+   "cacheTier": null,
+   "length": 6719,
+   "sha256": "d3dd669bbb9e7dbd19b8c9dc9b75169691a9e06f0953602c8ee5de369d2636b5"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 5678,
+   "sha256": "3ca7ebb866ed7f2338fa2f597767a7f23d96d41b5cac201aaacc9b8fdef0b24b"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1573,
+   "sha256": "d9b8fe39ee5925c9f71cd92af6600b6fb93a7c1dccf8c75be850aae890b61f40"
+  }
+ ],
+ "sess_desktop_f03f5d12554c842d4880aab5af1a05fc52cc0751b898a70ee1288ab2c961489c": [
+  {
+   "cacheTier": null,
+   "length": 7315,
+   "sha256": "e58ccb376b5e498d55512560cb77e5436d878a7b512639d5b970341bb9e5ecdb"
+  },
+  {
+   "cacheTier": null,
+   "length": 6719,
+   "sha256": "d3dd669bbb9e7dbd19b8c9dc9b75169691a9e06f0953602c8ee5de369d2636b5"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 5678,
+   "sha256": "3ca7ebb866ed7f2338fa2f597767a7f23d96d41b5cac201aaacc9b8fdef0b24b"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1573,
+   "sha256": "9bf2588a3739a5a52dc9a5cc9da5a4e7a87e53103d68d6447852342db047ffb1"
+  }
+ ],
+ "sess_home_agent-101b4a32ba": [
+  {
+   "cacheTier": null,
+   "length": 7315,
+   "sha256": "e58ccb376b5e498d55512560cb77e5436d878a7b512639d5b970341bb9e5ecdb"
+  },
+  {
+   "cacheTier": null,
+   "length": 3962,
+   "sha256": "4c55869f176ec4340b2587a935ed772d4b0611d0c8fb85f050e183dcbf7b02ca"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 7769,
+   "sha256": "ad14b782137701ee0f210abb3bb4da046cc4868b9b80736a8b5919c17af3df71"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1385,
+   "sha256": "8cd0f492f0e45d42c6b6cbf26f0bdb2a872d6ed1a7d0f34218a3b7fe0d3aa631"
+  }
+ ],
+ "sess_home_agent-915609ddc4": [
+  {
+   "cacheTier": null,
+   "length": 7315,
+   "sha256": "e58ccb376b5e498d55512560cb77e5436d878a7b512639d5b970341bb9e5ecdb"
+  },
+  {
+   "cacheTier": null,
+   "length": 3979,
+   "sha256": "6326861f8360e1fb5112863be5013044e4e2ad7d7db04767313f0fd9b761fd54"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 8189,
+   "sha256": "c74be2d9de79182c6bcf18cfa85e9211a9ebe7e8c4b77d9c5aa4b2b79b432eae"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1348,
+   "sha256": "6579c0efa81a71372ec2bcaea829cb10def51e69a05e8b8f9a95c43ab01ea6c4"
+  }
+ ],
+ "sess_home_agent-a70d746b04": [
+  {
+   "cacheTier": null,
+   "length": 7315,
+   "sha256": "e58ccb376b5e498d55512560cb77e5436d878a7b512639d5b970341bb9e5ecdb"
+  },
+  {
+   "cacheTier": null,
+   "length": 3979,
+   "sha256": "5ae5256f5a4a9e2043c0a024bf37d67a03e6e470c09194a06140075782840e4d"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 7506,
+   "sha256": "f242f03727b847721cf0ff5f38441ffadcb053b68072aaeacd680020639112e6"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1340,
+   "sha256": "c86bd651c830e22b871c8e82219972cc3b5eeda201a31de941a768bebc8be274"
+  }
+ ],
+ "sess_home_lead": [
+  {
+   "cacheTier": null,
+   "length": 7315,
+   "sha256": "e58ccb376b5e498d55512560cb77e5436d878a7b512639d5b970341bb9e5ecdb"
+  },
+  {
+   "cacheTier": null,
+   "length": 3979,
+   "sha256": "6326861f8360e1fb5112863be5013044e4e2ad7d7db04767313f0fd9b761fd54"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 10909,
+   "sha256": "70bb41f08b2552b10195908652b63a671f7756e73a856c98ca2fe87ca998525a"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1340,
+   "sha256": "c86bd651c830e22b871c8e82219972cc3b5eeda201a31de941a768bebc8be274"
+  }
+ ],
+ "sess_home_pm": [
+  {
+   "cacheTier": null,
+   "length": 7315,
+   "sha256": "e58ccb376b5e498d55512560cb77e5436d878a7b512639d5b970341bb9e5ecdb"
+  },
+  {
+   "cacheTier": null,
+   "length": 3962,
+   "sha256": "0c68038afbdce4f4c11339d1495f0de7f1d8618abaa97c8428fb9e09e6a75262"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 7316,
+   "sha256": "b5e274a07f40cb65208bdcca898e452ab9de3ed71cf0581de5cd299adc33d721"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1340,
+   "sha256": "c86bd651c830e22b871c8e82219972cc3b5eeda201a31de941a768bebc8be274"
+  }
+ ],
+ "sess_incarnation_balance": [],
+ "sess_synth_pair_diverged": [
+  {
+   "cacheTier": null,
+   "length": 7315,
+   "sha256": "e58ccb376b5e498d55512560cb77e5436d878a7b512639d5b970341bb9e5ecdb"
+  },
+  {
+   "cacheTier": null,
+   "length": 6719,
+   "sha256": "d3dd669bbb9e7dbd19b8c9dc9b75169691a9e06f0953602c8ee5de369d2636b5"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 5678,
+   "sha256": "3ca7ebb866ed7f2338fa2f597767a7f23d96d41b5cac201aaacc9b8fdef0b24b"
+  },
+  {
+   "cacheTier": "env",
+   "length": 1573,
+   "sha256": "d9b8fe39ee5925c9f71cd92af6600b6fb93a7c1dccf8c75be850aae890b61f40"
+  }
+ ],
+ "sess_synth_pair_redaction_pending": [
+  {
+   "cacheTier": null,
+   "length": 7218,
+   "sha256": "2867adf99b5e41b0987be00a037b6506021bf8e97768e856e075ba541ceb39fd"
+  },
+  {
+   "cacheTier": null,
+   "length": 3909,
+   "sha256": "90d90d99df4b25fe7d7ddccf6d65b5b15739dce310436a3fc5ba35e9a2f6406d"
+  },
+  {
+   "cacheTier": "tier3",
+   "length": 2819,
+   "sha256": "04e5fc35bf92939aad9ebce2d3e4e42616719948422768a572cb269e2006e3b8"
+  },
+  {
+   "cacheTier": "env",
+   "length": 856,
+   "sha256": "c05a754517dad8208b1b26e9fde354c080650e69c5157509eaaacb1a098b56f1"
+  }
+ ],
+ "sess_synth_torn_tail": [
+  {
+   "cacheTier": "tier3",
+   "length": 1308,
+   "sha256": "7afe268f4e3b8cf4bac41f92d745d85fe06c76447f4cbc4ecf585fdf4c19940e"
+  }
+ ]
+}

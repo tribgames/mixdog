@@ -27,7 +27,9 @@ pub use json::stringify_sorted_outside_arrays as json_stringify_sorted_outside_a
 pub use json_parse::JsonSyntaxError;
 pub use json_parse::parse as json_parse;
 pub use json_parse::parsed_text as json_parsed_text;
+pub use locale_compare::default_locale_tag;
 pub use locale_compare::locale_compare;
+pub use locale_compare::locale_compare_en;
 pub use locale_compare::locale_compare_en_base;
 pub use number::json_number;
 pub use number::number_to_string;

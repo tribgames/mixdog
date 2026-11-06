@@ -26,7 +26,10 @@ mod attachments;
 mod cards;
 mod completions;
 mod control;
+pub mod delete;
 mod directory;
+pub mod goal_lane;
+mod live_rows;
 mod durability;
 mod frames;
 mod handle;
@@ -99,6 +102,7 @@ pub use self::seams::ThreadStore;
 pub use self::seams::ToolSurfaceSource;
 pub use self::seams::Transcript;
 pub use self::seams::TurnIngest;
+pub use self::seams::WindowDivider;
 pub use self::seams::WindowRead;
 pub use self::store::SessionSearchTurns;
 pub use self::state::Section;
@@ -147,6 +151,12 @@ pub struct SessionDeps {
     pub turn_starts: Arc<dyn TurnStarts>,
     /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.
     pub turn_review: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
+    /// What `thread/delete` does outside the session and its store.
+    pub deletion: Arc<dyn delete::DeleteSeams>,
+    /// The store purge hooks a delete runs, in 1.4.5's order.
+    pub purge: delete::PurgeHooks,
+    /// The Goal runtime the session's turns start, settle and continue.
+    pub goals: Arc<dyn goal_lane::SessionGoals>,
     pub lanes: SessionLanes,
     pub limits: SessionLimits,
 }

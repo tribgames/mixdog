@@ -14,12 +14,6 @@ impl Style {
         if cfg!(windows) { Style::Win32 } else { Style::Posix }
     }
 
-    fn sep(self) -> char {
-        match self {
-            Style::Win32 => '\\',
-            Style::Posix => '/',
-        }
-    }
 
     fn is_sep(self, c: char) -> bool {
         c == '/' || (self == Style::Win32 && c == '\\')

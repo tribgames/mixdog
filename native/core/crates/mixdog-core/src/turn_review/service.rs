@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
+
+use super::chain::Chain;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -48,7 +50,6 @@ use super::store::Store;
 use super::tracker::PatchRoot;
 use super::tracker::TrackerMeta;
 use super::tracker::TrackerState;
-use super::tracker::View;
 use super::tracker::fold_tracked_changes;
 use super::tracker::merge_own_stats;
 use super::tracker::merge_tracked_content;
@@ -183,7 +184,7 @@ pub(super) struct Reg {
     // Owner session → how many times its change history was deleted.
     pub epochs: HashMap<String, u64>,
     // Per-session Undo/Reapply chain: the lock and how many tasks hold or wait on it.
-    pub mutations: HashMap<String, (Arc<tokio::sync::Mutex<()>>, usize)>,
+    pub mutations: HashMap<String, (Arc<Chain>, usize)>,
 }
 
 pub(super) fn pending_key(owner: &str, checkpoint_id: &str) -> String {
@@ -341,11 +342,10 @@ impl Inner {
                     if nodepath::is_absolute_host(clean(&raw.path)) {
                         raw.path = self.worktrees.canonical_path(&raw.path);
                     }
-                    if let Some(new_path) = &raw.new_path {
-                        if nodepath::is_absolute_host(clean(new_path)) {
+                    if let Some(new_path) = &raw.new_path
+                        && nodepath::is_absolute_host(clean(new_path)) {
                             raw.new_path = Some(self.worktrees.canonical_path(new_path));
                         }
-                    }
                     raw
                 })
                 .collect()
@@ -404,11 +404,10 @@ impl Inner {
 
     /// A parked review owns its worker's bound tracker content (`release`).
     pub(super) fn release_parked(review: &Review) {
-        if review.release {
-            if let Some(source) = &review.source {
+        if review.release
+            && let Some(source) = &review.source {
                 source.release_content();
             }
-        }
     }
 
     pub(super) fn drop_parked(reg: &mut Reg, owner: &str) {
@@ -500,13 +499,12 @@ impl Inner {
         let checkpoint_id = clean(&open.checkpoint_id).to_owned();
         // A turn replaced before it sealed (an abort whose delayed cleanup has not run yet) still
         // keeps its edits as a record. Its capture is queued ahead of this turn's baseline.
-        if let Some(prior) = reg.trackers.get(owner).cloned() {
-            if prior.meta.owner_generation > 0 && !prior.sealed() {
+        if let Some(prior) = reg.trackers.get(owner).cloned()
+            && prior.meta.owner_generation > 0 && !prior.sealed() {
                 // `void sealTurn(...)`: the seal runs on its own.
                 let step = self.seal_begin(&mut reg, owner, &prior);
                 mixdog_rt::spawn("turn_review.seal_prior", mixdog_rt::TaskClass::Work, self.seal_finish(owner.to_owned(), prior, step));
             }
-        }
         // Workers still running keep their bound trackers across the new turn: their edits join
         // whichever turn is running when they complete.
         reg.turns.shift_remove(owner);
@@ -564,11 +562,11 @@ impl Inner {
     pub(super) async fn serialize_mutation<T>(&self, owner: &str, task: impl Future<Output = T>) -> T {
         let lock = {
             let mut reg = self.reg();
-            let entry = reg.mutations.entry(owner.to_owned()).or_insert_with(|| (Arc::new(tokio::sync::Mutex::new(())), 0));
+            let entry = reg.mutations.entry(owner.to_owned()).or_insert_with(|| (Arc::new(Chain::default()), 0));
             entry.1 += 1;
             entry.0.clone()
         };
-        let guard = lock.lock_owned().await;
+        let guard = lock.acquire().await;
         let out = task.await;
         drop(guard);
         let mut reg = self.reg();
@@ -1084,9 +1082,6 @@ impl Inner {
         }
     }
 
-    pub(super) fn pending_view(tracker: &Tracker) -> Option<View> {
-        tracker.lock().view.clone()
-    }
 }
 
 /// What a seal request found: nothing to do, a seal already running to wait for, or the seal it
@@ -1120,7 +1115,3 @@ impl mixdog_core_api::turn_review::AgentReview for OwnedAgentReview {
     }
 }
 
-/// `ReviewContent` of nothing, for callers that only name a path.
-pub fn absent() -> ReviewContent {
-    ReviewContent::Absent
-}

@@ -1,9 +1,20 @@
 //! A room's log as the room exchange writes it (`agent-room-delivery.mjs` `commit`): stored rows
 //! appended to the room session without a turn, each shown live as it lands.
 
+use std::collections::HashSet;
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
+use mixdog_core_api::Reply;
+use mixdog_core_api::ThreadHandle;
+use mixdog_core_api::call::CallContext;
+use mixdog_core_api::call::CoreRequest;
+use mixdog_core_api::ids::ThreadId;
 use serde_json::Value;
+use serde_json::json;
+
+use super::SessionDirectory;
 
 #[async_trait]
 pub trait RoomLog: Send + Sync {
@@ -14,4 +25,71 @@ pub trait RoomLog: Send + Sync {
     /// added. Fails when the session does not exist or is closed (`session <id> is not
     /// available`).
     async fn append_rows(&self, session_id: &str, messages: Vec<Value>) -> Result<usize, CoreError>;
+}
+
+/// JavaScript truthiness of a JSON value.
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
+/// `commit`'s filter: the messages of `messages` whose `meta.transcript.messageId` neither
+/// `held` (the conversation; ids that are truthy) nor an earlier message of the batch carries.
+/// A missing id is one value too, as in Node's `Set`.
+pub(crate) fn fresh_rows<'a>(held: impl Iterator<Item = &'a Value>, messages: Vec<Value>) -> Vec<Value> {
+    let key = |message: &Value| match message.pointer("/meta/transcript/messageId") {
+        None => "undefined".to_owned(),
+        Some(id) => id.to_string(),
+    };
+    let mut posted: HashSet<String> = held
+        .filter(|message| message.pointer("/meta/transcript/messageId").is_some_and(truthy))
+        .map(key)
+        .collect();
+    messages.into_iter().filter(|message| posted.insert(key(message))).collect()
+}
+
+/// [`RoomLog`] over the session directory: the room session, opened when not loaded, takes
+/// the post through `thread/roomRows/append`.
+pub struct SessionRoomLog {
+    directory: Arc<SessionDirectory>,
+}
+
+impl SessionRoomLog {
+    pub fn new(directory: Arc<SessionDirectory>) -> Self {
+        Self { directory }
+    }
+}
+
+#[async_trait]
+impl RoomLog for SessionRoomLog {
+    async fn append_rows(&self, session_id: &str, messages: Vec<Value>) -> Result<usize, CoreError> {
+        let unavailable = || CoreError::DomainError {
+            domain: "session".into(),
+            code: None,
+            message: Some(format!("session {session_id} is not available").into()),
+            detail: None,
+        };
+        let gone = |error: CoreError| match error {
+            CoreError::ThreadNotFound { .. } | CoreError::ThreadClosing { .. } => unavailable(),
+            other => other,
+        };
+        let ctx = CallContext::internal("room-log");
+        let thread = ThreadId::from(session_id);
+        let handle = self.directory.open_handle(&thread, &ctx).await.map_err(gone)?;
+        let request = CoreRequest {
+            method: mixdog_core_api::ids::Method("thread/roomRows/append"),
+            params: json!({ "messages": messages }),
+            op: None,
+            ctx,
+        };
+        match handle.request(request).await.map_err(gone)? {
+            Reply::Value(value) => Ok(value["added"].as_u64().unwrap_or(0) as usize),
+            _ => Ok(0),
+        }
+    }
 }

@@ -33,12 +33,34 @@ impl AgentEvidence for NoEvidence {
     }
 }
 
-struct NoEffects;
+/// The agent golden never names the workflow or skill kinds.
+struct Unused;
+
+#[async_trait]
+impl mixdog_core_api::service::DomainService for Unused {
+    fn methods(&self) -> &'static [&'static str] {
+        &[]
+    }
+    async fn call(&self, _: mixdog_core_api::CoreRequest) -> Result<mixdog_core_api::Reply, CoreError> {
+        panic!("a workflow or skill service was called by the agent golden")
+    }
+    fn notify(&self, _: mixdog_core_api::ids::Method, _: Value, _: mixdog_core_api::ids::ConnectionId) -> mixdog_core_api::service::Admit {
+        unreachable!("no notifications")
+    }
+}
+
+/// Remembers the routes a save sent to the route setter.
+#[derive(Default)]
+struct NoEffects(std::sync::Mutex<Vec<Value>>);
 
 #[async_trait]
 impl AgentEffects for NoEffects {
     async fn agents_changed(&self) {}
     async fn reload_routines(&self) -> Result<(), String> {
+        Ok(())
+    }
+    async fn set_agent_route(&self, id: &str, route: &Value) -> Result<(), String> {
+        self.0.lock().unwrap().push(json!({ "id": id, "route": route }));
         Ok(())
     }
 }
@@ -90,7 +112,16 @@ fn snapshot(dir: &Path) -> BTreeMap<String, String> {
                 }
                 None => rel,
             };
-            out.insert(masked, String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned());
+            // Images are bytes; everything else is text.
+            let bytes = std::fs::read(&path).unwrap();
+            let is_image = (masked.starts_with("bots/") || masked.starts_with("agents/")) && (masked.contains("/avatar/") || masked.ends_with(".png"));
+            let text = if is_image {
+                use base64::Engine as _;
+                format!("b64:{}", base64::engine::general_purpose::STANDARD.encode(&bytes))
+            } else {
+                String::from_utf8_lossy(&bytes).into_owned()
+            };
+            out.insert(masked, text);
         }
     }
     let mut out = BTreeMap::new();
@@ -133,35 +164,59 @@ async fn the_actions_answer_and_write_what_the_recorded_node_handlers_did() {
         let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         let routes = AgentRoutes::new(config.clone(), &data);
         let main = world["main"].clone();
+        let effects = Arc::new(NoEffects::default());
         let agents = Arc::new(
             AgentDefinitions::new(&shipped, &data, tokens.interactive_io, routes.clone(), Arc::new(NoEvidence), Arc::new(move || main.clone()), dir.path().join("task"))
-                .with_writes(tokens.durability_io, Arc::new(NoEffects), Arc::new(|| "2000-01-01T00:00:00.000Z".to_owned())),
+                .with_writes(tokens.durability_io, effects.clone(), Arc::new(|| "2000-01-01T00:00:00.000Z".to_owned())),
         );
-        let setup = DefinitionSetup::new(agents, Arc::new(Callers));
+        let setup = DefinitionSetup::new(agents.clone(), Arc::new(Callers), Arc::new(Unused), Arc::new(Unused));
 
         for (index, step) in world["steps"].as_array().unwrap().iter().enumerate() {
             calls += 1;
             let thread = ThreadId::from(twin["callers"][step["caller"].as_str().unwrap()]["id"].as_str().unwrap());
             let action = step["args"]["action"].as_str().unwrap();
             let call = SetupCall { action, args: &step["args"], thread: &thread };
-            let got = match setup.run(&call).await {
-                Ok(value) => json!({ "ok": mask(value, &data_text) }),
-                Err(PortError::Failed { message, .. } | PortError::Denied(message)) => json!({ "error": mask(Value::String(message), &data_text) }),
-                Err(other) => panic!("{other:?}"),
+            let got = if let Some(editor) = step.get("editor") {
+                // A save that goes to the editor itself; `$current` is the revision the caller loaded.
+                let mut payload = editor["payload"].as_object().unwrap().clone();
+                if payload.get("expectedRevision") == Some(&json!("$current")) {
+                    let id = payload.get("id").map(crate::workflow::ids::js_string).unwrap_or_default();
+                    let revision = agents.get(&id).await.ok().map(|view| view["revision"].clone()).unwrap_or(json!("missing"));
+                    payload.insert("expectedRevision".into(), revision);
+                }
+                let options = crate::agents::SaveOptions { no_widen: editor["options"]["noWiden"] == true, approved: None };
+                match agents.save_with(&payload, options).await {
+                    Ok(value) => json!({ "ok": mask(value, &data_text) }),
+                    Err(error) => json!({ "error": mask(Value::String(error.to_string()), &data_text) }),
+                }
+            } else {
+                match setup.run(&call).await {
+                    Ok(value) => json!({ "ok": mask(value, &data_text) }),
+                    Err(PortError::Failed { message, .. } | PortError::Denied(message)) => json!({ "error": mask(Value::String(message), &data_text) }),
+                    Err(other) => panic!("{other:?}"),
+                }
             };
             let want = if step.get("ok").is_some() { json!({ "ok": step["ok"] }) } else { json!({ "error": step["error"] }) };
             let at = format!("{name} step {index} {action} {}", step["args"]);
-            if got != want {
-                failures.push(format!("{at}: answered {got}, Node {want}"));
-                break;
-            }
             let files = snapshot(&data);
             let recorded: BTreeMap<String, String> =
                 step["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
             if files != recorded {
-                let differs: Vec<&String> = files.keys().chain(recorded.keys()).filter(|k| files.get(*k) != recorded.get(*k)).collect();
+                let differs: Vec<String> = files
+                    .keys()
+                    .chain(recorded.keys())
+                    .filter(|k| files.get(*k) != recorded.get(*k))
+                    .map(|k| format!("{k}: {:?} / Node {:?}", files.get(k), recorded.get(k)))
+                    .collect();
                 failures.push(format!("{at}: files differ at {differs:?}"));
                 break;
+            }
+            if got != want {
+                failures.push(format!("{at}: answered {got}, Node {want}"));
+                break;
+            }
+            if Value::Array(effects.0.lock().unwrap().clone()) != step["routeCalls"] {
+                failures.push(format!("{at}: route calls {:?}, Node {}", effects.0.lock().unwrap(), step["routeCalls"]));
             }
             for (query, disabled) in step["disabled"].as_object().unwrap() {
                 if routes.is_disabled(query) != disabled.as_bool().unwrap() {
@@ -184,4 +239,24 @@ async fn the_actions_answer_and_write_what_the_recorded_node_handlers_did() {
     }
     assert!(calls > 400);
     assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(30).cloned().collect::<Vec<_>>().join("\n"));
+}
+
+#[tokio::test]
+async fn a_route_sent_with_a_save_goes_to_the_route_setter_after_the_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let effects = Arc::new(NoEffects::default());
+    let agents = AgentDefinitions::new(dir.path(), dir.path(), tokens.interactive_io, AgentRoutes::new(config, dir.path()), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("task"))
+        .with_writes(tokens.durability_io, effects.clone(), Arc::new(String::new));
+    let route = json!({ "provider": "openai", "model": "gpt-6" });
+    let payload = json!({ "name": "Routed", "body": "Body", "route": route }).as_object().unwrap().clone();
+    let view = agents.save(&payload).await.unwrap();
+    assert_eq!(view["id"], "routed");
+    assert_eq!(*effects.0.lock().unwrap(), vec![json!({ "id": "routed", "route": route })]);
+    // A falsy route is no route.
+    let payload = json!({ "id": "routed", "body": "Body", "route": null }).as_object().unwrap().clone();
+    agents.save(&payload).await.unwrap();
+    assert_eq!(effects.0.lock().unwrap().len(), 1);
 }

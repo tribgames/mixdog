@@ -26,6 +26,17 @@ pub fn locale_compare(a: &str, b: &str) -> Ordering {
     collator().compare(a, b)
 }
 
+/// `a.localeCompare(b, 'en')`: English collation at default (tertiary) strength.
+pub fn locale_compare_en(a: &str, b: &str) -> Ordering {
+    static COLLATOR: OnceLock<CollatorBorrowed<'static>> = OnceLock::new();
+    COLLATOR
+        .get_or_init(|| {
+            let locale: Locale = "en".parse().expect("static locale");
+            CollatorBorrowed::try_new((&locale).into(), CollatorOptions::default()).expect("compiled collation data")
+        })
+        .compare(a, b)
+}
+
 /// `a.localeCompare(b, 'en', { sensitivity: 'base' })`: English collation that ignores case and
 /// accents.
 pub fn locale_compare_en_base(a: &str, b: &str) -> Ordering {
@@ -79,4 +90,12 @@ mod tests {
         assert_eq!(locale_compare("alpha", "Zed"), Ordering::Less);
         assert_eq!(locale_compare("a", "A"), Ordering::Less);
     }
+}
+
+/// `Intl.DateTimeFormat().resolvedOptions().locale`: the process's default locale as a BCP 47 tag,
+/// `en-US` when the system names none.
+pub fn default_locale_tag() -> String {
+    sys_locale::get_locale()
+        .and_then(|tag| tag.split('.').next().unwrap_or_default().replace('_', "-").parse::<Locale>().ok())
+    .map_or_else(|| "en-US".to_owned(), |locale| locale.to_string())
 }

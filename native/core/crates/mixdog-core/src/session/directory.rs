@@ -75,10 +75,39 @@ enum Slot_ {
     Loading(watch::Receiver<Option<Loaded>>),
 }
 
+/// A thread `thread/delete` closed: it stays in the directory, taking no work, until marked.
+pub(crate) struct DeleteHold {
+    handle: Arc<SessionHandle>,
+    mark: oneshot::Sender<()>,
+    marked: oneshot::Receiver<Result<(), super::run::RunError>>,
+}
+
+impl DeleteHold {
+    /// The thread's working folder (`cwd`), as it last stood.
+    pub(crate) fn cwd(&self) -> Option<String> {
+        self.handle.cell.header.load().get("cwd").and_then(Value::as_str).map(str::to_owned)
+    }
+
+    /// Appends the delete mark and waits for its ack; the thread then leaves the directory,
+    /// and a later open finds it gone. False when the mark was not applied.
+    pub(crate) async fn mark(self, directory: &DirInner) -> bool {
+        let _ = self.mark.send(());
+        let applied = matches!(self.marked.await, Ok(Ok(())));
+        let id = &self.handle.id;
+        let mut shard = lock(directory.shard(id));
+        if matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
+            shard.remove(id);
+        }
+        applied
+    }
+}
+
 pub(crate) struct DirInner {
     deps: Arc<SessionDeps>,
     shards: Box<[Mutex<HashMap<ThreadId, Slot_>>]>,
     me: std::sync::Weak<DirInner>,
+    /// `onGoalStatusChange`: each change goes to its loaded thread's Goal lane.
+    goal_events: Mutex<Option<crate::goal::Subscription>>,
 }
 
 /// A thread to create (`thread/start`, `thread/fork`).
@@ -105,18 +134,39 @@ struct Opened {
 
 impl SessionDirectory {
     pub fn new(deps: Arc<SessionDeps>) -> Self {
-        Self {
-            inner: Arc::new_cyclic(|me| DirInner {
-                deps,
-                shards: (0..SHARDS).map(|_| Mutex::new(HashMap::new())).collect(),
-                me: me.clone(),
-            }),
-        }
+        let inner = Arc::new_cyclic(|me| DirInner {
+            deps,
+            shards: (0..SHARDS).map(|_| Mutex::new(HashMap::new())).collect(),
+            me: me.clone(),
+            goal_events: Mutex::new(None),
+        });
+        let me = Arc::downgrade(&inner);
+        let subscription = inner.deps.goals.on_goal_change(Box::new(move |event| {
+            let Some(directory) = me.upgrade() else { return };
+            if let Some(handle) = directory.loaded(&ThreadId::from(event.session_id.as_str())) {
+                let _ = handle.inbox.try_send(Inbox::GoalChanged(event.goal.clone()));
+            }
+        }));
+        *lock(&inner.goal_events) = Some(subscription);
+        Self { inner }
     }
 
     /// The concrete handle of a loaded thread.
     pub fn handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         self.inner.loaded(id)
+    }
+
+    /// `abortSessionTurn(id, reason)`: the turn running in a session no outer turn holds (a
+    /// held request's `login-required`, a watchdog) ends with `abortSessionTurn (reason=…)`; the
+    /// session stays as it is. False when the thread is not loaded or is closing.
+    pub fn abort_session_turn(&self, id: &ThreadId, reason: &str) -> bool {
+        let Some(handle) = self.inner.loaded(id).filter(|handle| !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst)) else {
+            return false;
+        };
+        if let Some(run) = handle.cell.run.load_full() {
+            let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::abort_session_turn_reason(id.as_str(), reason));
+        }
+        true
     }
 
     /// A thread's model context (`session.messages`), read from the store; a thread need not be
@@ -357,6 +407,44 @@ impl DirInner {
         true
     }
 
+    pub(crate) fn deps(&self) -> &Arc<SessionDeps> {
+        &self.deps
+    }
+
+    pub(crate) fn loaded_handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
+        self.loaded(id)
+    }
+
+    /// `thread/delete`'s `closeSession(id, reason)`: the thread (opened for it when not
+    /// loaded) takes no more work and its turn ends; it stays in the directory, closed, until
+    /// [`DeleteHold::mark`]. `Ok(Err(refusal))`: `missing` (no such thread, or another delete
+    /// holds it), or with `idle` `busy`/`queued`, and nothing changed.
+    pub(crate) async fn close_for_delete(
+        &self,
+        id: &ThreadId,
+        reason: &str,
+        idle: bool,
+    ) -> Result<Result<DeleteHold, &'static str>, CoreError> {
+        let handle = match self.loaded(id) {
+            Some(handle) => handle,
+            None => match self.open_with(id, &CallContext::internal("thread-delete"), false).await {
+                Ok(handle) => handle,
+                Err(CoreError::ThreadNotFound { .. }) => return Ok(Err("missing")),
+                Err(error) => return Err(error),
+            },
+        };
+        let (closed, closed_rx) = oneshot::channel();
+        let (mark, mark_rx) = oneshot::channel();
+        let (marked_tx, marked) = oneshot::channel();
+        let delete = Ctl::Delete { reason: reason.to_owned(), idle, closed, mark: mark_rx, marked: marked_tx };
+        let closing = || CoreError::ThreadClosing { thread_id: id.clone() };
+        handle.cell.ctl_tx.send(delete).await.map_err(|_| closing())?;
+        match closed_rx.await.map_err(|_| closing())? {
+            Ok(()) => Ok(Ok(DeleteHold { handle, mark, marked })),
+            Err(refusal) => Ok(Err(refusal)),
+        }
+    }
+
     fn loaded(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         match lock(self.shard(id)).get(id) {
             Some(Slot_::Loaded(handle)) => Some(handle.clone()),
@@ -365,6 +453,11 @@ impl DirInner {
     }
 
     async fn open(&self, id: &ThreadId, ctx: &CallContext) -> Result<Arc<SessionHandle>, CoreError> {
+        self.open_with(id, ctx, true).await
+    }
+
+    /// `prewarm`: the effort judge is prewarmed for the opened thread (not for a delete).
+    async fn open_with(&self, id: &ThreadId, ctx: &CallContext, prewarm: bool) -> Result<Arc<SessionHandle>, CoreError> {
         let mut rx = {
             let mut shard = lock(self.shard(id));
             match shard.get(id) {
@@ -376,7 +469,7 @@ impl DirInner {
                     let me = self.me.upgrade().expect("the directory is alive while used");
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
-                        let result = me.load(&thread).await;
+                        let result = me.load(&thread, prewarm).await;
                         {
                             let mut shard = lock(me.shard(&thread));
                             match &result {
@@ -405,7 +498,7 @@ impl DirInner {
     }
 
     /// J1 and J2 on io-interactive, then one decode on cpu-interactive.
-    async fn load(&self, id: &ThreadId) -> Loaded {
+    async fn load(&self, id: &ThreadId, prewarm: bool) -> Loaded {
         let deps = self.deps.clone();
         let token = CancellationToken::new();
         let dropped = || CoreError::Internal {
@@ -440,7 +533,9 @@ impl DirInner {
             .await
             .map_err(|_| dropped())??;
         let lineage = self.lineage_of(id, &opened.state.header);
-        deps.effort.prewarm(id, &opened.state.header);
+        if prewarm {
+            deps.effort.prewarm(id, &opened.state.header);
+        }
         Ok(self.spawn(
             id.clone(),
             opened.state,
@@ -691,9 +786,21 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
     }
     // Window rows were counted into `prompts` by the store; their fold must not re-add them.
     let prompts = std::mem::take(&mut state.prompt_session);
-    for (ordinal, item) in log.window {
+    let mut dividers = log.dividers.into_iter().peekable();
+    let mut show_dividers = |state: &mut SessionState, before: usize| {
+        while let Some(divider) = dividers.next_if(|divider| divider.before <= before) {
+            let mut items = vec![super::transcript::divider_item(&divider.cid, divider.at)];
+            items.extend(super::transcript::divider_model_switches(&divider.cid, &divider.model_switches));
+            for item in items {
+                state.push_shown(divider.ordinal, item);
+            }
+        }
+    };
+    for (index, (ordinal, item)) in log.window.into_iter().enumerate() {
+        show_dividers(&mut state, index);
         apply(&mut state, ordinal, Record::Item(item));
     }
+    show_dividers(&mut state, usize::MAX);
     state.prompt_session = prompts;
     state.has_older = log.has_older || state.has_older;
     for (ordinal, record) in log.tail {

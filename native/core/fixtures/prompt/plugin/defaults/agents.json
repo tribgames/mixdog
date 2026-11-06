@@ -1,0 +1,35 @@
+{
+  "agents": [
+    {
+      "agent": "explore-agent",
+      "slot": "explore",
+      "description": "One-off read-only explorer, one per query of the explore tool",
+      "invokedBy": "explore",
+      "maintKey": "explore"
+    },
+    {
+      "agent": "cycle1-agent",
+      "slot": "cycle1",
+      "systemFile": "rules/agent/40-cycle1-agent.md",
+      "description": "Chunker/classifier invoked by memory-cycle runCycle1",
+      "invokedBy": "cycle1",
+      "maintKey": "memory",
+      "toolSchemaProfile": "none",
+      "kind": "maintenance",
+      "permission": "read",
+      "stallCap": { "idleSeconds": 300 }
+    },
+    {
+      "agent": "title-agent",
+      "slot": "title",
+      "systemFile": "rules/agent/43-title-agent.md",
+      "description": "One-shot session title generator invoked by the desktop host",
+      "invokedBy": "desktop-title",
+      "maintKey": "memory",
+      "toolSchemaProfile": "none",
+      "kind": "maintenance",
+      "permission": "read",
+      "stallCap": { "idleSeconds": 90 }
+    }
+  ]
+}

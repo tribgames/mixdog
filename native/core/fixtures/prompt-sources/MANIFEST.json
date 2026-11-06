@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-prompt-sources.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 290660,
+      "path": "sources.json",
+      "sha256": "cb7794139f0d313cb6bc7c9b71b2cc1ddeddc8901486e1f313bf1982b0888343"
+    }
+  ],
+  "product": {
+    "appsSha256": "1ba13ae4c6213282aa4baf8e39dd32a65446dfddf9d3fe560f802a85d7e64ec3",
+    "commit": "761c9545d460a6e0c5666dc186e95d8fee1d39f0",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9239,
+    "refComparison": {
+      "closestCommit": "761c9545d460a6e0c5666dc186e95d8fee1d39f0",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "da84a75c71e6980e7f87ef2e1f82333ed0a3fb8d449a4ec9d133bc8b04b3ddf0",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-prompt-sources.mjs",
+  "set": "prompt-sources",
+  "totalBytes": 290660
+}
