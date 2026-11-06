@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_core_api::CoreError;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InLane;
 use mixdog_statefile as state;
@@ -62,32 +63,84 @@ fn is_fixed(id: &str) -> bool {
 }
 
 /// `DEFINITION_WRITE`: every definition file is atomic, keeps the replaced copy as `.bak`.
-fn definition_write() -> state::Opts {
+pub(super) fn definition_write() -> state::Opts {
     state::Opts { backup: true, mode: 0o644, ..state::Opts::default() }
 }
 
-fn write_text(lane: &InLane<DurabilityIo>, file: &Path, text: &str, opts: &state::Opts) -> Result<(), String> {
-    state::write_file(lane, file, text.as_bytes(), opts).map(drop).map_err(|error| error.to_string())
+pub(super) fn write_text(lane: &InLane<DurabilityIo>, file: &Path, text: &str, opts: &state::Opts) -> Result<(), String> {
+    write_text_with(lane, file, text.as_bytes(), opts)
 }
 
-fn write_manifest(lane: &InLane<DurabilityIo>, file: &Path, manifest: &Map<String, Value>) -> Result<(), String> {
-    state::write_json(lane, file, &Value::Object(manifest.clone()), &definition_write()).map(drop).map_err(|error| error.to_string())
+fn write_text_with(lane: &InLane<DurabilityIo>, file: &Path, bytes: &[u8], opts: &state::Opts) -> Result<(), String> {
+    write_bytes(lane, file, bytes, opts).map_err(|error| error_text(&error))
+}
+
+/// The atomic publication, its failure as Node throws it (text and errno `code`).
+pub(super) fn write_bytes(lane: &InLane<DurabilityIo>, file: &Path, bytes: &[u8], opts: &state::Opts) -> Result<(), CoreError> {
+    state::write_file_stepped(lane, file, bytes, opts).map(drop).map_err(publish_failure)
+}
+
+/// A failed publication worded as Node throws it: `EPERM: operation not permitted, rename '<tmp>' ->
+/// '<file>'`, code `EPERM`. The temp file of a failed write is already removed by the publication.
+fn publish_failure(failure: state::PublishFailure) -> CoreError {
+    use mixdog_core_base::support::FsFailure;
+    use mixdog_core_base::support::FsStep;
+    let step = match failure.step {
+        state::Step::Mkdir(dir) => FsStep::Mkdir(dir),
+        state::Step::Open(file) => FsStep::Open(file),
+        state::Step::Read => FsStep::Read,
+        state::Step::Write | state::Step::Other => FsStep::Write,
+        state::Step::Fsync => FsStep::Fsync,
+        state::Step::Rename(from, to) => FsStep::Rename(from, to),
+    };
+    mixdog_core_base::support::io_failure("agent", &FsFailure { error: failure.error, step })
+}
+
+/// What a failure says (`error.message`).
+pub(super) fn error_text(error: &CoreError) -> String {
+    match error {
+        CoreError::DomainError { message: Some(message), .. } => message.to_string(),
+        other => other.to_string(),
+    }
+}
+
+pub(super) fn write_manifest(lane: &InLane<DurabilityIo>, file: &Path, manifest: &Map<String, Value>) -> Result<(), String> {
+    write_manifest_coded(lane, file, manifest).map_err(|error| error_text(&error))
+}
+
+pub(super) fn write_manifest_coded(lane: &InLane<DurabilityIo>, file: &Path, manifest: &Map<String, Value>) -> Result<(), CoreError> {
+    // A JSON write's backup takes only a replaced version that still parses.
+    let opts = state::Opts { backup_accepts: Some(state::is_json_content), ..definition_write() };
+    write_bytes(lane, file, &state::json_bytes(&Value::Object(manifest.clone()), &opts), &opts)
 }
 
 /// `readManifestForUpdate`: `{}` when `agent.json` is missing; a damaged one gets its last good
 /// copy back first, and with none it is refused and left alone.
-fn read_manifest_for_update(lane: &InLane<DurabilityIo>, dir: &Path) -> Result<Map<String, Value>, String> {
+pub(super) fn read_manifest_for_update(lane: &InLane<DurabilityIo>, dir: &Path) -> Result<Map<String, Value>, String> {
+    read_manifest_coded(lane, dir).map_err(|error| error_text(&error))
+}
+
+/// [`read_manifest_for_update`] with the failure as Node throws it: a file that cannot be read is
+/// `readFileSync`'s error (`EISDIR: illegal operation on a directory, read` for a folder).
+pub(super) fn read_manifest_coded(lane: &InLane<DurabilityIo>, dir: &Path) -> Result<Map<String, Value>, CoreError> {
+    use mixdog_core_base::support::FsFailure;
+    use mixdog_core_base::support::FsStep;
     let file = dir.join("agent.json");
     let validate = |value: &Value| {
         if value.is_object() { Ok(()) } else { Err(state::Invalid::Damaged("not a JSON object".into())) }
     };
     let opts = state::Opts { keep_without_backup: true, mode: 0o644, ..state::Opts::default() };
-    match state::read_json(lane, &file, Some(&validate), &opts).map_err(|error| error.to_string())? {
-        Some(Value::Object(manifest)) => Ok(manifest),
+    match state::read_json(lane, &file, Some(&validate), &opts) {
+        Ok(Some(Value::Object(manifest))) => Ok(manifest),
+        Err(error) => {
+            // Windows refuses to read a folder as access denied; Node reports `EISDIR` on every system.
+            let error = if file.is_dir() { std::io::ErrorKind::IsADirectory.into() } else { error };
+            Err(mixdog_core_base::support::io_failure("agent", &FsFailure { error, step: FsStep::Read }))
+        }
         _ if !file.exists() => Ok(Map::new()),
-        _ => Err(format!(
-            "{} is damaged and has no good copy to restore; it was left untouched. Fix or delete the file, then save again",
-            file.display()
+        _ => Err(mixdog_core_base::support::failed(
+            "agent",
+            format!("{} is damaged and has no good copy to restore; it was left untouched. Fix or delete the file, then save again", file.display()),
         )),
     }
 }
@@ -434,11 +487,15 @@ fn apply_manifest_edits(
 
 /// `syncAvatarFiles`: writes the images of an update, then drops every avatar image the stored
 /// avatar no longer names.
-fn sync_avatar_files(lane: &InLane<DurabilityIo>, dir: &Path, avatar: Option<&Value>, writes: &[ImageWrite]) -> Result<(), String> {
+pub(super) fn sync_avatar_files(lane: &InLane<DurabilityIo>, dir: &Path, avatar: Option<&Value>, writes: &[ImageWrite]) -> Result<(), String> {
+    sync_avatar_files_coded(lane, dir, avatar, writes).map_err(|error| error_text(&error))
+}
+
+pub(super) fn sync_avatar_files_coded(lane: &InLane<DurabilityIo>, dir: &Path, avatar: Option<&Value>, writes: &[ImageWrite]) -> Result<(), CoreError> {
     let image_opts = state::Opts { mode: 0o644, ..state::Opts::default() };
     for write in writes {
-        std::fs::create_dir_all(dir.join("avatar")).map_err(|error| error.to_string())?;
-        state::write_file(lane, &dir.join(&write.path), &write.bytes, &image_opts).map_err(|error| error.to_string())?;
+        // The publication makes the `avatar` folder; a failure reads as Node's, step and path included.
+        write_bytes(lane, &dir.join(&write.path), &write.bytes, &image_opts)?;
     }
     let mut keep: HashSet<String> = HashSet::new();
     if let Some(states) = avatar.filter(|a| a["kind"] == "custom").and_then(|a| a["states"].as_object()) {

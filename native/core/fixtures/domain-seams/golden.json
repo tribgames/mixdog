@@ -1,0 +1,1507 @@
+{
+  "developer": [
+    {
+      "enabled": [
+        {
+          "enabled": false,
+          "stored": {}
+        },
+        {
+          "enabled": false,
+          "stored": null
+        },
+        {
+          "enabled": false,
+          "stored": []
+        },
+        {
+          "enabled": false,
+          "stored": "x"
+        },
+        {
+          "enabled": true,
+          "stored": {
+            "allowAllActions": true
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "allowAllActions": false
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "allowAllActions": "true"
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "allowAllActions": 1
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "other": true
+          }
+        }
+      ],
+      "id": "allowAllActions",
+      "provider": null
+    },
+    {
+      "enabled": [
+        {
+          "enabled": false,
+          "stored": {}
+        },
+        {
+          "enabled": false,
+          "stored": null
+        },
+        {
+          "enabled": false,
+          "stored": []
+        },
+        {
+          "enabled": false,
+          "stored": "x"
+        },
+        {
+          "enabled": true,
+          "stored": {
+            "antigravityOAuth": true
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "antigravityOAuth": false
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "antigravityOAuth": "true"
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "antigravityOAuth": 1
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "other": true
+          }
+        }
+      ],
+      "id": "antigravityOAuth",
+      "provider": "antigravity-oauth"
+    },
+    {
+      "enabled": [
+        {
+          "enabled": false,
+          "stored": {}
+        },
+        {
+          "enabled": false,
+          "stored": null
+        },
+        {
+          "enabled": false,
+          "stored": []
+        },
+        {
+          "enabled": false,
+          "stored": "x"
+        },
+        {
+          "enabled": true,
+          "stored": {
+            "cursorOAuth": true
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "cursorOAuth": false
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "cursorOAuth": "true"
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "cursorOAuth": 1
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "other": true
+          }
+        }
+      ],
+      "id": "cursorOAuth",
+      "provider": "cursor-oauth"
+    },
+    {
+      "enabled": [
+        {
+          "enabled": false,
+          "stored": {}
+        },
+        {
+          "enabled": false,
+          "stored": null
+        },
+        {
+          "enabled": false,
+          "stored": []
+        },
+        {
+          "enabled": false,
+          "stored": "x"
+        },
+        {
+          "enabled": true,
+          "stored": {
+            "devinOAuth": true
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "devinOAuth": false
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "devinOAuth": "true"
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "devinOAuth": 1
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "other": true
+          }
+        }
+      ],
+      "id": "devinOAuth",
+      "provider": "devin-oauth"
+    },
+    {
+      "enabled": [
+        {
+          "enabled": false,
+          "stored": {}
+        },
+        {
+          "enabled": false,
+          "stored": null
+        },
+        {
+          "enabled": false,
+          "stored": []
+        },
+        {
+          "enabled": false,
+          "stored": "x"
+        },
+        {
+          "enabled": true,
+          "stored": {
+            "mimoOAuth": true
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "mimoOAuth": false
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "mimoOAuth": "true"
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "mimoOAuth": 1
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "other": true
+          }
+        }
+      ],
+      "id": "mimoOAuth",
+      "provider": "mimo-oauth"
+    },
+    {
+      "enabled": [
+        {
+          "enabled": false,
+          "stored": {}
+        },
+        {
+          "enabled": false,
+          "stored": null
+        },
+        {
+          "enabled": false,
+          "stored": []
+        },
+        {
+          "enabled": false,
+          "stored": "x"
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "no-such-option": true
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "no-such-option": false
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "no-such-option": "true"
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "no-such-option": 1
+          }
+        },
+        {
+          "enabled": false,
+          "stored": {
+            "other": true
+          }
+        }
+      ],
+      "id": "no-such-option",
+      "provider": null
+    }
+  ],
+  "fonts": {
+    "definitions": [
+      {
+        "bytes": 2049096,
+        "family": "Noto Sans",
+        "fileName": "NotoSans-Variable.ttf",
+        "id": "noto-sans-latin",
+        "registryName": "Noto Sans (TrueType)",
+        "sha256": "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d",
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosans/NotoSans%5Bwdth%2Cwght%5D.ttf"
+      },
+      {
+        "bytes": 10414588,
+        "family": "Noto Sans KR",
+        "fileName": "NotoSansKR-Variable.ttf",
+        "id": "noto-sans-kr",
+        "registryName": "Noto Sans KR (TrueType)",
+        "sha256": "194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252",
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanskr/NotoSansKR%5Bwght%5D.ttf"
+      },
+      {
+        "bytes": 17772300,
+        "family": "Noto Sans SC",
+        "fileName": "NotoSansSC-Variable.ttf",
+        "id": "noto-sans-sc",
+        "registryName": "Noto Sans SC (TrueType)",
+        "sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf"
+      },
+      {
+        "bytes": 9589900,
+        "family": "Noto Sans JP",
+        "fileName": "NotoSansJP-Variable.ttf",
+        "id": "noto-sans-jp",
+        "registryName": "Noto Sans JP (TrueType)",
+        "sha256": "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f",
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf"
+      },
+      {
+        "bytes": 11941968,
+        "family": "Noto Sans TC",
+        "fileName": "NotoSansTC-Variable.ttf",
+        "id": "noto-sans-tc",
+        "registryName": "Noto Sans TC (TrueType)",
+        "sha256": "864727d210d54f2537bbe23b3a839436c3992af72de9322af5270897246bd44f",
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanstc/NotoSansTC%5Bwght%5D.ttf"
+      },
+      {
+        "bytes": 844676,
+        "family": "Noto Sans Arabic",
+        "fileName": "NotoSansArabic-Variable.ttf",
+        "id": "noto-sans-arabic",
+        "registryName": "Noto Sans Arabic (TrueType)",
+        "sha256": "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e",
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansarabic/NotoSansArabic%5Bwdth%2Cwght%5D.ttf"
+      },
+      {
+        "bytes": 641944,
+        "family": "Noto Sans Devanagari",
+        "fileName": "NotoSansDevanagari-Variable.ttf",
+        "id": "noto-sans-devanagari",
+        "registryName": "Noto Sans Devanagari (TrueType)",
+        "sha256": "14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e",
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansdevanagari/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf"
+      },
+      {
+        "bytes": 218652,
+        "family": "Noto Sans Thai",
+        "fileName": "NotoSansThai-Variable.ttf",
+        "id": "noto-sans-thai",
+        "registryName": "Noto Sans Thai (TrueType)",
+        "sha256": "5a1c559bb539583c8a1fd99d1c5b9491e5e14478c9cd2bd0970d5c3096cc9ef8",
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansthai/NotoSansThai%5Bwdth%2Cwght%5D.ttf"
+      },
+      {
+        "bytes": 112640,
+        "family": "Noto Sans Hebrew",
+        "fileName": "NotoSansHebrew-Variable.ttf",
+        "id": "noto-sans-hebrew",
+        "registryName": "Noto Sans Hebrew (TrueType)",
+        "sha256": "7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88",
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanshebrew/NotoSansHebrew%5Bwdth%2Cwght%5D.ttf"
+      },
+      {
+        "bytes": 463668,
+        "family": "Noto Sans Bengali",
+        "fileName": "NotoSansBengali-Variable.ttf",
+        "id": "noto-sans-bengali",
+        "registryName": "Noto Sans Bengali (TrueType)",
+        "sha256": "dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a",
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf"
+      }
+    ],
+    "prepare": {
+      "presentFile": "Present.ttf",
+      "results": {
+        "fresh": {
+          "installed": true,
+          "path": "<root>/home/.local/share/fonts/ok.ttf",
+          "skipped": false
+        },
+        "missing": {
+          "error": "Failed to download font Family missing (404)",
+          "installed": false
+        },
+        "present": {
+          "installed": true,
+          "path": "<root>/home/.local/share/fonts/Present.ttf",
+          "skipped": true
+        },
+        "short": {
+          "error": "Font Family short size mismatch: expected 15 bytes, got 5",
+          "installed": false
+        },
+        "wrong": {
+          "error": "Font Family wrong sha256 mismatch: expected 1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc, got 546308d937fccbbb5f99870a26637b30efad79a2a52d2022e95a89325e08634a",
+          "installed": false
+        }
+      },
+      "served": {
+        "/missing.ttf": {
+          "body": "",
+          "status": 404
+        },
+        "/ok.ttf": {
+          "body": "good-font-bytes",
+          "status": 200
+        },
+        "/short.ttf": {
+          "body": "short",
+          "status": 200
+        },
+        "/wrong.ttf": {
+          "body": "wrong-font-byte",
+          "status": 200
+        }
+      },
+      "targets": [
+        {
+          "bytes": 15,
+          "family": "Family present",
+          "fileName": "Present.ttf",
+          "id": "present",
+          "served": "/ok.ttf",
+          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+        },
+        {
+          "bytes": 15,
+          "family": "Family missing",
+          "fileName": "missing.ttf",
+          "id": "missing",
+          "served": "/missing.ttf",
+          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+        },
+        {
+          "bytes": 15,
+          "family": "Family short",
+          "fileName": "short.ttf",
+          "id": "short",
+          "served": "/short.ttf",
+          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+        },
+        {
+          "bytes": 15,
+          "family": "Family wrong",
+          "fileName": "wrong.ttf",
+          "id": "wrong",
+          "served": "/wrong.ttf",
+          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+        },
+        {
+          "bytes": 15,
+          "family": "Family fresh",
+          "fileName": "ok.ttf",
+          "id": "fresh",
+          "served": "/ok.ttf",
+          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+        }
+      ]
+    },
+    "verify": [
+      {
+        "buffer": "good-font-bytes",
+        "bytes": 15,
+        "error": null,
+        "family": "F",
+        "name": "ok",
+        "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+      },
+      {
+        "buffer": "good-font-bytes",
+        "bytes": 16,
+        "error": "Font F size mismatch: expected 16 bytes, got 15",
+        "family": "F",
+        "name": "size",
+        "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+      },
+      {
+        "buffer": "good-font-bytes",
+        "bytes": 15,
+        "error": "Font F sha256 mismatch: expected a5b472f23a1964cd3fe2e888a345383bdf83a4240470e5dfcfc54a3009e08a16, got 1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc",
+        "family": "F",
+        "name": "sha",
+        "sha256": "a5b472f23a1964cd3fe2e888a345383bdf83a4240470e5dfcfc54a3009e08a16"
+      }
+    ]
+  },
+  "frozenNow": 1700000000000,
+  "hooks": {
+    "payloads": [
+      {
+        "compact": {},
+        "payload": {},
+        "summary": ""
+      },
+      {
+        "compact": {
+          "elapsedMs": 12,
+          "error": "e",
+          "model": "m",
+          "prompt": "a   b\n c",
+          "provider": "p",
+          "reason": "r",
+          "session_id": "s1",
+          "tool_name": "bash"
+        },
+        "payload": {
+          "elapsedMs": 12,
+          "error": "e",
+          "model": "m",
+          "prompt": "a   b\n c",
+          "provider": "p",
+          "reason": "r",
+          "session_id": "s1",
+          "tool_name": "bash"
+        },
+        "summary": "session=s1 · name=bash · p/m · prompt=a b c · reason=r · error=e · 12ms"
+      },
+      {
+        "compact": {
+          "model": "only-model",
+          "name": "n",
+          "sessionId": "x"
+        },
+        "payload": {
+          "model": "only-model",
+          "name": "n",
+          "sessionId": "x"
+        },
+        "summary": "session=x · name=n · only-model"
+      },
+      {
+        "compact": {
+          "elapsedMs": 0,
+          "provider": "only-provider"
+        },
+        "payload": {
+          "elapsedMs": 0,
+          "provider": "only-provider"
+        },
+        "summary": "only-provider · 0ms"
+      },
+      {
+        "compact": {
+          "error": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+          "prompt": "p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p ",
+          "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr..."
+        },
+        "payload": {
+          "error": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+          "prompt": "p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p ",
+          "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+        },
+        "summary": "prompt=p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p  · reason=rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr · error=éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+      },
+      {
+        "compact": {
+          "elapsedMs": null,
+          "name": "",
+          "prompt": 0,
+          "sessionId": 0
+        },
+        "payload": {
+          "elapsedMs": null,
+          "name": "",
+          "prompt": 0,
+          "sessionId": 0
+        },
+        "summary": ""
+      },
+      {
+        "compact": {
+          "Token": "<redacted>",
+          "apiKey": "<redacted>",
+          "flag": true,
+          "n": 1.5,
+          "nested": {
+            "list": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "ok": 1,
+            "password": "<redacted>"
+          },
+          "none": null,
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx..."
+        },
+        "payload": {
+          "Token": "t",
+          "apiKey": "k",
+          "flag": true,
+          "n": 1.5,
+          "nested": {
+            "list": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              {
+                "secret": "s"
+              }
+            ],
+            "ok": 1,
+            "password": "p"
+          },
+          "none": null,
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "summary": ""
+      },
+      {
+        "compact": {
+          "a1": 1,
+          "a10": 10,
+          "a11": 11,
+          "a12": 12,
+          "a2": 2,
+          "a3": 3,
+          "a4": 4,
+          "a5": 5,
+          "a6": 6,
+          "a7": 7,
+          "a8": 8,
+          "a9": 9
+        },
+        "payload": {
+          "a1": 1,
+          "a10": 10,
+          "a11": 11,
+          "a12": 12,
+          "a13": 13,
+          "a2": 2,
+          "a3": 3,
+          "a4": 4,
+          "a5": 5,
+          "a6": 6,
+          "a7": 7,
+          "a8": 8,
+          "a9": 9
+        },
+        "summary": ""
+      }
+    ],
+    "rules": [
+      {
+        "index": 0,
+        "rule": {},
+        "summary": {
+          "action": "allow",
+          "cwd": null,
+          "enabled": true,
+          "index": 0,
+          "match": null,
+          "patch": null,
+          "reason": null,
+          "tool": "*"
+        }
+      },
+      {
+        "index": 1,
+        "rule": {
+          "action": "deny",
+          "cwd": "/x",
+          "match": "rm",
+          "reason": "no",
+          "tool": "bash"
+        },
+        "summary": {
+          "action": "deny",
+          "cwd": "/x",
+          "enabled": true,
+          "index": 1,
+          "match": "rm",
+          "patch": null,
+          "reason": "no",
+          "tool": "bash"
+        }
+      },
+      {
+        "index": 2,
+        "rule": {
+          "contains": "x",
+          "decision": "ask",
+          "enabled": false,
+          "message": "m",
+          "name": "edit",
+          "patch": {
+            "path": "y",
+            "token": "x"
+          }
+        },
+        "summary": {
+          "action": "ask",
+          "cwd": null,
+          "enabled": false,
+          "index": 2,
+          "match": "x",
+          "patch": {
+            "path": "y",
+            "token": "<redacted>"
+          },
+          "reason": "m",
+          "tool": "edit"
+        }
+      },
+      {
+        "index": 3,
+        "rule": {
+          "action": "",
+          "args": {
+            "key": "v",
+            "n": 2
+          },
+          "decision": "modify",
+          "enabled": 0,
+          "tools": [
+            "a",
+            "b"
+          ]
+        },
+        "summary": {
+          "action": "modify",
+          "cwd": null,
+          "enabled": true,
+          "index": 3,
+          "match": null,
+          "patch": {
+            "key": "<redacted>",
+            "n": 2
+          },
+          "reason": null,
+          "tool": [
+            "a",
+            "b"
+          ]
+        }
+      },
+      {
+        "index": 4,
+        "rule": {
+          "contains": "c",
+          "match": null,
+          "message": "mm",
+          "name": "n2",
+          "reason": "",
+          "tool": null
+        },
+        "summary": {
+          "action": "allow",
+          "cwd": null,
+          "enabled": true,
+          "index": 4,
+          "match": "c",
+          "patch": null,
+          "reason": "mm",
+          "tool": "n2"
+        }
+      }
+    ],
+    "scenarios": [
+      {
+        "countOrder": [
+          "hook:error",
+          "my:event",
+          "PostToolUse",
+          "PreToolUse",
+          "runtime:start",
+          "session:create",
+          "SessionStart",
+          "Stop",
+          "tool:ask",
+          "tool:before",
+          "tool:deny",
+          "tool:modify",
+          "tool:planned",
+          "turn:end",
+          "turn:error",
+          "turn:start",
+          "UserPromptSubmit"
+        ],
+        "events": [
+          [
+            "runtime:start",
+            {
+              "sessionId": "boot"
+            }
+          ],
+          [
+            "tool:deny",
+            {
+              "name": "bash",
+              "reason": "r"
+            }
+          ],
+          [
+            "tool:deny",
+            {
+              "name": "bash",
+              "reason": "r"
+            }
+          ],
+          [
+            "my:event",
+            {
+              "prompt": "hello   world"
+            }
+          ]
+        ],
+        "files": {
+          "data/hooks.json": "[{\"tool\":\"bash\",\"action\":\"deny\",\"match\":\"rm -rf\",\"reason\":\"no\"},{\"name\":\"edit\",\"decision\":\"ask\",\"enabled\":false,\"patch\":{\"token\":\"x\",\"path\":\"y\"}}]"
+        },
+        "loaderEmits": [],
+        "name": "legacy-rules",
+        "recentNames": [
+          "my:event",
+          "tool:deny",
+          "tool:deny",
+          "runtime:start"
+        ],
+        "status": {
+          "configMode": "legacy",
+          "configSourceEntries": [
+            {
+              "path": "<root>/data/hooks.json",
+              "pluginRoot": null,
+              "sourceType": "data"
+            }
+          ],
+          "configSources": [
+            "<root>/data/hooks.json"
+          ],
+          "configuredEvents": [],
+          "counts": {
+            "PostToolUse": 0,
+            "PreToolUse": 0,
+            "SessionStart": 0,
+            "Stop": 0,
+            "UserPromptSubmit": 0,
+            "hook:error": 0,
+            "my:event": 1,
+            "runtime:start": 1,
+            "session:create": 0,
+            "tool:ask": 0,
+            "tool:before": 0,
+            "tool:deny": 2,
+            "tool:modify": 0,
+            "tool:planned": 0,
+            "turn:end": 0,
+            "turn:error": 0,
+            "turn:start": 0
+          },
+          "enabled": true,
+          "errors": [],
+          "events": [
+            "runtime:start",
+            "session:create",
+            "turn:start",
+            "turn:end",
+            "turn:error",
+            "tool:planned",
+            "tool:before",
+            "tool:ask",
+            "tool:deny",
+            "tool:modify",
+            "hook:error",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop",
+            "my:event"
+          ],
+          "mode": "standalone-standard",
+          "note": "Legacy before-tool hook rules are active. Rules may allow, deny, or modify tool arguments.",
+          "recent": [
+            {
+              "name": "my:event",
+              "payload": {
+                "prompt": "hello   world"
+              },
+              "summary": "prompt=hello world",
+              "ts": "2023-11-14T22:13:20.000Z"
+            },
+            {
+              "name": "tool:deny",
+              "payload": {
+                "name": "bash",
+                "reason": "r"
+              },
+              "summary": "name=bash · reason=r",
+              "ts": "2023-11-14T22:13:20.000Z"
+            },
+            {
+              "name": "tool:deny",
+              "payload": {
+                "name": "bash",
+                "reason": "r"
+              },
+              "summary": "name=bash · reason=r",
+              "ts": "2023-11-14T22:13:20.000Z"
+            },
+            {
+              "name": "runtime:start",
+              "payload": {
+                "sessionId": "boot"
+              },
+              "summary": "session=boot",
+              "ts": "2023-11-14T22:13:20.000Z"
+            }
+          ],
+          "ruleCount": 2,
+          "rules": [
+            {
+              "action": "deny",
+              "cwd": null,
+              "enabled": true,
+              "index": 0,
+              "match": "rm -rf",
+              "patch": null,
+              "reason": "no",
+              "tool": "bash"
+            },
+            {
+              "action": "ask",
+              "cwd": null,
+              "enabled": false,
+              "index": 1,
+              "match": null,
+              "patch": {
+                "path": "y",
+                "token": "<redacted>"
+              },
+              "reason": null,
+              "tool": "edit"
+            }
+          ],
+          "rulesPath": "<root>/data/hooks.json"
+        }
+      },
+      {
+        "countOrder": [
+          "hook:error",
+          "PostToolUse",
+          "PreToolUse",
+          "runtime:start",
+          "session:create",
+          "SessionStart",
+          "Stop",
+          "tool:ask",
+          "tool:before",
+          "tool:deny",
+          "tool:modify",
+          "tool:planned",
+          "turn:end",
+          "turn:error",
+          "turn:start",
+          "UserPromptSubmit"
+        ],
+        "events": [
+          [
+            "PreToolUse",
+            {
+              "tool_name": "Bash"
+            }
+          ],
+          [
+            "tool:ask",
+            {
+              "name": "x"
+            }
+          ]
+        ],
+        "files": {
+          "data/hooks.json": "{\"hooks\":{\"SessionStart\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo c\"}]}],\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo d\"}]}]}}",
+          "project/.mixdog/hooks.json": "{\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo a\"}]}],\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"echo b\"}]}],\"Bad\":\"nope\"}}"
+        },
+        "loaderEmits": [
+          {
+            "name": "hook:error",
+            "payload": {
+              "error": "failed to parse hooks file <root>/project/.mixdog/hooks.json: ignored malformed hook event(s): Bad"
+            }
+          }
+        ],
+        "name": "standard-merge-order",
+        "recentNames": [
+          "hook:error",
+          "tool:ask",
+          "PreToolUse"
+        ],
+        "status": {
+          "configMode": "standard",
+          "configSourceEntries": [
+            {
+              "path": "<root>/project/.mixdog/hooks.json",
+              "pluginRoot": null,
+              "sourceType": "project"
+            },
+            {
+              "path": "<root>/data/hooks.json",
+              "pluginRoot": null,
+              "sourceType": "data"
+            }
+          ],
+          "configSources": [
+            "<root>/project/.mixdog/hooks.json",
+            "<root>/data/hooks.json"
+          ],
+          "configuredEvents": [
+            "Stop",
+            "PreToolUse",
+            "SessionStart"
+          ],
+          "counts": {
+            "PostToolUse": 0,
+            "PreToolUse": 1,
+            "SessionStart": 0,
+            "Stop": 0,
+            "UserPromptSubmit": 0,
+            "hook:error": 1,
+            "runtime:start": 0,
+            "session:create": 0,
+            "tool:ask": 1,
+            "tool:before": 0,
+            "tool:deny": 0,
+            "tool:modify": 0,
+            "tool:planned": 0,
+            "turn:end": 0,
+            "turn:error": 0,
+            "turn:start": 0
+          },
+          "enabled": true,
+          "errors": [
+            {
+              "error": "ignored malformed hook event(s): Bad",
+              "file": "<root>/project/.mixdog/hooks.json"
+            }
+          ],
+          "events": [
+            "runtime:start",
+            "session:create",
+            "turn:start",
+            "turn:end",
+            "turn:error",
+            "tool:planned",
+            "tool:before",
+            "tool:ask",
+            "tool:deny",
+            "tool:modify",
+            "hook:error",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop"
+          ],
+          "mode": "standalone-standard",
+          "note": "Standard Mixdog hooks active for events: Stop, PreToolUse, SessionStart.",
+          "recent": [
+            {
+              "name": "tool:ask",
+              "payload": {
+                "name": "x"
+              },
+              "summary": "name=x",
+              "ts": "2023-11-14T22:13:20.000Z"
+            },
+            {
+              "name": "PreToolUse",
+              "payload": {
+                "tool_name": "Bash"
+              },
+              "summary": "name=Bash",
+              "ts": "2023-11-14T22:13:20.000Z"
+            }
+          ],
+          "ruleCount": 0,
+          "rules": [],
+          "rulesPath": "<root>/data/hooks.json"
+        }
+      },
+      {
+        "countOrder": [
+          "hook:error",
+          "PostToolUse",
+          "PreToolUse",
+          "runtime:start",
+          "session:create",
+          "SessionStart",
+          "Stop",
+          "tool:ask",
+          "tool:before",
+          "tool:deny",
+          "tool:modify",
+          "tool:planned",
+          "turn:end",
+          "turn:error",
+          "turn:start",
+          "UserPromptSubmit"
+        ],
+        "events": [],
+        "files": {
+          "data/hooks.json": "{\"disableAllHooks\":true,\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo a\"}]}]}}"
+        },
+        "loaderEmits": [],
+        "name": "disabled",
+        "recentNames": [],
+        "status": {
+          "configMode": "standard",
+          "configSourceEntries": [
+            {
+              "path": "<root>/data/hooks.json",
+              "pluginRoot": null,
+              "sourceType": "data"
+            }
+          ],
+          "configSources": [
+            "<root>/data/hooks.json"
+          ],
+          "configuredEvents": [
+            "Stop"
+          ],
+          "counts": {
+            "PostToolUse": 0,
+            "PreToolUse": 0,
+            "SessionStart": 0,
+            "Stop": 0,
+            "UserPromptSubmit": 0,
+            "hook:error": 0,
+            "runtime:start": 0,
+            "session:create": 0,
+            "tool:ask": 0,
+            "tool:before": 0,
+            "tool:deny": 0,
+            "tool:modify": 0,
+            "tool:planned": 0,
+            "turn:end": 0,
+            "turn:error": 0,
+            "turn:start": 0
+          },
+          "enabled": false,
+          "errors": [],
+          "events": [
+            "runtime:start",
+            "session:create",
+            "turn:start",
+            "turn:end",
+            "turn:error",
+            "tool:planned",
+            "tool:before",
+            "tool:ask",
+            "tool:deny",
+            "tool:modify",
+            "hook:error",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop"
+          ],
+          "mode": "standalone-standard",
+          "note": "Hooks are disabled by disableAllHooks.",
+          "recent": [],
+          "ruleCount": 0,
+          "rules": [],
+          "rulesPath": "<root>/data/hooks.json"
+        }
+      },
+      {
+        "countOrder": [
+          "hook:error",
+          "PostToolUse",
+          "PreToolUse",
+          "runtime:start",
+          "session:create",
+          "SessionStart",
+          "Stop",
+          "tool:ask",
+          "tool:before",
+          "tool:deny",
+          "tool:modify",
+          "tool:planned",
+          "turn:end",
+          "turn:error",
+          "turn:start",
+          "UserPromptSubmit"
+        ],
+        "events": [
+          [
+            "turn:start",
+            {
+              "sessionId": "s"
+            }
+          ]
+        ],
+        "files": {},
+        "loaderEmits": [],
+        "name": "empty",
+        "recentNames": [
+          "turn:start"
+        ],
+        "status": {
+          "configMode": "legacy",
+          "configSourceEntries": [],
+          "configSources": [],
+          "configuredEvents": [],
+          "counts": {
+            "PostToolUse": 0,
+            "PreToolUse": 0,
+            "SessionStart": 0,
+            "Stop": 0,
+            "UserPromptSubmit": 0,
+            "hook:error": 0,
+            "runtime:start": 0,
+            "session:create": 0,
+            "tool:ask": 0,
+            "tool:before": 0,
+            "tool:deny": 0,
+            "tool:modify": 0,
+            "tool:planned": 0,
+            "turn:end": 0,
+            "turn:error": 0,
+            "turn:start": 1
+          },
+          "enabled": true,
+          "errors": [],
+          "events": [
+            "runtime:start",
+            "session:create",
+            "turn:start",
+            "turn:end",
+            "turn:error",
+            "tool:planned",
+            "tool:before",
+            "tool:ask",
+            "tool:deny",
+            "tool:modify",
+            "hook:error",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop"
+          ],
+          "mode": "standalone-standard",
+          "note": "No hook rules configured; lifecycle and tool events are recorded in observer mode.",
+          "recent": [
+            {
+              "name": "turn:start",
+              "payload": {
+                "sessionId": "s"
+              },
+              "summary": "session=s",
+              "ts": "2023-11-14T22:13:20.000Z"
+            }
+          ],
+          "ruleCount": 0,
+          "rules": [],
+          "rulesPath": "<root>/data/hooks.json"
+        }
+      }
+    ]
+  },
+  "instructions": {
+    "afterUnsubscribe": [
+      "context-status",
+      "listener-a"
+    ],
+    "saveError": null,
+    "trace": [
+      "context-status",
+      "listener-a",
+      "listener-b"
+    ],
+    "userOverride": true
+  },
+  "marker": {
+    "cases": [
+      {
+        "file": "{\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\"\n}\n",
+        "name": "none",
+        "prior": null
+      },
+      {
+        "file": "{\n  \"openai\": \"t0\",\n  \"#deleted\": \"d0\",\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\"\n}\n",
+        "name": "keeps-others",
+        "prior": "{\"openai\":\"t0\",\"#deleted\":\"d0\"}"
+      },
+      {
+        "file": "{\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\",\n  \"openai\": \"t0\"\n}\n",
+        "name": "replaces-own",
+        "prior": "{\"#plugins\":\"old\",\"openai\":\"t0\"}"
+      },
+      {
+        "file": "{\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\"\n}\n",
+        "name": "array-starts-over",
+        "prior": "[1]"
+      }
+    ],
+    "now": 1700000000000,
+    "pid": 4242,
+    "uuid": "0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b"
+  },
+  "sessionLog": [
+    {
+      "files": {},
+      "name": "nothing",
+      "status": {
+        "complete": false,
+        "logs": 0,
+        "pending": 0,
+        "skipped": [],
+        "started": false
+      }
+    },
+    {
+      "files": {
+        "sessions/a.json": "{}",
+        "sessions/b.json": "{}"
+      },
+      "name": "no-progress-legacy-pending",
+      "status": {
+        "complete": false,
+        "logs": 0,
+        "pending": 2,
+        "skipped": [],
+        "started": false
+      }
+    },
+    {
+      "files": {
+        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"json-to-log-v1\",\"cursor\":null,\"complete\":true,\"updatedAt\":5,\"skipped\":{}}",
+        "sessions/a.log.jsonl": "",
+        "sessions/b.log.jsonl": ""
+      },
+      "name": "complete",
+      "status": {
+        "complete": true,
+        "logs": 2,
+        "pending": 0,
+        "skipped": [],
+        "started": true
+      }
+    },
+    {
+      "files": {
+        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"json-to-log-v1\",\"cursor\":null,\"complete\":false,\"updatedAt\":5,\"skipped\":{\"a\":{\"reason\":\"unreadable\"},\"b\":{\"reason\":\"busy\"},\"z9\":{\"reason\":\"failed\"}}}",
+        "sessions/a.json": "{}",
+        "sessions/b.json": "{}",
+        "sessions/bad name.json": "{}",
+        "sessions/c.json": "{}",
+        "sessions/c.log.jsonl": "",
+        "sessions/d.json": "{}",
+        "sessions/e.log.jsonl.torn-1-ab": "",
+        "sessions/note.txt": ""
+      },
+      "name": "skips",
+      "status": {
+        "complete": false,
+        "logs": 1,
+        "pending": 2,
+        "skipped": [
+          {
+            "id": "a",
+            "reason": "unreadable"
+          },
+          {
+            "id": "b",
+            "reason": "busy"
+          },
+          {
+            "id": "z9",
+            "reason": "failed"
+          }
+        ],
+        "started": true
+      }
+    },
+    {
+      "files": {
+        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"json-to-log-v1\",\"cursor\":null,\"complete\":false,\"updatedAt\":0,\"skipped\":{}}",
+        "sessions/a.json": "{}"
+      },
+      "name": "never-started",
+      "status": {
+        "complete": false,
+        "logs": 0,
+        "pending": 1,
+        "skipped": [],
+        "started": false
+      }
+    },
+    {
+      "files": {
+        "session-log-migration.json": "{\"v\":2}"
+      },
+      "name": "wrong-version",
+      "status": {
+        "unreadable": true
+      }
+    },
+    {
+      "files": {
+        "session-log-migration.json": "{broken"
+      },
+      "name": "not-json",
+      "status": {
+        "unreadable": true
+      }
+    },
+    {
+      "files": {
+        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"other\",\"cursor\":null,\"complete\":false,\"updatedAt\":5,\"skipped\":{}}"
+      },
+      "name": "wrong-id",
+      "status": {
+        "unreadable": true
+      }
+    }
+  ],
+  "shell": [
+    {
+      "get": "",
+      "set": "   "
+    },
+    {
+      "get": "pwsh.exe",
+      "set": "  pwsh.exe "
+    },
+    {
+      "get": "pwsh.exe",
+      "set": "pwsh.exe"
+    },
+    {
+      "get": "",
+      "set": ""
+    },
+    {
+      "get": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "set": " C:\\Program Files\\Git\\bin\\bash.exe"
+    },
+    {
+      "get": "",
+      "set": {
+        "undefined": true
+      }
+    },
+    {
+      "get": "",
+      "set": null
+    },
+    {
+      "get": "",
+      "set": 0
+    },
+    {
+      "get": "zsh",
+      "set": "zsh"
+    }
+  ]
+}

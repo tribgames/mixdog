@@ -88,7 +88,8 @@ impl Offsets {
 
     /// The stored position, if the file has one.
     pub fn get(&self, path: &str) -> Option<Position> {
-        self.lock().contains_key(path).then(|| self.snapshot(path))
+        let present = self.lock().contains_key(path);
+        present.then(|| self.snapshot(path))
     }
 
     pub fn set(&self, path: &str, position: Position) {

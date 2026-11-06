@@ -134,6 +134,9 @@ pub struct SessionMeta {
     /// `knownSessionCwds`' list-row part: `cwd`, `workspace.cwd`, `workspace.projectPath`,
     /// each a non-empty string, once.
     pub cwds: Vec<String>,
+    /// The list row itself (`storedSessionRows()`' entry): its `messageCount`, `compactCount`,
+    /// `cwd`, `desktopSession` and `workspace`.
+    pub row: Value,
 }
 
 /// `Number(value) || 0`.
@@ -154,6 +157,7 @@ impl SessionMeta {
             source_type: field("sourceType"),
             last_used_at: last_used(row.get("lastUsedAt")),
             cwds: super::delete::row_cwds(&row),
+            row,
         }
     }
 }
@@ -240,6 +244,9 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// `threadNotFound` for an unknown or deleted one.
     fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError>;
 
+    /// The `log_id` of a session `read_header` found.
+    fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError>;
+
     /// J2.
     fn read_window(
         &self,
@@ -266,12 +273,13 @@ pub trait ThreadStore: Send + Sync + 'static {
     ) -> Result<Vec<ItemRecord>, CoreError>;
 
     /// The lineage's whole history, oldest first, as the transcript pages it (archived rows
-    /// included): the session's whole stored conversation (`readSessionHistory`).
+    /// included): the session's whole stored conversation (`readSessionHistory`), with the
+    /// history revision it is read at (it moves on every rewind and clear).
     fn history_rows(
         &self,
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
-    ) -> Result<Vec<ItemRecord>, CoreError>;
+    ) -> Result<(u64, Vec<ItemRecord>), CoreError>;
 
     /// The live history row `iid` of the lineage with its ordinal, as the transcript reads it;
     /// `None` when no live row has that id.
@@ -404,6 +412,11 @@ pub trait Transcript: Send + Sync + 'static {
     /// stable per record, so a reopened thread shows the same items.
     fn items(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<Shown>;
 
+    /// The items of `items` that are rows (no result updates), each with the byte length of the
+    /// display row it stands for: what a history page's byte budget counts (Node measures
+    /// `JSON.stringify` of the transcript row).
+    fn rows(&self, lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<(ThreadItem, usize)>;
+
     /// The `queued` row of a queue entry (`thread/queue/changed`).
     fn queued(&self, qid: &str, entry: &Value) -> Value;
 
@@ -452,6 +465,8 @@ pub struct AgentTurn {
 pub struct RunStart {
     /// `Some` for a worker's turn started by `agent_registry::SessionTurns`.
     pub agent_turn: Option<AgentTurn>,
+    /// A routine fire's trusted skill-selection text (`options.skillSelection`).
+    pub skill_selection: Option<String>,
     /// `snapshotPendingGoalReminder`: the Goal's state the turn's tail block carries (after the
     /// deferred tool delta, before the todo start reminder); the actor acknowledges it when the
     /// turn is accepted.

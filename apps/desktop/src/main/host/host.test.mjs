@@ -62,7 +62,7 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 function build(overrides = {}) {
   const wire = pair();
-  const calls = { viewFailures: [], installFailures: [], updates: [], publishFailures: [], remote: [], controls: [], stream: [], executed: [], lifecycle: [], toasts: [], sounds: 0, activations: 0 };
+  const calls = { viewFailures: [], installFailures: [], updates: [], publishFailures: [], remote: [], controls: [], stream: [], executed: [], exported: [], lifecycle: [], toasts: [], sounds: 0, activations: 0 };
   const clicks = [];
   const host = createDesktopHost({
     connection: wire.connection,
@@ -107,6 +107,10 @@ function build(overrides = {}) {
     onUpdaterInstallFailed: (error) => calls.installFailures.push(error.message),
     visualize: () => ({
       execute: async (command) => ({ text: 'ran', command }),
+      exportForDevice: async (command) => {
+        calls.exported.push(command);
+        return { path: '/tmp/mixdog-visualize-export-a/pane.png' };
+      },
       snapshot: () => [{ sessionId: 's1', tabs: [], active: null }],
     }),
     files: () => ({
@@ -306,6 +310,24 @@ test('visualize state is sent on a claim and on each change, and its commands an
   });
   assert.equal(await wire.call('host/localPage/url', { root: '/p', rel: 'a.html', scope: 'file' }), 'http://127.0.0.1:1/t/file/a.html');
   await assert.rejects(wire.call('host/localPage/url', 7), (error) => error.code === -32602);
+});
+
+test('a device export draws through the service\'s exportForDevice and answers its path', async () => {
+  const { wire, calls } = build();
+  const input = { sessionId: 's1', tabId: 'v1', format: 'png', pane: 0, forDevice: true };
+  assert.deepEqual(await wire.call('host/visualize/command', { sessionId: 's1', cwd: '/p', action: 'export', input }), {
+    path: '/tmp/mixdog-visualize-export-a/pane.png',
+  });
+  assert.deepEqual(calls.exported, [{ sessionId: 's1', tabId: 'v1', action: 'export', format: 'png', pane: 0 }]);
+  // The project export has no device form (remote-visualize.ts: 'export format is invalid.').
+  await assert.rejects(
+    wire.call('host/visualize/command', { action: 'export', input: { ...input, format: 'project' } }),
+    (error) => /export format is invalid\./.test(error.message)
+  );
+  // An export without the mark is the tool's own export, run by xecute.
+  const plain = await wire.call('host/visualize/command', { sessionId: 's1', action: 'export', input: { format: 'png' } });
+  assert.equal(plain.text, 'ran');
+  assert.equal(calls.exported.length, 1);
 });
 
 test('update install answers the state taken before installing, and installs only when ready and not held', async () => {

@@ -252,7 +252,7 @@ impl WarmDeps for Deps {
         }
         let usage = step.get("usage").map(usage_of);
         match step.get("error").and_then(Value::as_str) {
-            Some(message) => Err(WarmFailure { message: message.to_owned(), usage }),
+            Some(message) => Err(WarmFailure { message: message.to_owned(), error: None, usage }),
             None => Ok(usage.unwrap_or_default()),
         }
     }

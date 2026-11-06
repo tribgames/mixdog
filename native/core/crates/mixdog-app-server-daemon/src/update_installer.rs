@@ -10,18 +10,26 @@
 //! same marker. A staging lock (`.staging.lock`, `<pid> <ms>`) keeps two installers of one version
 //! apart; it is stolen only from a dead owner or after ten minutes.
 //!
-//! The whole install is one job of the maintenance lane: it waits for the npm child, which
-//! takes minutes, and holds no other lane while it does.
+//! The file work is jobs of the maintenance lane; the npm child, which takes minutes, runs
+//! through the one process manager (`mixdog_scm::exec::Exec`) between them, so no lane is held
+//! while it runs and spawn admission and tree kill are the manager's.
 
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_ai::netproxy::system::SystemProxy;
 use mixdog_core_domains::domains::update::UpdateInstaller;
 use mixdog_rt::MaintenanceIo;
+use mixdog_scm::exec::Exec;
+use mixdog_scm::exec::ExecSpec;
 use tokio_util::sync::CancellationToken;
+
+const REGISTRY_TIMEOUT: Duration = Duration::from_secs(10);
+/// npm runs at `--loglevel=error`; a child that writes more than this is killed.
+const NPM_MAX_OUTPUT: u64 = 64 * 1024 * 1024;
 
 /// Where the install lives and what runs npm.
 #[derive(Debug, Clone)]
@@ -40,6 +48,7 @@ pub struct StagedInstaller {
     config: StagedConfig,
     lane: MaintenanceIo,
     proxy: Arc<SystemProxy>,
+    exec: Arc<Exec>,
     dev: bool,
 }
 
@@ -47,14 +56,59 @@ impl StagedInstaller {
     /// `dev` is [`Self::probe_dev_install`] of the package root, asked once by the composition
     /// (it probes the file system) and kept for the life of the process, as Node's
     /// `isDevInstall()` is a property of the module location.
-    pub fn new(config: StagedConfig, lane: MaintenanceIo, proxy: Arc<SystemProxy>, dev: bool) -> Self {
-        Self { config, lane, proxy, dev }
+    pub fn new(config: StagedConfig, lane: MaintenanceIo, proxy: Arc<SystemProxy>, exec: Arc<Exec>, dev: bool) -> Self {
+        Self { config, lane, proxy, exec, dev }
+    }
+
+    /// `npm-cli.js` run by the configured interpreter (shell-less: no `cmd`, no PowerShell).
+    fn npm_spec(&self, cli: &Path, args: &[String]) -> ExecSpec {
+        let mut spec = ExecSpec::new(self.config.node.to_string_lossy(), &self.config.data_dir);
+        spec.args = std::iter::once(cli.to_string_lossy().into_owned()).chain(args.iter().cloned()).collect();
+        if self.config.electron {
+            spec.env_set.push(("ELECTRON_RUN_AS_NODE".into(), "1".into()));
+        }
+        spec
+    }
+
+    /// `npmRegistry`: the registry npm installs from (its `.npmrc` files included); npm's
+    /// default when npm cannot say.
+    async fn registry(&self, cli: &Path, cancel: &CancellationToken) -> String {
+        let mut spec = self.npm_spec(cli, &["config".into(), "get".into(), "registry".into()]);
+        spec.time_limit = Some(REGISTRY_TIMEOUT);
+        let asked = match self.exec.run(spec, cancel).await {
+            Ok(output) if output.success() => blocking::url_href(output.stdout_text().trim()),
+            _ => None,
+        };
+        asked.unwrap_or_else(|| blocking::DEFAULT_NPM_REGISTRY.to_owned())
+    }
+
+    /// `npm install mixdog@<version> --prefix <prefix>`; its exit code, `-1` when it did not run
+    /// or ended by a signal.
+    async fn npm_install(&self, cli: &Path, version: &str, prefix: &Path, proxy_env: &[(&'static str, String)], cancel: &CancellationToken) -> i32 {
+        let args: Vec<String> = [
+            "install".to_owned(),
+            format!("{}@{version}", blocking::PACKAGE_NAME),
+            "--prefix".to_owned(),
+            prefix.to_string_lossy().into_owned(),
+            "--no-save".to_owned(),
+            "--no-audit".to_owned(),
+            "--no-fund".to_owned(),
+            "--loglevel=error".to_owned(),
+        ]
+        .into();
+        let mut spec = self.npm_spec(cli, &args);
+        spec.env_set.extend(proxy_env.iter().map(|(key, value)| ((*key).to_owned(), value.clone())));
+        spec.max_output = NPM_MAX_OUTPUT;
+        match self.exec.run(spec, cancel).await {
+            Ok(output) => output.code.unwrap_or(-1),
+            Err(_) => -1,
+        }
     }
 
     /// `isDevInstall()`: a `.git` entry at the package root, or a package directory that is not
     /// under any `node_modules`. Probes the file system.
-    pub fn probe_dev_install(package_root: &Path) -> bool {
-        blocking::is_dev_install(package_root)
+    pub fn probe_dev_install<L: mixdog_statefile::IoLane>(lane: &mixdog_rt::InLane<L>, package_root: &Path) -> bool {
+        blocking::is_dev_install(lane, package_root)
     }
 }
 
@@ -79,41 +133,57 @@ impl UpdateInstaller for StagedInstaller {
             blocking::Claim::AlreadyStaged => return Ok(None),
             blocking::Claim::Held(dir) => dir,
         };
-        // npm's registry decides the proxy route; asked between the two jobs because the route
-        // lookup is async.
-        let registry_config = self.config.clone();
-        let registry = mixdog_core_base::support::on_lane(self.lane, &cancel, move |_lane| blocking::npm_registry(&registry_config))
-            .await
-            .map_err(|error| error.to_string())?;
-        let proxy_env = match &registry {
-            Some((_, registry)) => self.proxy.npm_env(registry).await,
-            None => Vec::new(),
-        };
         let config = self.config.clone();
-        let install_version = version.clone();
-        let install_dir = verdir.clone();
-        let outcome = mixdog_core_base::support::on_lane(self.lane, &cancel, move |lane| {
-            blocking::install(lane, &config, &install_version, &install_dir, registry.as_ref().map(|(cli, _)| cli.as_path()), &proxy_env)
-        })
-        .await
-        .map_err(|error| error.to_string());
+        // Shell-less only. Without npm-cli.js staging is skipped.
+        let cli = mixdog_core_base::support::on_lane(self.lane, &cancel, move |lane| blocking::npm_cli_js(lane, &config))
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "npm-cli.js unresolved — staging skipped".to_owned());
+        let outcome = match cli {
+            Ok(cli) => self.install(&cli, &version, &verdir, &cancel).await,
+            Err(error) => Err(error),
+        };
         // The lock is released whatever happened above.
         let lock_dir = verdir;
         mixdog_core_base::support::on_lane(self.lane, &cancel, move |lane| blocking::release(lane, &lock_dir))
             .await
             .map_err(|error| error.to_string())?;
-        outcome??;
+        outcome?;
         Ok(None)
+    }
+}
+
+
+impl StagedInstaller {
+    /// The install proper, with the lock held: npm into a private prefix, relocate, verify, mark.
+    async fn install(&self, cli: &Path, version: &str, ver_dir: &Path, cancel: &CancellationToken) -> Result<(), String> {
+        // npm's registry decides the proxy route.
+        let registry = self.registry(cli, cancel).await;
+        let proxy_env = self.proxy.npm_env(&registry).await;
+        let prefix = ver_dir.join("install");
+        let prepared = prefix.clone();
+        let pkg_dir = ver_dir.join(blocking::PKG_SUBDIR);
+        mixdog_core_base::support::on_lane(self.lane, cancel, move |lane| blocking::prepare(lane, &prepared, &pkg_dir))
+            .await
+            .map_err(|error| error.to_string())??;
+        let code = self.npm_install(cli, version, &prefix, &proxy_env, cancel).await;
+        if code != 0 {
+            return Err(format!("npm install exited with code {code}"));
+        }
+        let (finish_version, finish_dir) = (version.to_owned(), ver_dir.to_owned());
+        mixdog_core_base::support::on_lane(self.lane, cancel, move |lane| blocking::finish(lane, &finish_version, &finish_dir))
+            .await
+            .map_err(|error| error.to_string())?
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::disallowed_methods, reason = "tests write their staging tree on the test thread")]
-
     use std::path::Path;
 
     use mixdog_core_base::support::on_lane;
+    use mixdog_spawn::LocalProcessManager;
+    use mixdog_spawn::ProcessConfig;
 
     use super::*;
 
@@ -133,45 +203,84 @@ fs.writeFileSync(path.join(pkg, 'src', 'cli.mjs'), '');
 fs.mkdirSync(path.join(prefix, 'node_modules', 'dep'), { recursive: true });
 "#;
 
+    /// Writes `text` to `path` (parents created) as a maintenance-lane job.
+    async fn put(path: &Path, text: &str) {
+        let (path, text) = (path.to_owned(), text.to_owned());
+        on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| {
+            if let Some(parent) = path.parent() {
+                mixdog_statefile::create_private_dir_all(lane, parent).map_err(|error| error.to_string())?;
+            }
+            let opts = mixdog_statefile::Opts { lock: false, ..mixdog_statefile::Opts::default() };
+            mixdog_statefile::write_file(lane, &path, text.as_bytes(), &opts).map(|_| ()).map_err(|error| error.to_string())
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    }
+
+    async fn present(path: &Path) -> bool {
+        let path = path.to_owned();
+        on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| mixdog_statefile::metadata(lane, &path).is_ok()).await.unwrap()
+    }
+
+    async fn dev(path: &Path) -> bool {
+        let path = path.to_owned();
+        on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| StagedInstaller::probe_dev_install(lane, &path)).await.unwrap()
+    }
+
+    async fn mkdir(path: &Path) {
+        let path = path.to_owned();
+        on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| mixdog_statefile::create_private_dir_all(lane, &path))
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
     fn config(dir: &Path) -> StagedConfig {
         StagedConfig { data_dir: dir.join("data"), package_root: dir.join("pkg"), node: PathBuf::from("node"), electron: false }
     }
 
-    fn fake_npm(dir: &Path) -> PathBuf {
+    fn installer(config: StagedConfig) -> StagedInstaller {
+        let tokens = mixdog_rt::testing::tokens();
+        let processes = Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default()));
+        StagedInstaller::new(config, tokens.maintenance_io, Arc::new(SystemProxy::default()), Arc::new(Exec::new(processes)), false)
+    }
+
+    async fn fake_npm(dir: &Path) -> PathBuf {
         let cli = dir.join("npm-cli.js");
-        std::fs::write(&cli, FAKE_NPM).unwrap();
+        put(&cli, FAKE_NPM).await;
         cli
     }
 
+    /// The claim, install and release of one stage, with `cli` as the npm that runs.
     async fn staged(config: &StagedConfig, cli: &Path, version: &str) -> Result<(), String> {
-        let lane = mixdog_rt::testing::tokens().maintenance_io;
-        let (config, cli, version) = (config.clone(), cli.to_owned(), version.to_owned());
-        on_lane(lane, &CancellationToken::new(), move |lane| {
-            let dir = match blocking::claim(lane, &config, &version)? {
-                blocking::Claim::AlreadyStaged => return Ok(()),
-                blocking::Claim::Held(dir) => dir,
-            };
-            let result = blocking::install(lane, &config, &version, &dir, Some(&cli), &[]);
-            blocking::release(lane, &dir);
-            result
-        })
-        .await
-        .unwrap()
+        let installer = installer(config.clone());
+        let cancel = CancellationToken::new();
+        let (claim_config, claim_version) = (config.clone(), version.to_owned());
+        let claimed = on_lane(installer.lane, &cancel, move |lane| blocking::claim(lane, &claim_config, &claim_version)).await.unwrap()?;
+        let dir = match claimed {
+            blocking::Claim::AlreadyStaged => return Ok(()),
+            blocking::Claim::Held(dir) => dir,
+        };
+        let result = installer.install(cli, version, &dir, &cancel).await;
+        on_lane(installer.lane, &cancel, move |lane| blocking::release(lane, &dir)).await.unwrap();
+        result
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_staged_install_is_self_contained_and_marked_last() {
         let dir = tempfile::tempdir().unwrap();
         let config = config(dir.path());
-        staged(&config, &fake_npm(dir.path()), "9.9.9").await.unwrap();
+        staged(&config, &fake_npm(dir.path()).await, "9.9.9").await.unwrap();
         let ver_dir = config.data_dir.join("staging").join("9.9.9");
         let pkg = ver_dir.join("mixdog");
-        assert!(pkg.join("src").join("cli.mjs").exists());
+        assert!(present(&pkg.join("src").join("cli.mjs")).await);
         // The hoisted dependencies travel with the package, and the install prefix is gone.
-        assert!(pkg.join("node_modules").join("dep").exists());
-        assert!(!ver_dir.join("install").exists());
-        assert!(!ver_dir.join(".staging.lock").exists());
-        let marker: serde_json::Value = serde_json::from_slice(&std::fs::read(ver_dir.join(".staged-complete.json")).unwrap()).unwrap();
+        assert!(present(&pkg.join("node_modules").join("dep")).await);
+        assert!(!present(&ver_dir.join("install")).await);
+        assert!(!present(&ver_dir.join(".staging.lock")).await);
+        let bytes = mixdog_statefile::read_content(&ver_dir.join(".staged-complete.json")).unwrap().unwrap();
+        let marker: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(marker["version"], "9.9.9");
         assert_eq!(marker["pkgDir"], pkg.to_string_lossy().as_ref());
         // A second call finds it complete and installs nothing.
@@ -183,12 +292,12 @@ fs.mkdirSync(path.join(prefix, 'node_modules', 'dep'), { recursive: true });
         let dir = tempfile::tempdir().unwrap();
         let config = config(dir.path());
         let cli = dir.path().join("npm-cli.js");
-        std::fs::write(&cli, FAKE_NPM.replace("process.env.FAKE_NPM_VERSION ||", "'1.0.0' ||")).unwrap();
+        put(&cli, &FAKE_NPM.replace("process.env.FAKE_NPM_VERSION ||", "'1.0.0' ||")).await;
         let error = staged(&config, &cli, "9.9.9").await.unwrap_err();
         assert_eq!(error, "staged version 1.0.0 != 9.9.9");
         let ver_dir = config.data_dir.join("staging").join("9.9.9");
-        assert!(!ver_dir.join(".staged-complete.json").exists());
-        assert!(!ver_dir.join(".staging.lock").exists());
+        assert!(!present(&ver_dir.join(".staged-complete.json")).await);
+        assert!(!present(&ver_dir.join(".staging.lock")).await);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -196,7 +305,7 @@ fs.mkdirSync(path.join(prefix, 'node_modules', 'dep'), { recursive: true });
         let dir = tempfile::tempdir().unwrap();
         let config = config(dir.path());
         let cli = dir.path().join("npm-cli.js");
-        std::fs::write(&cli, "process.exit(3)").unwrap();
+        put(&cli, "process.exit(3)").await;
         assert_eq!(staged(&config, &cli, "9.9.9").await.unwrap_err(), "npm install exited with code 3");
     }
 
@@ -205,37 +314,32 @@ fs.mkdirSync(path.join(prefix, 'node_modules', 'dep'), { recursive: true });
         let dir = tempfile::tempdir().unwrap();
         let config = config(dir.path());
         let ver_dir = config.data_dir.join("staging").join("9.9.9");
-        std::fs::create_dir_all(&ver_dir).unwrap();
         let lock = ver_dir.join(".staging.lock");
-        std::fs::write(&lock, format!("{} 0", std::process::id())).unwrap();
-        let cli = fake_npm(dir.path());
+        put(&lock, &format!("{} 0", std::process::id())).await;
+        let cli = fake_npm(dir.path()).await;
         assert_eq!(staged(&config, &cli, "9.9.9").await.unwrap_err(), "staging in progress");
         // pid 0 names no process.
-        std::fs::write(&lock, "0 0").unwrap();
+        put(&lock, "0 0").await;
         staged(&config, &cli, "9.9.9").await.unwrap();
     }
 
-    #[test]
-    fn a_dev_install_is_a_checkout_or_a_package_outside_node_modules() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_dev_install_is_a_checkout_or_a_package_outside_node_modules() {
         let dir = tempfile::tempdir().unwrap();
         let checkout = dir.path().join("node_modules").join("mixdog");
-        std::fs::create_dir_all(checkout.join(".git")).unwrap();
-        assert!(StagedInstaller::probe_dev_install(&checkout));
+        mkdir(&checkout.join(".git")).await;
+        assert!(dev(&checkout).await);
         let installed = dir.path().join("node_modules").join("other");
-        std::fs::create_dir_all(&installed).unwrap();
-        assert!(!StagedInstaller::probe_dev_install(&installed));
-        assert!(StagedInstaller::probe_dev_install(&dir.path().join("src").join("mixdog")));
+        mkdir(&installed).await;
+        assert!(!dev(&installed).await);
+        assert!(dev(&dir.path().join("src").join("mixdog")).await);
     }
 }
 
 pub(crate) mod blocking {
-    #![allow(clippy::disallowed_methods, reason = "bodies of maintenance-lane jobs: probing and spawning that the lane contract is for")]
-
     use std::io::Write;
     use std::path::Path;
     use std::path::PathBuf;
-    use std::process::Command;
-    use std::process::Stdio;
     use std::time::Duration;
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
@@ -249,13 +353,12 @@ pub(crate) mod blocking {
     use crate::verdict::OsProcessTable;
     use crate::verdict::ProcessTable;
 
-    const PACKAGE_NAME: &str = "mixdog";
+    pub const PACKAGE_NAME: &str = "mixdog";
     const MARKER_NAME: &str = ".staged-complete.json";
     /// The self-contained package directory inside a staging version folder.
-    const PKG_SUBDIR: &str = "mixdog";
+    pub const PKG_SUBDIR: &str = "mixdog";
     const STALE_INPROGRESS: Duration = Duration::from_secs(10 * 60);
-    const REGISTRY_TIMEOUT: Duration = Duration::from_secs(10);
-    const DEFAULT_NPM_REGISTRY: &str = "https://registry.npmjs.org/";
+    pub const DEFAULT_NPM_REGISTRY: &str = "https://registry.npmjs.org/";
 
     pub enum Claim {
         AlreadyStaged,
@@ -267,8 +370,12 @@ pub(crate) mod blocking {
         config.data_dir.join("staging")
     }
 
-    pub fn is_dev_install(package_root: &Path) -> bool {
-        if package_root.join(".git").exists() {
+    fn present<L: mixdog_statefile::IoLane>(lane: &InLane<L>, path: &Path) -> bool {
+        mixdog_statefile::metadata(lane, path).is_ok()
+    }
+
+    pub fn is_dev_install<L: mixdog_statefile::IoLane>(lane: &InLane<L>, package_root: &Path) -> bool {
+        if present(lane, &package_root.join(".git")) {
             return true;
         }
         let normalized = package_root.to_string_lossy().replace('\\', "/").to_lowercase();
@@ -280,19 +387,19 @@ pub(crate) mod blocking {
         serde_json::from_slice(&bytes).ok()
     }
 
-    fn package_complete(pkg_dir: &Path) -> bool {
-        pkg_dir.join("package.json").exists() && pkg_dir.join("src").join("cli.mjs").exists()
+    fn package_complete(lane: &InLane<MaintenanceIo>, pkg_dir: &Path) -> bool {
+        present(lane, &pkg_dir.join("package.json")) && present(lane, &pkg_dir.join("src").join("cli.mjs"))
     }
 
     /// `isStagedComplete`.
-    fn is_staged_complete(root: &Path, version: &str) -> bool {
+    fn is_staged_complete(lane: &InLane<MaintenanceIo>, root: &Path, version: &str) -> bool {
         let ver_dir = root.join(version);
         let Some(marker) = marker(&ver_dir) else { return false };
         if marker["version"].as_str() != Some(version) {
             return false;
         }
         let pkg_dir = marker["pkgDir"].as_str().map_or_else(|| ver_dir.join(PKG_SUBDIR), PathBuf::from);
-        package_complete(&pkg_dir)
+        package_complete(lane, &pkg_dir)
     }
 
     fn now_ms() -> u128 {
@@ -332,7 +439,7 @@ pub(crate) mod blocking {
 
     pub fn claim(lane: &InLane<MaintenanceIo>, config: &StagedConfig, version: &str) -> Result<Claim, String> {
         let root = staging_root(config);
-        if is_staged_complete(&root, version) {
+        if is_staged_complete(lane, &root, version) {
             return Ok(Claim::AlreadyStaged);
         }
         let ver_dir = root.join(version);
@@ -347,57 +454,37 @@ pub(crate) mod blocking {
         let _ = mixdog_statefile::remove_file(lane, &ver_dir.join(".staging.lock"));
     }
 
-    fn hidden(command: &mut Command) -> &mut Command {
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            // CREATE_NO_WINDOW: no console appears for the shell-less npm child.
-            command.creation_flags(0x0800_0000);
-        }
-        command
-    }
-
-    fn node_command(config: &StagedConfig, cli: &Path) -> Command {
-        let mut command = Command::new(&config.node);
-        command.arg(cli);
-        hidden(&mut command);
-        if config.electron {
-            command.env("ELECTRON_RUN_AS_NODE", "1");
-        }
-        command
-    }
-
     /// `npmCliJsPath`: npm's `npm-cli.js` beside the interpreter (Windows, Unix and Homebrew
     /// layouts), else through an `npm` shim on `PATH` whose real path is npm's package.
-    pub fn npm_cli_js(config: &StagedConfig) -> Option<PathBuf> {
+    pub fn npm_cli_js(lane: &InLane<MaintenanceIo>, config: &StagedConfig) -> Option<PathBuf> {
         let mut candidates = Vec::new();
-        if let Some(path) = std::env::var_os("npm_execpath").map(PathBuf::from) {
-            if path.to_string_lossy().to_lowercase().ends_with("npm-cli.js") {
-                candidates.push(path);
-            }
+        if let Some(path) = std::env::var_os("npm_execpath").map(PathBuf::from)
+            && path.to_string_lossy().to_lowercase().ends_with("npm-cli.js")
+        {
+            candidates.push(path);
         }
         let mut exec_dirs = Vec::new();
         if let Some(dir) = config.node.parent() {
             exec_dirs.push(dir.to_path_buf());
         }
-        if let Some(dir) = std::fs::canonicalize(&config.node).ok().and_then(|real| real.parent().map(Path::to_path_buf)) {
-            if !exec_dirs.contains(&dir) {
-                exec_dirs.push(dir);
-            }
+        if let Some(dir) = mixdog_workspace::pathguard::canonical(&config.node).ok().and_then(|real| real.parent().map(Path::to_path_buf))
+            && !exec_dirs.contains(&dir)
+        {
+            exec_dirs.push(dir);
         }
         for dir in &exec_dirs {
             candidates.push(dir.join("node_modules").join("npm").join("bin").join("npm-cli.js"));
             candidates.push(dir.join("..").join("lib").join("node_modules").join("npm").join("bin").join("npm-cli.js"));
             candidates.push(dir.join("..").join("libexec").join("lib").join("node_modules").join("npm").join("bin").join("npm-cli.js"));
         }
-        if let Some(found) = candidates.into_iter().find(|candidate| candidate.exists()) {
+        if let Some(found) = candidates.into_iter().find(|candidate| present(lane, candidate)) {
             return Some(found);
         }
         let path = std::env::var_os("PATH").or_else(|| std::env::var_os("Path")).unwrap_or_default();
         for dir in std::env::split_paths(&path).filter(|dir| !dir.as_os_str().is_empty()) {
             let shims: &[&str] = if cfg!(windows) { &["npm", "npm.cmd"] } else { &["npm"] };
             for shim in shims {
-                let Ok(real) = std::fs::canonicalize(dir.join(shim)) else { continue };
+                let Ok(real) = mixdog_workspace::pathguard::canonical(&dir.join(shim)) else { continue };
                 let Some(bin) = real.parent() else { continue };
                 let names = |path: &Path| path.file_name().map(|n| n.to_string_lossy().into_owned());
                 let npm = bin.parent();
@@ -409,7 +496,7 @@ pub(crate) mod blocking {
                     continue;
                 }
                 let cli = bin.join("npm-cli.js");
-                if cli.exists() {
+                if present(lane, &cli) {
                     return Some(cli);
                 }
             }
@@ -417,76 +504,25 @@ pub(crate) mod blocking {
         None
     }
 
-    /// `npmRegistry`: the registry npm installs from (its `.npmrc` files included), as
-    /// `(npm-cli.js, registry)`; npm's default when npm cannot say. `None` when npm is not found.
-    pub fn npm_registry(config: &StagedConfig) -> Option<(PathBuf, String)> {
-        let cli = npm_cli_js(config)?;
-        let asked = (|| {
-            let mut command = node_command(config, &cli);
-            command.args(["config", "get", "registry"]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
-            let mut child = command.spawn().ok()?;
-            let deadline = std::time::Instant::now() + REGISTRY_TIMEOUT;
-            let status = loop {
-                match child.try_wait().ok()? {
-                    Some(status) => break status,
-                    None if std::time::Instant::now() >= deadline => {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return None;
-                    }
-                    None => std::thread::sleep(Duration::from_millis(20)),
-                }
-            };
-            if !status.success() {
-                return None;
-            }
-            let mut text = String::new();
-            std::io::Read::read_to_string(&mut child.stdout.take()?, &mut text).ok()?;
-            url_href(text.trim())
-        })();
-        Some((cli, asked.unwrap_or_else(|| DEFAULT_NPM_REGISTRY.to_owned())))
-    }
-
     /// `new URL(text).href` for the registry URLs npm answers with.
-    fn url_href(text: &str) -> Option<String> {
+    pub fn url_href(text: &str) -> Option<String> {
         reqwest::Url::parse(text).ok().map(|url| url.to_string())
     }
 
-    /// The install proper, with the lock held: npm into a private prefix, relocate, verify, mark.
-    pub fn install(
-        lane: &InLane<MaintenanceIo>,
-        config: &StagedConfig,
-        version: &str,
-        ver_dir: &Path,
-        cli: Option<&Path>,
-        proxy_env: &[(&'static str, String)],
-    ) -> Result<(), String> {
+    /// Clears a failed earlier attempt and makes the private install prefix.
+    pub fn prepare(lane: &InLane<MaintenanceIo>, prefix: &Path, pkg_dir: &Path) -> Result<(), String> {
+        let _ = mixdog_statefile::remove_dir_all(lane, prefix);
+        let _ = mixdog_statefile::remove_dir_all(lane, pkg_dir);
+        mixdog_statefile::create_private_dir_all(lane, prefix).map_err(|error| error.to_string())
+    }
+
+    /// After npm: verify the version, relocate the package, mark it complete.
+    pub fn finish(lane: &InLane<MaintenanceIo>, version: &str, ver_dir: &Path) -> Result<(), String> {
         let rm = |dir: &Path| {
             let _ = mixdog_statefile::remove_dir_all(lane, dir);
         };
         let prefix = ver_dir.join("install");
         let pkg_dir = ver_dir.join(PKG_SUBDIR);
-        rm(&prefix);
-        rm(&pkg_dir);
-        mixdog_statefile::create_private_dir_all(lane, &prefix).map_err(|error| error.to_string())?;
-        // Shell-less only: no `cmd`, no PowerShell. Without npm-cli.js staging is skipped.
-        let cli = cli.ok_or_else(|| "npm-cli.js unresolved — staging skipped".to_owned())?;
-        let mut command = node_command(config, cli);
-        command
-            .args(["install", &format!("{PACKAGE_NAME}@{version}"), "--prefix"])
-            .arg(&prefix)
-            .args(["--no-save", "--no-audit", "--no-fund", "--loglevel=error"])
-            .envs(proxy_env.iter().map(|(key, value)| (*key, value.as_str())))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let code = match command.spawn().and_then(|mut child| child.wait()) {
-            Ok(status) => status.code().unwrap_or(-1),
-            Err(_) => -1,
-        };
-        if code != 0 {
-            return Err(format!("npm install exited with code {code}"));
-        }
         let installed_modules = prefix.join("node_modules");
         let installed_pkg = installed_modules.join(PACKAGE_NAME);
         let package_json = installed_pkg.join("package.json");
@@ -504,7 +540,7 @@ pub(crate) mod blocking {
         mixdog_statefile::rename_with_retry(lane, &installed_pkg, &pkg_dir).map_err(|error| error.to_string())?;
         mixdog_statefile::rename_with_retry(lane, &installed_modules, &pkg_dir.join("node_modules")).map_err(|error| error.to_string())?;
         rm(&prefix);
-        if !pkg_dir.join("src").join("cli.mjs").exists() {
+        if !present(lane, &pkg_dir.join("src").join("cli.mjs")) {
             return Err("staged cli.mjs missing".into());
         }
         // Written last: its presence is the completion signal for the swap.

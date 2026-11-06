@@ -1,0 +1,1320 @@
+{
+  "scenarios": [
+    {
+      "name": "a sent request is kept unsettled, settles, and is forkable",
+      "steps": [
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "messages": 1,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "op": "settle"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a failed send puts the previous request back",
+      "steps": [
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "messages": 1,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "op": "settle"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "b",
+            "messages": 2,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "b",
+            "op": "discard"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a failed first send leaves nothing",
+      "steps": [
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "messages": 1,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "op": "discard"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a settle reaches a request a later send displaced, which comes back if that send fails",
+      "steps": [
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "messages": 1,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "b",
+            "messages": 2,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "op": "settle"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "b",
+            "op": "discard"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a failed send that is no longer the latest changes nothing",
+      "steps": [
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "messages": 1,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "op": "settle"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "b",
+            "messages": 2,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 3,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "c",
+            "messages": 3,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 3,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "b",
+            "op": "discard"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 3,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "c",
+            "op": "settle"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an agent session keeps nothing, however its owner is spelled",
+      "steps": [
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "messages": 1,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "op": "settle"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "g",
+            "messages": 5,
+            "op": "capture",
+            "owner": " Agent ",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "g",
+            "op": "settle"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "h",
+            "messages": 6,
+            "op": "capture",
+            "owner": "agent",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "h",
+            "op": "discard"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 7,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "i",
+            "messages": 7,
+            "op": "capture",
+            "owner": "agents",
+            "session": "s"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a compaction retires the fork, a side question still forks it, the next request replaces it",
+      "steps": [
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "messages": 1,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": true,
+                "messages": 1,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "op": "retire",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": true,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "op": "settle"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": true,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "op": "retire",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "b",
+            "messages": 2,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "b",
+            "op": "settle"
+          }
+        }
+      ]
+    },
+    {
+      "name": "retiring a session with no request changes nothing",
+      "steps": [
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "op": "retire",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "cancel": false,
+            "op": "forget",
+            "session": "s"
+          }
+        }
+      ]
+    },
+    {
+      "name": "clear and rewind forget the request and leave the question in flight; a close cancels it",
+      "steps": [
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "messages": 1,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "op": "settle"
+          }
+        },
+        {
+          "aborted": {
+            "q1": false
+          },
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "q1",
+            "op": "begin",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": false
+          },
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "cancel": false,
+            "op": "forget",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": false
+          },
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "b",
+            "messages": 2,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": false
+          },
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "b",
+            "op": "settle"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true
+          },
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "cancel": true,
+            "op": "forget",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true
+          },
+          "returned": false,
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "op": "cancel",
+            "session": "s"
+          }
+        }
+      ]
+    },
+    {
+      "name": "one question per session: a new begin aborts the old one, whose end leaves the new alone",
+      "steps": [
+        {
+          "aborted": {
+            "q1": false
+          },
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "q1",
+            "op": "begin",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true,
+            "q2": false
+          },
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "q2",
+            "op": "begin",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true,
+            "q2": false
+          },
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "q1",
+            "op": "end"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true,
+            "q2": true
+          },
+          "returned": true,
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "op": "cancel",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true,
+            "q2": true
+          },
+          "returned": false,
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "op": "cancel",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true,
+            "q2": true,
+            "q3": false
+          },
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "q3",
+            "op": "begin",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true,
+            "q2": true,
+            "q3": false
+          },
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "q3",
+            "op": "end"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true,
+            "q2": true,
+            "q3": false
+          },
+          "returned": false,
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "op": "cancel",
+            "session": "s"
+          }
+        }
+      ]
+    },
+    {
+      "name": "sessions are independent",
+      "steps": [
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": false
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "messages": 1,
+            "op": "capture",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": null
+            }
+          },
+          "step": {
+            "as": "a",
+            "op": "settle"
+          }
+        },
+        {
+          "aborted": {},
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": false
+              }
+            }
+          },
+          "step": {
+            "as": "b",
+            "messages": 2,
+            "op": "capture",
+            "session": "t"
+          }
+        },
+        {
+          "aborted": {
+            "q1": false
+          },
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": false
+              }
+            }
+          },
+          "step": {
+            "as": "q1",
+            "op": "begin",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": false,
+            "q2": false
+          },
+          "state": {
+            "s": {
+              "forkable": true,
+              "request": {
+                "compacted": false,
+                "messages": 1,
+                "settled": true
+              }
+            },
+            "t": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": false
+              }
+            }
+          },
+          "step": {
+            "as": "q2",
+            "op": "begin",
+            "session": "t"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true,
+            "q2": false
+          },
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": {
+                "compacted": false,
+                "messages": 2,
+                "settled": false
+              }
+            }
+          },
+          "step": {
+            "cancel": true,
+            "op": "forget",
+            "session": "s"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true,
+            "q2": false
+          },
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": {
+                "compacted": true,
+                "messages": 2,
+                "settled": false
+              }
+            }
+          },
+          "step": {
+            "op": "retire",
+            "session": "t"
+          }
+        },
+        {
+          "aborted": {
+            "q1": true,
+            "q2": true
+          },
+          "returned": true,
+          "state": {
+            "s": {
+              "forkable": false,
+              "request": null
+            },
+            "t": {
+              "forkable": false,
+              "request": {
+                "compacted": true,
+                "messages": 2,
+                "settled": false
+              }
+            }
+          },
+          "step": {
+            "op": "cancel",
+            "session": "t"
+          }
+        }
+      ]
+    }
+  ]
+}

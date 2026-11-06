@@ -245,6 +245,7 @@ impl World {
                 rows: rows.clone(),
                 mode: crate::compaction_view::DropMode::All,
                 dropped: None,
+                silent: false,
             },
             F::Title(_) => FrameKind::Other,
         };

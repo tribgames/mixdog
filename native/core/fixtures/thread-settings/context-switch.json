@@ -1,0 +1,1565 @@
+{
+  "cases": [
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          {
+            "id": "d1"
+          }
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/a"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/a",
+        "desktopSession": {
+          "id": "d1"
+        }
+      },
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          {
+            "id": "d1"
+          }
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/a"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/a",
+        "desktopSession": {
+          "id": "d1"
+        }
+      },
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          {
+            "id": "d1"
+          }
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/a"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/a",
+        "desktopSession": {
+          "id": "d1"
+        }
+      },
+      "open": "conversation",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          {
+            "id": "d2"
+          }
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/b"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/b",
+        "desktopSession": {
+          "id": "d2"
+        },
+        "forResume": true
+      },
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          {
+            "id": "d2"
+          }
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/b"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/b",
+        "desktopSession": {
+          "id": "d2"
+        },
+        "forResume": true
+      },
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          {
+            "id": "d2"
+          }
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/b"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/b",
+        "desktopSession": {
+          "id": "d2"
+        },
+        "forResume": true
+      },
+      "open": "conversation",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/c"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/c",
+        "desktopSession": "not-an-object"
+      },
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/c"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/c",
+        "desktopSession": "not-an-object"
+      },
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/c"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/c",
+        "desktopSession": "not-an-object"
+      },
+      "open": "conversation",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/d"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/d",
+        "desktopSession": null,
+        "forResume": false
+      },
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/d"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/d",
+        "desktopSession": null,
+        "forResume": false
+      },
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/d"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/d",
+        "desktopSession": null,
+        "forResume": false
+      },
+      "open": "conversation",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          [
+            1
+          ]
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/e"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/e",
+        "desktopSession": [
+          1
+        ],
+        "forResume": 1
+      },
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          [
+            1
+          ]
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/e"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/e",
+        "desktopSession": [
+          1
+        ],
+        "forResume": 1
+      },
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          [
+            1
+          ]
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/e"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/e",
+        "desktopSession": [
+          1
+        ],
+        "forResume": 1
+      },
+      "open": "conversation",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/f"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/f",
+        "forResume": 0
+      },
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/f"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/f",
+        "forResume": 0
+      },
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/f"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/f",
+        "forResume": 0
+      },
+      "open": "conversation",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/g"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/g",
+        "forResume": ""
+      },
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/g"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/g",
+        "forResume": ""
+      },
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/g"
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/g",
+        "forResume": ""
+      },
+      "open": "conversation",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/h"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/h",
+        "forResume": "yes"
+      },
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/h"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/h",
+        "forResume": "yes"
+      },
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          "/work/h"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "cwd": "/work/h",
+        "forResume": "yes"
+      },
+      "open": "conversation",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          {
+            "id": "d3"
+          }
+        ],
+        [
+          "applyResolvedCwd",
+          null
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "desktopSession": {
+          "id": "d3"
+        }
+      },
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          {
+            "id": "d3"
+          }
+        ],
+        [
+          "applyResolvedCwd",
+          null
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "desktopSession": {
+          "id": "d3"
+        }
+      },
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          {
+            "id": "d3"
+          }
+        ],
+        [
+          "applyResolvedCwd",
+          null
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {
+        "desktopSession": {
+          "id": "d3"
+        }
+      },
+      "open": "conversation",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          null
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {},
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          null
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {},
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          null
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": {},
+      "open": "conversation",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          null
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": null,
+      "open": false,
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": true
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          null
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": null,
+      "open": "scratch",
+      "result": true
+    },
+    {
+      "calls": [
+        [
+          "clearRoutePreparation"
+        ],
+        [
+          "closeSurfaceSession",
+          "desktop-context-switch",
+          {
+            "tombstone": false
+          }
+        ],
+        [
+          "ingestSessionIntoMemory"
+        ],
+        [
+          "releaseSessionWork",
+          "s1",
+          "desktop-context-switch"
+        ],
+        [
+          "setSession",
+          null
+        ],
+        [
+          "setDesktopSession",
+          null
+        ],
+        [
+          "applyResolvedCwd",
+          null
+        ],
+        [
+          "setRoute",
+          {
+            "resolved": true
+          }
+        ],
+        [
+          "refreshRouteEffort"
+        ],
+        [
+          "invalidateContextStatusCache"
+        ],
+        [
+          "invalidatePreSessionToolSurface"
+        ]
+      ],
+      "input": null,
+      "open": "conversation",
+      "result": true
+    }
+  ]
+}

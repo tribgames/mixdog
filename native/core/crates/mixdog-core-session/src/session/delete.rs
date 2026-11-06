@@ -47,14 +47,17 @@ async fn guarded(step: impl FnOnce() -> BoxFuture<'static, ()>) {
 /// have no Rust counterpart: Rust holds no such per-session state (decisions.md, "Session
 /// delete purge hooks").
 pub struct PurgeHooks {
+    /// The hooks' read-only copy of the session log (`transcript_export`): where Node's store
+    /// unlinks `<id>.log.jsonl`, before its hooks run.
+    pub transcript_export: Arc<dyn PurgeHook>,
     /// `tool-result-offload.mjs:506` `clearOffloadSessionSync`.
     pub tool_result_offload: Arc<dyn PurgeHook>,
     /// `session-transcript-purge.mjs:20`: the conversation transcripts under `cwds` and their
     /// memory ingest offsets.
     pub transcripts: Arc<dyn PurgeHook>,
-    /// `cache-warm.mjs:424`.
+    /// `cache-warm.mjs:424`: `Warmer::purge_session`.
     pub cache_warm: Arc<dyn PurgeHook>,
-    /// `read-cache.mjs:317`.
+    /// `read-cache.mjs:317`: the read snapshots in memory and `read-snapshots/<scope>.json`.
     pub read_cache: Arc<dyn PurgeHook>,
     /// `session-close.mjs:282` `closeProviderConnections(id, 'session-deleted')`.
     pub provider_connections: Arc<dyn PurgeHook>,
@@ -74,8 +77,9 @@ impl PurgeHooks {
     /// `_runSessionPurgeHooks(id, { cwds })`, then the archive and scratch removal, one after
     /// another; it returns once every hook's effect has landed. A hook that panics never breaks
     /// the delete or the hooks after it (Node's per-hook `try`).
-    pub(crate) async fn run(&self, review: &dyn mixdog_core_api::turn_review::TurnReviewApi, id: &str, cwds: &[String]) {
+    pub async fn run(&self, review: &dyn mixdog_core_api::turn_review::TurnReviewApi, id: &str, cwds: &[String]) {
         for hook in [
+            &self.transcript_export,
             &self.tool_result_offload,
             &self.transcripts,
             &self.cache_warm,
@@ -107,10 +111,11 @@ pub trait DeleteSeams: Send + Sync {
     /// Node's synchronous calls have. The shells the session owns are cancelled with them
     /// (`cancelOwnedShellProcesses`, `session-close.mjs:184`).
     async fn release_session_work(&self, session_id: &str, reason: &str);
-    /// The close planted its tombstone (`markSessionClosed`): the `[session-close]` line of
-    /// `tool-events.log` from the session's stored `header` (`_logSessionCloseMetric`). `reason` is
-    /// the close reason (`desktop-session-delete`), not the abort text.
-    fn session_closed(&self, session_id: &str, reason: &str, header: &mixdog_store::schema::record::Header);
+    /// The close's tombstone write was acknowledged (`markSessionClosed`): the `[session-close]`
+    /// line of `tool-events.log` from the session's stored `header` (`_logSessionCloseMetric`),
+    /// its life measured to `closed_at_ms`, the instant the close landed. `reason` is the close
+    /// reason (`desktop-session-delete`), not the abort text.
+    fn session_closed(&self, session_id: &str, reason: &str, header: &mixdog_store::schema::record::Header, closed_at_ms: i64);
     /// `forgetSessionSearch(id)`, not awaited.
     fn forget_session_search(&self, session_id: &str);
     /// `releaseDeletedWorktree(id)`: the worktree maintenance's `cleanupDeletedSession`, off the
@@ -124,7 +129,7 @@ pub trait DeleteSeams: Send + Sync {
 /// marks are the session's own header fields here (`archivedAt`, `favoriteAt`: SPEC
 /// `desktop-session-metadata.json` row, `thread/metadata/update`), set when positive as the
 /// catalog reads `archivedAt`.
-fn sidebar_flag(header: &mixdog_store::schema::record::Header, key: &str) -> bool {
+pub(crate) fn sidebar_flag(header: &mixdog_store::schema::record::Header, key: &str) -> bool {
     header.get(key).map_or(0.0, mixdog_js::to_number) > 0.0
 }
 
@@ -191,12 +196,12 @@ pub(crate) async fn delete_session_if_idle(
         Err(reason) => return refuse(reason),
     };
     let reason = mixdog_agent::cancel::close_session_reason(id, AUTO_DELETE_REASON);
-    let hold = match directory.close_for_delete(&thread, &reason, true).await? {
+    let hold = match directory.close_for_delete(&thread, &reason, true, None).await? {
         Ok(hold) => hold,
         Err(refusal) => return refuse(refusal),
     };
-    deps.deletion.session_closed(id, AUTO_DELETE_REASON, &hold.header());
-    if !remove(directory, &thread, meta.cwds, hold).await {
+    let closed = Closed { reason: AUTO_DELETE_REASON, header: hold.header(), at_ms: deps.clock.now_ms() };
+    if !remove(directory, &thread, meta.cwds, hold, closed).await {
         return refuse("delete-failed");
     }
     deps.deletion.release_session_work(id, AUTO_DELETE_REASON).await;
@@ -204,14 +209,24 @@ pub(crate) async fn delete_session_if_idle(
     Ok(serde_json::json!({ "deleted": true }))
 }
 
-/// `mgr.deleteSession`: the delete mark, the store's purge of what no live lineage reads, then
-/// `_deleteSession`'s purge hooks and the app list's `thread/deleted`. False when the mark
-/// was not applied (the thread stays, unloaded).
+/// What the close metric reads, as the close left it (`markSessionClosed`'s `existing` and
+/// `closeTime`). It is logged once the delete mark is acknowledged, never before: a mark that
+/// failed closed nothing.
+struct Closed {
+    reason: &'static str,
+    header: Arc<mixdog_store::schema::record::Header>,
+    at_ms: i64,
+}
+
+/// `mgr.deleteSession`: the delete mark, the close metric once it is acknowledged, the store's
+/// purge of what no live lineage reads, then `_deleteSession`'s purge hooks and the app list's
+/// `thread/deleted`. False when the mark was not applied (the thread stays, unloaded).
 async fn remove(
     directory: &super::directory::DirInner,
     thread: &ThreadId,
     mut cwds: Vec<String>,
     hold: super::directory::DeleteHold,
+    closed: Closed,
 ) -> bool {
     let deps = directory.deps().clone();
     if let Some(cwd) = hold.cwd().filter(|cwd| !cwd.is_empty() && !cwds.contains(cwd)) {
@@ -220,6 +235,7 @@ async fn remove(
     if !hold.mark(directory).await {
         return false;
     }
+    deps.deletion.session_closed(thread.as_str(), closed.reason, &closed.header, closed.at_ms);
     // A failed purge leaves the marked session's files for the next delete's purge or the
     // boot purge; the session is deleted either way.
     drop(deps.store.purge_deleted().await);
@@ -277,12 +293,16 @@ pub(crate) async fn serve(directory: &super::directory::DirInner, params: &serde
     let id = params.thread_id.as_str();
     Ok(mixdog_core_api::Reply::Value(match &params.if_idle {
         Some(expected) => delete_session_if_idle(directory, id, expected).await?,
-        None => serde_json::Value::Bool(delete_session(directory, id).await?),
+        None => serde_json::Value::Bool(delete_session(directory, id, None).await?),
     }))
 }
 
 /// `deleteSession(id)`: false when nothing was deleted.
-pub(crate) async fn delete_session(directory: &super::directory::DirInner, id: &str) -> Result<bool, CoreError> {
+pub(crate) async fn delete_session(
+    directory: &super::directory::DirInner,
+    id: &str,
+    guard: Option<super::control::DeleteGuard>,
+) -> Result<bool, CoreError> {
     let id = mixdog_js::js_trim(id);
     if !is_session_id(id) {
         return Ok(false);
@@ -295,12 +315,12 @@ pub(crate) async fn delete_session(directory: &super::directory::DirInner, id: &
     };
     // `mgr.closeSession(id, reason)`: the running turn stops before anything else goes.
     let reason = mixdog_agent::cancel::close_session_reason(id, DELETE_REASON);
-    let Ok(hold) = directory.close_for_delete(&thread, &reason, false).await? else {
+    let Ok(hold) = directory.close_for_delete(&thread, &reason, false, guard).await? else {
         return Ok(false);
     };
-    deps.deletion.session_closed(id, DELETE_REASON, &hold.header());
+    let closed = Closed { reason: DELETE_REASON, header: hold.header(), at_ms: deps.clock.now_ms() };
     deps.deletion.release_session_work(id, DELETE_REASON).await;
-    if !remove(directory, &thread, meta.cwds, hold).await {
+    if !remove(directory, &thread, meta.cwds, hold, closed).await {
         return Ok(false);
     }
     after_delete(&deps, id);

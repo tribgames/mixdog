@@ -189,9 +189,8 @@ impl Ops {
         let mut pending = Vec::new();
         match carry {
             None => {}
-            Some("carry") => {
-                return Err(plain("worktree: carrying the project folder's uncommitted changes needs the carry backend of mixdog-scm"));
-            }
+            // The manager moves the changes while it creates the worktree.
+            Some("carry") => {}
             Some(_) => pending = self.uncommitted(&project.top_level, cancel).await?,
         }
         if carry == Some("ask") && !pending.is_empty() {
@@ -219,25 +218,43 @@ impl Ops {
         self.wt
             .assert_checkout_fits(&project.top_level, &base_commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel)
             .await?;
-        let record = self
+        let created = self
             .wt
-            .create(
+            .create_full(
                 CreateRequest {
                     project_path: project.project_path.clone(),
                     session_id: session.to_owned(),
                     tx_id: tx_id.to_owned(),
                     name_hint: name_hint.to_owned(),
                     base_branch: project.current_branch.clone(),
+                    carry: (carry == Some("carry")).then(|| "carry".to_owned()),
                     ..CreateRequest::default()
                 },
                 cancel,
             )
             .await?;
+        let record = created.record;
+        let reference = created.changes.as_ref().and_then(|c| c["recoveryRef"].as_str()).map(str::to_owned);
         if let Err(failure) = self.claim(&record.id, session, cancel).await {
             let _ = self.wt.remove(&record.id, true, Some(session), cancel).await;
+            // The carried changes go back to the project folder before the worktree is lost.
+            if let Some(reference) = &reference {
+                let subdir = project
+                    .project_path
+                    .strip_prefix(&project.top_level)
+                    .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_default();
+                let _ = self.wt.restore_from_recovery_ref(&project.top_level, &subdir, reference, cancel).await;
+            }
             return Err(failure);
         }
-        let changes = (!pending.is_empty()).then_some(("left", pending.len() as u64));
+        if let Some(reference) = &reference {
+            self.wt.drop_recovery_ref(&project.top_level, reference, cancel).await?;
+        }
+        let changes = match &created.changes {
+            Some(c) if c["mode"] == "carried" => c["count"].as_u64().map(|n| ("carried", n)),
+            _ => (!pending.is_empty()).then_some(("left", pending.len() as u64)),
+        };
         Ok(Created { record, changes })
     }
 
@@ -279,10 +296,10 @@ impl Ops {
         let listed = self.wt.scm().git.read(cancel, &repo.project_path, &["for-each-ref", "--format=%(refname:short)", "refs/heads/"]).await?;
         let exists = listed.lines().any(|l| l.trim() == branch);
         if create && exists {
-            return Err(errors::revision_conflict(None));
+            return Err(errors::coded_text(errors::WORKTREE_REVISION_CONFLICT, "Branch already exists."));
         }
         if !create && !exists {
-            return Err(errors::missing(None, None, None));
+            return Err(errors::coded_text(errors::WORKTREE_MISSING, "Branch does not exist."));
         }
         let holder = self
             .wt

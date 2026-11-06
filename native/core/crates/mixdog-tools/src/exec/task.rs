@@ -200,7 +200,24 @@ pub(super) enum CancelOutcome {
 }
 
 /// The one cancel path of a task: the `task` tool's `cancel` and the surfaces' stop go through it.
+/// A cancel that cannot confirm the processes gone leaves the task's row held
+/// (`terminationUnconfirmed`, [`ExecRuntime::hold_unconfirmed`]); it ends when the task ends or
+/// the user releases it.
 pub(super) async fn cancel_job(runtime: &ExecRuntime, processes: &dyn ProcessManager, job: &Job) -> CancelOutcome {
+    let outcome = cancel_outcome(runtime, processes, job).await;
+    if outcome != CancelOutcome::Cancelled {
+        runtime.hold_unconfirmed(job);
+    }
+    outcome
+}
+
+/// Sends the kill of a running task's process; `false` when it could not be sent (a process that
+/// just exited is not an error).
+pub(super) fn send_kill(runtime: &ExecRuntime, processes: &dyn ProcessManager, job: &Job) -> bool {
+    matches!(runtime.config.tasks.terminate(&job.id, processes), Ok(()) | Err(TaskError::Process(ProcessError::AlreadyExited)))
+}
+
+async fn cancel_outcome(runtime: &ExecRuntime, processes: &dyn ProcessManager, job: &Job) -> CancelOutcome {
     // Node answers a cancel of a task it still retains with the success text.
     if !job.is_running() {
         return CancelOutcome::Cancelled;
@@ -218,9 +235,8 @@ pub(super) async fn cancel_job(runtime: &ExecRuntime, processes: &dyn ProcessMan
         runtime.finish_survivors(job, true).await;
         return CancelOutcome::Cancelled;
     }
-    match runtime.config.tasks.terminate(&job.id, processes) {
-        Ok(()) | Err(TaskError::Process(ProcessError::AlreadyExited)) => {}
-        Err(_) => return CancelOutcome::Unconfirmed,
+    if !send_kill(runtime, processes, job) {
+        return CancelOutcome::Unconfirmed;
     }
     if tokio::time::timeout(super::KILL_VERIFY, job.settled()).await.is_err() {
         return CancelOutcome::Unconfirmed;

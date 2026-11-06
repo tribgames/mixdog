@@ -164,6 +164,10 @@ impl SecretStore for SecretServiceStore {
     async fn delete(&self, account: &str) -> Result<(), SecretError> {
         bounded("clear", clear(account)).await
     }
+
+    async fn is_fallback(&self, _account: &str) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

@@ -423,6 +423,14 @@ fn room_item(id: &str, message: &Value, ctx: &Ctx<'_>) -> Option<ThreadItem> {
 
 /// The items a stored message record shows, in order.
 pub fn message_items(record: &ItemRecord, message: &Value) -> Vec<Shown> {
+    message_shown(record, message).into_iter().map(|(shown, _)| shown).collect()
+}
+
+/// The items a stored message record shows, each with the byte length of the display row it
+/// stands for (`Buffer.byteLength(JSON.stringify(row))`, what Node's page budget counts); `None`
+/// for a result update, which is no row. A group-room line is built straight from the message,
+/// with no display row: its length is its typed item's.
+pub fn message_shown(record: &ItemRecord, message: &Value) -> Vec<(Shown, Option<usize>)> {
     let mut shown = Vec::new();
     for restored in super::transcript_rows::restore(record, message) {
         let turn = record.turn.as_ref().map(|t| t.as_str());
@@ -434,21 +442,38 @@ pub fn message_items(record: &ItemRecord, message: &Value) -> Vec<Shown> {
                     counts_prompt: record.prompt.is_some() && text_field_of(&row, "kind") == "user",
                     source: source.as_deref(),
                 };
-                shown.push(Shown::Item(item_of(row, &ctx)));
+                let bytes = row_bytes(&row);
+                shown.push((Shown::Item(item_of(row, &ctx)), Some(bytes)));
             }
             Restored::Result(fact) => {
                 let ctx = Ctx { turn, message: Some(message), counts_prompt: false, source: None };
-                shown.push(Shown::Update(result_update(fact, &ctx)));
+                shown.push((Shown::Update(result_update(fact, &ctx)), None));
             }
             Restored::Room { id } => {
                 let ctx = Ctx { turn, message: Some(message), counts_prompt: false, source: None };
-                shown.extend(room_item(&id, message, &ctx).map(Shown::Item));
+                shown.extend(room_item(&id, message, &ctx).map(|item| {
+                    let bytes = serde_json::to_vec(&item).expect("protocol types serialize").len();
+                    (Shown::Item(item), Some(bytes))
+                }));
             }
         }
     }
     shown
 }
 
+fn row_bytes(row: &Row) -> usize {
+    serde_json::to_vec(row).expect("a row is JSON").len()
+}
+
+/// The byte length of the row an imported display record shows (its body, with the id the
+/// item carries).
+pub fn display_bytes(record: &ItemRecord, body: &Value) -> Option<usize> {
+    let mut row = body.as_object()?.clone();
+    if !row.get("id").is_some_and(Value::is_string) {
+        row.insert("id".into(), json!(record.iid.as_str()));
+    }
+    Some(row_bytes(&row))
+}
 /// The item of an imported display record: its body is the row Node showed, verbatim.
 pub fn display_item(record: &ItemRecord, body: &Value) -> Option<ThreadItem> {
     let mut row = body.as_object()?.clone();
@@ -495,6 +520,38 @@ mod tests {
 
     fn result(id: &str, text: &str) -> Value {
         json!({ "role": "tool", "content": text, "toolCallId": id })
+    }
+
+    /// A history page's byte budget counts `Buffer.byteLength(JSON.stringify(row))` of the display
+    /// row (`storedHistorySlice`). The recorded Node sizes of the rows `record-session-reads.mjs`
+    /// built are those of the same rows as display records here.
+    #[test]
+    fn display_rows_measure_as_nodes_do() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-reads/golden.json");
+        let bytes = mixdog_statefile::read_content(&path).expect("read golden.json").expect("golden.json exists");
+        let golden: Value = serde_json::from_slice(&bytes).expect("golden.json parses");
+        let sizes = golden["pages"]["sizes"].as_array().expect("sizes");
+        assert_eq!(sizes.len(), 24);
+        for (i, size) in sizes.iter().enumerate() {
+            // The recorder's rows: `{ id, kind: 'assistant', text: 'x'.repeat(((i * 37) % 11) * 40 + 5) }`.
+            let body = json!({ "id": format!("r{i}"), "kind": "assistant", "text": "x".repeat(((i * 37) % 11) * 40 + 5) });
+            let mut record: ItemRecord = serde_json::from_value(json!({
+                "iid": format!("i{i}"), "form": "display", "model": false, "visible": true,
+                "refs": [], "body": { "inline": {} },
+            }))
+            .expect("record shape");
+            record.body = Slot::Inline(body.clone());
+            assert_eq!(display_bytes(&record, &body), size.as_u64().map(|n| n as usize), "row r{i}");
+            assert_eq!(display_item(&record, &body).map(|item| item.id().as_str().to_owned()), Some(format!("r{i}")));
+        }
+        // A row without an id is shown (and measured) under its record's id.
+        let body = json!({ "kind": "assistant", "text": "hi" });
+        let mut record: ItemRecord = serde_json::from_value(json!({
+            "iid": "i9", "form": "display", "model": false, "visible": true, "refs": [], "body": { "inline": {} },
+        }))
+        .expect("record shape");
+        record.body = Slot::Inline(body.clone());
+        assert_eq!(display_bytes(&record, &body), Some(r#"{"kind":"assistant","text":"hi","id":"i9"}"#.len()));
     }
 
     /// Node's `pendingToolCalls` has no entry for a skipped wait call, so its result attaches

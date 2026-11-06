@@ -53,6 +53,8 @@ pub enum FrameKind {
         /// How the event decides what left the context, and its identities (`Ids` only).
         mode: DropMode,
         dropped: Option<CompactedDropped>,
+        /// No divider is listed for it (the record's `silent`).
+        silent: bool,
     },
     Run { rid: String, phase: RunPhase },
     Approval { aid: String, rid: String, phase: ApprovalPhase },
@@ -172,6 +174,7 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
                 rows: resolve_slot(&r.replacement, resolve)?.iter().map(|e| (e.iid.clone(), MessageRow::of(&e.body))).collect(),
                 mode: DropMode::of(r.dropped_count, r.dropped.is_some()),
                 dropped: r.dropped.clone(),
+                silent: r.silent == Some(true),
             },
             op(&r.op),
         ),

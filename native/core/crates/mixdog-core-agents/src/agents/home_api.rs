@@ -1,0 +1,400 @@
+//! The agent home, memory and pool methods of `agent/`: `agent/home/open`, `agent/home/reset`,
+//! `agent/memory/list`, `agent/memory/delete` and `agent/pool/list`.
+//!
+//! Each answers what Node's host code answers: the home flow of `agent-home-sessions.ts`
+//! (`createAgentHomeSessions` `open`/`reset`), the memory control calls of `agent-memory.ts`, the
+//! IPC input rules of `ipc-sessions.ts` (`requiredString`, `requiredAgentMemoryEntry`) and the pool
+//! of [`super::pool_list`]. A Node `Error` reaches the caller as a domain error carrying its message.
+//! The service claims exactly [`HOME_METHODS`]; the definitions and lead methods belong to the
+//! services that own them.
+//!
+//! One thing differs in how it runs, never in what it answers: Node lets concurrent opens of one
+//! agent join a single flight, here the calls of one agent run one after the other (an open after
+//! an open finds the session the first created). The dependency calls of the second differ only
+//! in that it reads instead of creating.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use mixdog_core_api::CoreError;
+use mixdog_core_api::CoreRequest;
+use mixdog_core_api::DomainService;
+use mixdog_core_api::Reply;
+use mixdog_core_api::ids::ConnectionId;
+use mixdog_core_api::ids::Method;
+use mixdog_core_api::service::Admit;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+use mixdog_core_base::rooms::ids::agent_home_session_id;
+use mixdog_core_base::support::failed;
+use mixdog_core_base::support::invalid;
+use mixdog_core_base::support::wrong_method;
+use mixdog_core_config::workflow::ids::truthy;
+use mixdog_js::JsRegex;
+use mixdog_js::json_number;
+use mixdog_js::json_parse;
+use mixdog_js::js_trim;
+use mixdog_js::to_number;
+use mixdog_js::utf16_len;
+use mixdog_js::value_to_string;
+use mixdog_rt::KeyedChains;
+use serde_json::Map;
+use serde_json::Value;
+use serde_json::json;
+
+use super::is_contact;
+use super::pool_list::AgentPool;
+
+const DOMAIN: &str = "agent";
+const PAGE_SIZE: u64 = 100;
+const SESSION_NOT_AVAILABLE_CODE: &str = "SESSION_NOT_AVAILABLE";
+
+pub const HOME_METHODS: &[&str] = &["agent/home/open", "agent/home/reset", "agent/memory/list", "agent/memory/delete", "agent/pool/list"];
+
+/// A failure of a dependency call: the `Error` Node's dependency rejected with.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
+pub struct DepError {
+    pub message: String,
+    /// `error.code`, when the error carried one.
+    pub code: Option<String>,
+}
+
+impl DepError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self { message: message.into(), code: None }
+    }
+
+    /// `isSessionMissingError(error)`: tagged, or worded as a missing session.
+    fn session_missing(&self) -> bool {
+        static MISSING: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r"\bsession(?: \S+)? is not available\b", "i"));
+        self.code.as_deref() == Some(SESSION_NOT_AVAILABLE_CODE) || MISSING.is_match(&self.message)
+    }
+}
+
+/// What an agent home needs of its host (`AgentHomeDeps` of `agent-home-sessions.ts`, the part
+/// `open` and `reset` use).
+#[async_trait]
+pub trait HomeDeps: Send + Sync {
+    /// The agent catalog (`listAgents`).
+    async fn list_agents(&self) -> Result<Value, DepError>;
+    /// The route Mixy's thread follows (`getLeadHomeRoute`).
+    async fn mixy_route(&self) -> Result<Value, DepError>;
+    /// Whether the representative bot exists.
+    async fn mixy_created(&self) -> Result<bool, DepError>;
+    /// The session's snapshot; rejects with a session-missing error when it does not exist.
+    async fn read_session(&self, session_id: &str) -> Result<Value, DepError>;
+    async fn create_session(&self, session_id: &str, params: &Value) -> Result<(), DepError>;
+    /// Select `route` for this thread alone from its next turn.
+    async fn set_route(&self, session_id: &str, route: &Value) -> Result<(), DepError>;
+    async fn set_archived(&self, session_id: &str, archived: bool) -> Result<(), DepError>;
+    async fn set_retired(&self, session_id: &str, retired: bool) -> Result<(), DepError>;
+    async fn task_workspace(&self) -> Result<String, DepError>;
+    /// Clear `session_id` in place, its transcript first copied durably to `archive_as`; rejects
+    /// while the session runs a turn.
+    async fn clear_session(&self, session_id: &str, archive_as: &str) -> Result<(), DepError>;
+    /// A fresh, unused session id for the archived copy.
+    fn mint_archive_id(&self) -> String;
+}
+
+/// The memory runtime as the host reaches it (`control('memoryControl', [args])`): the text it
+/// replies with, or the message of the error it rejects with.
+#[async_trait]
+pub trait MemoryRuntime: Send + Sync {
+    async fn memory_control(&self, args: Value) -> Result<String, String>;
+}
+
+/// `routeParams(route)`: the create-call route fields of an agent's catalog route.
+pub fn route_params(route: &Value) -> Map<String, Value> {
+    let leaf = route.as_array().map_or(route, |list| list.first().unwrap_or(&Value::Null));
+    let text = |key: &str| leaf.get(key).and_then(Value::as_str).filter(|text| !text.is_empty());
+    let (Some(provider), Some(model)) = (text("provider"), text("model")) else {
+        return Map::new();
+    };
+    let mut out = Map::new();
+    out.insert("provider".into(), json!(provider));
+    out.insert("model".into(), json!(model));
+    if let Some(effort) = text("effort") {
+        out.insert("effort".into(), json!(effort));
+    }
+    if let Some(fast) = leaf.get("fast").filter(|value| value.is_boolean()) {
+        out.insert("fast".into(), fast.clone());
+    }
+    if leaf.get("autoEffort") == Some(&Value::Bool(false)) {
+        out.insert("autoEffort".into(), Value::Bool(false));
+    }
+    if let Some(parameters) = leaf.get("modelParameters").filter(|value| value.is_object() || value.is_array()) {
+        out.insert("modelParameters".into(), parameters.clone());
+    }
+    out
+}
+
+/// `routeChange(definition, snapshot)`: the definition's route when the thread runs on another one.
+fn route_changed(definition: &Map<String, Value>, snapshot: &Value) -> bool {
+    if !truthy(definition.get("provider")) || !snapshot.is_object() {
+        return false;
+    }
+    definition.get("provider") != snapshot.get("provider")
+        || definition.get("model") != snapshot.get("model")
+        || (definition.contains_key("effort") && definition.get("effort") != snapshot.get("effort"))
+}
+
+/// The catalog row of a contact agent: `custom`, not switched off, `kind: bot`.
+fn contact_row<'a>(agents: &'a Value, agent_id: &str) -> Option<&'a Value> {
+    agents.as_array()?.iter().find(|row| {
+        let Some(row) = row.as_object() else { return false };
+        row.get("custom") == Some(&Value::Bool(true))
+            && row.get("disabled") != Some(&Value::Bool(true))
+            && row.get("id").and_then(Value::as_str).is_some_and(|id| is_contact(id, row.get("kind").and_then(Value::as_str)))
+            && row.get("id").and_then(Value::as_str) == Some(agent_id)
+    })
+}
+
+fn type_error(message: &str) -> CoreError {
+    failed(DOMAIN, message)
+}
+
+fn dep(error: DepError) -> CoreError {
+    failed(DOMAIN, error.message)
+}
+
+/// The home threads: open and reset, one agent at a time.
+pub struct AgentHomeSessions {
+    deps: Arc<dyn HomeDeps>,
+    serial: Arc<KeyedChains>,
+}
+
+impl AgentHomeSessions {
+    pub fn new(deps: Arc<dyn HomeDeps>) -> Self {
+        Self { deps, serial: KeyedChains::new() }
+    }
+
+    async fn resolve(&self, agent_id: &str) -> Result<String, CoreError> {
+        let session_id = agent_home_session_id(agent_id).ok_or_else(|| type_error("agent id is invalid."))?;
+        let (route, params) = if agent_id == MIXY_AGENT_ID {
+            // Mixy runs on its own model (bots/mixy), Main's once it has none.
+            let route = route_params(&self.deps.mixy_route().await.map_err(dep)?);
+            (route.clone(), route)
+        } else {
+            let agents = self.deps.list_agents().await.map_err(dep)?;
+            let row = contact_row(&agents, agent_id).ok_or_else(|| failed(DOMAIN, format!("Agent \"{agent_id}\" is not available.")))?;
+            let route = route_params(row.get("route").unwrap_or(&Value::Null));
+            let mut params = route.clone();
+            params.insert("sessionProfile".into(), json!({ "homeAgent": agent_id }));
+            // A bot made again under a deleted one's id owns its thread again.
+            self.deps.set_retired(&session_id, false).await.map_err(dep)?;
+            (route, params)
+        };
+        // Reopening a contact brings its thread back from the archive.
+        self.deps.set_archived(&session_id, false).await.map_err(dep)?;
+        match self.deps.read_session(&session_id).await {
+            Ok(snapshot) => {
+                // An existing thread follows its definition's current model and effort from its next
+                // turn. A route the runtime refuses (provider signed out) never blocks opening.
+                if route_changed(&route, &snapshot) {
+                    let _ = self.deps.set_route(&session_id, &Value::Object(route)).await;
+                }
+                return Ok(session_id);
+            }
+            Err(error) if error.session_missing() => {}
+            Err(error) => return Err(dep(error)),
+        }
+        // A Mixy the user never created gets no chat, whichever surface asks.
+        if agent_id == MIXY_AGENT_ID && !self.deps.mixy_created().await.map_err(dep)? {
+            return Err(failed(DOMAIN, "Create the representative bot first."));
+        }
+        let mut create = params;
+        create.insert("cwd".into(), json!(self.deps.task_workspace().await.map_err(dep)?));
+        create.insert("desktopSession".into(), json!({ "classification": "task", "projectPath": null }));
+        self.deps.create_session(&session_id, &Value::Object(create)).await.map_err(dep)?;
+        Ok(session_id)
+    }
+
+    /// `agent/home/open`: `{ sessionId }`.
+    pub async fn open(&self, agent_id: &str) -> Result<Value, CoreError> {
+        let _turn = self.serial.acquire(agent_id).await;
+        Ok(json!({ "sessionId": self.resolve(agent_id).await? }))
+    }
+
+    /// `agent/home/reset`: the agent keeps its one fixed home id; the conversation so far moves to a
+    /// new archived id (`startSessionOver`), `null` when it had no user turn. The archive mark is
+    /// written before the copy exists, so the copy never lists as a live chat.
+    pub async fn reset(&self, agent_id: &str) -> Result<Value, CoreError> {
+        let _turn = self.serial.acquire(agent_id).await;
+        let session_id = self.resolve(agent_id).await?;
+        let archive_id = self.deps.mint_archive_id();
+        self.deps.set_archived(&archive_id, true).await.map_err(dep)?;
+        if let Err(error) = self.deps.clear_session(&session_id, &archive_id).await {
+            let _ = self.deps.set_archived(&archive_id, false).await;
+            return Err(dep(error));
+        }
+        let archived = match self.deps.read_session(&archive_id).await {
+            Ok(_) => Some(archive_id),
+            Err(error) if error.session_missing() => {
+                self.deps.set_archived(&archive_id, false).await.map_err(dep)?;
+                None
+            }
+            Err(error) => return Err(dep(error)),
+        };
+        Ok(json!({ "sessionId": session_id, "archivedSessionId": archived }))
+    }
+}
+
+// ---- memory -----------------------------------------------------------------------------------
+
+/// `requiredAgentId`: the agent must have a home id.
+fn required_agent_id(agent_id: &str) -> Result<(), CoreError> {
+    agent_home_session_id(agent_id).map(|_| ()).ok_or_else(|| type_error("agent id is invalid."))
+}
+
+/// `requiredAgentMemoryEntry`: a positive list index and its list version.
+pub fn required_memory_entry(id: &Value, index_revision: &Value) -> Result<(f64, String), CoreError> {
+    let id = to_number_of_safe_integer(id).filter(|id| *id > 0.0).ok_or_else(|| type_error("memory id is invalid."))?;
+    match index_revision {
+        Value::String(text) if !text.is_empty() && utf16_len(text) <= 200 => Ok((id, text.clone())),
+        _ => Err(type_error("memory indexRevision is invalid.")),
+    }
+}
+
+/// `Number.isSafeInteger(value)` of a number value; `None` for anything else.
+fn to_number_of_safe_integer(value: &Value) -> Option<f64> {
+    let Value::Number(number) = value else { return None };
+    let number = number.as_f64()?;
+    (number.fract() == 0.0 && number.abs() <= 9_007_199_254_740_991.0).then_some(number)
+}
+
+/// One row of a memory page as `listAgentMemory` maps it.
+fn memory_entry(row: &Value) -> Result<Value, CoreError> {
+    if row.is_null() {
+        return Err(type_error("Cannot read properties of null (reading 'id')"));
+    }
+    let field = |key: &str| row.as_object().and_then(|row| row.get(key));
+    let string_of = |value: Option<&Value>| value.map_or_else(|| "undefined".to_owned(), value_to_string);
+    Ok(json!({
+        "id": json_number(field("id").map_or(f64::NAN, to_number)),
+        "indexRevision": string_of(field("index_revision")),
+        "summary": match field("summary") { None | Some(Value::Null) => String::new(), Some(value) => value_to_string(value) },
+    }))
+}
+
+/// The rows `for (const row of page.entries ?? [])` visits.
+fn page_rows(page: &Value) -> Result<Vec<Value>, CoreError> {
+    match page.get("entries") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(rows)) => Ok(rows.clone()),
+        Some(Value::String(text)) => Ok(text.chars().map(|c| Value::String(c.to_string())).collect()),
+        Some(Value::Object(_)) => Err(type_error("object is not iterable (cannot read property Symbol(Symbol.iterator))")),
+        Some(Value::Bool(flag)) => Err(type_error(&format!("boolean {flag} is not iterable (cannot read property Symbol(Symbol.iterator))"))),
+        Some(other) => Err(type_error(&format!("number {} is not iterable (cannot read property Symbol(Symbol.iterator))", value_to_string(other)))),
+    }
+}
+
+/// The agent memory as the host reads and deletes it (`agent-memory.ts`).
+pub struct AgentMemoryHost {
+    runtime: Arc<dyn MemoryRuntime>,
+}
+
+impl AgentMemoryHost {
+    pub fn new(runtime: Arc<dyn MemoryRuntime>) -> Self {
+        Self { runtime }
+    }
+
+    async fn control(&self, args: Value) -> Result<String, CoreError> {
+        self.runtime.memory_control(args).await.map_err(|message| failed(DOMAIN, message))
+    }
+
+    /// `listAgentMemory`: every active entry of `agent_id`'s pool, in its list order.
+    pub async fn list(&self, agent_id: &str) -> Result<Value, CoreError> {
+        required_agent_id(agent_id)?;
+        let mut entries = Vec::new();
+        let mut offset = Some(0.0_f64);
+        while let Some(at) = offset {
+            let text = self.control(json!({ "op": "list", "agent_id": agent_id, "format": "json", "limit": PAGE_SIZE, "offset": json_number(at) })).await?;
+            let page = json_parse(&text).map_err(|_| failed(DOMAIN, if text.is_empty() { "The agent memory could not be read." } else { &text }))?;
+            if page.is_null() {
+                return Err(type_error("Cannot read properties of null (reading 'entries')"));
+            }
+            for row in page_rows(&page)? {
+                entries.push(memory_entry(&row)?);
+            }
+            offset = match page.get("nextOffset") {
+                Some(Value::Number(next)) => next.as_f64().filter(|next| *next > at),
+                _ => None,
+            };
+        }
+        Ok(Value::Array(entries))
+    }
+
+    /// `deleteAgentMemory`: a stale `indexRevision` is refused (list again).
+    pub async fn delete(&self, agent_id: &str, id: &Value, index_revision: &Value) -> Result<(), CoreError> {
+        required_agent_id(agent_id)?;
+        let (id, revision) = required_memory_entry(id, index_revision)?;
+        let text = self.control(json!({ "op": "delete", "agent_id": agent_id, "id": json_number(id), "index_revision": revision })).await?;
+        if text.starts_with("core deleted ") {
+            return Ok(());
+        }
+        Err(failed(DOMAIN, if text.is_empty() { "The agent memory entry could not be deleted." } else { &text }))
+    }
+}
+
+// ---- the service ------------------------------------------------------------------------------
+
+/// `requiredString(value, 'agentId', 200)`: a string, trimmed, not empty, at most 200 characters.
+fn required_agent_param(params: &Value) -> Result<String, CoreError> {
+    let Some(Value::String(text)) = params.get("agentId") else {
+        return Err(type_error("agentId must be a string."));
+    };
+    let text = js_trim(text);
+    if text.is_empty() || utf16_len(text) > 200 {
+        return Err(type_error("agentId is invalid."));
+    }
+    Ok(text.to_owned())
+}
+
+pub struct AgentHomeService {
+    homes: AgentHomeSessions,
+    memory: AgentMemoryHost,
+    pool: AgentPool,
+}
+
+impl AgentHomeService {
+    pub fn new(homes: AgentHomeSessions, memory: AgentMemoryHost, pool: AgentPool) -> Self {
+        Self { homes, memory, pool }
+    }
+
+    async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, CoreError> {
+        match method {
+            "agent/home/open" => self.homes.open(&required_agent_param(params)?).await,
+            "agent/home/reset" => self.homes.reset(&required_agent_param(params)?).await,
+            "agent/memory/list" => self.memory.list(&required_agent_param(params)?).await,
+            "agent/memory/delete" => {
+                let agent = required_agent_param(params)?;
+                // The entry id travels as text; Node's IPC takes the number it names.
+                let id = match params.get("entryId") {
+                    Some(Value::String(text)) => json_number(to_number(&Value::String(text.clone()))),
+                    _ => return Err(invalid("params.entryId", "string")),
+                };
+                let revision = params.get("indexRevision").unwrap_or(&Value::Null);
+                required_memory_entry(&id, revision)?;
+                self.memory.delete(&agent, &id, revision).await?;
+                Ok(Value::Null)
+            }
+            "agent/pool/list" => self.pool.list().await.map(Value::Array).map_err(|error| failed(DOMAIN, error.0)),
+            other => Err(wrong_method(DOMAIN, other)),
+        }
+    }
+}
+
+#[async_trait]
+impl DomainService for AgentHomeService {
+    fn methods(&self) -> &'static [&'static str] {
+        HOME_METHODS
+    }
+
+    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params).await?))
+    }
+
+    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
+        Admit::Accepted
+    }
+}

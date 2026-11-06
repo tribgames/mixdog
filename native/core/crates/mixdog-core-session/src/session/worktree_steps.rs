@@ -36,7 +36,7 @@ impl Inner {
         let prior_lock = self.gate.workspace_cwd_lock(&[session]);
         let applied = self
             .host
-            .apply(session, WorkspaceChange { cwd: next.cwd.clone(), workspace: next.to_value(), moved })
+            .apply(session, WorkspaceChange { cwd: next.cwd.clone(), workspace: next.to_value(), moved, desktop_session: None })
             .await?;
         journal.push(applied);
         let (gate, id) = (self.gate.clone(), session.to_owned());

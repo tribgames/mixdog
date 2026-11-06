@@ -53,6 +53,9 @@ pub struct SweepRow {
     pub record_mtime: i64,
     /// User and assistant messages in the conversation.
     pub conversation_count: u64,
+    /// The session's last conversation turn as this pass read it (`subAgentActivityAt`, epoch ms):
+    /// the baseline the store's admission compares against when the mutation lands.
+    pub activity: i64,
 }
 
 /// What the sweep needs from the session store and runtime.
@@ -60,12 +63,14 @@ pub struct SweepRow {
 pub trait SweepStore: Send + Sync {
     /// Every stored session. `Err` when the store cannot be read: nothing is swept then.
     async fn rows(&self) -> Result<Vec<SweepRow>, String>;
-    /// `markSessionClosed(id, 'idle-sweep')`: `Ok(false)` when a commit of the session is still
-    /// landing (the row is kept for the next pass).
-    async fn close_idle(&self, id: &str) -> Result<bool, String>;
-    /// `deleteSession(id)` with its liveness vetoes: `Ok(false)` when nothing was deleted.
-    async fn delete(&self, id: &str) -> Result<bool, String>;
-    /// The session owns a non-closed runtime entry (`_isSessionLive`).
+    /// `markSessionClosed(id, 'idle-sweep')`. The store's own admission decides, in the one step
+    /// that lands the mutation, whether the session is busy, attached, has pending work or moved
+    /// since `row.activity`: then `Ok(false)` and the row is kept for the next pass.
+    async fn close_idle(&self, row: &SweepRow) -> Result<bool, String>;
+    /// `deleteSession(id)`, admitted the same way: `Ok(false)` when nothing was deleted.
+    async fn delete(&self, row: &SweepRow) -> Result<bool, String>;
+    /// The session owns a non-closed runtime entry (`_isSessionLive`). Only the verdict's input:
+    /// a mutation never relies on it.
     fn is_live(&self, id: &str) -> bool;
 }
 
@@ -128,20 +133,22 @@ fn verdict(row: &SweepRow, now: i64, live: bool) -> Verdict {
 pub async fn sweep_once(store: &dyn SweepStore, now: i64) -> Result<Tally, String> {
     let rows = store.rows().await?;
     let mut tally = Tally::default();
-    let mut candidates: Vec<(String, i64)> = Vec::new();
+    let mut candidates: Vec<(&SweepRow, i64)> = Vec::new();
     for row in &rows {
+        // The scan and the runtime are not atomic: whether work started since this verdict is the
+        // store's admission decision when the mutation lands (`Ok(false)`), not a second read here.
         match verdict(row, now, store.is_live(&row.id)) {
             Verdict::Keep => tally.remaining += 1,
             Verdict::Candidate(last_active) => {
-                candidates.push((row.id.clone(), last_active));
+                candidates.push((row, last_active));
                 tally.remaining += 1;
             }
-            Verdict::CloseIdle => match store.close_idle(&row.id).await {
+            Verdict::CloseIdle => match store.close_idle(row).await {
                 Ok(true) => tally.cleaned.push(row.id.clone()),
                 Ok(false) => tally.remaining += 1,
                 Err(error) => tracing::warn!(id = row.id, "idle-sweep close failed: {error}"),
             },
-            Verdict::DeleteTombstone => match store.delete(&row.id).await {
+            Verdict::DeleteTombstone => match store.delete(row).await {
                 Ok(true) => tally.tombstones_cleaned.push(row.id.clone()),
                 Ok(false) => tally.remaining += 1,
                 Err(error) => {
@@ -149,7 +156,7 @@ pub async fn sweep_once(store: &dyn SweepStore, now: i64) -> Result<Tally, Strin
                     tally.remaining += 1;
                 }
             },
-            Verdict::DeleteScratch => match store.delete(&row.id).await {
+            Verdict::DeleteScratch => match store.delete(row).await {
                 Ok(true) => tally.open_pruned.push(row.id.clone()),
                 _ => tally.remaining += 1,
             },
@@ -160,18 +167,18 @@ pub async fn sweep_once(store: &dyn SweepStore, now: i64) -> Result<Tally, Strin
 }
 
 /// `pruneOpenCandidates`: newest first; a live session is kept and still takes a slot.
-async fn prune_open(store: &dyn SweepStore, now: i64, mut candidates: Vec<(String, i64)>, tally: &mut Tally) {
-    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+async fn prune_open(store: &dyn SweepStore, now: i64, mut candidates: Vec<(&SweepRow, i64)>, tally: &mut Tally) {
+    candidates.sort_by_key(|row| std::cmp::Reverse(row.1));
     let mut kept = 0usize;
-    for (id, last_active) in candidates {
+    for (row, last_active) in candidates {
         let too_old = now - last_active > OPEN_MAX_AGE_MS;
-        if store.is_live(&id) || (!too_old && kept < OPEN_MAX_COUNT) {
+        if store.is_live(&row.id) || (!too_old && kept < OPEN_MAX_COUNT) {
             kept += 1;
             continue;
         }
-        match store.delete(&id).await {
+        match store.delete(row).await {
             Ok(true) => {
-                tally.open_pruned.push(id);
+                tally.open_pruned.push(row.id.clone());
                 tally.remaining = tally.remaining.saturating_sub(1);
             }
             _ => kept += 1,
@@ -186,8 +193,10 @@ fn now_ms() -> i64 {
 }
 
 /// `startIdleCleanup`: one cycle per interval, the first after one interval, a cycle never
-/// overlapping the next. Returns once `stop` is cancelled.
-pub async fn run(store: Arc<dyn SweepStore>, interval: Duration, stop: CancellationToken) {
+/// overlapping the next. Returns once `stop` is cancelled. Needs the proof that startup (the
+/// ownership lock, the prior-owner verdict, the claim barrier, the migration) has finished: no
+/// sweep may touch a data directory before then.
+pub async fn run(_started: crate::startup::Started, store: Arc<dyn SweepStore>, interval: Duration, stop: CancellationToken) {
     loop {
         let due = mixdog_rt::ticker().wait_until(Instant::now() + interval);
         tokio::select! {
@@ -223,6 +232,9 @@ mod tests {
     struct Store {
         rows: Vec<SweepRow>,
         live: HashSet<String>,
+        /// Sessions an older process still holds: the store's close and delete land nothing
+        /// (`Ok(false)`), as Node's `legacyOwnerVeto` answers.
+        vetoed: HashSet<String>,
         log: Mutex<Vec<String>>,
     }
 
@@ -231,13 +243,13 @@ mod tests {
         async fn rows(&self) -> Result<Vec<SweepRow>, String> {
             Ok(self.rows.clone())
         }
-        async fn close_idle(&self, id: &str) -> Result<bool, String> {
-            self.log.lock().unwrap().push(format!("close:{id}"));
-            Ok(true)
+        async fn close_idle(&self, row: &SweepRow) -> Result<bool, String> {
+            self.log.lock().unwrap().push(format!("close:{}", row.id));
+            Ok(!self.vetoed.contains(&row.id))
         }
-        async fn delete(&self, id: &str) -> Result<bool, String> {
-            self.log.lock().unwrap().push(format!("delete:{id}"));
-            Ok(true)
+        async fn delete(&self, row: &SweepRow) -> Result<bool, String> {
+            self.log.lock().unwrap().push(format!("delete:{}", row.id));
+            Ok(!self.vetoed.contains(&row.id))
         }
         fn is_live(&self, id: &str) -> bool {
             self.live.contains(id)
@@ -272,10 +284,11 @@ mod tests {
                         created_at: at,
                         record_mtime: at,
                         conversation_count: r["conversation"].as_u64().unwrap(),
+                        activity: at,
                     }
                 })
                 .collect();
-            let store = Store { rows, live: ids(&scenario["live"]).into_iter().collect(), ..Store::default() };
+            let store = Store { rows, live: ids(&scenario["live"]).into_iter().collect(), vetoed: ids(&scenario["vetoed"]).into_iter().collect(), ..Store::default() };
             let tally = sweep_once(&store, NOW).await.unwrap();
             let sorted = |mut v: Vec<String>| {
                 v.sort();
@@ -285,6 +298,7 @@ mod tests {
             assert_eq!(sorted(tally.tombstones_cleaned), ids(&scenario["tombstonesCleaned"]), "{name}: tombstones");
             assert_eq!(sorted(tally.open_pruned), ids(&scenario["openPruned"]), "{name}: pruned");
             assert_eq!(tally.remaining as u64, scenario["remaining"].as_u64().unwrap(), "{name}: remaining");
+            assert_eq!(sorted(tally.tombstone_errors.into_iter().map(|(id, _)| id).collect()), ids(&scenario["tombstoneErrors"]), "{name}: unlink errors");
         }
     }
     #[tokio::test]
@@ -295,10 +309,10 @@ mod tests {
             async fn rows(&self) -> Result<Vec<SweepRow>, String> {
                 Err("EACCES".into())
             }
-            async fn close_idle(&self, _: &str) -> Result<bool, String> {
+            async fn close_idle(&self, _: &SweepRow) -> Result<bool, String> {
                 unreachable!()
             }
-            async fn delete(&self, _: &str) -> Result<bool, String> {
+            async fn delete(&self, _: &SweepRow) -> Result<bool, String> {
                 unreachable!()
             }
             fn is_live(&self, _: &str) -> bool {

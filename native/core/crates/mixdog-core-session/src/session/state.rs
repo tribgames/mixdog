@@ -86,7 +86,7 @@ pub(crate) struct LiveItem {
     pub item: ThreadItem,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Queued {
     pub qid: String,
     pub entry: Value,

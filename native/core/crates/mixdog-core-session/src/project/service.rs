@@ -83,6 +83,20 @@ impl Registry for mixdog_workspace::service::WorkspaceService {
     }
 }
 
+/// `project/setProjectConnectorEnabled` params with `enabled` as sent: the protocol types it as a
+/// boolean, but Node answers any other value with `enabled must be a boolean` (after the
+/// connector id is checked, before the project), so the service does the check itself.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConnectorSwitchParams {
+    project_path: String,
+    connector_id: String,
+    #[serde(default)]
+    enabled: Value,
+    #[serde(default)]
+    options: Option<Value>,
+}
+
 pub struct ProjectService {
     projects: Arc<dyn Registry>,
     worktrees: Arc<Worktrees>,
@@ -404,11 +418,11 @@ impl ProjectService {
                 self.set_archived(&params.input, cancel).await.map_err(wire)
             }
             "project/setProjectConnectorEnabled" => {
-                let params: p::ProjectSetProjectConnectorEnabledParams = decode(req)?;
+                let params: ConnectorSwitchParams = decode(req)?;
                 // The host marks a remote client's call; a relay origin is one by itself.
                 let no_widen = req.ctx.origin == Origin::Relay || params.options.as_ref().and_then(|o| o.get("noWiden")) == Some(&Value::Bool(true));
                 self.connectors
-                    .set_enabled(&params.project_path, &params.connector_id, params.enabled, no_widen, cancel)
+                    .set_enabled(&params.project_path, &params.connector_id, &params.enabled, no_widen, cancel)
                     .await
                     .map_err(|message| failed(DOMAIN, message))
             }

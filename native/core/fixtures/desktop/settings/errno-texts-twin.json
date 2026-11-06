@@ -1,0 +1,59 @@
+{
+ "domain": "errno-texts-twin",
+ "recorder": "benchmarks/rust-core/recorders/record-errno-texts.mjs",
+ "platform": "win32",
+ "errnos": {
+  "EPERM": "operation not permitted",
+  "ENOENT": "no such file or directory",
+  "EIO": "i/o error",
+  "EBADF": "bad file descriptor",
+  "EACCES": "permission denied",
+  "EBUSY": "resource busy or locked",
+  "EEXIST": "file already exists",
+  "EXDEV": "cross-device link not permitted",
+  "ENOTDIR": "not a directory",
+  "EISDIR": "illegal operation on a directory",
+  "EINVAL": "invalid argument",
+  "EMFILE": "too many open files",
+  "ENFILE": "file table overflow",
+  "ENOSPC": "no space left on device",
+  "EROFS": "read-only file system",
+  "EMLINK": "too many links",
+  "ENAMETOOLONG": "name too long",
+  "ENOTEMPTY": "directory not empty",
+  "ELOOP": "too many symbolic links encountered",
+  "ETXTBSY": "text file is busy",
+  "EFBIG": "file too large",
+  "ENOMEM": "not enough memory",
+  "ENOTSUP": "operation not supported on socket",
+  "EAGAIN": "resource temporarily unavailable",
+  "EINTR": "interrupted system call",
+  "EFAULT": "bad address in system call argument",
+  "ENODEV": "no such device",
+  "ESPIPE": "invalid seek",
+  "EOVERFLOW": "value too large for defined data type",
+  "ECANCELED": "operation canceled",
+  "ETIMEDOUT": "connection timed out",
+  "ENXIO": "no such device or address"
+ },
+ "real": [
+  {
+   "syscall": "open",
+   "message": "ENOENT: no such file or directory, open 'C:\\mixdog-no-such-dir\\a.json'",
+   "code": "ENOENT",
+   "errno": -4058
+  },
+  {
+   "syscall": "rename",
+   "message": "ENOENT: no such file or directory, rename 'C:\\mixdog-no-such-dir\\a.json.tmp' -> 'C:\\mixdog-no-such-dir\\a.json'",
+   "code": "ENOENT",
+   "errno": -4058
+  },
+  {
+   "syscall": "unlink",
+   "message": "ENOENT: no such file or directory, unlink 'C:\\mixdog-no-such-dir\\a.json'",
+   "code": "ENOENT",
+   "errno": -4058
+  }
+ ]
+}

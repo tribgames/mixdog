@@ -26,8 +26,13 @@ use super::tool_schema::tool_schema_signature;
 use crate::message::AgentMessage;
 
 mod rows;
+mod status;
 
 pub use rows::AttachmentBytes;
+pub use status::Route;
+pub use status::StatusInput;
+pub use status::context_status;
+pub use status::summarize_messages;
 pub use rows::BlobError;
 pub(crate) use rows::node_base64;
 pub use rows::{clean_image_mime, image_descriptor, image_identity};

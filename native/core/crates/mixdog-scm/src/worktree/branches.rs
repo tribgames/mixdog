@@ -546,7 +546,9 @@ impl Worktrees {
             if !users.is_empty() {
                 return Err(errors::retained_by(users));
             }
-            Self::assert_not_shared(&record, None)?;
+            // Node's `assertWorktreeRemovable({ entryId })` leaves `sessionId` undefined, which
+            // defaults to the owner: only other sessions' references refuse.
+            Self::assert_not_shared(&record, record.owner_session_id.as_deref())?;
             self.assert_removable(&record, cancel).await?;
             drop(_lock);
             return self.remove(&record.id, false, None, cancel).await;
@@ -598,11 +600,9 @@ impl Worktrees {
                 None => self.scm().uncommitted_paths(cancel, source).await?,
             };
             if operation.is_some() || !dirty.is_empty() {
-                return Err(errors::dirty(
-                    None,
-                    operation.map(|o| crate::repo::operation_verb(o).to_owned()),
-                    Some(dirty.len() as u64),
-                    None,
+                return Err(errors::merge_source_dirty(
+                    operation.map_or("", crate::repo::operation_verb),
+                    dirty.len() as u64,
                 ));
             }
         }

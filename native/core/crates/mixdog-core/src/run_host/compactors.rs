@@ -55,6 +55,10 @@ pub trait CompactionWorld: Send + Sync + 'static {
     /// The saved `config.compaction` object, the one `normalizeCompactionSummaryMode` reads
     /// (`fresh-context.mjs:113`); `None` when the install saved none.
     fn compaction_config(&self) -> Option<Value>;
+    /// `retireCompactionFork(sessionId)`: a compaction rewrote the session's transcript, so the
+    /// request the side-question store saved no longer holds the history a later compaction must
+    /// summarize.
+    fn retire_fork(&self, thread: &ThreadId);
 }
 
 pub struct SessionCompactors {
@@ -84,8 +88,8 @@ fn conversation_threshold(header: &Header) -> Option<u64> {
 #[async_trait]
 impl CompactorSource for SessionCompactors {
     async fn compactor(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> Option<Arc<dyn Compactor>> {
-        let compactor: Arc<dyn Compactor> = self.fresh(thread, header, prior, input).await?;
-        Some(compactor)
+        let fresh: Arc<dyn Compactor> = self.fresh(thread, header, prior, input).await?;
+        Some(Arc::new(super::retiring_compactor::RetiringCompactor::new(fresh, self.world.clone(), thread.clone())))
     }
 }
 
@@ -256,6 +260,7 @@ mod tests {
     struct World {
         compaction: Option<Value>,
         asked: Mutex<Vec<String>>,
+        retired: Mutex<Vec<String>>,
     }
     #[async_trait]
     impl CompactionWorld for World {
@@ -276,10 +281,13 @@ mod tests {
         fn compaction_config(&self) -> Option<Value> {
             self.compaction.clone()
         }
+        fn retire_fork(&self, thread: &ThreadId) {
+            self.retired.lock().unwrap().push(thread.as_str().to_owned());
+        }
     }
 
     fn source(compaction: Option<Value>) -> (SessionCompactors, Arc<World>) {
-        let world = Arc::new(World { compaction, asked: Mutex::new(Vec::new()) });
+        let world = Arc::new(World { compaction, asked: Mutex::new(Vec::new()), retired: Mutex::new(Vec::new()) });
         (SessionCompactors::new(world.clone(), Arc::new(Fixed)), world)
     }
 

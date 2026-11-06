@@ -362,7 +362,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().join("ws");
         for sub in ["a/sub", "far"] {
-            std::fs::create_dir_all(ws.join(sub)).unwrap();
+            let path = ws.join(sub);
+            use mixdog_rt::LaneToken as _;
+            let io = mixdog_rt::testing::tokens().maintenance_io;
+            io.submit(&mixdog_rt::CancellationToken::new(), move |lane| mixdog_statefile::create_private_dir_all(lane, &path).unwrap()).unwrap().await.unwrap();
         }
         let folder = |rel: &str| ws.join(rel).to_string_lossy().into_owned();
         let sight = Arc::new(crate::session::workspace_sight::GitSight::new(mixdog_rt::testing::tokens().maintenance_io));

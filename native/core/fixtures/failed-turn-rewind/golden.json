@@ -1,0 +1,343 @@
+{
+  "retained": [
+    {
+      "id": "m1",
+      "index": 1,
+      "messages": [
+        {
+          "content": "rules",
+          "role": "system"
+        },
+        {
+          "content": "go",
+          "meta": {
+            "transcript": {
+              "completion": {
+                "status": "failed"
+              },
+              "messageId": "m1"
+            }
+          },
+          "role": "user"
+        }
+      ],
+      "name": "the failed user message"
+    },
+    {
+      "attempt": "a1",
+      "id": "m1",
+      "index": 0,
+      "messages": [
+        {
+          "content": "go",
+          "meta": {
+            "transcript": {
+              "completion": {
+                "attemptId": "a1",
+                "status": "failed"
+              },
+              "messageId": "m1"
+            }
+          },
+          "role": "user"
+        }
+      ],
+      "name": "the attempt matches"
+    },
+    {
+      "attempt": "a2",
+      "error": "The failed attempt is no longer the latest execution.",
+      "id": "m1",
+      "messages": [
+        {
+          "content": "go",
+          "meta": {
+            "transcript": {
+              "completion": {
+                "attemptId": "a1",
+                "status": "failed"
+              },
+              "messageId": "m1"
+            }
+          },
+          "role": "user"
+        }
+      ],
+      "name": "another attempt is refused"
+    },
+    {
+      "error": "The failed turn is no longer the latest execution.",
+      "id": "m2",
+      "messages": [
+        {
+          "content": "go",
+          "meta": {
+            "transcript": {
+              "completion": {
+                "status": "failed"
+              },
+              "messageId": "m1"
+            }
+          },
+          "role": "user"
+        }
+      ],
+      "name": "another message is refused"
+    },
+    {
+      "error": "The failed turn is no longer the latest execution.",
+      "id": "m1",
+      "messages": [
+        {
+          "content": "go",
+          "meta": {
+            "transcript": {
+              "completion": {
+                "status": "completed"
+              },
+              "messageId": "m1"
+            }
+          },
+          "role": "user"
+        }
+      ],
+      "name": "a completed message is refused"
+    },
+    {
+      "error": "The failed turn is no longer the latest execution.",
+      "id": "",
+      "messages": [
+        {
+          "content": "go",
+          "meta": {
+            "transcript": {
+              "completion": {
+                "status": "failed"
+              },
+              "messageId": "m1"
+            }
+          },
+          "role": "user"
+        }
+      ],
+      "name": "no id is refused"
+    },
+    {
+      "id": "m1",
+      "index": null,
+      "messages": [
+        {
+          "content": "x",
+          "meta": {
+            "transcript": {
+              "completion": {
+                "status": "failed"
+              },
+              "messageId": "m1"
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "name": "a failed assistant tail is not a user row"
+    }
+  ],
+  "rewind": [
+    {
+      "index": 3,
+      "messages": [
+        {
+          "content": "rules",
+          "role": "system"
+        },
+        {
+          "content": "first",
+          "role": "user"
+        },
+        {
+          "content": "done",
+          "role": "assistant"
+        },
+        {
+          "content": "fix the bug",
+          "role": "user"
+        }
+      ],
+      "name": "the tail is the prompt",
+      "prompt": "fix the bug"
+    },
+    {
+      "index": 0,
+      "messages": [
+        {
+          "content": "  fix the bug \n",
+          "role": "user"
+        }
+      ],
+      "name": "the prompt is trimmed on both sides",
+      "prompt": "fix the bug  "
+    },
+    {
+      "index": 0,
+      "messages": [
+        {
+          "content": "fix the bug",
+          "role": "user"
+        },
+        {
+          "content": "rules",
+          "role": "system"
+        }
+      ],
+      "name": "a system row after the prompt is skipped",
+      "prompt": "fix the bug"
+    },
+    {
+      "index": -1,
+      "messages": [
+        {
+          "content": "fix the bug",
+          "role": "user"
+        },
+        {
+          "content": "done",
+          "role": "assistant"
+        }
+      ],
+      "name": "an answered tail is kept",
+      "prompt": "fix the bug"
+    },
+    {
+      "index": -1,
+      "messages": [
+        {
+          "content": "other",
+          "role": "user"
+        }
+      ],
+      "name": "another prompt is not removed",
+      "prompt": "fix the bug"
+    },
+    {
+      "index": -1,
+      "messages": [
+        {
+          "content": "",
+          "role": "user"
+        }
+      ],
+      "name": "an empty resubmission rewinds nothing",
+      "prompt": "  "
+    },
+    {
+      "index": -1,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "fix",
+              "type": "text"
+            },
+            {
+              "data": "x",
+              "type": "image"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "name": "a media prompt is not text only",
+      "prompt": "fix"
+    },
+    {
+      "index": 0,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "a",
+              "type": "text"
+            },
+            {
+              "text": "b",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "name": "text parts join by a newline",
+      "prompt": "a\nb"
+    },
+    {
+      "index": 0,
+      "messages": [
+        {
+          "content": "<ctx>fix the bug</ctx>",
+          "meta": {
+            "runtimeUserContext": {
+              "prefix": "<ctx>",
+              "suffix": "</ctx>"
+            }
+          },
+          "role": "user"
+        }
+      ],
+      "name": "the runtime context around the prompt is not the prompt",
+      "prompt": "fix the bug"
+    },
+    {
+      "index": 0,
+      "messages": [
+        {
+          "content": "fix the bug",
+          "meta": {
+            "runtimeUserContext": {
+              "prefix": "<ctx>",
+              "suffix": "</ctx>"
+            }
+          },
+          "role": "user"
+        }
+      ],
+      "name": "a stale runtime context boundary is kept",
+      "prompt": "fix the bug"
+    },
+    {
+      "index": 0,
+      "messages": [
+        {
+          "content": [
+            {
+              "text": "<ctx>",
+              "type": "text"
+            },
+            {
+              "text": "fix",
+              "type": "text"
+            },
+            {
+              "text": "</ctx>",
+              "type": "text"
+            }
+          ],
+          "meta": {
+            "runtimeUserContext": {
+              "prefix": "<ctx>",
+              "suffix": "</ctx>"
+            }
+          },
+          "role": "user"
+        }
+      ],
+      "name": "block runtime context is stripped",
+      "prompt": "fix"
+    },
+    {
+      "index": -1,
+      "messages": [],
+      "name": "no messages",
+      "prompt": "fix"
+    }
+  ]
+}

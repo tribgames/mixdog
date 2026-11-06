@@ -475,7 +475,9 @@ impl EventPipeline {
             return false;
         }
         if let Some(file) = file {
-            self.fail_counts.lock().unwrap_or_else(PoisonError::into_inner).remove(original_name(file));
+            if let std::collections::hash_map::Entry::Occupied(counted) = self.fail_counts.lock().unwrap_or_else(PoisonError::into_inner).entry(original_name(file).to_owned()) {
+                counted.remove();
+            }
             self.move_to_processed(file, "injected").await;
         }
         true
@@ -490,7 +492,9 @@ impl EventPipeline {
             let mut counts = self.fail_counts.lock().unwrap_or_else(PoisonError::into_inner);
             let fails = counts.get(&original).copied().unwrap_or(0).max(persisted) + 1;
             if fails >= INJECT_MAX_ATTEMPTS {
-                counts.remove(&original);
+                if let std::collections::hash_map::Entry::Occupied(counted) = counts.entry(original.clone()) {
+                    counted.remove();
+                }
             } else {
                 counts.insert(original.clone(), fails);
             }
@@ -531,7 +535,7 @@ impl EventPipeline {
                 ranked.push((stat.modified, name));
             }
         }
-        ranked.sort_by(|a, b| b.0.cmp(&a.0));
+        ranked.sort_by_key(|row| std::cmp::Reverse(row.0));
         for (_, name) in ranked.into_iter().skip(PROCESSED_MAX_ENTRIES) {
             let _ = self.files.fs.remove(self.files.write, self.dir("processed").join(name), false).await;
         }
@@ -552,8 +556,9 @@ impl EventPipeline {
 
     /// `start()`: directories, stranded events, then the ticks until `stop`: the first tick after
     /// three seconds and each `tickInterval` seconds after, the batch every `batchInterval`
-    /// minutes.
-    pub async fn run(self: Arc<Self>, stop: CancellationToken) {
+    /// minutes. Needs the proof that startup finished (the ownership lock, the claim barrier and
+    /// the migration): the queue directories are not touched before then.
+    pub async fn run(self: Arc<Self>, _started: crate::startup::Started, stop: CancellationToken) {
         self.ensure_dirs().await;
         self.requeue_stranded().await;
         let wait = |after: Duration| mixdog_rt::ticker().wait_until(Instant::now() + after);
@@ -682,18 +687,33 @@ mod tests {
         format!("{}.json", parts.join("-"))
     }
 
-    fn dir_names(root: &std::path::Path, dir: &str) -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(root.join("events").join(dir)).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    async fn on_lane<R: Send + 'static>(job: impl FnOnce(&mixdog_rt::InLane<mixdog_rt::DurabilityIo>) -> R + Send + 'static) -> R {
+        mixdog_core_base::support::on_lane(mixdog_rt::testing::tokens().durability_io, &CancellationToken::new(), job).await.unwrap()
+    }
+
+    async fn dir_names(root: &std::path::Path, dir: &str) -> Vec<String> {
+        let path = root.join("events").join(dir);
+        let mut names = on_lane(move |lane| mixdog_statefile::list_dir(lane, &path)).await.unwrap();
         names.sort();
         names
     }
 
+    async fn write_step(path: std::path::PathBuf, content: String) {
+        on_lane(move |lane| {
+            let opts = mixdog_statefile::Opts { lock: false, ..mixdog_statefile::Opts::default() };
+            mixdog_statefile::write_file(lane, &path, content.as_bytes(), &opts).map(|_| ())
+        })
+        .await
+        .unwrap();
+    }
+
     /// The directories as the recorder snapshots them.
-    fn snapshot(root: &std::path::Path) -> (Value, Value, Value) {
+    async fn snapshot(root: &std::path::Path) -> (Value, Value, Value) {
         let queue = dir_names(root, "queue")
+            .await
             .into_iter()
             .map(|file| {
-                let raw = std::fs::read(root.join("events").join("queue").join(&file)).unwrap();
+                let raw = mixdog_statefile::read_content(&root.join("events").join("queue").join(&file)).unwrap().unwrap();
                 let item = match serde_json::from_slice::<Value>(&raw) {
                     Ok(Value::Object(mut item)) => {
                         item.shift_remove("timestamp");
@@ -705,14 +725,14 @@ mod tests {
                 serde_json::json!({"file": normalize(&file), "item": item})
             })
             .collect();
-        let normalized = |dir: &str, sort: bool| {
-            let mut names: Vec<String> = dir_names(root, dir).iter().map(|n| normalize(n)).collect();
+        let normalized = |names: Vec<String>, sort: bool| {
+            let mut names: Vec<String> = names.iter().map(|n| normalize(n)).collect();
             if sort {
                 names.sort();
             }
             Value::from(names)
         };
-        (Value::Array(queue), normalized("in-progress", false), normalized("processed", true))
+        (Value::Array(queue), normalized(dir_names(root, "in-progress").await, false), normalized(dir_names(root, "processed").await, true))
     }
 
     #[tokio::test]
@@ -743,18 +763,18 @@ mod tests {
                     "batch" => pipeline.process_batch().await,
                     "inject" => sink.fail.store(step["mode"] == "fail", Ordering::SeqCst),
                     "strand" => pipeline.requeue_stranded().await,
-                    "file" => std::fs::write(dir.path().join("events").join(step["dir"].as_str().unwrap()).join(step["name"].as_str().unwrap()), step["content"].as_str().unwrap()).unwrap(),
+                    "file" => write_step(dir.path().join("events").join(step["dir"].as_str().unwrap()).join(step["name"].as_str().unwrap()), step["content"].as_str().unwrap().to_owned()).await,
                     other => panic!("unknown op {other}"),
                 }
                 let want = (entry["queue"].clone(), entry["inProgress"].clone(), entry["processed"].clone());
                 // A webhook reaches the disk off the request, and a high-priority one is then processed.
                 for _ in 0..500 {
-                    if snapshot(dir.path()) == want {
+                    if snapshot(dir.path()).await == want {
                         break;
                     }
                     tokio::time::sleep(Duration::from_millis(2)).await;
                 }
-                assert_eq!(snapshot(dir.path()), want, "{at}");
+                assert_eq!(snapshot(dir.path()).await, want, "{at}");
                 let injected: Vec<Value> = sink.got.lock().unwrap().drain(..).map(|(event, prompt)| serde_json::json!({"event": event, "instruction": prompt})).collect();
                 let expected: Vec<Value> = entry["injected"].as_array().unwrap().iter().map(|i| serde_json::json!({"event": i["event"], "instruction": i["instruction"]})).collect();
                 assert_eq!(injected, expected, "{at}: injections");

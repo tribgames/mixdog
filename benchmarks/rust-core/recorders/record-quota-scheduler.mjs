@@ -6,7 +6,7 @@
 // `mixdog_core_session::session::quota_resume_scheduler` must equal it.
 //
 //   node benchmarks/rust-core/recorders/record-quota-scheduler.mjs --tree <dir>
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -19,6 +19,7 @@ process.env.MIXDOG_CONFIG_DIR = dir;
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 const store = await importFrom(tree, 'src/runtime/shared/quota-resume-store.mjs');
 const config = await importFrom(tree, 'src/runtime/shared/config.mjs');
+const { QUOTA_RESUME_FILE } = store;
 const { createQuotaResumeScheduler } = await importFrom(tree, 'src/standalone/session-service/quota-resume.mjs');
 
 const NOW = 1_000_000;
@@ -58,6 +59,25 @@ const CASES = [
   { name: 'two due in one pass', entries: [entry('s1', 0), entry('s2', 0)], steps: [{ advance: 0 }] },
 ];
 
+// Cases driven by the timer's own wakeup (the task handed to setTimer), not by a hand `tick()`.
+// A step is { advance } (the clock moves, the armed timer fires) or { restart } (the daemon stops
+// and starts again over the same store file). `storeFile` is the file Node's store wrote.
+const TIMER_CASES = [
+  { name: 'timer fires the due entry', entries: [entry('s1', 5000)], timerSteps: [{ advance: 5000 }] },
+  { name: 'timer walks two entries', entries: [entry('s1', 9000), entry('s2', 4000)], timerSteps: [{ advance: 4000 }, { advance: 5000 }] },
+  { name: 'timer retries an exhausted reading once', entries: [entry('s1', 0)], usable: false, timerSteps: [{ advance: 0 }, { advance: 300000 }] },
+  { name: 'timer rechecks a busy session', entries: [entry('s1', 0)], fire: 'busy', timerSteps: [{ advance: 0 }, { advance: 30000 }] },
+  {
+    name: 'pending resumes survive a restart and fire once',
+    entries: [entry('s1', -10), entry('s2', 5000)],
+    timerSteps: [{ restart: true }, { advance: 0 }, { restart: true }, { advance: 5000 }],
+  },
+];
+
+const idle = async () => {
+  for (let i = 0; i < 20; i += 1) await new Promise((resolveTurn) => setImmediate(resolveTurn));
+};
+
 function runCase(spec) {
   store.reloadQuotaResumeStore();
   store.cancelAllQuotaResumeEntries();
@@ -68,7 +88,7 @@ function runCase(spec) {
   const reads = {};
   const fireCalls = [];
   const usableCalls = [];
-  const scheduler = createQuotaResumeScheduler({
+  const build = () => createQuotaResumeScheduler({
     store,
     materializeSession: async (id) => {
       if (spec.materialize) throw new Error(spec.materialize);
@@ -95,9 +115,10 @@ function runCase(spec) {
     },
     log: (line) => log.push(line),
     now: () => clock,
-    setTimer: (_task, ms) => (timer = { ms }),
+    setTimer: (task, ms) => (timer = { ms, task }),
     clearTimer: () => (timer = null),
   });
+  let scheduler = build();
   for (const e of spec.entries) {
     const { resetIn, ...args } = e;
     store.scheduleQuotaResumeEntry({ ...args, resetAt: NOW + resetIn });
@@ -111,9 +132,28 @@ function runCase(spec) {
       attempts: e.attempts,
     }));
   base = Math.min(...store.listQuotaResumeEntries().map((e) => e.generation), Infinity) - 1;
+  const storeFile = spec.entries.length ? readFileSync(join(dir, QUOTA_RESUME_FILE), 'utf8') : null;
   scheduler.start();
-  const out = { name: spec.name, entries: store.listQuotaResumeEntries().map((e) => ({ ...e, generation: e.generation - base, resetAt: e.resetAt - NOW })), armed: timer?.ms ?? null, steps: [] };
-  return { out, scheduler, step: async (advance) => {
+  const out = { name: spec.name, entries: store.listQuotaResumeEntries().map((e) => ({ ...e, generation: e.generation - base, resetAt: e.resetAt - NOW })), armed: timer?.ms ?? null, base, storeFile, steps: [] };
+  const timerStep = async (advance) => {
+    clock += advance;
+    log.length = 0;
+    fireCalls.length = 0;
+    usableCalls.length = 0;
+    const { ms: wait, task } = timer;
+    timer = null;
+    task();
+    await idle();
+    return { advance, wait, log: [...log], usable: [...usableCalls], fire: [...fireCalls], queue: queue(), armed: timer?.ms ?? null };
+  };
+  const restart = () => {
+    scheduler.stop();
+    store.reloadQuotaResumeStore();
+    scheduler = build();
+    scheduler.start();
+    return { restart: true, queue: queue(), armed: timer?.ms ?? null };
+  };
+  return { out, stop: () => scheduler.stop(), timerStep, restart, step: async (advance) => {
     clock += advance;
     log.length = 0;
     fireCalls.length = 0;
@@ -125,11 +165,58 @@ function runCase(spec) {
 
 const cases = [];
 for (const spec of CASES) {
-  const { out, scheduler, step } = runCase(spec);
+  const { out, stop, step } = runCase(spec);
   for (const s of spec.steps) out.steps.push(await step(s.advance));
-  scheduler.stop();
+  stop();
   cases.push({ ...spec, ...out, entries: spec.entries, scheduled: out.entries, steps: out.steps });
 }
+
+const timerCases = [];
+for (const spec of TIMER_CASES) {
+  const { out, stop, timerStep, restart } = runCase(spec);
+  for (const s of spec.timerSteps) out.steps.push(s.restart ? restart() : await timerStep(s.advance));
+  stop();
+  timerCases.push({ ...spec, ...out, entries: spec.entries, scheduled: out.entries, steps: out.steps });
+}
+
+// Two overlapping ticks while a fire is in flight: Node's `tick()` answers the pass already
+// running (the same promise), so the entry fires once.
+async function coalesceProbe() {
+  store.reloadQuotaResumeStore();
+  store.cancelAllQuotaResumeEntries();
+  config.updateSection('quotaResume', () => ({ autoResume: true }));
+  store.scheduleQuotaResumeEntry({ sessionId: 's1', turnKey: 'turn:s1', provider: A.provider, model: A.model, resetAt: NOW });
+  const base = store.listQuotaResumeEntries()[0].generation - 1;
+  let release;
+  const gate = new Promise((open) => (release = open));
+  const fires = [];
+  const scheduler = createQuotaResumeScheduler({
+    store,
+    materializeSession: async () => ({
+      getState: () => A,
+      fireQuotaResume: async ({ generation }) => {
+        fires.push(generation - base);
+        await gate;
+        return 'fired';
+      },
+    }),
+    readQuotaUsable: async () => true,
+    log: () => {},
+    now: () => NOW,
+    setTimer: () => ({}),
+    clearTimer: () => {},
+  });
+  const first = scheduler.tick();
+  await idle();
+  const second = scheduler.tick();
+  const samePromise = first === second;
+  await idle();
+  const firesWhileHeld = fires.length;
+  release();
+  await Promise.all([first, second]);
+  return { samePromise, firesWhileHeld, fires, queue: store.listQuotaResumeEntries().length };
+}
+const coalesce = await coalesceProbe();
 
 const outDir = cli.get('out') ?? join(FIXTURES_ROOT, 'quota-scheduler');
 writeJson(join(outDir, 'golden.json'), {
@@ -137,6 +224,8 @@ writeJson(join(outDir, 'golden.json'), {
   recorder: 'benchmarks/rust-core/recorders/record-quota-scheduler.mjs',
   now: NOW,
   cases,
+  timerCases,
+  coalesce,
 });
 writeSetManifest(outDir, {
   set: 'quota-scheduler',

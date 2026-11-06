@@ -929,7 +929,7 @@ impl Worktrees {
             .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
         let (owner_live, _, removable) = self.retention_of(&current, live, retained, cancel).await?;
         if owner_live {
-            return Err(errors::busy(errors::RefusalReason::WorkspaceLease));
+            return Err(errors::busy_with(errors::RefusalReason::WorkspaceLease.wire(), None, Some(entry_id.to_owned()), None));
         }
         let request = RemoveRequest { entry_id: entry_id.to_owned(), force, session_id: current.owner_session_id.clone(), ..RemoveRequest::default() };
         if allow_retained {

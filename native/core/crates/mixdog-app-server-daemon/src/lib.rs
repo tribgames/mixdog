@@ -2,27 +2,33 @@
 //! owners add their own `pub mod` line below.
 
 use mixdog_core_api::CoreState;
-use mixdog_protocol::DrainReason;
 
 pub mod barrier;
 pub mod catalog;
 pub mod compat;
 pub mod compose;
+pub mod compose_core;
+pub mod compose_mcp;
 pub mod compose_domains;
 pub mod control;
 pub mod discovery;
+pub mod domain_seams;
 pub mod js_runtime;
 pub mod event_pipeline;
 pub mod held_requests;
 pub mod lifecycle;
+pub mod media;
 pub mod exec;
 pub mod ownership;
 pub mod pair_code;
 pub mod server;
+pub mod serving;
 pub mod server_ensure;
 pub mod session_sweep;
 pub mod shell_name;
 pub mod signals;
+pub mod startup;
+pub mod sweep_store;
 pub mod update_installer;
 pub mod verdict;
 
@@ -34,6 +40,12 @@ pub enum ServeError {
     JsRuntime(#[from] js_runtime::JsRuntimeError),
     #[error("no data directory (set MIXDOG_DATA_DIR or HOME)")]
     NoDataDir,
+    #[error("serving: {0}")]
+    Serving(#[from] serving::ServingError),
+    #[error("the runtime root: {0}")]
+    RuntimeRoot(#[source] std::io::Error),
+    #[error("the lifecycle refused: {0}")]
+    Lifecycle(#[from] lifecycle::CommandError),
     #[error("waiting for the stop signal: {0}")]
     Signal(#[source] std::io::Error),
 }
@@ -54,23 +66,39 @@ pub async fn serve() -> Result<(), ServeError> {
     };
     // Node's `resolvePluginData()`, the dir `mixdogd migrate` converts.
     let data_dir = mixdog_store::paths::Paths::from_process(&js_runtime.package_root).ok_or(ServeError::NoDataDir)?.data_dir;
+    // STARTUP SLOT (wp-install `startup.rs`): the startup exclusion, the verdict gate, barrier B
+    // and the migration run here, before compose, and bind `Serving::release` with the verdict
+    // gate's decision. Until it lands the idle sweep and the event pipeline are not started: they
+    // belong after it, and nothing in this function starts them.
+    let outgoing = mixdog_app_server::Outgoing::new();
     let config = compose::ComposeConfig {
         user_data_dir: data_dir.join("userdata"),
         data_dir,
         js_runtime,
         ort_library,
         // The server that attaches here takes this router with it (`Running::build`).
-        host: mixdog_app_server::Outgoing::new(),
+        host: outgoing.clone(),
     };
-    let core = compose::compose(&tokens, config).await?;
+    let core = std::sync::Arc::new(compose::compose(&tokens, config).await?);
     tracing::info!(mocked = core.mocked_domains().len(), "core composed against mocks");
-    let signal = signals::stop_requested().await.map_err(ServeError::Signal)?;
-    tracing::info!(signal = signal.name(), "stopping");
-    signals::start_budget(signals::SHUTDOWN_BUDGET, std::sync::Arc::new(lifecycle::ProcessExiter)).map_err(ServeError::Signal)?;
-    core.set_state(CoreState::Draining {
-        reason: DrainReason::Quit,
-    });
-    core.stop().await;
-    core.set_state(CoreState::Stopped);
+    let runtime_root = discovery::runtime_root().map_err(ServeError::RuntimeRoot)?;
+    let serving = serving::start(
+        &tokens,
+        core,
+        outgoing,
+        serving::StartIn {
+            runtime_root,
+            exiter: std::sync::Arc::new(lifecycle::ProcessExiter),
+            update_text: control::UPDATE_TEXT.to_owned(),
+        },
+    )
+    .await?;
+    serving.lifecycle.set_serving()?;
+    let signal = signals::stop_on_signal(&serving.lifecycle).await.map_err(ServeError::Signal)?;
+    tracing::info!(signal = signal.name(), "stop handed to the lifecycle");
+    // The release thread runs the final barriers, closes the connections and the extension host,
+    // writes `last-exit.json`, withdraws discovery, runs the stop steps and ends the process.
+    let mut state = serving.lifecycle.state();
+    let _ = state.wait_for(|state| matches!(state, CoreState::Stopped)).await;
     Ok(())
 }

@@ -10,7 +10,6 @@ use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::TaskClass;
-use mixdog_spawn::tasks::TaskError;
 use mixdog_spawn::tasks::TaskRegistry;
 use mixdog_spawn::tasks::TaskRow;
 use mixdog_spawn::tasks::TaskStatus;
@@ -19,6 +18,7 @@ use serde_json::json;
 use super::jobs::ExecRuntime;
 use super::task::CancelOutcome;
 use super::task::cancel_job;
+use super::task::send_kill;
 
 /// One background shell a stop would end (`listStoppableShellJobs`).
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -130,16 +130,15 @@ impl ShellControl {
             if job.survivors {
                 let runtime = self.runtime.clone();
                 drop(mixdog_rt::spawn("shell-owner-close", TaskClass::Work, async move {
-                    if let Some(watch) = &runtime.config.survivors
-                        && watch.kill(&job.handle).await
-                    {
-                        runtime.finish_survivors(&job, true).await;
+                    match &runtime.config.survivors {
+                        Some(watch) if watch.kill(&job.handle).await => runtime.finish_survivors(&job, true).await,
+                        _ => runtime.hold_unconfirmed(&job),
                     }
                 }));
-            } else {
-                // A kill that cannot be sent leaves the shell running and held; the close
-                // records an outcome only for a tombstone (`record`), which Rust never plants.
-                let _: Result<(), TaskError> = self.tasks().terminate(&job.id, &*self.processes);
+            } else if !send_kill(&self.runtime, &*self.processes, &job) {
+                // A kill that cannot be sent leaves the shell running and held, as a stop's would;
+                // the close records an outcome only for a tombstone (`record`), which Rust never plants.
+                self.runtime.hold_unconfirmed(&job);
             }
         }
         self.tasks().owner_closed(owner.as_str());

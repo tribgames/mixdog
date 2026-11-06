@@ -446,7 +446,7 @@ impl Tool for AgentTool {
             let t = clean(args.get("type"));
             if t.is_empty() { "spawn".to_owned() } else { t.to_lowercase() }
         };
-        if matches!(kind.as_str(), "spawn" | "send") && self.facts.is_heartbeat(&ctx.thread_id) {
+        if matches!(kind.as_str(), "spawn" | "send") && self.facts.is_heartbeat(&ctx.thread_id).await {
             return Err(refused("heartbeat", format!("agent: {HEARTBEAT_NO_HANDOFF}")));
         }
         // `attachmentParts` and `skillSelection` are never the model's to set: only the resolved

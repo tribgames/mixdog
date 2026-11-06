@@ -470,11 +470,19 @@ pub struct RoutineResultQueue {
     caps: QueueCaps,
     clock: Arc<dyn Clock>,
     handoffs: Arc<dyn Handoffs>,
+    /// `crypto.randomUUID()` of the wake batch ids; a test fixes the sequence.
+    uuids: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
 impl RoutineResultQueue {
     pub fn new(state: StateJson, limit: usize, caps: QueueCaps, clock: Arc<dyn Clock>, handoffs: Arc<dyn Handoffs>) -> Self {
-        Self { state, limit, caps, clock, handoffs }
+        Self { state, limit, caps, clock, handoffs, uuids: Arc::new(|| uuid::Uuid::new_v4().to_string()) }
+    }
+
+    /// The same queue with its own source of batch-id uuids.
+    pub fn with_uuids(mut self, uuids: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
+        self.uuids = uuids;
+        self
     }
 
     pub fn watch_cap(&self) -> usize {
@@ -556,13 +564,14 @@ impl RoutineResultQueue {
     /// id, before its wake is submitted; `None` when none are owed.
     pub async fn batch_wake(&self, home: &str) -> Result<Option<Value>, String> {
         let home = home.to_string();
+        let uuids = self.uuids.clone();
         self.update(move |mut doc, _| {
             let state = wake_state(&doc.wakes, &home);
             if state.owed.is_empty() && state.overflow.is_none() {
                 return Ok((None, None));
             }
             let mut batch = Map::new();
-            batch.insert("id".into(), json!(format!("awake_{}", uuid::Uuid::new_v4())));
+            batch.insert("id".into(), json!(format!("awake_{}", uuids())));
             batch.insert("runIds".into(), Value::Array(state.owed));
             if let Some(overflow) = state.overflow {
                 batch.insert("overflow".into(), overflow);
@@ -595,13 +604,14 @@ impl RoutineResultQueue {
     /// `None` when it is gone.
     pub async fn rewake(&self, home: &str, batch_id: &str, tries: u64, not_before: i64) -> Result<Option<Value>, String> {
         let (home, batch_id) = (home.to_string(), batch_id.to_string());
+        let uuids = self.uuids.clone();
         self.update(move |mut doc, _| {
             let mut state = wake_state(&doc.wakes, &home);
             let Some(index) = state.batches.iter().position(|batch| str_of(batch.get("id")) == batch_id) else { return Ok((None, None)) };
             // The new try's turn is its own: it follows no earlier turn.
             let mut next = state.batches[index].as_object().cloned().unwrap_or_default();
             next.shift_remove("follows");
-            next.insert("id".into(), json!(format!("awake_{}", uuid::Uuid::new_v4())));
+            next.insert("id".into(), json!(format!("awake_{}", uuids())));
             next.insert("tries".into(), json!(tries));
             next.insert("notBefore".into(), json!(not_before));
             let next = Value::Object(next);

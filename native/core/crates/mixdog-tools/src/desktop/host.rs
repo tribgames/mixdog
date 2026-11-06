@@ -50,7 +50,8 @@ pub enum HostCommandError {
 #[async_trait]
 pub trait HostCommands: Send + Sync {
     async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError>;
-    async fn visualize(&self, thread: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError>;
+    /// `cwd` is the session's working directory (`options.cwd`), which the pane resolves files against.
+    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError>;
 }
 
 /// The real [`HostCommands`]: `host/browser/command` and `host/visualize/command` over the
@@ -68,11 +69,8 @@ impl ChannelHostCommands {
         &self,
         capability: HostCapability,
         method: Method,
-        thread: &ThreadId,
-        action: &str,
-        input: JsonValue,
+        params: Value,
     ) -> Result<JsonValue, HostCommandError> {
-        let params = serde_json::json!({ "threadId": thread, "action": action, "input": input });
         match self.channel.request(capability, method, params).await {
             Ok(value) => Ok(value),
             Err(HostError::Rpc { code, message, data }) => Err(HostCommandError::Rpc {
@@ -96,11 +94,13 @@ impl ChannelHostCommands {
 #[async_trait]
 impl HostCommands for ChannelHostCommands {
     async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
-        self.command(HostCapability::Browser, Method("host/browser/command"), thread, action, input).await
+        let params = serde_json::json!({ "threadId": thread, "action": action, "input": input });
+        self.command(HostCapability::Browser, Method("host/browser/command"), params).await
     }
 
-    async fn visualize(&self, thread: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
-        self.command(HostCapability::Visualize, Method("host/visualize/command"), thread, action, input).await
+    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
+        let params = serde_json::json!({ "sessionId": thread, "cwd": cwd, "action": action, "input": input });
+        self.command(HostCapability::Visualize, Method("host/visualize/command"), params).await
     }
 }
 
@@ -194,7 +194,7 @@ mod tests {
             Err(HostCommandError::NoHost)
         );
         assert_eq!(
-            commands.visualize(&thread, "open", json!({})).await,
+            commands.visualize(&thread, "/w", "open", json!({})).await,
             Err(HostCommandError::NoHost)
         );
     }

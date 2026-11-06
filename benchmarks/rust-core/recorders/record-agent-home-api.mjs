@@ -40,9 +40,18 @@ const ROUTE_VARIANTS = [
   { provider: 'openai', model: 'gpt-y', effort: 'low' },
   { provider: 'google', model: 'gem' },
 ];
-const AGENT_IDS = ['ada', 'bob', 'cy', 'dee', 'lead', 'ghost', 'Bad Id', 'a.b'];
+const AGENT_IDS = ['ada', 'bob', 'cy', 'dee', 'lead', 'ghost', 'wkr', 'Bad Id', 'a.b', ' ada '];
 
-const agentRows = (ids) => ids.map((id) => ({ id, custom: true, route: ROUTES[id] ?? null }));
+// Contacts are custom agents marked `kind: bot` and not switched off; the catalog also lists others.
+const CATALOG_EXTRAS = [
+  { id: 'wkr', custom: true, kind: 'agent', route: ROUTES.ada },
+  { id: 'worker', custom: false, kind: 'bot', route: ROUTES.ada },
+  null,
+];
+const agentRows = (ids) => [
+  ...ids.map((id) => ({ id, custom: true, kind: 'bot', disabled: id === 'dee', route: ROUTES[id] ?? null })),
+  ...CATALOG_EXTRAS,
+];
 
 function freshWorld() {
   const sessions = {};
@@ -185,6 +194,9 @@ for (let n = 0; n < 80; n += 1) {
     const op = chance(0.55) ? 'open' : 'reset';
     rig.log.length = 0;
     const outcome = await unwrap(() => (op === 'open' ? home.open(agent) : home.reset(agent)));
+    // A real caller's next request arrives in a later turn of the event loop, after the failed flight's
+    // cleanup microtasks have dropped it from the single-flight map.
+    await new Promise((resolve) => setImmediate(resolve));
     ops.push({ op, agent, ...outcome, log: structuredClone(rig.log) });
   }
   homes.push({ world: initial, ops });
@@ -203,6 +215,15 @@ const LIST_CASES = [
   { agent: 'gh', replies: [JSON.stringify({ nextOffset: null })] },
   { agent: 'gh', replies: ['oops, not json'] },
   { agent: 'gh', replies: [''] },
+  { agent: 'gh', replies: ['null'] },
+  { agent: 'gh', replies: ['5'] },
+  { agent: 'gh', replies: ['{"entries":{},"nextOffset":null}'] },
+  { agent: 'gh', replies: ['{"entries":5}'] },
+  { agent: 'gh', replies: ['{"entries":true}'] },
+  { agent: 'gh', replies: ['{"entries":"ab"}'] },
+  { agent: 'gh', replies: ['{"entries":[null]}'] },
+  { agent: 'gh', replies: ['{"entries":[7,[1],"x",{"id":"4","index_revision":9,"summary":null}],"nextOffset":"100"}'] },
+  { agent: 'gh', replies: [page([{ id: '12', index_revision: 'r', summary: 5 }], 150.5), page([], 200), page([], null)] },
   { agent: 'Bad Id', replies: [] },
   { agent: '', replies: [] },
   { agent: 'a.b', replies: [page([], null)] },
@@ -279,7 +300,7 @@ for (let n = 0; n < 40; n += 1) {
 
 writeFileSync(
   `${FIXTURES_ROOT}/desktop/settings/agent-home-api-twin.json`,
-  `${JSON.stringify({ domain: 'agent-home-api-twin', recorder: 'benchmarks/rust-core/recorders/record-agent-home-api.mjs', routes: ROUTES, homes, memoryList, memoryDelete, poolCases }, null, 1)}\n`
+  `${JSON.stringify({ domain: 'agent-home-api-twin', recorder: 'benchmarks/rust-core/recorders/record-agent-home-api.mjs', routes: ROUTES, catalogExtras: CATALOG_EXTRAS, homes, memoryList, memoryDelete, poolCases }, null, 1)}\n`
 );
 refreshSetManifest(join(FIXTURES_ROOT, 'desktop'), tree);
 console.log(`recorded ${homes.length} home scenarios, ${memoryList.length} list, ${memoryDelete.length} delete, ${poolCases.length} pool cases`);

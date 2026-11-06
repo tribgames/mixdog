@@ -10,6 +10,7 @@ use mixdog_app_protocol::v2::thread::TurnInput;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::PromptContent;
 use mixdog_protocol::PromptPart;
+use mixdog_protocol::ThreadItem;
 use mixdog_protocol::ThreadSummary;
 use mixdog_rt::CpuInteractive;
 use mixdog_rt::InLane;
@@ -146,6 +147,28 @@ impl Transcript for RecordTranscript {
         }
     }
 
+    fn rows(&self, _lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<(ThreadItem, usize)> {
+        let Slot::Inline(body) = &record.body else {
+            return Vec::new();
+        };
+        if !record.visible {
+            return Vec::new();
+        }
+        match record.form {
+            Form::Message => transcript_convert::message_shown(record, body)
+                .into_iter()
+                .filter_map(|(shown, bytes)| match (shown, bytes) {
+                    (Shown::Item(item), Some(bytes)) => Some((item, bytes)),
+                    _ => None,
+                })
+                .collect(),
+            Form::Display => transcript_convert::display_item(record, body)
+                .zip(transcript_convert::display_bytes(record, body))
+                .into_iter()
+                .collect(),
+        }
+    }
+
     /// `{id, text, enqueuedAt?}`: the entry's display text as the composer showed it.
     fn queued(&self, qid: &str, entry: &Value) -> Value {
         let shown = entry
@@ -240,32 +263,38 @@ impl Transcript for RecordTranscript {
         };
         let row = catalog_row(&head, &MessageStats::default(), 0.0);
         let list: Value = serde_json::from_str(&row.summary).unwrap_or(Value::Null);
-        let desktop = list.get("desktopSession").unwrap_or(&Value::Null);
-        let some_text = |value: &Value| value.as_str().filter(|s| !s.is_empty()).map(|s| json!(s));
-        let mut out = json!({
-            "id": id,
-            "preview": list["preview"],
-            "title": list["title"],
-            "updatedAt": list["updatedAt"],
-            "messageCount": list["messageCount"],
-            "cwd": list["cwd"],
-            "classification": desktop.get("classification").cloned().unwrap_or_else(|| json!({})),
-            "projectPath": desktop.get("projectPath").cloned().unwrap_or(Value::Null),
-            "compactCount": list["compactCount"],
-            "archived": row.archived,
-            "sessionMode": list["sessionMode"],
-            "lastMessagePreview": list["lastMessagePreview"],
-        });
-        for (field, source) in [("parentThreadId", "parentSessionId"), ("forkedFromId", "inheritedFromSessionId")] {
-            if let Some(value) = some_text(&list[source]) {
-                out[field] = value;
-            }
-        }
-        if let Some(activity) = list["lastUsedAt"].as_f64().filter(|at| *at > 0.0) {
-            out["activityAt"] = json!(activity as i64);
-        }
-        serde_json::from_value(out).expect("summary shape")
+        summary_of_list_row(id, &list, row.archived)
     }
+}
+
+/// The thread's list row as the catalog index keeps it (`list`, Node's `_sessionSummary`) and
+/// the archived flag beside it.
+pub(super) fn summary_of_list_row(id: &ThreadId, list: &Value, archived: bool) -> ThreadSummary {
+    let desktop = list.get("desktopSession").unwrap_or(&Value::Null);
+    let some_text = |value: &Value| value.as_str().filter(|s| !s.is_empty()).map(|s| json!(s));
+    let mut out = json!({
+        "id": id,
+        "preview": list["preview"],
+        "title": list["title"],
+        "updatedAt": list["updatedAt"],
+        "messageCount": list["messageCount"],
+        "cwd": list["cwd"],
+        "classification": desktop.get("classification").cloned().unwrap_or_else(|| json!({})),
+        "projectPath": desktop.get("projectPath").cloned().unwrap_or(Value::Null),
+        "compactCount": list["compactCount"],
+        "archived": archived,
+        "sessionMode": list["sessionMode"],
+        "lastMessagePreview": list["lastMessagePreview"],
+    });
+    for (field, source) in [("parentThreadId", "parentSessionId"), ("forkedFromId", "inheritedFromSessionId")] {
+        if let Some(value) = some_text(&list[source]) {
+            out[field] = value;
+        }
+    }
+    if let Some(activity) = list["lastUsedAt"].as_f64().filter(|at| *at > 0.0) {
+        out["activityAt"] = json!(activity as i64);
+    }
+    serde_json::from_value(out).expect("summary shape")
 }
 
 #[cfg(test)]

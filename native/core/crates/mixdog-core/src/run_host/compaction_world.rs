@@ -90,7 +90,8 @@ pub struct ProcessSessionRequests {
     ledger: WarmLedger,
     rotation: Arc<AccountRotation>,
     clock: Arc<dyn Clock>,
-    saved: Arc<SideQuestionStore>,
+    /// The store the loop's sends record into; the one SideWiring shares.
+    pub saved: Arc<SideQuestionStore>,
 }
 
 impl ProcessSessionRequests {
@@ -188,6 +189,10 @@ impl CompactionWorld for ProcessCompactionWorld {
     /// `config.compaction` of the agent config `loadConfig()` returns.
     fn compaction_config(&self) -> Option<Value> {
         self.services.config.agent().get("compaction").cloned()
+    }
+
+    fn retire_fork(&self, thread: &ThreadId) {
+        self.services.requests.saved.retire_compaction_fork(thread);
     }
 }
 #[cfg(test)]

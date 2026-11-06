@@ -12,9 +12,7 @@ use super::http::Response;
 pub const LEGACY_PROTOCOL: u32 = 1;
 pub const LEGACY_REVISION: u32 = 2_147_483_647;
 
-/// `[copy]` placeholder: the final wording comes from the Writer. The composition root passes
-/// the real text; this value only exists so tests and early builds have one.
-pub const UPDATE_TEXT_PLACEHOLDER: &str = "This Mixdog is out of date. Update Mixdog to continue.";
+pub const UPDATE_TEXT: &str = "A new version is required. Please update to continue.";
 
 #[derive(Debug, Clone)]
 pub struct Legacy {

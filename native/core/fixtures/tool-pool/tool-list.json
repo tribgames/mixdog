@@ -1,0 +1,602 @@
+{
+  "agentTools": [
+    "agent"
+  ],
+  "cases": [
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [],
+      "name": "a main session",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_main"
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal",
+        "agent"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [],
+      "name": "a main session on the interactive profile with a delegating workflow",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_main",
+        "workflow": {
+          "agents": [
+            "worker"
+          ],
+          "agentsConfigured": true,
+          "delegatesAgents": true,
+          "id": "swarm"
+        }
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal",
+        "agent"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [],
+      "name": "a delegated sub-agent",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_agent",
+        "owner": "agent"
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "react",
+        "goal"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [],
+      "name": "an agent-only session",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_agent",
+        "visibility": "agent-only"
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "react",
+        "goal"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [],
+      "name": "a workflow with no agents configured",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_main",
+        "workflow": {
+          "agents": [],
+          "agentsConfigured": true,
+          "id": "solo"
+        }
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [],
+      "name": "a workflow switched to mid-conversation, none left to delegate to",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_main",
+        "workflow": {
+          "agents": [
+            "w"
+          ],
+          "agentsConfigured": true,
+          "id": "swarm"
+        },
+        "workflowOverlay": {
+          "prompt": {
+            "agents": [],
+            "agentsConfigured": true,
+            "id": "solo"
+          }
+        }
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [],
+      "name": "a bot chat whose workflow does not delegate",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_home_ann",
+        "workflow": {
+          "delegatesAgents": false,
+          "id": "bot"
+        }
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [],
+      "name": "a coding session whose workflow does not delegate",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_main",
+        "workflow": {
+          "delegatesAgents": false,
+          "id": "solo"
+        }
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal",
+        "agent"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [],
+      "name": "a stored agent-mode mark",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_x",
+        "sessionMode": "agent",
+        "workflow": {
+          "delegatesAgents": false
+        }
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 0,
+      "features": [],
+      "name": "no session yet",
+      "profile": "interactive",
+      "session": null,
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal",
+        "agent"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 0,
+      "features": [],
+      "name": "an agent-mode record with no id and no agents to delegate to",
+      "profile": "interactive",
+      "session": {
+        "sessionMode": "agent"
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 2,
+      "features": [],
+      "name": "an agent-mode record with no id and agents to delegate to",
+      "profile": "interactive",
+      "session": {
+        "sessionMode": "agent"
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "web_search",
+        "web_fetch",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal",
+        "agent"
+      ]
+    },
+    {
+      "allowedByProfile": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "edit",
+        "apply_patch",
+        "git",
+        "github",
+        "shell",
+        "task",
+        "load_tool",
+        "web_search",
+        "web_fetch",
+        "office",
+        "tidy"
+      ],
+      "delegatable": 1,
+      "features": [],
+      "name": "a main session on the headless profile",
+      "profile": "headless",
+      "session": {
+        "id": "sess_main"
+      },
+      "tools": [
+        "load_tool",
+        "web_search",
+        "web_fetch",
+        "code_graph",
+        "office",
+        "tidy"
+      ]
+    },
+    {
+      "allowedByProfile": [
+        "session",
+        "setup",
+        "load_tool"
+      ],
+      "delegatable": 1,
+      "features": [],
+      "name": "a main session on the heartbeat profile",
+      "profile": "heartbeat",
+      "session": {
+        "id": "sess_main"
+      },
+      "tools": [
+        "load_tool",
+        "session",
+        "setup"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [
+        "web_search",
+        "web_fetch"
+      ],
+      "name": "web search switched off",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_main"
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "session",
+        "memory",
+        "recall",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "ask_user",
+        "handoff_user",
+        "react",
+        "goal",
+        "agent"
+      ]
+    },
+    {
+      "allowedByProfile": null,
+      "delegatable": 1,
+      "features": [
+        "memory",
+        "recall"
+      ],
+      "name": "a sub-agent with memory switched off",
+      "profile": "interactive",
+      "session": {
+        "id": "sess_agent",
+        "owner": "agent"
+      },
+      "tools": [
+        "load_tool",
+        "Skill",
+        "web_search",
+        "web_fetch",
+        "code_graph",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "terminal",
+        "office",
+        "media",
+        "tidy",
+        "visualize",
+        "explore",
+        "setup",
+        "react",
+        "goal"
+      ]
+    }
+  ],
+  "standalone": [
+    "load_tool",
+    "Skill",
+    "session",
+    "web_search",
+    "web_fetch",
+    "memory",
+    "recall",
+    "code_graph",
+    "browser",
+    "browser_devtools",
+    "computer",
+    "terminal",
+    "office",
+    "media",
+    "tidy",
+    "visualize",
+    "explore",
+    "setup",
+    "ask_user",
+    "handoff_user",
+    "react",
+    "goal",
+    "agent"
+  ]
+}

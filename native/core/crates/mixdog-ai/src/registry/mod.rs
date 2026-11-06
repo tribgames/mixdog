@@ -11,3 +11,5 @@ pub mod providers;
 pub mod versioned;
 pub mod vertex_metadata;
 pub mod warm;
+
+pub use providers::ProviderRegistry;

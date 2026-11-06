@@ -19,6 +19,8 @@ pub mod hub;
 pub mod launcher;
 pub mod connector_model;
 pub mod connectors;
+pub mod mcp_glue;
+pub mod mcp_logins;
 pub mod mcp_server_input;
 pub mod mcp_secrets;
 pub mod mcp_service;

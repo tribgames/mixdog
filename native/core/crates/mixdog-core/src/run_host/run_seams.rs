@@ -74,7 +74,13 @@ impl ConfigRunSeams {
 
     /// `resolveWorkerCompactPolicy`'s inputs (`compact-policy.mjs`, `context-compaction-policy.mjs`).
     fn compact_settings(&self, header: &Header, agent_mode: bool) -> CompactSettings {
-        let cfg = self.session_compaction(header);
+        self.compact_settings_with(header, agent_mode, self.session_compaction(header))
+    }
+
+    /// The same inputs over a `compaction` section the caller states: a route that has no session
+    /// yet (an inheritance heir, `inheritanceRouteTarget`) carries `{ auto: true }` and is never
+    /// synced with the saved configuration.
+    pub(crate) fn compact_settings_with(&self, header: &Header, agent_mode: bool, cfg: Doc) -> CompactSettings {
         let agent_owner = header
             .get("owner")
             .is_some_and(|owner| mixdog_js::js_trim(&mixdog_js::value_to_string(owner)).to_lowercase() == "agent");

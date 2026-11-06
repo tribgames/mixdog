@@ -502,14 +502,22 @@ pub(crate) async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed 
     executed
 }
 
-async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
-    let call = call.clone();
-    let name = call.name.clone();
-    let mut target = GateCall::new(name.clone(), call.arguments.clone());
-    match env.gate.check_call(&call.id, &target).await {
+/// The gate, the approval wait and the final surface judgement of one call: the call to
+/// dispatch, or the model-visible refusal.
+async fn authorize(
+    call_id: &str,
+    name: &str,
+    arguments: &JsonValue,
+    gate: &dyn ToolGate,
+    approvals: &dyn ApprovalGate,
+    observer: &dyn crate::env::RunObserver,
+    guards: &dyn TurnGuards,
+) -> Result<GateCall, String> {
+    let mut target = GateCall::new(name, arguments.clone());
+    match gate.check_call(call_id, &target).await {
         GateDecision::Allow => {}
         GateDecision::Rewrite(rewritten) => target = rewritten,
-        GateDecision::Deny(text) => return Executed::error(&call.id, text),
+        GateDecision::Deny(text) => return Err(text),
         GateDecision::Ask(ask) => {
             let GateAsk {
                 reason,
@@ -519,19 +527,17 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
             if let Some(rewritten) = rewritten {
                 target = rewritten;
             }
-            env.observer
-                .event(RunEvent::Stage(Stage::ApprovalWait { waiting: true }));
-            let resolution = env.tool_env.approvals.request(ask).await;
-            env.observer
-                .event(RunEvent::Stage(Stage::ApprovalWait { waiting: false }));
+            observer.event(RunEvent::Stage(Stage::ApprovalWait { waiting: true }));
+            let resolution = approvals.request(ask).await;
+            observer.event(RunEvent::Stage(Stage::ApprovalWait { waiting: false }));
             match resolution {
                 ApprovalResolution::Decided { decision, .. } if decision.approved => {
-                    target = env.gate.apply_approval(&target, &decision);
+                    target = gate.apply_approval(&target, &decision);
                 }
                 other => {
                     // A person (or the hold for one) said no: never a policy
                     // hook to work around, and the turn may now wait on them.
-                    env.guards.note_user_wait();
+                    guards.note_user_wait();
                     let given = match &other {
                         ApprovalResolution::Decided { decision, .. } => decision.reason.clone(),
                         _ => None,
@@ -547,7 +553,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
                                 reason.to_owned()
                             }
                         });
-                    return Executed::error(&call.id, denial_for_unapproved(&name, &detail));
+                    return Err(denial_for_unapproved(name, &detail));
                 }
             }
         }
@@ -555,9 +561,104 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     // Node: the final call (after hooks and approval) gets the built-in web_fetch transport
     // routing, then the surface judges it again under its schema name.
     crate::web_route::route_web_fetch(&mut target);
-    if let Some(text) = env.gate.pre_dispatch_deny(&target) {
-        return Executed::error(&call.id, text);
+    match gate.pre_dispatch_deny(&target) {
+        Some(text) => Err(text),
+        None => Ok(target),
     }
+}
+
+/// What a tool that dispatches another tool (`call_tool`) runs the target through: the same
+/// gate, hooks, observer and guards a direct call of that target would meet.
+pub struct Pipeline {
+    pub gate: Arc<dyn ToolGate>,
+    pub hooks: Option<Arc<dyn crate::env::ToolHooks>>,
+    pub observer: Arc<dyn crate::env::RunObserver>,
+    pub guards: Arc<dyn TurnGuards>,
+}
+
+/// One call made from inside a running tool, through the ordinary pipeline: the gate and
+/// approval wait, `web_fetch` routing, the surface judgement, argument coercion, the tool itself
+/// with the caller's context (its cancel, deadline, approvals and lane tokens) and PostToolUse /
+/// PostToolUseFailure. A refusal is the error whose model text is the refusal.
+pub async fn run_nested(
+    pipeline: &Pipeline,
+    tools: &dyn mixdog_tools::policy::ToolResolver,
+    ctx: &ToolContext,
+    name: &str,
+    arguments: JsonValue,
+) -> ToolOutcome {
+    let refused = |text: String| ToolError::new(ToolErrorCode::DeniedByPolicy { rule: "pipeline".to_owned() }, text);
+    let target = authorize(
+        ctx.call_id.as_str(),
+        name,
+        &arguments,
+        pipeline.gate.as_ref(),
+        ctx.approvals.as_ref(),
+        pipeline.observer.as_ref(),
+        pipeline.guards.as_ref(),
+    )
+    .await
+    .map_err(refused)?;
+    let Some(tool) = tools.resolve(&target.name) else {
+        return Err(refused(crate::text::unknown_tool_message(&target.name, &[])));
+    };
+    let spec = tool.spec();
+    let nested = ToolContext {
+        call_id: ctx.call_id.clone(),
+        thread_id: ctx.thread_id.clone(),
+        turn_id: ctx.turn_id.clone(),
+        tool: spec.name.clone(),
+        cwd: ctx.cwd.clone(),
+        surface: ctx.surface,
+        cancel: ctx.cancel.child_token(),
+        deadline: ctx.deadline,
+        progress: Arc::clone(&ctx.progress),
+        io: ctx.io,
+        approvals: Arc::clone(&ctx.approvals),
+        files: Arc::clone(&ctx.files),
+        processes: Arc::clone(&ctx.processes),
+        options: ctx.options.clone(),
+        review: ctx.review.clone(),
+    };
+    let mut args = target.args.clone();
+    crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
+    let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone() };
+    let outcome = tool.call(&nested, args).await;
+    match outcome {
+        Ok(mut output) => {
+            if let (Some(hooks), Content::Text(visible)) = (&pipeline.hooks, render_output(output.parts.clone()))
+                && let Some(updated) = hooks.after_tool(&hook_call, &visible).await
+            {
+                output.parts = vec![ToolPart::Text(updated)];
+            }
+            Ok(output)
+        }
+        Err(error) => {
+            if let Some(hooks) = &pipeline.hooks {
+                hooks.after_failure(&hook_call, &error.message_for_model).await;
+            }
+            Err(error)
+        }
+    }
+}
+
+async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
+    let call = call.clone();
+    let name = call.name.clone();
+    let target = match authorize(
+        &call.id,
+        &name,
+        &call.arguments,
+        env.gate.as_ref(),
+        env.tool_env.approvals.as_ref(),
+        env.observer.as_ref(),
+        env.guards.as_ref(),
+    )
+    .await
+    {
+        Ok(target) => target,
+        Err(text) => return Executed::error(&call.id, text),
+    };
     let Some(tool) = env.tools.get(&target.name).cloned() else {
         let names = env.tools.builtin_names();
         return Executed::error(&call.id, crate::text::unknown_tool_message(&target.name, &names));

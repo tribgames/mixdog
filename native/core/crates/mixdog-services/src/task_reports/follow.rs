@@ -13,7 +13,8 @@ use tokio::task::AbortHandle;
 use tokio::time::Instant;
 
 use super::chain::{Answer, Owed, owed_of, turn_chain};
-use crate::memory::cycles::requests::spawn_work;
+use crate::bots::delivery::env::RetryTimer;
+use crate::memory::cycles::requests::{spawn_work, wait};
 
 /// A final answer waits this long, idle with nothing pending, before it is final: a finished
 /// agent's result can start the Lead's next turn right after.
@@ -35,6 +36,8 @@ pub trait FollowHost: Send + Sync + 'static {
     async fn deliver_completion(&self, session_id: &str, text: &str, meta: &Value) -> Result<bool, String>;
     /// `pendingWork(sessionId, { taskIds })`.
     async fn pending_work(&self, session_id: &str, task_ids: Option<&HashSet<String>>) -> bool;
+    /// How the follow waits: the daemon's retry timer, a test's own.
+    fn timer(&self) -> Arc<dyn RetryTimer>;
 }
 
 /// A live session runtime's state (`runtime.getState()`).
@@ -79,7 +82,9 @@ struct State {
     again: bool,
     candidate: String,
     candidate_at: Option<Instant>,
-    timer: Option<AbortHandle>,
+    /// The armed wait: its generation and handle.
+    timer: Option<(u64, AbortHandle)>,
+    timer_generation: u64,
     wakes: u32,
     other_wakes: u32,
     woke_at: Option<Instant>,
@@ -201,11 +206,25 @@ impl Follow {
 
     fn arm(self: &Arc<Self>, after: Duration) {
         let this = Arc::clone(self);
+        // Held across the spawn and the store: the task cannot reach its own clear before its
+        // handle is recorded.
+        let mut state = self.lock();
+        state.timer_generation += 1;
+        let generation = state.timer_generation;
         let timer = spawn_work("task-report-follow", async move {
-            tokio::time::sleep(after).await;
+            wait(this.host.timer().as_ref(), after).await;
+            // The timer has fired: its handle no longer stands for a pending wait, so a `stop` from
+            // the check below (the final report) cannot abort the task that is running it. Only
+            // this timer's own record goes; a replacement armed meanwhile stays.
+            {
+                let mut state = this.lock();
+                if state.timer.as_ref().is_some_and(|(g, _)| *g == generation) {
+                    state.timer = None;
+                }
+            }
             this.check().await;
         });
-        if let Some(old) = self.lock().timer.replace(timer.abort_handle()) {
+        if let Some((_, old)) = state.timer.replace((generation, timer.abort_handle())) {
             old.abort();
         }
     }
@@ -214,7 +233,7 @@ impl Follow {
     pub fn stop(&self) {
         let mut state = self.lock();
         state.done = true;
-        if let Some(timer) = state.timer.take() {
+        if let Some((_, timer)) = state.timer.take() {
             timer.abort();
         }
     }

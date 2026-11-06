@@ -405,6 +405,7 @@ impl TurnSessions for SessionTurns {
         {
             return;
         }
+        self.directory.deps().side.forget(&thread, true);
         self.release.release(&thread, reason);
     }
 }

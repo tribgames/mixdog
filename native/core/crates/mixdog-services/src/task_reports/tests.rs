@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use crate::bots::delivery::env::{RetryTimer, SleepRetry};
 use serde_json::{Map, Value, json};
 
 use super::chain::*;
@@ -128,6 +129,9 @@ impl FollowHost for Mock {
     async fn pending_work(&self, _session_id: &str, _task_ids: Option<&HashSet<String>>) -> bool {
         *self.pending.lock().unwrap()
     }
+    fn timer(&self) -> Arc<dyn RetryTimer> {
+        Arc::new(SleepRetry)
+    }
 }
 
 #[async_trait]
@@ -151,7 +155,7 @@ impl RearmHost for Mock {
     async fn queued_submission_ids(&self, _session_id: &str) -> Vec<String> {
         Vec::new()
     }
-    async fn artifact_fields(&self, _session_id: &str, _turn_id: &str) -> Map<String, Value> {
+    async fn artifact_fields(&self, _session_id: &str, _turn_id: &str, _runtime: Option<&Arc<dyn RuntimeView>>) -> Map<String, Value> {
         Map::new()
     }
     fn note_bot_work(&self, _run_id: &str, _session_id: &str, _agent_id: &str) {}
@@ -208,6 +212,41 @@ async fn settle(time: Duration) {
     for _ in 0..20 {
         tokio::task::yield_now().await;
     }
+}
+
+/// The final report is delivered by the timer task that found the answer final: stopping the
+/// follow from there must not cancel the delivery when it yields.
+#[tokio::test(start_paused = true)]
+async fn a_final_delivery_that_yields_is_not_cancelled_by_the_stop_it_follows() {
+    mixdog_rt::testing::tokens();
+    let host = Arc::new(Mock { messages: Mutex::new(Some(conversation("simple"))), ..Mock::default() });
+    let finished: Finished = Default::default();
+    let sink = Arc::clone(&finished);
+    let args = FollowArgs {
+        session_id: "task-1".into(),
+        run_id: "r1".into(),
+        runtime: None,
+        immediate: None,
+        wake_owed: false,
+        finish: Arc::new(move |status, text, id| {
+            let sink = Arc::clone(&sink);
+            Box::pin(async move {
+                for _ in 0..5 {
+                    tokio::task::yield_now().await;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                sink.lock().unwrap().push((status, text, id));
+                Ok(())
+            })
+        }),
+        interim: None,
+        progressed_through: String::new(),
+    };
+    let follow = Follow::new(host, args, FINAL_SETTLE, FINAL_POLL);
+    follow.check().await;
+    settle(Duration::from_millis(2600)).await;
+    settle(Duration::from_millis(100)).await;
+    assert_eq!(*finished.lock().unwrap(), vec![("completed".to_owned(), "all done".to_owned(), "r1".to_owned())]);
 }
 
 #[tokio::test(start_paused = true)]

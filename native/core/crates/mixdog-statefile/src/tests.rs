@@ -389,3 +389,87 @@ fn only_nul_and_blanks_hold_no_data() {
     assert!(!holds_no_data(b"\0{\0"));
     assert!(!holds_no_data("\u{a0}".as_bytes()));
 }
+
+#[test]
+fn a_recovery_stamps_the_fixed_clock_and_the_next_name_is_taken_not_overwritten() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.json");
+    let recover = |file: std::path::PathBuf| {
+        on_lane(move |lane| read_json(lane, &file, None, &Opts { fsync: false, keep_without_backup: false, ..Opts::default() }).unwrap())
+    };
+    {
+        let _clock = fix_recovery_clock(1_700_000_000_000);
+        fs::write(&file, "{ torn").unwrap();
+        assert_eq!(recover(file.clone()), None, "no good copy: starting empty");
+        assert_eq!(fs::read_to_string(dir.path().join("f.json.corrupt-1700000000000")).unwrap(), "{ torn");
+        // The same millisecond again: the kept copy stays, the new one takes the next stamp.
+        fs::write(&file, "{ torn twice").unwrap();
+        assert_eq!(recover(file.clone()), None);
+        assert_eq!(fs::read_to_string(dir.path().join("f.json.corrupt-1700000000000")).unwrap(), "{ torn");
+        assert_eq!(fs::read_to_string(dir.path().join("f.json.corrupt-1700000000001")).unwrap(), "{ torn twice");
+    }
+    // Released: the wall clock stamps again, far from the fixed instant.
+    fs::write(&file, "{ torn later").unwrap();
+    recover(file);
+    let stamps: Vec<u128> = fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|entry| entry.unwrap().file_name().to_string_lossy().strip_prefix("f.json.corrupt-").and_then(|s| s.parse().ok()))
+        .collect();
+    assert_eq!(stamps.len(), 3);
+    assert!(stamps.iter().any(|stamp| *stamp > 1_700_000_000_001), "{stamps:?}");
+}
+
+#[test]
+fn set_readonly_sets_and_clears_the_attribute_and_a_missing_file_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("t");
+    fs::write(&target, "x").unwrap();
+    let readonly = || fs::metadata(&target).unwrap().permissions().readonly();
+    on_lane({
+        let target = target.clone();
+        move |lane| set_readonly(lane, &target, true).unwrap()
+    });
+    assert!(readonly());
+    assert!(fs::write(&target, "y").is_err());
+    on_lane({
+        let target = target.clone();
+        move |lane| set_readonly(lane, &target, false).unwrap()
+    });
+    assert!(!readonly());
+    fs::write(&target, "y").unwrap();
+    let missing = dir.path().join("absent");
+    let error = on_lane(move |lane| set_readonly(lane, &missing, true).unwrap_err());
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+}
+
+#[test]
+fn symlink_metadata_reports_the_entry_and_not_what_a_link_leads_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "x").unwrap();
+    let missing = dir.path().join("none");
+    #[cfg(unix)]
+    let link = {
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        link
+    };
+    let (file_kind, missing_kind, followed) = on_lane({
+        let (file, missing) = (file.clone(), missing.clone());
+        move |lane| {
+            let own = symlink_metadata(lane, &file).unwrap();
+            let gone = symlink_metadata(lane, &missing).unwrap_err().kind();
+            #[cfg(unix)]
+            let followed = (symlink_metadata(lane, &link).unwrap().is_symlink(), metadata(lane, &link).unwrap().is_symlink());
+            #[cfg(not(unix))]
+            let followed = (false, false);
+            ((own.is_file(), own.is_symlink()), gone, followed)
+        }
+    });
+    assert_eq!(file_kind, (true, false));
+    assert_eq!(missing_kind, std::io::ErrorKind::NotFound);
+    #[cfg(unix)]
+    assert_eq!(followed, (true, false), "the link itself is reported, while `metadata` follows it");
+    #[cfg(not(unix))]
+    assert_eq!(followed, (false, false));
+}

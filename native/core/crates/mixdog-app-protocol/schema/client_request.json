@@ -8723,9 +8723,23 @@
             }
           ]
         },
+        "retryAttemptId": {
+          "description": "The failed attempt of that message (`retryAttemptId`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "retryFailedTurn": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "retryTurnId": {
+          "description": "The failed user message a retry replays from the model history (`retryTurnId`).",
+          "type": [
+            "string",
             "null"
           ]
         },

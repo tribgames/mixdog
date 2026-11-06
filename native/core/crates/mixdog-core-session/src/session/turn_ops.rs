@@ -11,6 +11,38 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
 
+/// What committing a manual compaction's result came to (`commitSessionCompaction`).
+#[derive(Debug, PartialEq, Eq)]
+pub enum CompactionCommit {
+    /// The compacted context is durable (rows a finished turn appended meanwhile follow it).
+    Applied,
+    /// A turn runs or began since the plan, or the context no longer starts with what was
+    /// compacted (rewound, cleared, replaced): nothing was applied and the conversation is as it was
+    /// (`compact: the conversation changed while compacting; compaction not applied, run it again`).
+    Moved,
+}
+
+impl super::SessionDirectory {
+    /// Commits `compaction`, planned on the model context whose item ids are `snapshot`, to
+    /// `thread`. Opens the thread as `loadSession` does.
+    pub async fn commit_compaction(
+        &self,
+        thread: &ThreadId,
+        snapshot: Vec<mixdog_core_api::ids::ItemId>,
+        compaction: super::run::Compaction,
+    ) -> Result<CompactionCommit, CoreError> {
+        let ctx = mixdog_core_api::call::CallContext::internal("compaction");
+        let handle = self.open_handle(thread, &ctx).await?;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        handle
+            .inbox
+            .send(super::actor::Inbox::CommitCompaction { snapshot, compaction, tx })
+            .await
+            .map_err(|_| CoreError::Internal { incident_id: "compaction-closed".into() })?;
+        rx.await.map_err(|_| CoreError::Internal { incident_id: "compaction-dropped".into() })?
+    }
+}
+
 /// The methods the thread's actor serves itself: they read or change what only the actor owns
 /// (its busy state, its live rows, its queue).
 pub(super) fn is_actor_method(method: &str) -> bool {
@@ -63,6 +95,10 @@ pub trait SideQuestions: Send + Sync {
     fn begin(&self, thread: &ThreadId) -> SideRun;
     /// `cancelSideQuestion`: whether a question was in flight.
     fn cancel(&self, thread: &ThreadId) -> bool;
+    /// `forgetSideQuestion(sessionId, { cancel })`: the transcript the saved request carried is gone
+    /// (clear, rewind), so a later question waits for the next request; `cancel` (a close or runtime
+    /// unload) also aborts the question in flight.
+    fn forget(&self, thread: &ThreadId, cancel: bool);
     /// Sends the fork of the session's request (`buildForkedRequest`) with `prompt` as its last
     /// user message and `tool_stub` answering each tool call of the saved reply, on its own
     /// transport scope, one provider call, no tools executed; logs the usage as `side-question`.

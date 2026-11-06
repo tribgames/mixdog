@@ -252,6 +252,13 @@ impl SideQuestions for SideQuestionService {
         run.map(|(_, cancel)| cancel.cancel()).is_some()
     }
 
+    fn forget(&self, thread: &ThreadId, cancel: bool) {
+        self.store.forget(thread);
+        if cancel {
+            self.cancel(thread);
+        }
+    }
+
     async fn send(&self, thread: &ThreadId, prompt: &str, tool_stub: &str, cancel: &CancellationToken) -> Result<SideReply, SideFailure> {
         let (material, reply) = match self.store.side_request(thread) {
             Some(saved) => saved,

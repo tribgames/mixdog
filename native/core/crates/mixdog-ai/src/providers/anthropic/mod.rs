@@ -13,7 +13,7 @@ mod caps;
 mod codec;
 mod decoder;
 mod effort_updates;
-mod errors;
+pub(crate) mod errors;
 mod lowering;
 mod models;
 pub mod oauth;

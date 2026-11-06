@@ -70,6 +70,22 @@
       }
     }
   ],
+  "completed": {
+    "answer": {
+      "error": "task already completed: job_done",
+      "finished": true,
+      "stopped": false
+    },
+    "caller": "sess_b",
+    "stoppableAfter": [
+      "job_b1"
+    ],
+    "stoppableBefore": [
+      "job_b1",
+      "job_done"
+    ],
+    "taskId": "job_done"
+  },
   "releases": [
     {
       "answer": {

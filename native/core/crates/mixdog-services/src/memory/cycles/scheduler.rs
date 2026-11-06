@@ -15,7 +15,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::ledger::Ledger;
-use super::requests::{RetryRunner, claim_and_mark_scheduled_cycle, resolve_coalesce_max_retries, spawn_work};
+use crate::bots::delivery::env::RetryTimer;
+use super::requests::{wait, RetryRunner, claim_and_mark_scheduled_cycle, resolve_coalesce_max_retries, spawn_work};
 use super::rows::{cycle1_row_due_sql, cycle1_unchunked_sql};
 use super::run::{Cycle1Options, Cycle1Result, Cycle1Runner};
 use super::signature::{number_or_zero, parse_interval, periodic_cycle_due, scheduled_cycle1_signature};
@@ -52,6 +53,7 @@ struct Inner {
     config: Arc<dyn CycleConfig>,
     embeddings: Arc<dyn CycleEmbeddings>,
     now: NowMs,
+    timer: Arc<dyn RetryTimer>,
     tick_every: Duration,
     /// `mainConfig`: the memory section as the last tick read it.
     main_config: Mutex<Value>,
@@ -77,6 +79,8 @@ pub struct SchedulerDeps {
     pub state_file: PathBuf,
     pub lane: MaintenanceIo,
     pub now: NowMs,
+    /// How the tick, a caller deadline and a coalesced retry wait.
+    pub timer: Arc<dyn RetryTimer>,
 }
 
 fn truthy(value: Option<&Value>) -> bool {
@@ -91,8 +95,8 @@ fn truthy(value: Option<&Value>) -> bool {
 
 impl CycleScheduler {
     pub fn new(deps: SchedulerDeps) -> Self {
-        let SchedulerDeps { db, llm, embeddings, config, state_file, lane, now } = deps;
-        let runner = Cycle1Runner::new(db.clone(), llm, Arc::clone(&embeddings), Arc::clone(&config), Arc::clone(&now));
+        let SchedulerDeps { db, llm, embeddings, config, state_file, lane, now, timer } = deps;
+        let runner = Cycle1Runner::new(db.clone(), llm, Arc::clone(&embeddings), Arc::clone(&config), Arc::clone(&now), Arc::clone(&timer));
         let ledger = Arc::new(Ledger::new(state_file, lane, Arc::clone(&now)));
         Self(Arc::new(Inner {
             db,
@@ -101,6 +105,7 @@ impl CycleScheduler {
             config,
             embeddings,
             now,
+            timer,
             tick_every: TICK,
             main_config: Mutex::new(Value::Null),
             in_flight: Mutex::new(None),
@@ -158,7 +163,7 @@ impl CycleScheduler {
             loop {
                 tokio::select! {
                     () = stop.cancelled() => break,
-                    () = tokio::time::sleep(looped.tick_every) => {}
+                    () = wait(looped.timer.as_ref(), looped.tick_every) => {}
                 }
                 looped.run_check_guarded().await;
                 if !looped.tick.lock().expect("tick").active {
@@ -330,7 +335,7 @@ impl Inner {
         }
         tokio::select! {
             outcome = target => outcome.map_err(run_failure),
-            () = tokio::time::sleep(Duration::from_millis(deadline as u64)) => Ok(Cycle1Result::timed_out(deadline)),
+            () = wait(self.timer.as_ref(), Duration::from_millis(deadline as u64)) => Ok(Cycle1Result::timed_out(deadline)),
         }
     }
 

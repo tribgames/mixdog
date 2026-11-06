@@ -601,6 +601,10 @@ impl ThreadStore for StoreThreads {
         Ok(self.open(lane, id)?.fold.header.clone())
     }
 
+    fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
+        Ok(self.open(lane, id)?.fold.log_id.clone())
+    }
+
     fn read_window(
         &self,
         lane: &InLane<InteractiveIo>,
@@ -732,7 +736,7 @@ impl ThreadStore for StoreThreads {
         &self,
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
-    ) -> Result<Vec<ItemRecord>, CoreError> {
+    ) -> Result<(u64, Vec<ItemRecord>), CoreError> {
         self.wait(lane, self.projector.flush());
         'read: loop {
             let opened = self.open(lane, id)?;
@@ -754,7 +758,7 @@ impl ThreadStore for StoreThreads {
             }
             // Pages run newest first; the seam returns rows oldest first.
             rows.reverse();
-            return Ok(rows);
+            return Ok((opened.fold.history_rev, rows));
         }
     }
 

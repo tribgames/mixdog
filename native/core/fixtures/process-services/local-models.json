@@ -1,0 +1,113 @@
+{
+  "entries": [
+    {
+      "entry": {
+        "name": "Qwen3.8 27B Q4_K_M",
+        "supportsFunctionCalling": true
+      },
+      "id": "qwen3.8-27b-q4-k-m"
+    },
+    {
+      "entry": {
+        "name": "owner/name · m q.gguf",
+        "supportsFunctionCalling": null
+      },
+      "id": "hf-000000000000000000000001"
+    },
+    {
+      "entry": {
+        "name": "Tool model",
+        "supportsFunctionCalling": true
+      },
+      "id": "hf-000000000000000000000002"
+    },
+    {
+      "entry": {
+        "name": "No tool model",
+        "supportsFunctionCalling": false
+      },
+      "id": "hf-000000000000000000000003"
+    },
+    {
+      "entry": {
+        "name": null,
+        "supportsFunctionCalling": null
+      },
+      "id": "hf-000000000000000000000004"
+    },
+    {
+      "entry": null,
+      "id": "hf-unknown"
+    },
+    {
+      "entry": null,
+      "id": ""
+    }
+  ],
+  "index": "{\n  \"schema\": 1,\n  \"models\": [\n    {\n      \"id\": \"hf-000000000000000000000001\",\n      \"filename\": \"hf-000000000000000000000001.gguf\",\n      \"remoteFilename\": \"dir/m q.gguf\",\n      \"repository\": \"owner/name\",\n      \"revision\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n      \"url\": \"https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf\",\n      \"size\": 100,\n      \"sha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n      \"contextWindow\": 16384,\n      \"estimatedVramBytes\": 200,\n      \"minimumVramBytes\": 200,\n      \"name\": \"owner/name · m q.gguf\",\n      \"supportsFunctionCalling\": null\n    },\n    {\n      \"id\": \"hf-000000000000000000000002\",\n      \"filename\": \"hf-000000000000000000000002.gguf\",\n      \"remoteFilename\": \"dir/m q.gguf\",\n      \"repository\": \"owner/name\",\n      \"revision\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n      \"url\": \"https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf\",\n      \"size\": 100,\n      \"sha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n      \"contextWindow\": 16384,\n      \"estimatedVramBytes\": 200,\n      \"minimumVramBytes\": 200,\n      \"name\": \"Tool model\",\n      \"supportsFunctionCalling\": true\n    },\n    {\n      \"id\": \"hf-000000000000000000000003\",\n      \"filename\": \"hf-000000000000000000000003.gguf\",\n      \"remoteFilename\": \"dir/m q.gguf\",\n      \"repository\": \"owner/name\",\n      \"revision\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n      \"url\": \"https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf\",\n      \"size\": 100,\n      \"sha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n      \"contextWindow\": 16384,\n      \"estimatedVramBytes\": 200,\n      \"minimumVramBytes\": 200,\n      \"name\": \"No tool model\",\n      \"supportsFunctionCalling\": false\n    },\n    {\n      \"id\": \"hf-000000000000000000000004\",\n      \"filename\": \"hf-000000000000000000000004.gguf\",\n      \"remoteFilename\": \"dir/m q.gguf\",\n      \"repository\": \"owner/name\",\n      \"revision\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n      \"url\": \"https://huggingface.co/owner/name/resolve/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dir/m%20q.gguf\",\n      \"size\": 100,\n      \"sha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n      \"contextWindow\": 16384,\n      \"estimatedVramBytes\": 200,\n      \"minimumVramBytes\": 200\n    }\n  ]\n}\n",
+  "loads": [
+    {
+      "id": "load-none",
+      "props": null,
+      "tools": null
+    },
+    {
+      "id": "load-empty",
+      "props": {},
+      "tools": null
+    },
+    {
+      "id": "load-both",
+      "props": {
+        "chat_template_caps": {
+          "supports_tool_calls": true,
+          "supports_tools": true
+        }
+      },
+      "tools": true
+    },
+    {
+      "id": "load-tools-only",
+      "props": {
+        "chat_template_caps": {
+          "supports_tools": true
+        }
+      },
+      "tools": null
+    },
+    {
+      "id": "load-calls-denied",
+      "props": {
+        "chat_template_caps": {
+          "supports_tool_calls": false,
+          "supports_tools": true
+        }
+      },
+      "tools": false
+    },
+    {
+      "id": "load-tools-denied",
+      "props": {
+        "chat_template_caps": {
+          "supports_tool_calls": true,
+          "supports_tools": false
+        }
+      },
+      "tools": false
+    },
+    {
+      "id": "load-strings",
+      "props": {
+        "chat_template_caps": {
+          "supports_tool_calls": "true",
+          "supports_tools": "true"
+        }
+      },
+      "tools": null
+    }
+  ],
+  "never": {
+    "capabilities": null,
+    "id": "never-loaded"
+  }
+}

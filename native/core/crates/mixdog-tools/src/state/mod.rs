@@ -4,4 +4,5 @@ pub mod ask_user;
 pub mod goal;
 pub mod handoff;
 pub mod react;
+pub mod secrets;
 pub mod todo;

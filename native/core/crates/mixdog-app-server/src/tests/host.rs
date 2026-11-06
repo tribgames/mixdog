@@ -38,6 +38,21 @@ async fn claimed_as(
 const BROWSER: Method = Method("host/browser/command");
 
 #[tokio::test]
+async fn a_claim_that_runs_after_its_connection_closed_is_not_recorded() {
+    use mixdog_core_api::ids::{ConnectionId, HostId};
+    let rig = Rig::new();
+    let host = rig.ready(1, json!({ "host": { "browser": true } }));
+    let conn = rig.outgoing.connection(ConnectionId(1)).unwrap();
+    rig.outgoing.unregister(&conn);
+    rig.outgoing.claim(HostId::from("pc"), &conn);
+    assert_eq!(
+        rig.outgoing.request(HostCapability::Browser, BROWSER, json!({})).await,
+        Err(unavailable("noClaimant"))
+    );
+    drop(host);
+}
+
+#[tokio::test]
 async fn only_a_connection_that_declared_the_host_role_can_claim() {
     let rig = Rig::new();
     let plain = rig.ready(1, json!({}));

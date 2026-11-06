@@ -35,6 +35,8 @@ struct FakeProcesses {
     seen: Mutex<Vec<(CommandSpec, EnvSpec)>>,
     /// The `echo X; Start-Sleep 30` command prints nothing at spawn; the test prints later.
     quiet: std::sync::atomic::AtomicBool,
+    /// A kill that cannot be sent (the process manager refuses it).
+    refuse_kill: std::sync::atomic::AtomicBool,
 }
 
 struct ChanSource(mpsc::UnboundedReceiver<ProcessEvent>);
@@ -146,6 +148,9 @@ impl ProcessManager for FakeProcesses {
         Err(ProcessError::NotPty)
     }
     fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        if self.refuse_kill.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(ProcessError::UnknownHandle);
+        }
         let mut senders = self.senders.lock().unwrap();
         let (tx, seq) = senders.get_mut(handle).ok_or(ProcessError::UnknownHandle)?;
         let reason = if self.limited.lock().unwrap().contains(handle) { KillReason::TimeLimit } else { KillReason::Requested };
@@ -1084,6 +1089,42 @@ async fn a_session_stops_only_its_own_background_shells_with_the_structured_answ
     assert!(control.list_stoppable(&owner).is_empty());
 }
 
+/// A shell that has completed leaves the stoppable list, and stopping it answers how it ended and
+/// cancels nothing: the same lists and answer Node recorded for a task completed through
+/// `completeBackgroundTask` (`record-shell-job-actions.mjs`, `completed`).
+#[tokio::test]
+async fn a_completed_shell_leaves_the_stoppable_list_and_its_stop_says_how_it_ended() {
+    let golden: JsonValue =
+        serde_json::from_str(include_str!("../../../../fixtures/shell-job-actions/shell-job-actions.json")).unwrap();
+    let want = &golden["completed"];
+    let rig = rig();
+    let control = ShellControl::new(rig.runtime.clone(), rig.manager.clone());
+    let owner = ThreadId::from("sess_b");
+    background_of(&rig, "b", owner.as_str(), "sleep 100").await;
+    rig.shell.call(&{
+        let mut c = ctx(&rig, "d");
+        c.thread_id = owner.clone();
+        c
+    }, serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
+    let ids = |control: &ShellControl| control.list_stoppable(&owner).into_iter().map(|job| job.task_id).collect::<Vec<_>>();
+    // Node's ids are `job_b1` and `job_done`; the order (start, then id) is the same.
+    assert_eq!(ids(&control), ["task-b", "task-d"]);
+    assert_eq!(want["stoppableBefore"], serde_json::json!(["job_b1", "job_done"]));
+    let handle = rig.runtime.get(&owner, "task-d").unwrap().handle.clone();
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&handle).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    }
+    rig.runtime.get(&owner, "task-d").unwrap().settled().await;
+    assert_eq!(ids(&control), ["task-b"]);
+    assert_eq!(want["stoppableAfter"], serde_json::json!(["job_b1"]));
+    let answer = control.stop_job(&owner, "task-d").await;
+    let mut expected = want["answer"].clone();
+    expected["error"] = JsonValue::String(want["answer"]["error"].as_str().unwrap().replace("job_done", "task-d"));
+    assert_eq!(answer, expected);
+}
+
 /// `cancelOwnedShellTrees` + `noteShellOwnerSessionClosed` (`session-close.mjs:184`): a closing
 /// session's shells are killed, another session's are not, and what remains is flagged as
 /// closed-owner work.
@@ -1101,4 +1142,75 @@ async fn a_closing_session_kills_its_shells_and_flags_the_owner_closed() {
     assert!(rig.runtime.get(&other, "task-y").unwrap().is_running());
     assert!(control.tasks().get("task-x").unwrap().owner_closed);
     assert!(!control.tasks().get("task-y").unwrap().owner_closed);
+}
+
+/// A stop that cannot confirm the processes gone answers `unconfirmed` and records it: the row is
+/// held (`terminationUnconfirmed`), `/release` finds it, and a closed owner's hold is found by the
+/// sessions that see its folder. The hold ends with the job (confirmed gone) or with the release.
+#[tokio::test]
+async fn an_unconfirmed_stop_holds_the_row_until_the_job_ends_or_is_released() {
+    let rig = rig();
+    let watch = Arc::new(FakeSurvivors { gone: tokio::sync::Notify::new(), kill_works: false });
+    let mut config = rig.runtime.config.clone_for_test();
+    config.survivors = Some(watch.clone());
+    let runtime = ExecRuntime::new(config);
+    let shell = ShellTool::new(runtime.clone());
+    let control = ShellControl::new(runtime.clone(), rig.manager.clone());
+    let owner = ThreadId::from("t");
+    shell.call(&ctx(&rig, "s1"), serde_json::json!({"command": "echo hi"})).await.unwrap();
+    assert!(control.hold("task-s1").is_none(), "nothing is held before a stop");
+
+    let unconfirmed = serde_json::json!({ "stopped": false, "unconfirmed": true, "error": "cancellation not confirmed: task-s1" });
+    assert_eq!(control.stop_job(&owner, "task-s1").await, unconfirmed);
+    assert!(control.hold("task-s1").is_some(), "the unconfirmed stop is recorded");
+    assert_eq!(control.list_stoppable(&owner).len(), 1, "a held job stays listed");
+    control.tasks().owner_closed(owner.as_str());
+    let orphaned = |control: &ShellControl| -> Vec<String> {
+        control.tasks().host_state().orphaned.into_iter().map(|row| row.task_id).collect()
+    };
+    assert_eq!(orphaned(&control), ["task-s1"], "a closed owner's hold is found");
+
+    // The survivors exit by themselves: confirmed gone, so the hold ends with the job.
+    let ended = runtime.get(&owner, "task-s1").unwrap();
+    watch.gone.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(5), ended.settled()).await.unwrap();
+    assert!(control.hold("task-s1").is_none());
+    assert!(!control.tasks().get("task-s1").unwrap().termination_unconfirmed);
+    assert!(orphaned(&control).is_empty());
+
+    // An explicit release drops the row of a held one.
+    shell.call(&ctx(&rig, "s2"), serde_json::json!({"command": "echo hi"})).await.unwrap();
+    assert_eq!(control.stop_job(&owner, "task-s2").await["unconfirmed"], true);
+    assert!(control.hold("task-s2").is_some());
+    control.release("task-s2");
+    assert!(control.hold("task-s2").is_none() && control.tasks().get("task-s2").is_none());
+}
+
+/// A kill the process manager refuses is the same unconfirmed stop; a later stop that lands ends
+/// the job and with it the hold. A closing session whose kill cannot be sent leaves the same hold.
+#[tokio::test]
+async fn a_kill_that_cannot_be_sent_holds_the_row_and_a_later_kill_clears_it() {
+    let rig = rig();
+    let control = ShellControl::new(rig.runtime.clone(), rig.manager.clone());
+    let owner = ThreadId::from("sess_unkillable");
+    background_of(&rig, "x", owner.as_str(), "sleep 100").await;
+    background_of(&rig, "y", owner.as_str(), "sleep 100").await;
+    rig.processes.refuse_kill.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let refused = serde_json::json!({ "stopped": false, "unconfirmed": true, "error": "cancellation not confirmed: task-x" });
+    assert_eq!(control.stop_job(&owner, "task-x").await, refused);
+    assert!(control.hold("task-x").is_some());
+    assert!(rig.runtime.get(&owner, "task-x").unwrap().is_running(), "the job was not ended");
+
+    control.cancel_owned(&owner);
+    assert!(control.hold("task-y").is_some(), "the close holds what it could not kill");
+    let orphaned: Vec<String> = control.tasks().host_state().orphaned.into_iter().map(|row| row.task_id).collect();
+    assert_eq!(orphaned, ["task-x", "task-y"]);
+
+    rig.processes.refuse_kill.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(control.stop_job(&owner, "task-x").await, serde_json::json!({ "stopped": true }));
+    let row = control.tasks().get("task-x").unwrap();
+    assert!(!row.termination_unconfirmed && row.status == mixdog_spawn::tasks::TaskStatus::Cancelled, "{row:?}");
+    assert!(control.hold("task-x").is_none());
+    assert!(control.hold("task-y").is_some(), "the other job is still held");
 }

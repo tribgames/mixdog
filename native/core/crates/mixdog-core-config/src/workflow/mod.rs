@@ -17,8 +17,11 @@ pub mod pack;
 mod prefs;
 pub(crate) mod presets;
 mod search;
+pub mod thread_settings;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod thread_settings_tests;
 
 use std::sync::Arc;
 

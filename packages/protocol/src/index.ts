@@ -3353,7 +3353,15 @@ export type SubmitOptions = {
 /**
  * Today's submit `id`: the client's correlation id reused by queue and transcript.
  */
-clientSubmissionId?: string, submittedAt?: number, displayText?: string, goalCommand?: string, retryFailedTurn?: boolean, priority?: PromptPriority, pastedImages?: { [key in string]?: PromptAttachment }, pastedTexts?: { [key in string]?: PastedText }, kickoff?: boolean, };
+clientSubmissionId?: string, submittedAt?: number, displayText?: string, goalCommand?: string, retryFailedTurn?: boolean, 
+/**
+ * The failed user message a retry replays from the model history (`retryTurnId`).
+ */
+retryTurnId?: string, 
+/**
+ * The failed attempt of that message (`retryAttemptId`).
+ */
+retryAttemptId?: string, priority?: PromptPriority, pastedImages?: { [key in string]?: PromptAttachment }, pastedTexts?: { [key in string]?: PastedText }, kickoff?: boolean, };
 
 /**
  * The core's attach decision, the same object for every subscribing method.

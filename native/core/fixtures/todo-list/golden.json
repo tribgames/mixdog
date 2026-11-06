@@ -1,0 +1,619 @@
+{
+  "at": 1234567,
+  "cleared": {
+    "after": {
+      "todo": null,
+      "updatedAt": 1234567
+    },
+    "before": {
+      "phases": [
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "A",
+              "status": "in_progress"
+            },
+            {
+              "content": "B",
+              "status": "pending"
+            }
+          ]
+        }
+      ],
+      "updatedAt": 5
+    }
+  },
+  "commits": [
+    {
+      "after": {
+        "todo": {
+          "phases": [
+            {
+              "name": "Tasks",
+              "tasks": [
+                {
+                  "content": "A",
+                  "status": "in_progress"
+                },
+                {
+                  "content": "B",
+                  "status": "pending"
+                }
+              ]
+            }
+          ],
+          "updatedAt": 1234567
+        },
+        "updatedAt": 1234567
+      },
+      "args": {
+        "items": [
+          "A",
+          "B"
+        ],
+        "op": "init"
+      },
+      "before": null,
+      "error": null,
+      "name": "init from items",
+      "reply": "0/2\nTasks\n  [>] A\n  [ ] B"
+    },
+    {
+      "after": {
+        "todo": {
+          "phases": [
+            {
+              "name": "P1",
+              "tasks": [
+                {
+                  "content": "a",
+                  "status": "in_progress"
+                },
+                {
+                  "content": "b",
+                  "status": "pending"
+                }
+              ]
+            },
+            {
+              "name": "P2",
+              "tasks": [
+                {
+                  "content": "c",
+                  "status": "pending"
+                }
+              ]
+            }
+          ],
+          "updatedAt": 1234567
+        },
+        "updatedAt": 1234567
+      },
+      "args": {
+        "op": "init",
+        "phases": [
+          {
+            "items": [
+              "a",
+              "b"
+            ],
+            "name": "P1"
+          },
+          {
+            "items": [
+              "c"
+            ],
+            "name": "P2"
+          }
+        ]
+      },
+      "before": null,
+      "error": null,
+      "name": "init phases",
+      "reply": "0/3\nP1\n  [>] a\n  [ ] b\nP2\n  [ ] c"
+    },
+    {
+      "after": {
+        "todo": {
+          "phases": [
+            {
+              "name": "Tasks",
+              "tasks": [
+                {
+                  "content": "A",
+                  "note": "ok",
+                  "status": "completed"
+                },
+                {
+                  "content": "B",
+                  "status": "in_progress"
+                }
+              ]
+            }
+          ],
+          "updatedAt": 1234567
+        },
+        "updatedAt": 1234567
+      },
+      "args": {
+        "item": "A",
+        "note": "ok",
+        "op": "done"
+      },
+      "before": {
+        "phases": [
+          {
+            "name": "Tasks",
+            "tasks": [
+              {
+                "content": "A",
+                "status": "in_progress"
+              },
+              {
+                "content": "B",
+                "status": "pending"
+              }
+            ]
+          }
+        ],
+        "updatedAt": 5
+      },
+      "error": null,
+      "name": "done moves the start on",
+      "reply": "1/2 · done: A · next: B"
+    },
+    {
+      "after": {
+        "todo": {
+          "phases": [
+            {
+              "name": "Tasks",
+              "tasks": [
+                {
+                  "content": "A",
+                  "status": "in_progress"
+                },
+                {
+                  "content": "B",
+                  "status": "abandoned"
+                }
+              ]
+            }
+          ],
+          "updatedAt": 1234567
+        },
+        "updatedAt": 1234567
+      },
+      "args": {
+        "item": "B",
+        "op": "drop"
+      },
+      "before": {
+        "phases": [
+          {
+            "name": "Tasks",
+            "tasks": [
+              {
+                "content": "A",
+                "status": "in_progress"
+              },
+              {
+                "content": "B",
+                "status": "pending"
+              }
+            ]
+          }
+        ],
+        "updatedAt": 5
+      },
+      "error": null,
+      "name": "drop",
+      "reply": "0/1 · drop: B · next: A"
+    },
+    {
+      "after": {
+        "todo": {
+          "phases": [
+            {
+              "name": "Tasks",
+              "tasks": [
+                {
+                  "content": "A",
+                  "status": "in_progress"
+                },
+                {
+                  "content": "B",
+                  "status": "pending"
+                },
+                {
+                  "content": "C",
+                  "status": "pending"
+                }
+              ]
+            }
+          ],
+          "updatedAt": 1234567
+        },
+        "updatedAt": 1234567
+      },
+      "args": {
+        "items": [
+          "C"
+        ],
+        "op": "append"
+      },
+      "before": {
+        "phases": [
+          {
+            "name": "Tasks",
+            "tasks": [
+              {
+                "content": "A",
+                "status": "in_progress"
+              },
+              {
+                "content": "B",
+                "status": "pending"
+              }
+            ]
+          }
+        ],
+        "updatedAt": 5
+      },
+      "error": null,
+      "name": "append to the last phase",
+      "reply": "0/3 · append: C · next: A"
+    },
+    {
+      "after": {
+        "todo": {
+          "phases": [
+            {
+              "name": "Tasks",
+              "tasks": [
+                {
+                  "content": "A",
+                  "status": "in_progress"
+                }
+              ]
+            }
+          ],
+          "updatedAt": 1234567
+        },
+        "updatedAt": 1234567
+      },
+      "args": {
+        "item": "B",
+        "op": "rm"
+      },
+      "before": {
+        "phases": [
+          {
+            "name": "Tasks",
+            "tasks": [
+              {
+                "content": "A",
+                "status": "in_progress"
+              },
+              {
+                "content": "B",
+                "status": "pending"
+              }
+            ]
+          }
+        ],
+        "updatedAt": 5
+      },
+      "error": null,
+      "name": "rm",
+      "reply": "0/1 · rm: B · next: A"
+    },
+    {
+      "after": {
+        "todo": {
+          "phases": [
+            {
+              "name": "Tasks",
+              "tasks": [
+                {
+                  "content": "A",
+                  "status": "in_progress"
+                },
+                {
+                  "content": "B",
+                  "status": "pending"
+                }
+              ]
+            }
+          ],
+          "updatedAt": 5
+        },
+        "updatedAt": 1
+      },
+      "args": {
+        "item": "Z",
+        "op": "start"
+      },
+      "before": {
+        "phases": [
+          {
+            "name": "Tasks",
+            "tasks": [
+              {
+                "content": "A",
+                "status": "in_progress"
+              },
+              {
+                "content": "B",
+                "status": "pending"
+              }
+            ]
+          }
+        ],
+        "updatedAt": 5
+      },
+      "error": "todo: no item \"Z\"; view the list for exact wordings",
+      "name": "refused: unknown item",
+      "reply": null
+    },
+    {
+      "after": {
+        "todo": {
+          "phases": [
+            {
+              "name": "Tasks",
+              "tasks": [
+                {
+                  "content": "A",
+                  "status": "in_progress"
+                },
+                {
+                  "content": "B",
+                  "status": "pending"
+                }
+              ]
+            }
+          ],
+          "updatedAt": 5
+        },
+        "updatedAt": 1
+      },
+      "args": {
+        "items": [
+          "X"
+        ],
+        "op": "init"
+      },
+      "before": {
+        "phases": [
+          {
+            "name": "Tasks",
+            "tasks": [
+              {
+                "content": "A",
+                "status": "in_progress"
+              },
+              {
+                "content": "B",
+                "status": "pending"
+              }
+            ]
+          }
+        ],
+        "updatedAt": 5
+      },
+      "error": "todo: init would erase unfinished items (\"A\", \"B\"); done or drop each first, or append to add asks",
+      "name": "refused: init over unfinished",
+      "reply": null
+    },
+    {
+      "after": {
+        "todo": null,
+        "updatedAt": 1
+      },
+      "args": {
+        "item": "A",
+        "op": "done"
+      },
+      "before": null,
+      "error": "todo: the list is empty; init it first",
+      "name": "refused: empty list",
+      "reply": null
+    }
+  ],
+  "note": "todoPhases/todoSnapshot over stored records; executeTodoTool and clearTodo results with Date.now frozen at `at`",
+  "reads": [
+    {
+      "name": "whitespace and statuses",
+      "phases": [
+        {
+          "name": "Build step",
+          "tasks": [
+            {
+              "content": "Write the code",
+              "status": "pending"
+            },
+            {
+              "content": "Ship",
+              "note": "all done",
+              "status": "completed"
+            },
+            {
+              "content": "Dropped",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "Loose",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "snapshot": {
+        "abandoned": 1,
+        "completed": 1,
+        "phases": [
+          {
+            "name": "Build step",
+            "tasks": [
+              {
+                "content": "Write the code",
+                "status": "pending"
+              },
+              {
+                "content": "Ship",
+                "note": "all done",
+                "status": "completed"
+              },
+              {
+                "content": "Dropped",
+                "status": "abandoned"
+              }
+            ]
+          },
+          {
+            "name": "Tasks",
+            "tasks": [
+              {
+                "content": "Loose",
+                "status": "in_progress"
+              }
+            ]
+          }
+        ],
+        "total": 4
+      },
+      "todo": {
+        "phases": [
+          {
+            "name": "  Build \n step ",
+            "tasks": [
+              {
+                "blocker": "waiting",
+                "content": " Write\t the  code ",
+                "status": "blocked"
+              },
+              {
+                "content": "Ship",
+                "note": "  all\n done ",
+                "status": "completed"
+              },
+              {
+                "content": "   ",
+                "status": "pending"
+              },
+              {
+                "status": "pending"
+              },
+              "stray",
+              {
+                "content": "Dropped",
+                "status": "abandoned"
+              }
+            ]
+          },
+          {
+            "name": "",
+            "tasks": [
+              {
+                "content": "Loose",
+                "note": " ",
+                "status": "in_progress"
+              }
+            ]
+          },
+          {
+            "name": "Empty",
+            "tasks": []
+          },
+          {
+            "name": "Bad"
+          }
+        ],
+        "updatedAt": 41
+      }
+    },
+    {
+      "name": "no record",
+      "phases": [],
+      "snapshot": null,
+      "todo": null
+    },
+    {
+      "name": "null record",
+      "phases": [],
+      "snapshot": null,
+      "todo": null
+    },
+    {
+      "name": "phases not an array",
+      "phases": [],
+      "snapshot": null,
+      "todo": {
+        "phases": "x"
+      }
+    },
+    {
+      "name": "empty phases",
+      "phases": [],
+      "snapshot": null,
+      "todo": {
+        "phases": []
+      }
+    },
+    {
+      "name": "a string record",
+      "phases": [],
+      "snapshot": null,
+      "todo": "x"
+    },
+    {
+      "name": "nameless phase",
+      "phases": [
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "A",
+              "status": "pending"
+            }
+          ]
+        }
+      ],
+      "snapshot": {
+        "abandoned": 0,
+        "completed": 0,
+        "phases": [
+          {
+            "name": "Tasks",
+            "tasks": [
+              {
+                "content": "A",
+                "status": "pending"
+              }
+            ]
+          }
+        ],
+        "total": 1
+      },
+      "todo": {
+        "phases": [
+          {
+            "tasks": [
+              {
+                "content": "A",
+                "status": "pending"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

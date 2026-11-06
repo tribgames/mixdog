@@ -144,6 +144,9 @@ pub struct McpOAuth {
     active_login: Mutex<Option<CancellationToken>>,
     /// The entry a committed account switch replaced (`Some(None)`: there was none).
     switched_from: Mutex<Option<Option<Entry>>>,
+    /// The server refused the token and the sign-in could not renew it: the user must sign in.
+    /// Cleared when a sign-in is stored.
+    sign_in_required: std::sync::atomic::AtomicBool,
 }
 
 /// The secret-store account of a sign-in: a digest of its key, nothing else.
@@ -183,7 +186,13 @@ impl McpOAuth {
             renew_gate: tokio::sync::Semaphore::new(1),
             active_login: Mutex::new(None),
             switched_from: Mutex::new(None),
+            sign_in_required: std::sync::atomic::AtomicBool::new(false),
         }))
+    }
+
+    /// Whether the last refused token could not be renewed, so the server needs a sign-in.
+    pub fn sign_in_required(&self) -> bool {
+        self.sign_in_required.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub fn binding(&self) -> &OAuthBinding {
@@ -266,6 +275,7 @@ impl McpOAuth {
         self.write_entry(&entry).await?;
         self.hold(Some(&entry));
         cache.entry = Some(entry);
+        self.sign_in_required.store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
@@ -383,7 +393,14 @@ impl McpOAuth {
 
     /// The sign-in flow of this server, as the login mechanism runs it.
     pub fn login_flow(self: &Arc<Self>, server: &str, mode: AccountMode) -> McpLoginFlow {
-        McpLoginFlow { oauth: Arc::clone(self), target: LoginTarget::McpServer(server.to_owned()), mode }
+        McpLoginFlow { oauth: Arc::clone(self), target: LoginTarget::McpServer(server.to_owned()), mode, transactional: false }
+    }
+
+    /// A sign-in beside the stored one, in any mode (an account of a multi-account connector):
+    /// like a switch it keeps what it replaced, so [`rollback_switch`](Self::rollback_switch)
+    /// can put it back.
+    pub fn login_flow_beside(self: &Arc<Self>, server: &str, mode: AccountMode) -> McpLoginFlow {
+        McpLoginFlow { transactional: true, ..self.login_flow(server, mode) }
     }
 }
 
@@ -397,7 +414,9 @@ impl Authorizer for McpOAuth {
 
     async fn renew(&self, rejected: Option<String>, challenge: Option<String>) -> Result<(), TransportError> {
         let _gate = self.renew_gate.acquire().await.expect("the gate is never closed");
-        self.refresh(rejected, challenge.as_deref()).await.map_err(Into::into)
+        let renewed = self.refresh(rejected, challenge.as_deref()).await;
+        self.sign_in_required.store(matches!(renewed, Err(OAuthError::ReauthenticationRequired)), std::sync::atomic::Ordering::SeqCst);
+        renewed.map_err(Into::into)
     }
 }
 
@@ -428,7 +447,7 @@ impl Control {
 }
 
 impl McpOAuth {
-    async fn run_login(self: &Arc<Self>, mode: AccountMode, ctl: &Control) -> Result<Option<String>, Stop> {
+    async fn run_login(self: &Arc<Self>, mode: AccountMode, transactional: bool, ctl: &Control) -> Result<Option<String>, Stop> {
         ctl.emit(LoginState::Starting);
         let switch = mode == AccountMode::Switch;
         let server = &self.binding.url;
@@ -548,7 +567,7 @@ impl McpOAuth {
             Ok(callback) => {
                 ctl.emit(LoginState::Waiting);
                 let finished = match callback.code {
-                    Some(code) => self.finish(mode, ctl, work.clone(), &credentials, &pair.verifier, &redirect_url, code).await,
+                    Some(code) => self.finish(mode, transactional, ctl, work.clone(), &credentials, &pair.verifier, &redirect_url, code).await,
                     None => Err(Stop::Failed(OAuthError::LoginFailed)),
                 };
                 let outcome = match &finished {
@@ -575,6 +594,7 @@ impl McpOAuth {
     async fn finish(
         self: &Arc<Self>,
         mode: AccountMode,
+        transactional: bool,
         ctl: &Control,
         mut work: Entry,
         credentials: &ClientCredentials,
@@ -607,7 +627,7 @@ impl McpOAuth {
         work.tokens = Some(tokens);
         work.identity = identity.clone();
         let mut cache = self.lock_cache().await;
-        if mode == AccountMode::Switch {
+        if mode == AccountMode::Switch || transactional {
             *self.switched_from.lock().unwrap_or_else(|e| e.into_inner()) = Some(cache.entry.clone());
         }
         let url = self.binding.url.to_string();
@@ -620,6 +640,7 @@ pub struct McpLoginFlow {
     oauth: Arc<McpOAuth>,
     target: LoginTarget,
     mode: AccountMode,
+    transactional: bool,
 }
 
 struct Session {
@@ -657,9 +678,9 @@ impl LoginFlow for McpLoginFlow {
             cancel,
             pending: Mutex::new(None),
         });
-        let (oauth, mode, task_control) = (Arc::clone(&self.oauth), self.mode, Arc::clone(&control));
+        let (oauth, mode, transactional, task_control) = (Arc::clone(&self.oauth), self.mode, self.transactional, Arc::clone(&control));
         mixdog_rt::spawn("mcp.oauth.login", mixdog_rt::TaskClass::Work, async move {
-            let last = match oauth.run_login(mode, &task_control).await {
+            let last = match oauth.run_login(mode, transactional, &task_control).await {
                 Ok(account) => LoginState::Done { account },
                 Err(Stop::Cancelled) => LoginState::Cancelled,
                 Err(Stop::Expired) => LoginState::Failed(LoginFailure::Expired),

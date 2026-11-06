@@ -113,7 +113,7 @@ pub(super) async fn build(
     let current_version = package_version(inputs).await?;
     let dev = on_lane(tokens.interactive_io, &CancellationToken::new(), {
         let root = inputs.paths.package_root.clone();
-        move |_lane| StagedInstaller::probe_dev_install(&root)
+        move |lane| StagedInstaller::probe_dev_install(lane, &root)
     })
     .await
     .map_err(|error| ComposeDomainsError::Build(format!("probing the install: {error:?}")))?;
@@ -126,6 +126,7 @@ pub(super) async fn build(
         },
         tokens.maintenance_io,
         seams.system_proxy.clone(),
+        Arc::new(mixdog_scm::exec::Exec::new(inputs.processes.manager())),
         dev,
     );
     let auto = config.clone();

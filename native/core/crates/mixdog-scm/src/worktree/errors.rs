@@ -183,6 +183,11 @@ pub fn branch_missing() -> ScmFailure {
     }
 }
 
+/// `worktreeError(code, message)` with no details: the code under its own text.
+pub fn coded_text(code: &'static str, message: &str) -> ScmFailure {
+    ScmFailure::Coded { domain: crate::error::WORKTREE_DOMAIN, code, detail: None, message: Some(message.into()) }
+}
+
 pub fn missing(entry_id: Option<String>, worktree_id: Option<String>, path: Option<String>) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_MISSING,
@@ -295,6 +300,17 @@ pub fn dirty(entry_id: Option<String>, operation: Option<String>, count: Option<
             ignored: None,
         },
     )
+}
+
+/// `WORKTREE_DIRTY` raised by a branch merge whose source folder has uncommitted work or an
+/// operation in progress: `operation` is `""` when none runs, as Node's `operationInProgress`.
+pub fn merge_source_dirty(operation: &str, count: u64) -> ScmFailure {
+    match dirty(None, Some(operation.to_owned()), Some(count), None) {
+        ScmFailure::Coded { code, detail: Some(detail), .. } => {
+            ScmFailure::coded_with_message(code, *detail, "Commit or finish the source work before merging.")
+        }
+        other => other,
+    }
 }
 
 /// `WORKTREE_DIRTY_CHOICE`: the pending changes to carry or leave (the first fifty paths).
@@ -415,6 +431,20 @@ pub fn project_dirty(files: Vec<String>) -> ScmFailure {
             restore_error: None,
             entry_id: None,
             ignored: None,
+        },
+    )
+}
+
+/// `WORKTREE_UNMERGED` from a removal check: the checkout holds `commits` unmerged commits.
+pub fn unmerged_commits(entry_id: String, branch: Option<String>, merge_target: Option<String>, commits: u64) -> ScmFailure {
+    ScmFailure::coded(
+        WORKTREE_UNMERGED,
+        DomainErrorDetail::WorktreeUnmerged {
+            commit: None,
+            entry_id: Some(entry_id),
+            branch,
+            merge_target,
+            commits: Some(commits),
         },
     )
 }

@@ -1,0 +1,202 @@
+{
+  "cases": [
+    {
+      "query": "deploy",
+      "result": {
+        "ok": [
+          {
+            "rank": 0.2,
+            "sessionId": "sess-deploy",
+            "snippet": "deploy script, then check the staging dashboard for the deploy status"
+          },
+          {
+            "rank": 0.1,
+            "sessionId": "sess-deploy-once",
+            "snippet": "deploy"
+          },
+          {
+            "rank": 0.1,
+            "sessionId": "sess-docs",
+            "snippet": "Drafted release notes: fixes, docs, and a short deploy remark at the end of the page"
+          }
+        ]
+      }
+    },
+    {
+      "query": "  deploy  ",
+      "result": {
+        "ok": [
+          {
+            "rank": 0.2,
+            "sessionId": "sess-deploy",
+            "snippet": "deploy script, then check the staging dashboard for the deploy status"
+          },
+          {
+            "rank": 0.1,
+            "sessionId": "sess-deploy-once",
+            "snippet": "deploy"
+          },
+          {
+            "rank": 0.1,
+            "sessionId": "sess-docs",
+            "snippet": "Drafted release notes: fixes, docs, and a short deploy remark at the end of the page"
+          }
+        ]
+      }
+    },
+    {
+      "query": "release notes",
+      "result": {
+        "ok": [
+          {
+            "rank": 0.1,
+            "sessionId": "sess-docs",
+            "snippet": "Drafted release notes: fixes, docs, and a short deploy remark at the end of the page"
+          }
+        ]
+      }
+    },
+    {
+      "query": "dep",
+      "result": {
+        "ok": [
+          {
+            "rank": 0.2,
+            "sessionId": "sess-deploy",
+            "snippet": "deploy script, then check the staging dashboard for the deploy status"
+          },
+          {
+            "rank": 0.1,
+            "sessionId": "sess-deploy-once",
+            "snippet": "deploy"
+          },
+          {
+            "rank": 0.1,
+            "sessionId": "sess-docs",
+            "snippet": "Drafted release notes: fixes, docs, and a short deploy remark at the end of the page"
+          }
+        ]
+      }
+    },
+    {
+      "query": "deploy staging",
+      "result": {
+        "ok": [
+          {
+            "rank": 0.05,
+            "sessionId": "sess-deploy",
+            "snippet": "deploy the staging server tonight"
+          }
+        ]
+      }
+    },
+    {
+      "query": "France",
+      "result": {
+        "ok": [
+          {
+            "rank": 0.1,
+            "sessionId": "sess-unrelated",
+            "snippet": "what is the capital of France"
+          }
+        ]
+      }
+    },
+    {
+      "query": "nothing-matches-this",
+      "result": {
+        "ok": []
+      }
+    },
+    {
+      "query": "DEPLOY",
+      "result": {
+        "ok": [
+          {
+            "rank": 0.2,
+            "sessionId": "sess-deploy",
+            "snippet": "deploy script, then check the staging dashboard for the deploy status"
+          },
+          {
+            "rank": 0.1,
+            "sessionId": "sess-deploy-once",
+            "snippet": "deploy"
+          },
+          {
+            "rank": 0.1,
+            "sessionId": "sess-docs",
+            "snippet": "Drafted release notes: fixes, docs, and a short deploy remark at the end of the page"
+          }
+        ]
+      }
+    },
+    {
+      "query": "",
+      "result": {
+        "error": {
+          "message": "session search query is invalid.",
+          "type": "TypeError"
+        }
+      }
+    },
+    {
+      "query": "   ",
+      "result": {
+        "error": {
+          "message": "session search query is invalid.",
+          "type": "TypeError"
+        }
+      }
+    },
+    {
+      "query": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "result": {
+        "ok": []
+      }
+    },
+    {
+      "query": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "result": {
+        "error": {
+          "message": "session search query is invalid.",
+          "type": "TypeError"
+        }
+      }
+    }
+  ],
+  "messages": {
+    "sess-deploy": [
+      {
+        "content": "how do I deploy the staging server tonight",
+        "role": "user"
+      },
+      {
+        "content": "Run the deploy script, then check the staging dashboard for the deploy status.",
+        "role": "assistant"
+      }
+    ],
+    "sess-deploy-once": [
+      {
+        "content": "deploy",
+        "role": "user"
+      }
+    ],
+    "sess-docs": [
+      {
+        "content": "write the release notes for the docs site",
+        "role": "user"
+      },
+      {
+        "content": "Drafted release notes: fixes, docs, and a short deploy remark at the end of the page.",
+        "role": "assistant"
+      }
+    ],
+    "sess-unrelated": [
+      {
+        "content": "what is the capital of France",
+        "role": "user"
+      }
+    ]
+  },
+  "note": "searchSessionContent of the real 1.4.5 desktop host over these stored messages (appended in this order, one append per session)"
+}

@@ -17,6 +17,7 @@ use std::time::SystemTime;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::future::Shared;
+use mixdog_rt::CancellationToken;
 
 /// `DEFAULT_TICK_MS`.
 pub const DEFAULT_TICK: Duration = Duration::from_secs(60);
@@ -60,6 +61,8 @@ struct State {
     probes: Vec<(u64, IdleProbe)>,
     next_probe: u64,
     started: bool,
+    /// The shutdown token of the started timer: once it fires no further task is admitted.
+    shutdown: Option<CancellationToken>,
 }
 
 #[derive(Default)]
@@ -149,6 +152,10 @@ impl MaintenanceSchedule {
         true
     }
 
+    fn is_shut_down(&self) -> bool {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).shutdown.as_ref().is_some_and(CancellationToken::is_cancelled)
+    }
+
     fn is_registered(&self, task: &Arc<Task>) -> bool {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).tasks.iter().any(|t| Arc::ptr_eq(t, task))
     }
@@ -165,6 +172,10 @@ impl MaintenanceSchedule {
             .collect();
         let mut ran = Vec::new();
         for task in due {
+            // After shutdown no further task is admitted; the one running has finished.
+            if self.is_shut_down() {
+                break;
+            }
             if !self.is_registered(&task) {
                 continue;
             }
@@ -172,6 +183,10 @@ impl MaintenanceSchedule {
             // to a later idle tick.
             if !force && !self.is_idle().await {
                 return TickReport { ran, busy: true };
+            }
+            // Shutdown may have arrived while the probes were asked.
+            if self.is_shut_down() {
+                break;
             }
             *task.due_at.lock().unwrap_or_else(|e| e.into_inner()) = now.saturating_add(task.interval_ms);
             if let Err(error) = (task.run)().await
@@ -203,24 +218,38 @@ impl MaintenanceSchedule {
         tick
     }
 
-    /// Starts ticking (idempotent). The timer ends with the last handle to the schedule.
-    pub fn start(self: &Arc<Self>, tick: Duration, clock: Clock) {
+    /// Starts ticking; `None` when it already runs. The timer ends with `shutdown` (or the last
+    /// handle to the schedule). At shutdown no further task is admitted, the tick under way and
+    /// the task it runs finish, every task is unregistered, and then the returned task ends:
+    /// awaiting it is the end of the schedule.
+    pub fn start(self: &Arc<Self>, tick: Duration, clock: Clock, shutdown: CancellationToken) -> Option<tokio::task::JoinHandle<()>> {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if state.started {
-                return;
+                return None;
             }
             state.started = true;
+            state.shutdown = Some(shutdown.clone());
         }
         let weak = Arc::downgrade(self);
-        drop(mixdog_rt::spawn("maintenance.schedule", mixdog_rt::TaskClass::Work, async move {
+        Some(mixdog_rt::spawn("maintenance.schedule", mixdog_rt::TaskClass::Work, async move {
             let mut timer = tokio::time::interval_at(tokio::time::Instant::now() + tick, tick);
             loop {
-                timer.tick().await;
+                tokio::select! {
+                    () = shutdown.cancelled() => break,
+                    _ = timer.tick() => {}
+                }
                 let Some(schedule) = weak.upgrade() else { return };
                 schedule.run_tasks(false, clock()).await;
             }
-        }));
+            if let Some(schedule) = weak.upgrade() {
+                let running = schedule.running.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                if let Some(running) = running {
+                    running.await;
+                }
+                schedule.state.lock().unwrap_or_else(|e| e.into_inner()).tasks.clear();
+            }
+        }))
     }
 }
 
@@ -361,10 +390,72 @@ mod tests {
         let now = Arc::new(std::sync::atomic::AtomicI64::new(0));
         let clock_now = now.clone();
         schedule.register_task("a", counting(&runs, false), options(1000, 0, None), 0);
-        schedule.start(Duration::from_millis(100), Arc::new(move || clock_now.load(Ordering::SeqCst)));
-        schedule.start(Duration::from_millis(100), Arc::new(|| 0));
+        let down = CancellationToken::new();
+        let ended = schedule.start(Duration::from_millis(100), Arc::new(move || clock_now.load(Ordering::SeqCst)), down.clone());
+        assert!(schedule.start(Duration::from_millis(100), Arc::new(|| 0), down.clone()).is_none(), "already started");
         now.store(100, Ordering::SeqCst);
         tokio::time::sleep(Duration::from_millis(150)).await;
         assert_eq!(runs.load(Ordering::SeqCst), 1);
+        down.cancel();
+        ended.expect("first start").await.expect("ended");
+    }
+
+    /// Shutdown that arrives while an idle probe is being awaited admits no task: the probe
+    /// answers idle after the token fired, and the due task still does not start.
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_during_the_idle_probe_admits_no_task() {
+        mixdog_rt::testing::tokens();
+        let schedule = MaintenanceSchedule::new();
+        let down = CancellationToken::new();
+        let runs = Arc::new(AtomicUsize::new(0));
+        schedule.register_task("a", counting(&runs, false), options(1000, 0, None), 0);
+        let (asked, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+        let (probe_asked, probe_release) = (asked.clone(), release.clone());
+        schedule.register_idle_probe(Arc::new(move || {
+            let (asked, release) = (probe_asked.clone(), probe_release.clone());
+            async move {
+                asked.notify_one();
+                release.notified().await;
+                true
+            }
+            .boxed()
+        }));
+        let ended = schedule.start(Duration::from_millis(100), Arc::new(|| 1000), down.clone()).expect("started");
+        asked.notified().await;
+        down.cancel();
+        release.notify_one();
+        ended.await.expect("ended");
+        assert_eq!(runs.load(Ordering::SeqCst), 0, "the task did not start after shutdown");
+    }
+
+    /// At shutdown the tick under way finishes its task, no further task is admitted, every
+    /// task is unregistered, and the returned task ends after all that.
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_admits_nothing_more_unregisters_the_tasks_and_ends_awaitably() {
+        mixdog_rt::testing::tokens();
+        let schedule = MaintenanceSchedule::new();
+        let down = CancellationToken::new();
+        let (first, second) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let (signal, counter) = (entered.clone(), first.clone());
+        let slow: TaskFn = Arc::new(move || {
+            let (signal, counter) = (signal.clone(), counter.clone());
+            async move {
+                signal.notify_one();
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            .boxed()
+        });
+        schedule.register_task("slow", slow, options(1000, 0, None), 0);
+        schedule.register_task("after", counting(&second, false), options(1000, 0, None), 0);
+        let ended = schedule.start(Duration::from_millis(100), Arc::new(|| 0), down.clone()).expect("started");
+        entered.notified().await;
+        down.cancel();
+        ended.await.expect("ended");
+        assert_eq!(first.load(Ordering::SeqCst), 1, "the admitted task finished");
+        assert_eq!(second.load(Ordering::SeqCst), 0, "no further task was admitted");
+        assert!(schedule.run_tasks(true, 0).await.ran.is_empty(), "every task is unregistered");
     }
 }

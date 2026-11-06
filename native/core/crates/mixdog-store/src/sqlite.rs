@@ -1026,7 +1026,7 @@ fn apply_frame(
                 return Ok((used, false));
             }
         }
-        FrameKind::Compacted { cid, at, rows, mode, dropped } => {
+        FrameKind::Compacted { cid, at, rows, mode, dropped, silent } => {
             // The divider precedes the oldest row the compaction kept.
             let mut boundary = ordinal;
             let mut kept = tx.prepare_cached(
@@ -1040,9 +1040,9 @@ fn apply_frame(
             }
             tx.prepare_cached(
                 "INSERT OR REPLACE INTO compactions (session, ordinal, cid, file_no, frame_offset, frame_len,
-                 boundary, at, drop_mode, superseded_rev) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
+                 boundary, at, drop_mode, silent, superseded_rev) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL)",
             )?
-            .execute(params![session, ordinal, cid, file_no, offset, len, boundary, at, *mode as i64])?;
+            .execute(params![session, ordinal, cid, file_no, offset, len, boundary, at, *mode as i64, i64::from(*silent)])?;
             if let Some(dropped) = dropped {
                 let mut put = tx.prepare_cached(
                     "INSERT OR IGNORE INTO compaction_dropped (session, kind, id, ordinal) VALUES (?1, ?2, ?3, ?4)",
@@ -1927,7 +1927,7 @@ fn dividers_on(
         let asof = home.end.map_or(i64::MAX, clamp);
         let mut stmt = c.prepare_cached(
             "SELECT ordinal, file_no, frame_offset, frame_len, cid, boundary, at FROM compactions
-             WHERE session = ?1 AND ordinal < ?3 AND (superseded_rev IS NULL OR superseded_rev >= ?2)",
+             WHERE session = ?1 AND ordinal < ?3 AND silent = 0 AND (superseded_rev IS NULL OR superseded_rev >= ?2)",
         )?;
         let found = stmt
             .query_map(params![home.session, asof, crate::archive_index::level_bound(lineage, cut, i)], |r| {

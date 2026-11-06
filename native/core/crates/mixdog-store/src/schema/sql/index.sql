@@ -203,6 +203,8 @@ CREATE TABLE compactions (
     -- before `boundary` (a source that reports nothing), 1 none (a pass that took out
     -- nothing visible), 2 by the ids of `compaction_dropped`.
     drop_mode INTEGER NOT NULL CHECK (drop_mode IN (0,1,2)),
+    -- 1: the record's `silent`: the context restarts, no divider is listed for it.
+    silent INTEGER NOT NULL DEFAULT 0 CHECK (silent IN (0,1)),
     superseded_rev INTEGER,
     PRIMARY KEY (session, ordinal)
 ) WITHOUT ROWID;

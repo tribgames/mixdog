@@ -1,0 +1,4007 @@
+{
+  "delivered": {
+    "steps": [
+      {
+        "at": 0,
+        "delivered": false,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "ex1",
+          "message": "A",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "executionId": "ex1",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 0,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "ex1",
+          "message": "other text",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "delivered": false,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "ex2",
+          "message": "A",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "delivered": false,
+        "entry": {
+          "executionId": "ex1",
+          "message": "A"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "op": "record",
+        "recorded": true,
+        "text": "<task-notification>\n<task-id>task_agent_2</task-id>\n<status>completed</status>\n<summary>Agent \"w2\" completed</summary>\n<result>\nsecond\n</result>\n</task-notification>"
+      },
+      {
+        "at": 0,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "message": "<task-notification>\n<task-id>task_agent_2</task-id>\n<status>completed</status>\n<summary>Agent \"w2\" completed</summary>\n<result>\nsecond\n</result>\n</task-notification>",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check",
+        "threw": "RangeError: Maximum call stack size exceeded"
+      },
+      {
+        "at": 0,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "message": "no id at all",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check",
+        "threw": "RangeError: Maximum call stack size exceeded"
+      },
+      {
+        "at": 0,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "zzz",
+          "message": "<task-notification>\n<task-id>task_agent_2</task-id>\n<status>completed</status>\n<summary>Agent \"w2\" completed</summary>\n<result>\nsecond\n</result>\n</task-notification>",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "task_agent_2",
+          "message": "something else",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "op": "record",
+        "recorded": true,
+        "text": "plain text"
+      },
+      {
+        "at": 0,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "pt1",
+          "message": " plain text ",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "delivered": false,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "pt1",
+          "message": "plain text 2",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "delivered": true,
+        "entry": {
+          "content": "plain text",
+          "enqueuedAt": 1700000000000,
+          "executionId": "pt1",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification",
+          "text": "plain text"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "delivered": false,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "pt2",
+          "message": "   ",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "executionId": "ex5",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 0,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "execution": {
+            "id": "ex5"
+          },
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 0,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "  ex5  ",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 1000,
+        "executionId": "ex_ttl",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 21600999,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "ex_ttl",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 43200997,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "ex_ttl",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 64800998,
+        "delivered": false,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "ex_ttl",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 64800999,
+        "delivered": false,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "ex_ttl",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 86400000,
+        "executionId": "ex_exp",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000000,
+        "delivered": false,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "ex_exp",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 108000000,
+        "delivered": false,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "ex1",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd0",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd1",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd2",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd3",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd4",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd5",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd6",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd7",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd8",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd9",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd10",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd11",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd12",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd13",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd14",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd15",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd16",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd17",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd18",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd19",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd20",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd21",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd22",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd23",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd24",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd25",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd26",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd27",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd28",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd29",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd30",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd31",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd32",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd33",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd34",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd35",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd36",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd37",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd38",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd39",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd40",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd41",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd42",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd43",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd44",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd45",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd46",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd47",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd48",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd49",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd50",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd51",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd52",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd53",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd54",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd55",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd56",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd57",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd58",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd59",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd60",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd61",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd62",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd63",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd64",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd65",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd66",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd67",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd68",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd69",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd70",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd71",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd72",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd73",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd74",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd75",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd76",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd77",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd78",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd79",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd80",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd81",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd82",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd83",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd84",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd85",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd86",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd87",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd88",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd89",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd90",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd91",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd92",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd93",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd94",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd95",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd96",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd97",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd98",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd99",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd100",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd101",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd102",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd103",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd104",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd105",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd106",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd107",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd108",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd109",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd110",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd111",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd112",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd113",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd114",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd115",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd116",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd117",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd118",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd119",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd120",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd121",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd122",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd123",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd124",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd125",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd126",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd127",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd128",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd129",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd130",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd131",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd132",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd133",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd134",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd135",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd136",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd137",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd138",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd139",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd140",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd141",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd142",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd143",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd144",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd145",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd146",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd147",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd148",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd149",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd150",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd151",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd152",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd153",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd154",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd155",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd156",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd157",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd158",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd159",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd160",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd161",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd162",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd163",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd164",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd165",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd166",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd167",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd168",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd169",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd170",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd171",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd172",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd173",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd174",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd175",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd176",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd177",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd178",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd179",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd180",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd181",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd182",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd183",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd184",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd185",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd186",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd187",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd188",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd189",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd190",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd191",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd192",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd193",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd194",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd195",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd196",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd197",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd198",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd199",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd200",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd201",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd202",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd203",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd204",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd205",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd206",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd207",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd208",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd209",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd210",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd211",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd212",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd213",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd214",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd215",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd216",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd217",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd218",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd219",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd220",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd221",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd222",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd223",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd224",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd225",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd226",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd227",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd228",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd229",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd230",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd231",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd232",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd233",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd234",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd235",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd236",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd237",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd238",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd239",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd240",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd241",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd242",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd243",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd244",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd245",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd246",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd247",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd248",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd249",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd250",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd251",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd252",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd253",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd254",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd255",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd256",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd257",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd258",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd259",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd260",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd261",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd262",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd263",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd264",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd265",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd266",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd267",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd268",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd269",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd270",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd271",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd272",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd273",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd274",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd275",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd276",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd277",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd278",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd279",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd280",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd281",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd282",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd283",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd284",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd285",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd286",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd287",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd288",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd289",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd290",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd291",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd292",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd293",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd294",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd295",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd296",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd297",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd298",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd299",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd300",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd301",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd302",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd303",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd304",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd305",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd306",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd307",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd308",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd309",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd310",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd311",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd312",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd313",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd314",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd315",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd316",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd317",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd318",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd319",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd320",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd321",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd322",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd323",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd324",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd325",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd326",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd327",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd328",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd329",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd330",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd331",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd332",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd333",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd334",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd335",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd336",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd337",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd338",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd339",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd340",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd341",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd342",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd343",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd344",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd345",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd346",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd347",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd348",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd349",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd350",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd351",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd352",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd353",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd354",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd355",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd356",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd357",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd358",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd359",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd360",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd361",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd362",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd363",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd364",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd365",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd366",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd367",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd368",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd369",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd370",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd371",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd372",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd373",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd374",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd375",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd376",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd377",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd378",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd379",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd380",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd381",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd382",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd383",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd384",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd385",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd386",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd387",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd388",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd389",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd390",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd391",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd392",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd393",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd394",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd395",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd396",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd397",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd398",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd399",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd400",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd401",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd402",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd403",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd404",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd405",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd406",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd407",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd408",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd409",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd410",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd411",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd412",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd413",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd414",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd415",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd416",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd417",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd418",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd419",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd420",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd421",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd422",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd423",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd424",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd425",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd426",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd427",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd428",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd429",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd430",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd431",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd432",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd433",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd434",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd435",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd436",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd437",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd438",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd439",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd440",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd441",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd442",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd443",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd444",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd445",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd446",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd447",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd448",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd449",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd450",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd451",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd452",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd453",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd454",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd455",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd456",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd457",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd458",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd459",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd460",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd461",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd462",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd463",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd464",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd465",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd466",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd467",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd468",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd469",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd470",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd471",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd472",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd473",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd474",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd475",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd476",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd477",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd478",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd479",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd480",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd481",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd482",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd483",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd484",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd485",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd486",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd487",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd488",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd489",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd490",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd491",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd492",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd493",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd494",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd495",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd496",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd497",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd498",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd499",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd500",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd501",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd502",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd503",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd504",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd505",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd506",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd507",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd508",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd509",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd510",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd511",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000001,
+        "executionId": "bnd512",
+        "op": "record",
+        "recorded": true
+      },
+      {
+        "at": 108000002,
+        "delivered": false,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "bnd0",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 108000002,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "bnd1",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 108000002,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "bnd2",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 108000002,
+        "delivered": true,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "bnd512",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      },
+      {
+        "at": 108000002,
+        "delivered": false,
+        "entry": {
+          "enqueuedAt": 1700000000000,
+          "executionId": "ex_exp",
+          "message": "x",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        "op": "check"
+      }
+    ]
+  },
+  "frozenNow": 1700000000000,
+  "queue": {
+    "afterFlush": [
+      {
+        "content": "first prompt",
+        "enqueuedAt": 1700000000000,
+        "id": "030303030303030303030303",
+        "text": "first prompt"
+      },
+      {
+        "content": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>",
+        "enqueuedAt": 1700000000000,
+        "execution": {
+          "id": "task_agent_1",
+          "status": "completed",
+          "surface": "agent"
+        },
+        "executionId": "task_agent_1",
+        "id": "completion_857da468d42fd67d7b3f6bd1",
+        "mode": "task-notification",
+        "notificationKind": "completion_notification",
+        "text": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>"
+      },
+      {
+        "content": [
+          {
+            "text": "look at this",
+            "type": "text"
+          },
+          {
+            "data": "AA==",
+            "mimeType": "image/png",
+            "type": "image"
+          }
+        ],
+        "enqueuedAt": 1700000000000,
+        "id": "050505050505050505050505",
+        "text": "look at this\n[Image]"
+      },
+      {
+        "content": "<task-notification>\n<task-id>job-7</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit 2)</summary>\n<result>\nboom\n</result>\n</task-notification>",
+        "enqueuedAt": 1700000000000,
+        "execution": {
+          "id": "job-7",
+          "status": "failed",
+          "surface": "shell"
+        },
+        "executionId": "job-7",
+        "id": "completion_6461658429e51da170940440",
+        "mode": "task-notification",
+        "notificationKind": "completion_notification",
+        "text": "<task-notification>\n<task-id>job-7</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit 2)</summary>\n<result>\nboom\n</result>\n</task-notification>"
+      },
+      {
+        "content": "last prompt",
+        "enqueuedAt": 1700000000000,
+        "id": "070707070707070707070707",
+        "text": "last prompt"
+      },
+      {
+        "enqueuedAt": 1700000000000,
+        "id": "030303030303030303030303",
+        "message": "first prompt"
+      },
+      {
+        "enqueuedAt": 1700000000000,
+        "execution": {
+          "id": "task_agent_1",
+          "status": "completed",
+          "surface": "agent"
+        },
+        "executionId": "task_agent_1",
+        "id": "completion_857da468d42fd67d7b3f6bd1",
+        "message": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>",
+        "mode": "task-notification",
+        "notificationKind": "completion_notification"
+      },
+      {
+        "content": [
+          {
+            "text": "look at this",
+            "type": "text"
+          },
+          {
+            "data": "AA==",
+            "mimeType": "image/png",
+            "type": "image"
+          }
+        ],
+        "enqueuedAt": 1700000000000,
+        "id": "050505050505050505050505",
+        "text": "look at this\n[Image]"
+      },
+      {
+        "enqueuedAt": 1700000000000,
+        "execution": {
+          "id": "job-7",
+          "status": "failed",
+          "surface": "shell"
+        },
+        "executionId": "job-7",
+        "id": "completion_6461658429e51da170940440",
+        "message": "<task-notification>\n<task-id>job-7</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit 2)</summary>\n<result>\nboom\n</result>\n</task-notification>",
+        "mode": "task-notification",
+        "notificationKind": "completion_notification"
+      },
+      {
+        "enqueuedAt": 1700000000000,
+        "id": "070707070707070707070707",
+        "message": "last prompt"
+      }
+    ],
+    "afterRestart": {
+      "owed": [
+        {
+          "meta": {
+            "caller_session_id": "sess_a",
+            "execution_id": "task_agent_1",
+            "execution_surface": "agent",
+            "status": "completed",
+            "type": "agent_task_result"
+          },
+          "text": ""
+        },
+        {
+          "meta": {
+            "caller_session_id": "sess_a",
+            "execution_id": "job-7",
+            "execution_surface": "shell",
+            "status": "failed",
+            "type": "agent_task_result"
+          },
+          "text": ""
+        }
+      ],
+      "pending": [
+        {
+          "enqueuedAt": 1700000000000,
+          "id": "030303030303030303030303",
+          "message": "first prompt"
+        },
+        {
+          "enqueuedAt": 1700000000000,
+          "execution": {
+            "id": "task_agent_1",
+            "status": "completed",
+            "surface": "agent"
+          },
+          "executionId": "task_agent_1",
+          "id": "completion_857da468d42fd67d7b3f6bd1",
+          "message": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        {
+          "content": [
+            {
+              "text": "look at this",
+              "type": "text"
+            },
+            {
+              "data": "AA==",
+              "mimeType": "image/png",
+              "type": "image"
+            }
+          ],
+          "enqueuedAt": 1700000000000,
+          "id": "050505050505050505050505",
+          "text": "look at this\n[Image]"
+        },
+        {
+          "enqueuedAt": 1700000000000,
+          "execution": {
+            "id": "job-7",
+            "status": "failed",
+            "surface": "shell"
+          },
+          "executionId": "job-7",
+          "id": "completion_6461658429e51da170940440",
+          "message": "<task-notification>\n<task-id>job-7</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit 2)</summary>\n<result>\nboom\n</result>\n</task-notification>",
+          "mode": "task-notification",
+          "notificationKind": "completion_notification"
+        },
+        {
+          "enqueuedAt": 1700000000000,
+          "id": "070707070707070707070707",
+          "message": "last prompt"
+        }
+      ]
+    },
+    "beforeFlush": [
+      {
+        "content": "first prompt",
+        "enqueuedAt": 1700000000000,
+        "id": "030303030303030303030303",
+        "text": "first prompt"
+      },
+      {
+        "content": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>",
+        "enqueuedAt": 1700000000000,
+        "execution": {
+          "id": "task_agent_1",
+          "status": "completed",
+          "surface": "agent"
+        },
+        "executionId": "task_agent_1",
+        "id": "completion_857da468d42fd67d7b3f6bd1",
+        "mode": "task-notification",
+        "notificationKind": "completion_notification",
+        "text": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>"
+      },
+      {
+        "content": [
+          {
+            "text": "look at this",
+            "type": "text"
+          },
+          {
+            "data": "AA==",
+            "mimeType": "image/png",
+            "type": "image"
+          }
+        ],
+        "enqueuedAt": 1700000000000,
+        "id": "050505050505050505050505",
+        "text": "look at this\n[Image]"
+      },
+      {
+        "content": "<task-notification>\n<task-id>job-7</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit 2)</summary>\n<result>\nboom\n</result>\n</task-notification>",
+        "enqueuedAt": 1700000000000,
+        "execution": {
+          "id": "job-7",
+          "status": "failed",
+          "surface": "shell"
+        },
+        "executionId": "job-7",
+        "id": "completion_6461658429e51da170940440",
+        "mode": "task-notification",
+        "notificationKind": "completion_notification",
+        "text": "<task-notification>\n<task-id>job-7</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit 2)</summary>\n<result>\nboom\n</result>\n</task-notification>"
+      },
+      {
+        "content": "last prompt",
+        "enqueuedAt": 1700000000000,
+        "id": "070707070707070707070707",
+        "text": "last prompt"
+      },
+      {
+        "enqueuedAt": 1700000000000,
+        "id": "030303030303030303030303",
+        "message": "first prompt"
+      },
+      {
+        "enqueuedAt": 1700000000000,
+        "execution": {
+          "id": "task_agent_1",
+          "status": "completed",
+          "surface": "agent"
+        },
+        "executionId": "task_agent_1",
+        "id": "completion_857da468d42fd67d7b3f6bd1",
+        "message": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>",
+        "mode": "task-notification",
+        "notificationKind": "completion_notification"
+      },
+      {
+        "content": [
+          {
+            "text": "look at this",
+            "type": "text"
+          },
+          {
+            "data": "AA==",
+            "mimeType": "image/png",
+            "type": "image"
+          }
+        ],
+        "enqueuedAt": 1700000000000,
+        "id": "050505050505050505050505",
+        "text": "look at this\n[Image]"
+      },
+      {
+        "enqueuedAt": 1700000000000,
+        "execution": {
+          "id": "job-7",
+          "status": "failed",
+          "surface": "shell"
+        },
+        "executionId": "job-7",
+        "id": "completion_6461658429e51da170940440",
+        "message": "<task-notification>\n<task-id>job-7</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit 2)</summary>\n<result>\nboom\n</result>\n</task-notification>",
+        "mode": "task-notification",
+        "notificationKind": "completion_notification"
+      },
+      {
+        "enqueuedAt": 1700000000000,
+        "id": "070707070707070707070707",
+        "message": "last prompt"
+      }
+    ],
+    "inputs": [
+      {
+        "kind": "prompt",
+        "value": "  first prompt  "
+      },
+      {
+        "kind": "completion",
+        "status": "completed",
+        "surface": "agent",
+        "taskId": "task_agent_1",
+        "text": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>"
+      },
+      {
+        "kind": "prompt",
+        "value": [
+          {
+            "text": "look at this",
+            "type": "text"
+          },
+          {
+            "data": "AA==",
+            "mimeType": "image/png",
+            "type": "image"
+          }
+        ]
+      },
+      {
+        "kind": "completion",
+        "status": "failed",
+        "surface": "shell",
+        "taskId": "job-7",
+        "text": "<task-notification>\n<task-id>job-7</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit 2)</summary>\n<result>\nboom\n</result>\n</task-notification>"
+      },
+      {
+        "kind": "prompt",
+        "value": "   "
+      },
+      {
+        "kind": "completion",
+        "status": "completed",
+        "surface": "agent",
+        "taskId": "task_agent_1",
+        "text": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>"
+      },
+      {
+        "kind": "completion",
+        "status": "completed",
+        "surface": "shell",
+        "taskId": "",
+        "text": "plain note without a task id"
+      },
+      {
+        "kind": "prompt",
+        "value": "last prompt"
+      }
+    ],
+    "invalidSession": [],
+    "owedAfterFlush": [
+      {
+        "meta": {
+          "caller_session_id": "sess_a",
+          "execution_id": "task_agent_1",
+          "execution_surface": "agent",
+          "status": "completed",
+          "type": "agent_task_result"
+        },
+        "text": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>"
+      },
+      {
+        "meta": {
+          "caller_session_id": "sess_a",
+          "execution_id": "job-7",
+          "execution_surface": "shell",
+          "status": "failed",
+          "type": "agent_task_result"
+        },
+        "text": "<task-notification>\n<task-id>job-7</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit 2)</summary>\n<result>\nboom\n</result>\n</task-notification>"
+      },
+      {
+        "meta": {
+          "caller_session_id": "sess_a",
+          "execution_id": "task_agent_1",
+          "execution_surface": "agent",
+          "status": "completed",
+          "type": "agent_task_result"
+        },
+        "text": ""
+      },
+      {
+        "meta": {
+          "caller_session_id": "sess_a",
+          "execution_id": "job-7",
+          "execution_surface": "shell",
+          "status": "failed",
+          "type": "agent_task_result"
+        },
+        "text": ""
+      }
+    ],
+    "owedBeforeFlush": [
+      {
+        "meta": {
+          "caller_session_id": "sess_a",
+          "execution_id": "task_agent_1",
+          "execution_surface": "agent",
+          "status": "completed",
+          "type": "agent_task_result"
+        },
+        "text": "<task-notification>\n<task-id>task_agent_1</task-id>\n<status>completed</status>\n<summary>Agent \"worker\" completed</summary>\n<result>\nthe agent result\n</result>\n</task-notification>"
+      },
+      {
+        "meta": {
+          "caller_session_id": "sess_a",
+          "execution_id": "job-7",
+          "execution_surface": "shell",
+          "status": "failed",
+          "type": "agent_task_result"
+        },
+        "text": "<task-notification>\n<task-id>job-7</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit 2)</summary>\n<result>\nboom\n</result>\n</task-notification>"
+      }
+    ],
+    "returned": [
+      {
+        "value": 1
+      },
+      {
+        "value": 2
+      },
+      {
+        "value": 3
+      },
+      {
+        "value": 4
+      },
+      {
+        "value": 0
+      },
+      {
+        "value": 1
+      },
+      {
+        "threw": "RangeError: Maximum call stack size exceeded"
+      },
+      {
+        "value": 5
+      }
+    ],
+    "session": "sess_a",
+    "unknownSession": []
+  },
+  "steering": {
+    "session": "lead1",
+    "steps": [
+      {
+        "at": 0,
+        "entry": {
+          "id": "sub-1",
+          "text": "steer one"
+        },
+        "op": "append"
+      },
+      {
+        "at": 0,
+        "entry": {
+          "id": "  sub-2  ",
+          "text": " two "
+        },
+        "op": "append"
+      },
+      {
+        "at": 0,
+        "entry": {
+          "text": "no id"
+        },
+        "op": "append"
+      },
+      {
+        "at": 0,
+        "entry": {
+          "id": "sub-4",
+          "text": "   "
+        },
+        "op": "append"
+      },
+      {
+        "at": 0,
+        "op": "read",
+        "rows": [
+          {
+            "steeringPersistId": "ts_loyw3v28_0a0a0a0a",
+            "submissionId": "sub-1",
+            "submittedAt": null,
+            "text": "steer one"
+          },
+          {
+            "steeringPersistId": "ts_loyw3v28_0d0d0d0d",
+            "submissionId": "sub-2",
+            "submittedAt": null,
+            "text": "two"
+          },
+          {
+            "steeringPersistId": "ts_loyw3v28_10101010",
+            "submissionId": null,
+            "submittedAt": null,
+            "text": "no id"
+          }
+        ],
+        "session": "lead1",
+        "submissionIds": [
+          "sub-1",
+          "sub-2"
+        ]
+      },
+      {
+        "at": 1200000,
+        "entry": {
+          "id": "sub-5",
+          "text": "later"
+        },
+        "op": "append"
+      },
+      {
+        "at": 1800000,
+        "op": "read",
+        "rows": [
+          {
+            "steeringPersistId": "ts_loyw3v28_0a0a0a0a",
+            "submissionId": "sub-1",
+            "submittedAt": null,
+            "text": "steer one"
+          },
+          {
+            "steeringPersistId": "ts_loyw3v28_0d0d0d0d",
+            "submissionId": "sub-2",
+            "submittedAt": null,
+            "text": "two"
+          },
+          {
+            "steeringPersistId": "ts_loyw3v28_10101010",
+            "submissionId": null,
+            "submittedAt": null,
+            "text": "no id"
+          },
+          {
+            "steeringPersistId": "ts_loywtkzk_14141414",
+            "submissionId": "sub-5",
+            "submittedAt": null,
+            "text": "later"
+          }
+        ],
+        "session": "lead1",
+        "submissionIds": [
+          "sub-1",
+          "sub-2",
+          "sub-5"
+        ]
+      },
+      {
+        "at": 1800001,
+        "op": "read",
+        "rows": [
+          {
+            "steeringPersistId": "ts_loywtkzk_14141414",
+            "submissionId": "sub-5",
+            "submittedAt": null,
+            "text": "later"
+          }
+        ],
+        "session": "lead1",
+        "submissionIds": [
+          "sub-5"
+        ]
+      },
+      {
+        "at": 1800001,
+        "op": "read",
+        "rows": [],
+        "session": "bad id!",
+        "submissionIds": []
+      },
+      {
+        "at": 1800001,
+        "op": "read",
+        "rows": [],
+        "session": "lead_none",
+        "submissionIds": []
+      }
+    ]
+  }
+}

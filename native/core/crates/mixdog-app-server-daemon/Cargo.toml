@@ -13,8 +13,13 @@ mixdog-app-server = { workspace = true }
 mixdog-app-server-transport = { workspace = true }
 mixdog-app-server-client = { workspace = true }
 mixdog-core-base = { workspace = true }
+mixdog-core = { workspace = true }
+mixdog-core-run = { workspace = true }
+mixdog-core-session = { workspace = true }
 mixdog-core-domains = { workspace = true }
 mixdog-core-config = { workspace = true }
+mixdog-agent = { workspace = true }
+mixdog-core-agents = { workspace = true }
 mixdog-core-ports = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-remote = { workspace = true }
@@ -28,10 +33,12 @@ reqwest = { workspace = true }
 tokio-util = { workspace = true }
 bytes = { workspace = true }
 mixdog-mcp = { workspace = true }
+mixdog-secrets = { workspace = true }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 mixdog-store = { workspace = true }
 mixdog-statefile = { workspace = true }
 async-trait = { workspace = true }
+futures = { workspace = true, features = ["alloc"] }
 mixdog-protocol = { workspace = true }
 # The mock seams stay linked until the real core, transport and server replace them.
 mixdog-core-api = { workspace = true, features = ["mock"] }

@@ -154,3 +154,23 @@ async fn a_failed_attach_is_an_error_response_and_registers_nothing() {
         "threadClosing"
     );
 }
+
+#[tokio::test]
+async fn a_scoped_feed_subscription_answers_first_then_receives_its_frames() {
+    let rig = Rig::new();
+    let app = rig.core.mock.app();
+    rig.core.hold_scoped("login:flow1", mixdog_core_api::CoreHandle::app_feed(&rig.core.mock));
+    let client = rig.ready(1, json!({}));
+
+    client.request(1, "feed/subscribe", json!({ "feedId": "login:flow1" }));
+    app.publish(&[event(1)], None).unwrap();
+    let frames = client.drain();
+    assert_eq!(lanes(&frames), ["response", "snapshot@0", "evt@1"]);
+    assert!(frames[0].body["result"]["subscription"]["id"].is_string());
+
+    // Unsubscribing names the feed's own id (the held feed is the mock's, whose id is `app`).
+    client.request(2, "feed/unsubscribe", json!({ "feedId": "app" }));
+    client.drain();
+    app.publish(&[event(2)], None).unwrap();
+    assert!(client.drain().is_empty());
+}

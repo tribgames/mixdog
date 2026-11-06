@@ -70,11 +70,35 @@ pub struct ControlServer {
     thread: Option<JoinHandle<()>>,
 }
 
+/// The bound control socket, before anything accepts on it: discovery names its port before the
+/// lifecycle that serves it exists.
+pub struct ControlListener {
+    listener: TcpListener,
+    port: u16,
+}
+
+impl ControlListener {
+    /// Binds `127.0.0.1` on a free port.
+    pub fn bind() -> std::io::Result<Self> {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        let port = listener.local_addr()?.port();
+        Ok(Self { listener, port })
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+}
+
 impl ControlServer {
     /// Binds `127.0.0.1` on a free port and starts accepting.
     pub fn start(config: ControlConfig, lifecycle: Arc<Lifecycle>) -> std::io::Result<Self> {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
-        let port = listener.local_addr()?.port();
+        Self::serve(ControlListener::bind()?, config, lifecycle)
+    }
+
+    /// Starts accepting on a bound listener.
+    pub fn serve(bound: ControlListener, config: ControlConfig, lifecycle: Arc<Lifecycle>) -> std::io::Result<Self> {
+        let ControlListener { listener, port } = bound;
         let shutdown = Arc::new(AtomicBool::new(false));
         let shared = Arc::new(Shared { config, lifecycle, active: AtomicUsize::new(0) });
         let thread = std::thread::Builder::new().name("mixdog-control".into()).spawn({

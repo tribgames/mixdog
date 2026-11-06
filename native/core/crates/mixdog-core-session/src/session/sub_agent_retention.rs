@@ -101,7 +101,7 @@ fn is_root_lead(doc: &Map<String, Value>, id: &str) -> bool {
 }
 
 /// `agentParentIds`.
-fn parent_ids(doc: &Map<String, Value>, id: &str) -> Vec<String> {
+pub(crate) fn parent_ids(doc: &Map<String, Value>, id: &str) -> Vec<String> {
     let mut parents: Vec<String> = Vec::new();
     for parent in [clean(doc.get("ownerSessionId")), clean(doc.get("parentSessionId"))] {
         if !parent.is_empty() && parent != id && !parents.contains(&parent) {
@@ -182,8 +182,13 @@ pub trait RetentionHost: Send + Sync {
     fn is_live(&self, id: &str) -> bool;
     /// The desktop's automatic archive: this one session, no cascade.
     async fn archive(&self, id: &str) -> Result<(), CoreError>;
-    /// `deleteSession`: `true` once the session is gone.
-    async fn delete(&self, id: &str) -> Result<bool, CoreError>;
+    /// `deleteSession(id, { isSessionLive: treeChanged })`: `true` once the session is gone.
+    /// The session's own admission refuses (`false`) when it was opened or used since the pass
+    /// read `activity`, or once `cancel` has fired; a delete already admitted runs to its end.
+    /// `peers` are the tree's other members still stored, with the activity the pass read: none
+    /// of them may have been opened or have moved either (`treeChanged`, asked again inside the
+    /// destructive step).
+    async fn delete(&self, id: &str, activity: f64, peers: &[(String, f64)], cancel: &CancellationToken) -> Result<bool, CoreError>;
 }
 
 /// The members among the stored agent-only sessions.
@@ -229,9 +234,13 @@ async fn tree_changed(host: &dyn RetentionHost, members: &[Member], tree: &[usiz
 /// with a member running here, or one whose stored activity moved since the pass read it, is
 /// left alone, as is a tree with a member of unknown age. A failed archive or delete keeps its
 /// session; the next pass decides again.
-pub async fn apply(host: &dyn RetentionHost, members: &[Member], now: f64) -> Applied {
+pub async fn apply(host: &dyn RetentionHost, members: &[Member], now: f64, cancel: &CancellationToken) -> Applied {
     let mut applied = Applied::default();
     for tree in trees(members) {
+        // After shutdown nothing new is admitted; what was admitted has finished.
+        if cancel.is_cancelled() {
+            break;
+        }
         if !tree.iter().all(|&at| members[at].last_active.is_finite() && members[at].last_active > 0.0) {
             continue;
         }
@@ -246,16 +255,29 @@ pub async fn apply(host: &dyn RetentionHost, members: &[Member], now: f64) -> Ap
         if expired {
             for &at in tree.iter().rev() {
                 // Asked again right before each unlink: an earlier delete may have taken time.
+                if cancel.is_cancelled() {
+                    return applied;
+                }
                 if tree_changed(host, members, &tree, &applied.deleted).await {
                     continue;
                 }
-                if matches!(host.delete(&members[at].id).await, Ok(true)) {
+                // The rest of the tree as the pass read it: each member's id and activity.
+                let peers: Vec<(String, f64)> = tree
+                    .iter()
+                    .map(|&other| &members[other])
+                    .filter(|other| other.id != members[at].id && !applied.deleted.contains(&other.id))
+                    .map(|other| (other.id.clone(), other.last_active))
+                    .collect();
+                if matches!(host.delete(&members[at].id, members[at].last_active, &peers, cancel).await, Ok(true)) {
                     applied.deleted.push(members[at].id.clone());
                 }
             }
             continue;
         }
         for &at in &tree {
+            if cancel.is_cancelled() {
+                return applied;
+            }
             if !members[at].archived && host.archive(&members[at].id).await.is_ok() {
                 applied.archived.push(members[at].id.clone());
             }
@@ -265,9 +287,9 @@ pub async fn apply(host: &dyn RetentionHost, members: &[Member], now: f64) -> Ap
 }
 
 /// One pass: the members, then their retention.
-pub async fn sweep(host: &dyn RetentionHost, now: f64) -> Result<Applied, CoreError> {
+pub async fn sweep(host: &dyn RetentionHost, now: f64, cancel: &CancellationToken) -> Result<Applied, CoreError> {
     let members = members_of(host).await?;
-    Ok(apply(host, &members, now).await)
+    Ok(apply(host, &members, now, cancel).await)
 }
 
 fn now_ms() -> f64 {
@@ -275,16 +297,18 @@ fn now_ms() -> f64 {
 }
 
 /// Runs a pass every [`SWEEP_INTERVAL`], the first one an interval after the start, until
-/// `cancel`. A failed pass is reported to `on_error`; the next one runs on schedule.
-pub fn start(host: Arc<dyn RetentionHost>, on_error: Arc<dyn Fn(&str) + Send + Sync>, cancel: CancellationToken) {
-    drop(mixdog_rt::spawn("sub-agent.retention", TaskClass::Work, async move {
+/// `cancel`. A failed pass is reported to `on_error`; the next one runs on schedule. A pass under
+/// way when `cancel` fires admits nothing more and finishes what it admitted; the returned task
+/// ends after that, so awaiting it is the end of retention.
+pub fn start(host: Arc<dyn RetentionHost>, on_error: Arc<dyn Fn(&str) + Send + Sync>, cancel: CancellationToken) -> tokio::task::JoinHandle<()> {
+    mixdog_rt::spawn("sub-agent.retention", TaskClass::Work, async move {
         let mut timer = tokio::time::interval_at(tokio::time::Instant::now() + SWEEP_INTERVAL, SWEEP_INTERVAL);
         loop {
             tokio::select! {
                 () = cancel.cancelled() => return,
                 _ = timer.tick() => {}
             }
-            match sweep(host.as_ref(), now_ms()).await {
+            match sweep(host.as_ref(), now_ms(), &cancel).await {
                 Ok(applied) => {
                     if !applied.archived.is_empty() || !applied.deleted.is_empty() {
                         tracing::debug!(archived = ?applied.archived, deleted = ?applied.deleted, "sub-agent retention");
@@ -293,7 +317,7 @@ pub fn start(host: Arc<dyn RetentionHost>, on_error: Arc<dyn Fn(&str) + Send + S
                 Err(error) => on_error(&format!("sub-agent retention error: {error}")),
             }
         }
-    }));
+    })
 }
 
 /// The stored agent-only sessions, by id.
@@ -349,7 +373,7 @@ impl RetentionHost for DirectoryRetention {
         self.threads.patch_header(&ThreadId::from(id), set, vec![]).await.map_err(|e| internal("archive", &format!("{e:?}")))
     }
 
-    async fn delete(&self, id: &str) -> Result<bool, CoreError> {
-        self.directory.delete_stored(id).await
+    async fn delete(&self, id: &str, activity: f64, peers: &[(String, f64)], cancel: &CancellationToken) -> Result<bool, CoreError> {
+        self.directory.delete_stored(id, activity, peers, cancel).await
     }
 }

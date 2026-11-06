@@ -70,8 +70,12 @@ pub struct Move {
 #[derive(Clone, Debug)]
 pub struct WorkspaceChange {
     pub cwd: String,
+    /// The record to store; `null` on a Project switch of a session that has none.
     pub workspace: Value,
     pub moved: Option<Move>,
+    /// A Project switch's desktop classification (`persistProjectSelection`): the
+    /// `desktopSession` to store, `None` to leave the session's as it is.
+    pub desktop_session: Option<Value>,
 }
 
 #[async_trait]
@@ -105,8 +109,10 @@ pub trait WorkspaceHost: Send + Sync + 'static {
 
     /// Apply a committed workspace: the runtime cwd, `session.cwd`, the stored record, the Lead
     /// pool row, the prompt context of the Lead and its idle workers (a conversation keeps its
-    /// system prompt and gets a tail notice), awaiting a durable save. On error the host has
-    /// left the session as it was; on success the undo restores everything it changed.
+    /// system prompt and gets a tail notice), awaiting a durable save. A Project switch to the
+    /// folder the session already runs in stores only the record and the classification. On
+    /// error the host has left the session as it was; on success the undo restores everything
+    /// it changed.
     async fn apply(&self, session_id: &str, change: WorkspaceChange) -> Result<Undo, ScmFailure>;
 
     /// Carry the Project's memory identity into a worktree outside the Project tree.

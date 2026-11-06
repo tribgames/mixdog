@@ -2436,7 +2436,9 @@
           "status": "idle"
         }
       ],
-      "tombstonesCleaned": []
+      "tombstoneErrors": [],
+      "tombstonesCleaned": [],
+      "vetoed": []
     },
     "idleClose": {
       "cleaned": [
@@ -2473,7 +2475,58 @@
           "status": "idle"
         }
       ],
-      "tombstonesCleaned": []
+      "tombstoneErrors": [],
+      "tombstonesCleaned": [],
+      "vetoed": []
+    },
+    "legacyOwnerVeto": {
+      "cleaned": [
+        "sess_free"
+      ],
+      "live": [],
+      "openPruned": [],
+      "remaining": 3,
+      "rows": [
+        {
+          "ageMs": 360000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_busy",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 360000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_free",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 5400000,
+          "closed": true,
+          "conversation": 2,
+          "id": "sess_tomb_busy",
+          "owner": "user",
+          "status": "closed"
+        },
+        {
+          "ageMs": 3660000,
+          "closed": false,
+          "conversation": 0,
+          "id": "sess_blank_busy",
+          "owner": "user",
+          "status": "idle"
+        }
+      ],
+      "tombstoneErrors": [],
+      "tombstonesCleaned": [],
+      "vetoed": [
+        "sess_busy",
+        "sess_tomb_busy",
+        "sess_blank_busy"
+      ]
     },
     "ownedAndScratch": {
       "cleaned": [],
@@ -2508,7 +2561,9 @@
           "status": "idle"
         }
       ],
-      "tombstonesCleaned": []
+      "tombstoneErrors": [],
+      "tombstonesCleaned": [],
+      "vetoed": []
     },
     "permanent": {
       "cleaned": [],
@@ -2533,9 +2588,11 @@
           "status": "idle"
         }
       ],
+      "tombstoneErrors": [],
       "tombstonesCleaned": [
         "sess_home_lead"
-      ]
+      ],
+      "vetoed": []
     },
     "running": {
       "cleaned": [
@@ -2562,7 +2619,9 @@
           "status": "running"
         }
       ],
-      "tombstonesCleaned": []
+      "tombstoneErrors": [],
+      "tombstonesCleaned": [],
+      "vetoed": []
     },
     "tombstones": {
       "cleaned": [],
@@ -2597,9 +2656,11 @@
           "status": "closed"
         }
       ],
+      "tombstoneErrors": [],
       "tombstonesCleaned": [
         "sess_old"
-      ]
+      ],
+      "vetoed": []
     }
   },
   "tombstoneMaxAgeMs": 3600000,

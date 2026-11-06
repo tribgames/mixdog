@@ -19,6 +19,7 @@ bytes = { workspace = true }
 futures = { workspace = true, features = ["alloc"] }
 gix = { workspace = true, features = ["revision", "index", "status", "blob-diff", "dirwalk"] }
 serde = { workspace = true }
+indexmap = { workspace = true, features = ["serde"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }

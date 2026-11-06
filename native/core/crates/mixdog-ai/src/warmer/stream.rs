@@ -3,9 +3,10 @@
 //! refreshed before any content), or until the message ends. Usage reaches `on_usage` as it
 //! arrives, so a warm that fails after the provider accepted it is still accounted.
 
-use mixdog_core_api::domain::provider::TransportFault;
+use mixdog_core_api::domain::provider::{ProviderError, TransportFault};
 use serde_json::Value;
 
+use crate::providers::anthropic::errors::classify_stream_error;
 use crate::transport::link::BodyStream;
 
 /// What one warm reported, in the slots `updateTurnUsage` fills.
@@ -23,16 +24,19 @@ pub struct WarmUsage {
     pub cost_usd: Option<f64>,
 }
 
-/// A warm that ended in failure: the error's text and the usage reported before it.
+/// A warm that ended in failure: the error's text, the provider's classified error when the wire
+/// carried one (its status and type reach the lane and roster as a send's would) and the usage
+/// reported before it.
 #[derive(Clone, PartialEq, Debug)]
 pub struct WarmFailure {
     pub message: String,
+    pub error: Option<ProviderError>,
     pub usage: Option<WarmUsage>,
 }
 
 impl WarmFailure {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), usage: None }
+        Self { message: message.into(), error: None, usage: None }
     }
 }
 
@@ -124,6 +128,17 @@ fn sse_error_text(event: &Value) -> String {
     format!("Anthropic cache warm SSE error {kind}: {message}")
 }
 
+/// How a read ended badly: the text and the classified error of an SSE error event.
+type Ended = (String, Option<ProviderError>);
+
+/// _anthropicSseError: the event's wire status and type, worded for the warm.
+fn sse_error(event: &Value) -> Ended {
+    let message = sse_error_text(event);
+    let mut error = classify_stream_error(event);
+    error.message.clone_from(&message);
+    (message, Some(error))
+}
+
 /// Reads a warm's response body. `on_chunk` hears every chunk that did not end the read (the idle
 /// watchdog); a failure carries `usage` as reported before it (`None` when none was).
 pub async fn read_cache_warm_stream(
@@ -135,7 +150,7 @@ pub async fn read_cache_warm_stream(
     let mut reported = false;
     match read_frames(body, &mut usage, &mut reported, on_usage, on_chunk).await {
         Ok(()) => Ok(usage),
-        Err(message) => Err(WarmFailure { message, usage: reported.then_some(usage) }),
+        Err((message, error)) => Err(WarmFailure { message, error, usage: reported.then_some(usage) }),
     }
 }
 
@@ -145,7 +160,7 @@ async fn read_frames(
     reported: &mut bool,
     on_usage: &mut (dyn FnMut(&WarmUsage) + Send),
     on_chunk: &mut (dyn FnMut(bool) + Send),
-) -> Result<(), String> {
+) -> Result<(), Ended> {
     let mut decoder = Utf8Stream::default();
     let mut buffer = String::new();
     let mut report = |raw: Option<&Value>, usage: &mut WarmUsage, reported: &mut bool| {
@@ -158,7 +173,7 @@ async fn read_frames(
         let chunk = match body.next().await {
             None => return Ok(()),
             Some(Ok(bytes)) => bytes,
-            Some(Err(fault)) => return Err(fault_text(&fault)),
+            Some(Err(fault)) => return Err((fault_text(&fault), None)),
         };
         buffer.push_str(&decoder.push(&chunk));
         while let Some(cut) = buffer.find("\n\n") {
@@ -173,12 +188,12 @@ async fn read_frames(
             }
             let Ok(event) = serde_json::from_str::<Value>(&data) else { continue };
             if event.is_null() {
-                return Err("Cannot read properties of null (reading 'type')".to_owned());
+                return Err(("Cannot read properties of null (reading 'type')".to_owned(), None));
             }
             let errored = event.get("type").and_then(Value::as_str) == Some("error")
                 || event.get("error").is_some_and(js_truthy);
             if errored {
-                return Err(sse_error_text(&event));
+                return Err(sse_error(&event));
             }
             match event.get("type").and_then(Value::as_str) {
                 Some("message_start") => report(event.get("message").and_then(|m| m.get("usage")), usage, reported),

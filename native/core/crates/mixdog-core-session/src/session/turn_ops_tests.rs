@@ -11,6 +11,7 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
+use mixdog_core_goal::goal::hooks::GoalViewHooks;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
 use serde_json::json;
@@ -42,6 +43,18 @@ async fn call(handle: &SessionHandle, method: &'static str, mut params: Value, o
     }
 }
 
+/// A retry the session accepts once the failed turn has settled: Node's button only shows then,
+/// so a refusal before that is polled past (each attempt its own op id).
+async fn retry_when_settled(handle: &SessionHandle, key: &str, tag: &str) {
+    for attempt in 0..1000 {
+        let op: &'static str = Box::leak(format!("{tag}-{attempt}").into_boxed_str());
+        if call(handle, "turn/retryFailed", json!({ "turnKey": key }), op).await.expect("answered") == json!(true) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    panic!("the retry was never accepted");
+}
 /// A run held open until the gate is notified.
 fn held(rig: &Rig) -> Arc<tokio::sync::Notify> {
     let gate = Arc::new(tokio::sync::Notify::new());
@@ -254,7 +267,7 @@ async fn a_manual_compaction_follows_the_session_ops_order() {
     let done = call(&handle, "thread/compact/start", json!({ "options": { "recoverAgent": true } }), "k-3").await.expect("answered");
     assert_eq!(done, json!({ "changed": true }));
     assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false", "post manual", "rearm", "recover", "invalidate"]);
-    let pending = handle.cell.header.load().get("pendingGoalReminder").cloned().expect("marked");
+    let pending = eventually(|| handle.cell.header.load().get("pendingGoalReminder").cloned()).await;
     assert_eq!((pending["reason"].clone(), pending["revision"].clone()), (json!("compaction"), json!(1)));
 
     // No result at all is Node's `null`.
@@ -320,11 +333,191 @@ async fn a_failed_turn_is_retried_once_with_its_prompt_and_its_resume_entry_fini
     assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": "" }), "r-2").await.expect("answered"), json!(false));
     assert_eq!(super::testing::lock(&seen).len(), 1, "a refusal starts no turn");
 
-    assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-3").await.expect("answered"), json!(true));
+    retry_when_settled(&handle, &key, "r-3").await;
     eventually(|| (super::testing::lock(&seen).len() == 2).then_some(())).await;
     assert_eq!(super::testing::lock(&seen)[1].1, Some(true), "the retry turn carries retryFailedTurn");
     assert!(super::testing::lock(&seen)[1].0.contains("write the report"), "the failed prompt is replayed");
     eventually(|| rig.quota.entry(&id).is_none().then_some(())).await;
     eventually(|| idle(&handle).then_some(())).await;
     assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-4").await.expect("answered"), json!(false), "the retry's own turn is now the latest");
+}
+
+/// A thread whose first turn failed on exhausted quota (its resume queued), the later turns
+/// completing; `with_message` also leaves the failed user message in the model context as a
+/// restored Node session does (`meta.transcript.completion` failed).
+async fn quota_failed_thread(rig: &Rig, with_message: bool) -> (Arc<SessionHandle>, String, Arc<std::sync::Mutex<Vec<Option<mixdog_protocol::thread::SubmitOptions>>>>) {
+    use super::ItemCommit;
+    use mixdog_core_api::ids::ItemId;
+
+    let seen: Arc<std::sync::Mutex<Vec<Option<mixdog_protocol::thread::SubmitOptions>>>> = Arc::default();
+    let log = seen.clone();
+    rig.set_script(Arc::new(move |run| {
+        let log = log.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let first = {
+                let mut seen = super::testing::lock(&log);
+                seen.push(run.input.options.clone());
+                seen.len() == 1
+            };
+            if !first {
+                return RunOutcome::Completed(Default::default());
+            }
+            if with_message {
+                let body = json!({ "role": "user", "content": "go on", "meta": { "transcript": { "messageId": "m1", "completion": { "status": "failed", "attemptId": "a1" } } } });
+                run.port.commit_item(ItemCommit { iid: ItemId::from("m1-row"), role: Some("user".into()), model: true, visible: false, body, prompt: None }).await.expect("commit");
+            }
+            let end = json!({
+                "type": "turnEnd", "id": format!("end-{}", run.turn), "status": "failed", "elapsedMs": 5,
+                "quota": { "provider": "anthropic", "model": "m", "resetAt": 5000 },
+                "meta": { "turnId": run.turn, "ext": { "attemptId": run.turn } },
+            });
+            run.port
+                .commit_item(ItemCommit { iid: ItemId::from(format!("end-{}", run.turn)), role: Some("assistant".into()), model: false, visible: true, body: json!({ "shownItem": end }), prompt: None })
+                .await
+                .expect("commit");
+            let provider = mixdog_protocol::ProviderErrorDetail { provider: "anthropic".into(), status: Some(429), kind: "quota_exhausted".into(), delivery: None };
+            RunOutcome::Failed(mixdog_protocol::TurnError { message: "quota".into(), data: json!({}), provider_error: Some(provider) })
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "write the report", "op-1").await;
+    let id = handle.id.as_str().to_owned();
+    let entry = eventually(|| rig.quota.entry(&id)).await;
+    eventually(|| idle(&handle).then_some(())).await;
+    (handle, entry.turn_key, seen)
+}
+
+fn user_rows(handle: &SessionHandle) -> usize {
+    handle.cell.view.load_full().items.iter().filter(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::UserMessage { .. })).count()
+}
+
+/// A retry that names the failed message (a restored Node session) resends it as stored: the
+/// retry turn carries its id and attempt, its input row stays off screen, and the entry ends.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retained_failed_message_is_resent_hidden_with_its_id_and_attempt() {
+    let rig = Rig::new();
+    let (handle, key, seen) = quota_failed_thread(&rig, true).await;
+    let shown = user_rows(&handle);
+    retry_when_settled(&handle, &key, "r-1a").await;
+    eventually(|| (super::testing::lock(&seen).len() == 2).then_some(())).await;
+    let options = super::testing::lock(&seen)[1].clone().expect("retry options");
+    assert_eq!((options.retry_failed_turn, options.retry_turn_id, options.retry_attempt_id), (Some(true), Some("m1".into()), Some("a1".into())));
+    eventually(|| idle(&handle).then_some(())).await;
+    assert_eq!(user_rows(&handle), shown, "the resent message paints no second row");
+    eventually(|| rig.quota.entry(handle.id.as_str()).is_none().then_some(())).await;
+}
+
+/// `retryBlocked`: a compaction running owns the session first (`commandBusy` /
+/// `autoClearRunning`); the retry is refused and runs once the compaction ended.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retry_waits_for_a_running_compaction() {
+    let rig = Rig::new();
+    let (handle, key, seen) = quota_failed_thread(&rig, false).await;
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    let compacting = {
+        let handle = handle.clone();
+        tokio::spawn(async move { call(&handle, "thread/compact/start", json!({}), "c-1").await })
+    };
+    eventually(|| (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(())).await;
+    assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-1").await.expect("answered"), json!(false));
+    hold.notify_one();
+    compacting.await.expect("joined").expect("compacted");
+    assert_eq!(super::testing::lock(&seen).len(), 1, "the refused retry started nothing");
+    retry_when_settled(&handle, &key, "r-2c").await;
+    eventually(|| (super::testing::lock(&seen).len() == 2).then_some(())).await;
+}
+
+/// `resumeGoal`: a quota failure that suspended the Goal is retried by reviving that Goal through
+/// the lane's admission; the Goal then continues on its own, the queued resume and the note
+/// of the suspended Goal end, and a second ask for the same turn is refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_suspended_goal_is_revived_by_its_retry_and_continues() {
+    let rig = Rig::new();
+    let seen: Arc<std::sync::Mutex<usize>> = Arc::default();
+    let count = seen.clone();
+    rig.set_script(Arc::new(move |run| {
+        let count = count.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let first = {
+                let mut count = super::testing::lock(&count);
+                *count += 1;
+                *count == 1
+            };
+            if !first {
+                return RunOutcome::Completed(Default::default());
+            }
+            let end = json!({
+                "type": "turnEnd", "id": format!("end-{}", run.turn), "status": "failed", "elapsedMs": 5,
+                "quota": { "provider": "anthropic", "model": "m", "resetAt": 5000 },
+                "meta": { "turnId": run.turn, "ext": { "attemptId": run.turn } },
+            });
+            run.port
+                .commit_item(super::ItemCommit { iid: mixdog_core_api::ids::ItemId::from(format!("end-{}", run.turn)), role: Some("assistant".into()), model: false, visible: true, body: json!({ "shownItem": end }), prompt: None })
+                .await
+                .expect("commit");
+            let provider = mixdog_protocol::ProviderErrorDetail { provider: "anthropic".into(), status: Some(429), kind: "quota_exhausted".into(), delivery: None };
+            RunOutcome::Failed(mixdog_protocol::TurnError { message: "quota".into(), data: json!({}), provider_error: Some(provider) })
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    rig.goals.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship it" })).await.expect("create");
+    let goal_id = rig.goals.goal_status(&handle.id).await.expect("status").expect("a goal")["id"].as_str().expect("goal id").to_owned();
+    let key = eventually(|| rig.quota.entry(&id).map(|entry| entry.turn_key)).await;
+    eventually(|| (rig.quota.suspended_goal(&id, &key) == goal_id).then_some(())).await;
+    eventually(|| idle(&handle).then_some(())).await;
+
+    retry_when_settled(&handle, &key, "r-1a").await;
+    eventually(|| (*super::testing::lock(&seen) == 2).then_some(())).await;
+    let goal = rig.goals.goal_status(&handle.id).await.expect("status").expect("a goal");
+    assert_eq!(goal["status"], "active", "the Goal was revived");
+    eventually(|| (rig.quota.entry(&id).is_none() && rig.quota.suspended_goal(&id, &key).is_empty()).then_some(())).await;
+    eventually(|| idle(&handle).then_some(())).await;
+    assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-2").await.expect("answered"), json!(false));
+}
+/// `commitSessionCompaction`: a manual compaction's result is applied when no turn runs and the
+/// context still starts with what it was planned on; the rows a finished turn appended meanwhile
+/// follow the compacted ones; a running turn, or a context that moved, leave the conversation as
+/// it is.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_manual_compactions_result_is_committed_only_to_the_context_it_was_planned_on() {
+    use super::run::Compaction;
+    use super::turn_ops::CompactionCommit;
+    use mixdog_core_api::ids::ItemId;
+
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "first", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    let planned = directory.model_context(&handle.id).read().await.expect("context");
+    assert!(!planned.is_empty());
+    let snapshot: Vec<ItemId> = planned.iter().map(|(iid, _)| iid.clone()).collect();
+    let summary = (ItemId::from("sum1".to_owned()), json!({ "role": "user", "content": "summary" }));
+    let compaction = || Compaction { replacement: vec![summary.clone()], at: 5, dropped_count: 1, dropped: None };
+
+    // A context that moved (the planned rows are not its start): nothing is applied.
+    let moved = vec![ItemId::from("not-a-row".to_owned())];
+    assert_eq!(directory.commit_compaction(&handle.id, moved, compaction()).await.expect("answered"), CompactionCommit::Moved);
+    assert_eq!(directory.model_context(&handle.id).read().await.expect("context").len(), planned.len());
+
+    // A turn that runs refuses it.
+    let gate = held(&rig);
+    turn(&handle, "second", "op-2").await;
+    eventually(|| (!idle(&handle)).then_some(())).await;
+    assert_eq!(directory.commit_compaction(&handle.id, snapshot.clone(), compaction()).await.expect("answered"), CompactionCommit::Moved);
+    gate.notify_one();
+    eventually(|| idle(&handle).then_some(())).await;
+
+    // The turn that finished meanwhile appended its rows: they follow the compacted ones.
+    assert_eq!(directory.commit_compaction(&handle.id, snapshot, compaction()).await.expect("answered"), CompactionCommit::Applied);
+    let after = directory.model_context(&handle.id).read().await.expect("context");
+    assert_eq!(after.first().map(|(iid, _)| iid.as_str()), Some("sum1"));
+    assert!(after.len() >= 2, "the second turn's rows follow the summary: {after:?}");
+    assert!(after.iter().skip(1).all(|(iid, _)| iid.as_str() != "sum1"));
 }

@@ -366,6 +366,73 @@ async fn gc_collects_a_blob_whose_frame_was_rolled_back() {
     assert!(!path.is_file());
 }
 
+/// GC asks whether a blob is referenced only while it holds the digest's pin lock, so a writer
+/// that pins, references and unpins it between an earlier answer and the unlink cannot lose its
+/// blob. While GC asks, the pin of that digest cannot be taken; a pin already held is skipped
+/// without asking at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn gc_checks_references_under_the_pin_lock() {
+    let env = Env::new();
+    let bytes = b"raced attachment bytes";
+    let digest = crate::blobs::digest_of(bytes);
+    let blobs = BlobStore::new(&env.data);
+    let path = blobs.path(&digest);
+    let shard = u8::from_str_radix(&digest.as_str()["sha256:".len()..][..2], 16).unwrap();
+    let (store, pinned) = (blobs.clone(), blobs.clone());
+    let (writer_digest, asked_digest) = (digest.clone(), digest.clone());
+    let (collected, writer_blocked) = tokens()
+        .maintenance_io
+        .submit(&CancellationToken::new(), move |l| {
+            crate::fsio::publish_file(l, &path, bytes).unwrap();
+            let now = std::time::SystemTime::now() + DAY_8;
+            // A writer arrives: it pins the digest, then releases it at once.
+            let (done, finished) = std::sync::mpsc::channel();
+            let mut writer = None;
+            let mut blocked = false;
+            let mut asked = 0;
+            let deleted = store
+                .collect_shard(l, shard, now, GC_MIN_AGE, &mut |d| {
+                    assert_eq!(d, &asked_digest);
+                    asked += 1;
+                    let (pinned, digest, done) = (pinned.clone(), writer_digest.clone(), done.clone());
+                    writer = Some(std::thread::spawn(move || {
+                        drop(pinned.pin(&digest));
+                        done.send(()).unwrap();
+                    }));
+                    blocked = finished.recv_timeout(std::time::Duration::from_millis(200)).is_err();
+                    Ok(false)
+                })
+                .unwrap();
+            writer.expect("the answer was asked once").join().unwrap();
+            assert_eq!(asked, 1);
+            (deleted, blocked)
+        })
+        .unwrap()
+        .await
+        .unwrap();
+    assert!(writer_blocked, "the pin could be taken while GC was asking: the answer can go stale");
+    assert_eq!(collected, [digest.clone()], "unreferenced and unpinned, it went");
+
+    // A pin held beforehand: skipped, and never asked.
+    let held = blobs.pin(&digest);
+    let (store, asked_digest) = (blobs.clone(), digest.clone());
+    let path = blobs.path(&digest);
+    let kept = tokens()
+        .maintenance_io
+        .submit(&CancellationToken::new(), move |l| {
+            crate::fsio::publish_file(l, &path, bytes).unwrap();
+            let now = std::time::SystemTime::now() + DAY_8;
+            store
+                .collect_shard(l, shard, now, GC_MIN_AGE, &mut |_| panic!("asked about {asked_digest:?} while it is pinned"))
+                .unwrap()
+        })
+        .unwrap()
+        .await
+        .unwrap();
+    assert!(kept.is_empty());
+    drop(held);
+}
+
 fn big_item(iid: &str) -> Encoded {
     let body = "x".repeat(200 * 1024);
     rec(json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,"refs":[],
@@ -932,6 +999,35 @@ async fn a_forks_compaction_archives_the_rows_it_inherited() {
     );
     // The base alone keeps showing its own rows live.
     assert!(archive_marks(&env, lineage(&[("b0", None)])).await.iter().all(|m| !m.1));
+}
+
+/// A `silent` compaction restarts the model context like any other but lists no divider, before
+/// and after a reload of the log; a compaction that is not silent keeps its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_silent_compaction_restarts_the_context_and_lists_no_divider() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (w, _) = env.commit(w, vec![user("a", "one"), user("b", "two")]).await;
+    let dividers = |env: &Env| {
+        let store = env.store.clone();
+        async move {
+            store.dividers(lineage(&[("s1", None)]), None, 0, 0, u64::MAX).await.unwrap().into_iter().map(|d| d.cid).collect::<Vec<_>>()
+        }
+    };
+    let silent = rec(json!({"k":"compacted","cid":"k1","dropped_count":0,"silent":true,
+        "replacement":{"inline":[{"iid":"b","body":{"role":"user","content":"two"}}]}}));
+    let (w, _) = env.commit(w, vec![silent]).await;
+    assert!(dividers(&env).await.is_empty(), "no divider for a silent compaction");
+    let loud = rec(json!({"k":"compacted","cid":"k2","dropped_count":0,
+        "replacement":{"inline":[{"iid":"b","body":{"role":"user","content":"two"}}]}}));
+    let (w, _) = env.commit(w, vec![loud]).await;
+    assert_eq!(dividers(&env).await, ["k2"], "a compaction that is not silent keeps its divider");
+    drop(w);
+    let opened = env.reopen("s1").await;
+    assert_eq!(opened.fold.context.map(|c| c.ordinal), Some(4), "the newest compaction owns the context");
+    assert_eq!(dividers(&env).await, ["k2"], "the reload lists the same dividers");
+    let rows = env.store.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap().0;
+    assert!(rows.iter().all(|r| !r.archived), "a silent compaction takes nothing out of the transcript");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

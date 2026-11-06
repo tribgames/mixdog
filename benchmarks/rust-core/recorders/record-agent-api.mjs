@@ -201,6 +201,9 @@ const script = [
   // A write that fails: the manifest is read-only.
   call('saveAgentDefinition', { payload: { name: 'Locked', body: 'Fixed.' } }, true),
   call('setManifestReadOnly', { agentId: 'locked', readOnly: true }),
+  // A direct save is not refused early: it reaches the atomic publication and fails in the rename.
+  // The temp name carries a random suffix, so this one is recorded raw and matched structurally.
+  call('saveAgentDefinition', { payload: { id: 'locked', name: 'Locked', body: 'Changed.' } }, true),
   call('setAgentConnectors', { agentId: 'locked', connectors: { off: ['gmail'] } }, true),
   call('setAgentConnectorEnabled', { agentId: 'locked', connectorId: 'gmail', enabled: false }, true),
   call('deleteAgentDefinition', { agentId: 'locked' }, true),
@@ -248,7 +251,7 @@ function snapshot(dir) {
         continue;
       }
       const rel = relative(dir, file).split('\\').join('/');
-      if (!/^agents\/[^/]+\/(AGENT\.md|agent\.json)$/.test(rel) && !rel.startsWith('human-gate/')) continue;
+      if (!/^agents\/[^/]+\/(AGENT\.md|agent\.json)(\.bak|\.mixdog-tmp-[0-9a-f]{16})?$/.test(rel) && !rel.startsWith('human-gate/')) continue;
       files[rel] = readFileSync(file, 'utf8');
     }
   };
@@ -265,6 +268,8 @@ for (const { method, params, files } of script) {
     outcome = { ok: mask(await CALLS[method](params)) };
   } catch (error) {
     outcome = { error: mask(String(error?.message ?? error)) };
+    // The failure's classification: what a caller can tell it apart by.
+    if (error && typeof error === 'object') outcome.failure = { name: error.name, code: error.code ?? null, syscall: error.syscall ?? null };
   }
   steps.push({ method, params, ...outcome, ...(files ? { files: snapshot(dirs.data) } : {}) });
 }

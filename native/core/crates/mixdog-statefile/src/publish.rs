@@ -117,6 +117,15 @@ pub enum Step {
     Other,
 }
 
+/// `mkdirSync(dir, { recursive: true })`. Where a file sits in the way of a parent folder, Node
+/// fails `ENOTDIR`; `create_dir_all` reports the file's own name as already existing.
+fn make_dirs(dir: &Path) -> io::Result<()> {
+    match fs::create_dir_all(dir) {
+        Err(_) if !dir.is_dir() && dir.ancestors().skip(1).any(Path::is_file) => Err(io::ErrorKind::NotADirectory.into()),
+        other => other,
+    }
+}
+
 /// A failed publication and the step it failed at.
 #[derive(Debug)]
 pub struct PublishFailure {
@@ -321,6 +330,11 @@ pub fn metadata<L: IoLane>(_lane: &InLane<L>, path: &Path) -> io::Result<fs::Met
     fs::metadata(path)
 }
 
+/// `lstatSync(path)`: the metadata of the entry itself, a link not followed.
+pub fn symlink_metadata<L: IoLane>(_lane: &InLane<L>, path: &Path) -> io::Result<fs::Metadata> {
+    fs::symlink_metadata(path)
+}
+
 /// `rmSync(path, { recursive: true })`: the directory and what it holds; a missing path is an
 /// error.
 pub fn remove_dir_all<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
@@ -330,6 +344,15 @@ pub fn remove_dir_all<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Resul
 /// `unlinkSync(path)`: a missing file is an error.
 pub fn remove_file<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
     fs::remove_file(path)
+}
+
+/// `chmodSync(path, ...)` as far as the read-only attribute goes: the file's permissions with
+/// read-only set or cleared (Windows' attribute; on Unix, the write bits). A missing file is an
+/// error.
+pub fn set_readonly<L: WriteLane>(_lane: &InLane<L>, path: &Path, readonly: bool) -> io::Result<()> {
+    let mut permissions = fs::metadata(path)?.permissions();
+    permissions.set_readonly(readonly);
+    fs::set_permissions(path, permissions)
 }
 
 fn bak_path(path: &Path) -> PathBuf {
@@ -371,7 +394,7 @@ pub(crate) fn publish<L: WriteLane>(
     opts: &Opts,
 ) -> Result<Published, PublishFailure> {
     let dir = parent(path);
-    fs::create_dir_all(dir).map_err(at(Step::Mkdir(dir.to_owned())))?;
+    make_dirs(dir).map_err(at(Step::Mkdir(dir.to_owned())))?;
     let tmp = temp_path(path);
     let result = (|| {
         write_durable(lane, &tmp, data, opts)?;

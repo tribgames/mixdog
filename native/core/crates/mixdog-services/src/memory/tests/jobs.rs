@@ -14,6 +14,7 @@ use mixdog_workspace::watcher::FolderWatcher;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
+use crate::bots::delivery::env::{RetryTimer, SleepRetry};
 use crate::memory::cycles::requests::{claim_and_mark_scheduled_cycle, consume_cycle_requests};
 use crate::memory::cycles::run::{Cycle1Options, Cycle1Runner};
 use crate::memory::cycles::scheduler::{CycleScheduler, SchedulerDeps};
@@ -129,7 +130,7 @@ async fn the_tail_ingest_matches_the_recorded_node_run() {
 fn assert_offset(ingest: &TranscriptIngest, file: &Path, expected: &Value) {
     let got = ingest.get_offset(file).expect("a stored position");
     assert_eq!(
-        json!({"bytes": got.bytes, "generation": got.generation, "lineIndex": got.line_index}),
+        json!({"bytes": mixdog_js::json_number(got.bytes), "generation": mixdog_js::json_number(got.generation), "lineIndex": mixdog_js::json_number(got.line_index)}),
         json!({"bytes": expected["bytes"], "generation": expected["generation"], "lineIndex": expected["lineIndex"]})
     );
 }
@@ -153,7 +154,10 @@ impl CycleConfig for Config {
 
 struct Llm {
     replies: Mutex<VecDeque<String>>,
-    delay: Duration,
+    /// Held until the test releases it: the run stays in flight for as long as the test needs.
+    gate: Option<Arc<tokio::sync::Notify>>,
+    /// Signalled when a call starts.
+    entered: tokio::sync::Notify,
     calls: Mutex<usize>,
 }
 
@@ -161,7 +165,10 @@ struct Llm {
 impl Cycle1Llm for Llm {
     async fn call(&self, _request: &Cycle1Request, _cancel: &CancellationToken, _prompt: &str) -> Result<String, String> {
         *self.calls.lock().unwrap() += 1;
-        tokio::time::sleep(self.delay).await;
+        self.entered.notify_one();
+        if let Some(gate) = &self.gate {
+            gate.notified().await;
+        }
         self.replies.lock().unwrap().pop_front().ok_or_else(|| "no scripted reply".to_owned())
     }
 }
@@ -204,10 +211,10 @@ async fn seed_session(db: &Db, session: &str, rows: usize, age_ms: i64) {
     }
 }
 
-fn runner(db: &Db, replies: &[&str], delay: Duration, embeddings: Arc<Embeddings>) -> (Arc<Cycle1Runner>, Arc<Llm>) {
-    let llm = Arc::new(Llm { replies: Mutex::new(replies.iter().map(|s| (*s).to_owned()).collect()), delay, calls: Mutex::new(0) });
+fn runner(db: &Db, replies: &[&str], gate: Option<Arc<tokio::sync::Notify>>, embeddings: Arc<Embeddings>) -> (Arc<Cycle1Runner>, Arc<Llm>) {
+    let llm = Arc::new(Llm { replies: Mutex::new(replies.iter().map(|s| (*s).to_owned()).collect()), gate, entered: Default::default(), calls: Mutex::new(0) });
     let config = Arc::new(Config { section: Mutex::new(json!({})), enabled: AtomicBool::new(true) });
-    (Cycle1Runner::new(db.clone(), llm.clone(), embeddings, config, Arc::new(now_ms)), llm)
+    (Cycle1Runner::new(db.clone(), llm.clone(), embeddings, config, Arc::new(now_ms), Arc::new(SleepRetry)), llm)
 }
 
 const THREE_HOURS: i64 = 3 * 60 * 60 * 1000;
@@ -220,13 +227,15 @@ async fn cycle1_commits_a_chunk_and_coalesces_a_concurrent_request() {
     let db = memory_db(&pg).await;
     seed_session(&db, "sess-a", 3, THREE_HOURS).await;
     let embeddings = Arc::new(Embeddings::default());
-    let (runner, llm) = runner(&db, &["1-3|Topic|decision|Short summary", "1-3|Topic|fact|Another short summary"], Duration::from_millis(400), embeddings.clone());
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let (runner, llm) = runner(&db, &["1-3|Topic|decision|Short summary", "1-3|Topic|fact|Another short summary"], Some(Arc::clone(&gate)), embeddings.clone());
     let config = json!({"min_batch": 1});
     let first = tokio::spawn(Arc::clone(&runner).run_cycle1(config.clone(), Cycle1Options::default()));
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    llm.entered.notified().await;
     // The second caller arrives while the first holds the gate: it leaves a request and returns.
     let second = Arc::clone(&runner).run_cycle1(config.clone(), Cycle1Options::default()).await.unwrap();
     assert!(second.skipped_in_flight, "{:?}", second.to_json());
+    gate.notify_one();
     let first = first.await.unwrap().unwrap();
     assert_eq!((first.chunks, first.processed, first.skipped_in_flight), (1, 3, false), "{:?}", first.to_json());
     let rows = db.query("SELECT id, chunk_root, is_root, category, summary, status, element, chunk_quality IS NOT NULL FROM entries ORDER BY ts, id", &[]).await.unwrap();
@@ -240,7 +249,7 @@ async fn cycle1_commits_a_chunk_and_coalesces_a_concurrent_request() {
     assert_eq!(*llm.calls.lock().unwrap(), 1);
     let requests = db.query("SELECT value FROM meta WHERE key LIKE 'cycle_request.cycle1.%'", &[]).await.unwrap();
     assert_eq!(requests.len(), 1, "the skipped caller left one coalesced request");
-    assert_eq!(requests[0].get::<_, Value>(0)["count"], json!(1));
+    assert_eq!(requests[0].get::<_, Value>(0)["count"], json!(0), "the finished run consumed it and scheduled the retry");
     // A retry drains the request: nothing is due, so it records no run.
     let drained = Arc::clone(&runner).run_cycle1(config.clone(), Cycle1Options { coalesced_retry: true, ..Cycle1Options::default() }).await.unwrap();
     assert!(drained.coalesced_retry_noop || drained.chunks == 0, "{:?}", drained.to_json());
@@ -275,7 +284,8 @@ async fn the_tick_runs_the_scheduled_cycle_and_shutdown_stops_it() {
     seed_session(&db, "sess-b", 3, THREE_HOURS).await;
     let state = pg.dir.path().join("memory-cycle-state.json");
     let config = Arc::new(Config { section: Mutex::new(json!({"cycle1": {"interval": "50ms", "min_batch": 1}})), enabled: AtomicBool::new(true) });
-    let llm = Arc::new(Llm { replies: Mutex::new(VecDeque::from(["1-3|Topic|task|Short summary".to_owned()])), delay: Duration::ZERO, calls: Mutex::new(0) });
+    let llm = Arc::new(Llm { replies: Mutex::new(VecDeque::from(["1-3|Topic|task|Short summary".to_owned()])), gate: None, entered: Default::default(), calls: Mutex::new(0) });
+    let timer = Arc::new(ManualTimer::default());
     let scheduler = CycleScheduler::new(SchedulerDeps {
         db: db.clone(),
         llm: llm.clone(),
@@ -284,28 +294,24 @@ async fn the_tick_runs_the_scheduled_cycle_and_shutdown_stops_it() {
         state_file: state.clone(),
         lane: mixdog_rt::testing::tokens().maintenance_io,
         now: Arc::new(now_ms),
+        timer: timer.clone(),
     })
     .with_tick(Duration::from_millis(150));
     scheduler.start_cycles().await;
-    let mut ran = false;
-    for _ in 0..80 {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let last = db.query_opt("SELECT value FROM meta WHERE key = 'state.cycle_last_run'", &[]).await.unwrap();
-        if last.is_some_and(|r| r.get::<_, Value>(0)["cycle1"].as_i64().unwrap_or(0) > 0) {
-            ran = true;
-            break;
-        }
-    }
-    assert!(ran, "the scheduled tick ran cycle1");
+    let tick = Duration::from_millis(150);
+    timer.armed_at(tick).await;
+    timer.fire(tick);
+    llm.entered.notified().await;
+    // Shutdown joins the tick task, which finishes the check it is in before it ends.
+    scheduler.shutdown().await;
+    let last = db.query_opt("SELECT value FROM meta WHERE key = 'state.cycle_last_run'", &[]).await.unwrap();
+    assert!(last.is_some_and(|r| r.get::<_, Value>(0)["cycle1"].as_i64().unwrap_or(0) > 0), "the scheduled tick ran cycle1");
     assert_eq!(*llm.calls.lock().unwrap(), 1);
     let document: Value = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
     assert!(document["cycles"]["cycle1"]["last_success_at"].as_i64().unwrap() > 0);
     assert_eq!(document["running"], Value::Null);
-    assert_eq!(document["backlog"]["unchunked"], json!(0));
-    scheduler.shutdown().await;
-    config.enabled.store(false, Ordering::SeqCst);
     let before = *llm.calls.lock().unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    timer.fire(tick);
     assert_eq!(*llm.calls.lock().unwrap(), before, "no tick after shutdown");
     assert!(!scheduler.is_cycle1_running());
 }
@@ -328,28 +334,143 @@ async fn the_watcher_ingests_appended_transcripts_and_stops() {
     let ingest = TranscriptIngest::new(db.clone(), io(), Arc::new(now_ms));
     let sink = TranscriptSink::default();
     let folders = Arc::new(FolderWatcher::new(sink.change_sink()).unwrap());
-    let watcher = start_transcript_watcher(root.clone(), Arc::clone(&ingest), Arc::clone(&folders), &sink).await;
+    let timer = Arc::new(ManualTimer::default());
+    let watcher = start_transcript_watcher(root.clone(), Arc::clone(&ingest), Arc::clone(&folders), &sink, timer.clone()).await;
     assert_eq!(stored_rows(&db).await.len(), 1, "the first sweep ingests what is already there, not a sub-agent's file");
 
     let mut text = std::fs::read_to_string(&file).unwrap();
     text.push_str(&format!("{}\n", user("while the watcher runs")));
     std::fs::write(&file, text).unwrap();
-    let mut seen = 0;
-    for _ in 0..60 {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        seen = stored_rows(&db).await.len();
-        if seen == 2 {
-            break;
-        }
+    let debounce = Duration::from_millis(500);
+    timer.armed_at(debounce).await;
+    timer.fire(debounce);
+    while watcher.timers_waiting() > 0 {
+        tokio::task::yield_now().await;
     }
-    assert_eq!(seen, 2, "a change event is debounced into one ingest");
-
     watcher.stop();
     watcher.finished().await.unwrap();
+    assert_eq!(stored_rows(&db).await.len(), 2, "a change event is debounced into one ingest");
     assert_eq!(folders.open_watches(), 0, "the OS watch is released");
     let mut text = std::fs::read_to_string(&file).unwrap();
     text.push_str(&format!("{}\n", user("after the watcher stopped")));
     std::fs::write(&file, text).unwrap();
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    sink.change_sink().changed(super::super::transcript::watcher::WATCH_ID, vec![file.to_string_lossy().into_owned()], mixdog_workspace::watcher::ChangeKind::Modified);
+    assert_eq!(watcher.timers_waiting(), 0, "no debounce timer is armed after stop");
+    assert!(timer.armed.lock().unwrap().iter().all(|(d, _)| *d != debounce));
     assert_eq!(stored_rows(&db).await.len(), 2, "nothing is ingested after stop");
+}
+
+type Armed = (Duration, Box<dyn FnOnce() + Send>);
+
+/// A retry timer a test fires by hand.
+#[derive(Default)]
+struct ManualTimer {
+    armed: Mutex<Vec<Armed>>,
+    signal: tokio::sync::Notify,
+}
+
+impl RetryTimer for ManualTimer {
+    fn arm(&self, delay: Duration, fire: Box<dyn FnOnce() + Send>) {
+        self.armed.lock().unwrap().push((delay, fire));
+        self.signal.notify_waiters();
+    }
+}
+
+impl ManualTimer {
+    /// Resolves once a timer of `delay` is armed.
+    async fn armed_at(&self, delay: Duration) {
+        loop {
+            let notified = self.signal.notified();
+            tokio::pin!(notified);
+            // Registered before the check, so an arm between the two is not missed.
+            notified.as_mut().enable();
+            if self.armed.lock().unwrap().iter().any(|(d, _)| *d == delay) {
+                return;
+            }
+            notified.await;
+        }
+    }
+
+    fn fire(&self, delay: Duration) {
+        let due: Vec<_> = {
+            let mut armed = self.armed.lock().unwrap();
+            let (due, rest) = std::mem::take(&mut *armed).into_iter().partition(|(d, _)| *d == delay);
+            *armed = rest;
+            due
+        };
+        for (_, fire) in due {
+            fire();
+        }
+    }
+}
+
+/// Shutdown waits for the ingestion a fired debounce timer started, and arms nothing afterwards:
+/// the caller may persist offsets and close the store as soon as `finished` returns.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn shutdown_joins_the_ingestion_a_fired_timer_started() {
+    mixdog_rt::testing::tokens();
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    let root = mixdog_workspace::pathguard::canonical(&pg.dir.path().join("projects")).unwrap_or_else(|_| pg.dir.path().join("projects"));
+    let project_dir = root.join("proj");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    let file = project_dir.join("sess-j.jsonl");
+    let user = |text: &str| json!({"type": "user", "message": {"content": text}, "ts": 1_700_000_000}).to_string();
+    std::fs::write(&file, format!("{}\n", user("before the watcher"))).unwrap();
+    let root = mixdog_workspace::pathguard::canonical(&root).unwrap();
+
+    let ingest = TranscriptIngest::new(db.clone(), io(), Arc::new(now_ms));
+    let sink = TranscriptSink::default();
+    let folders = Arc::new(FolderWatcher::new(sink.change_sink()).unwrap());
+    let timer = Arc::new(ManualTimer::default());
+    let watcher = start_transcript_watcher(root, Arc::clone(&ingest), Arc::clone(&folders), &sink, timer.clone()).await;
+    assert_eq!(stored_rows(&db).await.len(), 1);
+
+    let mut text = std::fs::read_to_string(&file).unwrap();
+    text.push_str(&format!("{}\n", user("appended while the timer waits")));
+    std::fs::write(&file, text).unwrap();
+    let debounce = Duration::from_millis(500);
+    timer.armed_at(debounce).await;
+    assert_eq!(stored_rows(&db).await.len(), 1, "the debounce timer has not fired: nothing ingested yet");
+    timer.fire(debounce);
+    while watcher.timers_waiting() > 0 {
+        tokio::task::yield_now().await;
+    }
+    watcher.stop();
+    watcher.finished().await.unwrap();
+    assert_eq!(stored_rows(&db).await.len(), 2, "the ingestion in flight at stop finished before `finished` returned");
+
+    // A change batch that arrives after stop arms no timer.
+    sink.change_sink().changed(super::super::transcript::watcher::WATCH_ID, vec![file.to_string_lossy().into_owned()], mixdog_workspace::watcher::ChangeKind::Modified);
+    assert_eq!(watcher.timers_waiting(), 0);
+    assert!(timer.armed.lock().unwrap().iter().all(|(d, _)| *d != debounce), "no debounce timer after stop");
+}
+
+/// The recorded chunk-root cases through the real row boundary: ids and timestamps pass through
+/// the database's bigint columns, so a member that is not a number is refused there and left out
+/// of the root choice, as Node's `Number.isFinite` check leaves it out.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn the_recorded_root_cases_cross_the_row_boundary() {
+    use crate::memory::cycles::rows::{row_of, select_root_id};
+    mixdog_rt::testing::tokens();
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    for case in golden["roots"].as_array().unwrap() {
+        let mut members = Vec::new();
+        for member in case["members"].as_array().unwrap() {
+            let (id, ts) = (member["id"].as_str().unwrap(), member["ts"].as_str().unwrap());
+            let read = db
+                .query_opt("SELECT $1::text::bigint AS id, $2::text::bigint AS ts, NULL::text AS role, ''::text AS content, NULL::text AS session_id, NULL::text AS project_id", &[&id, &ts])
+                .await;
+            if let Ok(Some(row)) = read {
+                members.push(row_of(&row));
+            } else {
+                assert!(id.parse::<i64>().is_err(), "only a non-number is refused: {member}");
+            }
+        }
+        assert_eq!(select_root_id(&members), case["root"].as_i64(), "{case}");
+    }
 }

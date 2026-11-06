@@ -89,7 +89,7 @@ async fn the_sweep_keeps_what_nodes_census_keeps() {
         let name = blob["name"].as_str().unwrap();
         let digest = digest_of(format!("blob {name}").as_bytes());
         let hex = digest.as_str()["sha256:".len()..].to_owned();
-        let (kept, collected) = sweep_alone(&hex, format!("blob {name}"), blob["ageMs"].as_u64().unwrap(), min_age, blob["referenced"].as_bool().unwrap()).await;
+        let (kept, collected) = sweep_alone(&hex, &hex, format!("blob {name}"), blob["ageMs"].as_u64().unwrap(), min_age, blob["referenced"].as_bool().unwrap()).await;
         assert_eq!(kept, blob["kept"].as_bool().unwrap(), "{name}");
         deleted += collected;
     }
@@ -107,22 +107,22 @@ async fn writer_leftovers_go_when_old_enough_as_in_nodes_census() {
     for leftover in attachments["leftovers"].as_array().unwrap() {
         let template = leftover["name"].as_str().unwrap();
         let name = template.replace("<ref>", &owner).replace("<ref-1>", &owner[1..]);
-        let (kept, collected) = sweep_alone(&name, "partial".to_owned(), leftover["ageMs"].as_u64().unwrap(), min_age, false).await;
+        let (kept, collected) = sweep_alone(&owner, &name, "partial".to_owned(), leftover["ageMs"].as_u64().unwrap(), min_age, false).await;
         assert_eq!((kept, collected), (leftover["kept"].as_bool().unwrap(), 0), "{template}");
     }
     let own = format!(".{owner}.tmp-0123456789abcdef");
-    assert_eq!(sweep_alone(&own, "partial".to_owned(), 8 * 24 * 3600 * 1000, min_age, false).await, (false, 0));
-    assert_eq!(sweep_alone(&own, "partial".to_owned(), 24 * 3600 * 1000, min_age, false).await, (true, 0));
+    assert_eq!(sweep_alone(&owner, &own, "partial".to_owned(), 8 * 24 * 3600 * 1000, min_age, false).await, (false, 0));
+    assert_eq!(sweep_alone(&owner, &own, "partial".to_owned(), 24 * 3600 * 1000, min_age, false).await, (true, 0));
 }
 
 /// Writes one file `name` (a blob or a leftover) into its shard of a fresh store, sweeps that
 /// shard at `its own mtime + age_ms` and reports whether the file is still there and how many
 /// blobs the sweep collected. Each case has its own store so the file's real mtime is its age's
 /// zero point, with no clock to set.
-async fn sweep_alone(name: &str, bytes: String, age_ms: u64, min_age: Duration, referenced: bool) -> (bool, u64) {
+async fn sweep_alone(shard_of: &str, name: &str, bytes: String, age_ms: u64, min_age: Duration, referenced: bool) -> (bool, u64) {
     let dir = tempfile::tempdir().unwrap();
     let blobs = BlobStore::new(dir.path());
-    let shard = u8::from_str_radix(&name.trim_start_matches('.')[..2], 16).unwrap();
+    let shard = u8::from_str_radix(&shard_of[..2], 16).unwrap();
     let path = blobs.root().join(format!("{shard:02x}")).join(name);
     LaneToken::submit(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| {
         mixdog_store::fsio::publish_file(lane, &path, bytes.as_bytes()).unwrap();

@@ -1056,9 +1056,12 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
         other => panic!("{other}"),
     };
     let s = id.as_str();
-    let mut expected = vec![format!("sessionClosed:{s}:desktop-session-delete"), format!("releaseSessionWork:{s}:desktop-session-delete")];
+    // The close metric follows the acknowledged delete mark, so it comes after the work release.
+    let mut expected = vec![format!("releaseSessionWork:{s}:desktop-session-delete"), format!("sessionClosed:{s}:desktop-session-delete")];
     let unrecorded = ["turnReview", "usageMetrics", "browserSession", "compactionCapture"];
-    for hook in golden.iter().map(|path| name(path)).filter(|hook| !unrecorded.contains(hook)).chain(["compactionArchive", "scratchDir"]) {
+    // The store unlinks the session's log before Node's hooks run, so the export's removal is first.
+    let hooks = golden.iter().map(|path| name(path)).filter(|hook| !unrecorded.contains(hook));
+    for hook in ["transcriptExport"].into_iter().chain(hooks).chain(["compactionArchive", "scratchDir"]) {
         expected.push(format!("{hook}:{s}:/ws"));
     }
     expected.extend([format!("thread/deleted:{s}"), format!("forgetSessionSearch:{s}"), format!("releaseDeletedWorktree:{s}")]);
@@ -1083,6 +1086,29 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
         assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{target}: {reply:?}");
     }
     assert_eq!(lock(&rig.deletes.0).len(), expected.len());
+}
+
+/// `markSessionClosed` logs the close metric only after the tombstone write is acknowledged: a
+/// delete whose mark fails closed nothing and logs nothing; the delete that lands logs once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delete_whose_mark_fails_logs_no_close() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let other = start_thread(&directory).await;
+    rig.store.listed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let delete = |handle: &Arc<SessionHandle>, op: &'static str| {
+        let (handle, id) = (handle.clone(), handle.id.clone());
+        async move { handle.request(request("thread/delete", json!({ "threadId": id, "opId": op }), op)).await.expect("thread/delete") }
+    };
+    rig.store.fail_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    let reply = delete(&handle, "op-fail").await;
+    assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{reply:?}");
+    let closes = |rig: &Rig| lock(&rig.deletes.0).iter().filter(|step| step.starts_with("sessionClosed:")).count();
+    assert_eq!(closes(&rig), 0, "an unacknowledged mark is not a close");
+    let reply = delete(&other, "op-ok").await;
+    assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
+    assert_eq!(closes(&rig), 1);
 }
 
 /// A deleted base keeps its files while a fork reads them: the fork still opens with the
@@ -1198,9 +1224,9 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     let worktree = format!("releaseDeletedWorktree:{s}");
     eventually(|| lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
     let steps = lock(&rig.deletes.0).clone();
-    // The tombstone's close metric (`markSessionClosed`) precedes the purge hooks.
+    // The tombstone's close metric (`markSessionClosed`), logged at the mark's ack, precedes the purge hooks.
     assert_eq!(steps[0], format!("sessionClosed:{s}:desktop-auto-delete"));
-    assert_eq!(steps[1], format!("toolResultOffload:{s}:/ws"), "the purge hooks run next");
+    assert_eq!(steps[1], format!("transcriptExport:{s}:/ws"), "the purge hooks run next");
     let tail: Vec<&str> = steps[steps.len() - 4..].iter().map(String::as_str).collect();
     assert_eq!(
         tail,
@@ -1271,6 +1297,46 @@ async fn the_real_store_reads_the_whole_history_oldest_first() {
     eventually(|| (rows(&handle).len() == 2).then_some(())).await;
     assert_eq!(ids(directory.history_items(&handle.id).await.expect("history")), shown[..2]);
     assert!(directory.history_items(&ThreadId::from("missing")).await.is_err());
+}
+
+/// Paging history by item cursor across a rewind and across a clear (protocol §5.5): a cursor
+/// naming a row the rewind or the clear removed is `cursorInvalidated`, and one that survived
+/// still pages; the thread need not be loaded to be read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_item_cursor_into_rewound_or_cleared_history_is_invalidated() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    turn(&handle, "two", "op-2").await;
+    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    let shown: Vec<_> = handle.cell.view.load_full().items.iter().map(|i| i.id().clone()).collect();
+    let list = |cursor: &ItemId| {
+        directory.request(request(
+            "thread/items/list",
+            json!({ "threadId": handle.id, "cursor": cursor, "sortDirection": "asc" }),
+            "list",
+        ))
+    };
+
+    let Reply::Value(page) = list(&shown[1]).await.expect("page") else { panic!() };
+    assert_eq!(page["data"].as_array().map(Vec::len), Some(2));
+
+    handle
+        .request(request("thread/rewind", json!({ "threadId": handle.id, "opId": "op-3", "itemId": shown[2] }), "op-3"))
+        .await
+        .expect("rewind");
+    eventually(|| (rows(&handle).len() == 2).then_some(())).await;
+    assert!(matches!(list(&shown[3]).await, Err(CoreError::CursorInvalidated { .. })));
+    assert!(list(&shown[0]).await.is_ok(), "a cursor that survived the rewind pages");
+
+    handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-4" }), "op-4")).await.expect("clear");
+    eventually(|| rows(&handle).is_empty().then_some(())).await;
+    assert!(matches!(list(&shown[0]).await, Err(CoreError::CursorInvalidated { .. })));
 }
 
 /// The run publishes its progress into the session cell; the registry's `runtime_stage` and the
@@ -2002,6 +2068,157 @@ async fn a_thread_nobody_watched_unloads_after_the_idle_delay() {
     eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
 }
 
+/// Retention's delete (`deleteSession(id, { isSessionLive: treeChanged })`) asks again under the
+/// thread's own admission, before it closes anything: a session opened or used after the pass
+/// checked it, or a sweep that was shut down, is refused and stays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retention_delete_is_refused_when_the_session_changed_after_the_check() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    turn(&handle, "hello", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
+    let live = CancellationToken::new();
+
+    // Opened (attached) after the check.
+    subscribe(&handle);
+    assert!(!directory.delete_stored(id.as_str(), read, &[], &live).await.expect("delete"), "opened");
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
+    handle.cell.unsubscribed();
+    eventually(|| directory.handle(&id).is_none().then_some(())).await;
+
+    // Used after the check: its activity is not what the pass read.
+    assert!(!directory.delete_stored(id.as_str(), read - 1.0, &[], &live).await.expect("delete"), "moved");
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
+
+    // The sweep was shut down: no new mutation.
+    let down = CancellationToken::new();
+    down.cancel();
+    assert!(!directory.delete_stored(id.as_str(), read, &[], &down).await.expect("delete"), "shut down");
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
+
+    // Unchanged and not shut down: gone.
+    assert!(directory.delete_stored(id.as_str(), read, &[], &live).await.expect("delete"));
+    assert!(directory.session_meta(&id).await.expect("meta").is_none(), "deleted");
+}
+
+/// `treeChanged` is the whole tree's: a member other than the target that is open (opened after
+/// the pass read the tree) refuses the delete under the target's admission; once it is gone the
+/// delete goes through.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retention_delete_is_refused_when_another_member_of_the_tree_is_open() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let target = start_thread(&directory).await;
+    let id = target.id.clone();
+    turn(&target, "hello", "op-1").await;
+    eventually(|| idle(&target).then_some(())).await;
+    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
+    let peer = start_thread(&directory).await;
+    let peer_id = peer.id.clone();
+    let live = CancellationToken::new();
+    async fn unload(directory: &SessionDirectory, handle: Arc<SessionHandle>) {
+        subscribe(&handle);
+        handle.cell.unsubscribed();
+        eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
+    }
+    turn(&peer, "hello", "op-p1").await;
+    eventually(|| idle(&peer).then_some(())).await;
+    let seen = |peer_at: f64| [(peer_id.as_str().to_owned(), peer_at)];
+
+    // The member is open now (whatever the pass read).
+    assert!(!directory.delete_stored(id.as_str(), read, &seen(0.0), &live).await.expect("delete"), "a member is open");
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
+    assert!(!target.cell.closed.load(std::sync::atomic::Ordering::SeqCst), "nothing was closed");
+
+    // The member is stored again, as the pass read it: the delete goes ahead.
+    unload(&directory, peer).await;
+    let sweep_read = super::sub_agent_retention::activity_at(&directory.stored_header(&peer_id).await.expect("header"));
+
+    // It was opened, used and unloaded between the pass and the delete: its stored activity is
+    // not what the pass read, so the delete is refused though nothing of it is open.
+    rig.clock.0.store(5000, std::sync::atomic::Ordering::SeqCst);
+    let reopened = directory.open_handle(&peer_id, &connection()).await.expect("reopen");
+    turn(&reopened, "again", "op-p2").await;
+    eventually(|| idle(&reopened).then_some(())).await;
+    unload(&directory, reopened).await;
+    let now = super::sub_agent_retention::activity_at(&directory.stored_header(&peer_id).await.expect("header"));
+    assert_ne!(now, sweep_read, "the member's activity moved");
+    assert!(!directory.delete_stored(id.as_str(), read, &seen(sweep_read), &live).await.expect("delete"), "a member moved");
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "still listed");
+    assert!(!target.cell.closed.load(std::sync::atomic::Ordering::SeqCst), "nothing was closed");
+
+    // Read afresh, nothing open: deleted.
+    assert!(directory.delete_stored(id.as_str(), read, &seen(now), &live).await.expect("delete"), "no member changed");
+}
+
+/// Attach and close are transitions of one word, so exactly one of a racing attach and a
+/// delete's close wins, whichever reads first; a close that won refuses every later attach, an
+/// attach that won refuses the close, and a detach reopens nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_attach_and_a_delete_admission_never_both_win() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    for round in 0..40 {
+        let cell = start_thread(&directory).await.cell.clone();
+        let gate = Arc::new(std::sync::Barrier::new(2));
+        let (a, g) = (cell.clone(), gate.clone());
+        let attach = std::thread::spawn(move || {
+            g.wait();
+            a.subscribing()
+        });
+        let seen = cell.admission();
+        gate.wait();
+        let closed = cell.close_if_unchanged(seen);
+        let attached = attach.join().unwrap();
+        assert!(closed ^ attached, "round {round}: exactly one wins (closed={closed}, attached={attached})");
+        assert_eq!(cell.attached(), usize::from(attached));
+        assert_eq!(cell.closed.load(SeqCst), closed);
+        assert!(!closed || !cell.subscribing(), "a closed thread takes no attach");
+    }
+}
+
+/// The delete read the word (never attached), an attach and its detach run, and only then does
+/// the delete close: the count is back at zero, but the word is not what the delete read, so the
+/// close is refused and the thread still takes attaches. No second field can drift from it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_from_a_stale_admission_word_is_refused_after_an_attach_and_detach() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let cell = handle.cell.clone();
+
+    let seen = cell.admission();
+    assert_eq!(seen, 0, "open and never attached");
+    // An attach that is admitted and then rolled back (the detach that tells no actor, so the
+    // thread stays loaded for the rest of the test).
+    assert!(cell.subscribing());
+    cell.subscribed(false);
+    assert_eq!(cell.attached(), 0, "the count is back at zero");
+
+    assert!(!cell.close_if_unchanged(seen), "the attach in between refuses the close");
+    assert!(!cell.closed.load(std::sync::atomic::Ordering::SeqCst), "nothing was closed");
+    assert!(cell.subscribing(), "the thread still takes attaches");
+    cell.subscribed(false);
+
+    // Read afresh, it is the unload's business (ever attached, nobody now); a close from it
+    // takes the word once, and a second close from the same word cannot.
+    let fresh = cell.admission();
+    assert!(cell.ever_attached());
+    assert!(cell.close_if_unchanged(fresh));
+    assert!(!cell.close_if_unchanged(fresh), "the word is taken");
+    assert!(!cell.subscribing(), "a closed thread takes no attach");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_closes() {
     let rig = Rig::new();
@@ -2405,4 +2622,66 @@ async fn a_room_post_stores_each_message_once_and_shows_it() {
         Err(CoreError::DomainError { message: Some(message), .. }) => assert_eq!(message.to_string(), "session sess_gone is not available"),
         other => panic!("{other:?}"),
     }
+}
+
+/// A hook's `transcript_path` over the real thread store: Node's `<id>.json` before the session
+/// has a model context, the refreshed `<id>.log.jsonl` after it, `null` for an id that names no
+/// session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hooks_transcript_path_is_the_sessions_export() {
+    use mixdog_mcp::hook_bus::TranscriptExport;
+
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = super::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io };
+    let files = super::transcript_export::TranscriptFiles::new(data.path(), store.clone(), lanes, tokens.maintenance_io);
+    let id = handle.id.as_str().to_owned();
+    let sessions = data.path().join("sessions");
+
+    assert_eq!(files.transcript_path(&id).await, json!(sessions.join(format!("{id}.json")).to_string_lossy()));
+    assert!(!sessions.join(format!("{id}.log.jsonl")).exists(), "nothing is exported before the first message");
+    assert_eq!(files.transcript_path("../x").await, Value::Null);
+
+    turn(&handle, "hello", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    let log = sessions.join(format!("{id}.log.jsonl"));
+    assert_eq!(files.transcript_path(&id).await, json!(log.to_string_lossy()));
+    let read = log.clone();
+    let bytes = mixdog_core_base::support::on_lane(tokens.maintenance_io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&read))
+        .await
+        .expect("read job")
+        .expect("readable")
+        .expect("the export exists");
+    let text = String::from_utf8(bytes).expect("UTF-8");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "the session record and the compacted record");
+    let session: Value = serde_json::from_str(lines[0]).expect("session line");
+    assert_eq!(session["t"], "session");
+    assert_eq!(session["id"], id.as_str());
+    let tid = ThreadId::from(id.as_str());
+    let log_id = on_lane_io(&store, move |store, lane| store.read_log_id(lane, &tid)).await;
+    assert_eq!(session["logId"], log_id.as_str());
+    assert!(lines[1].starts_with(r#"{"t":"compacted","s":1,"len":2,"messages":["#), "{}", lines[1]);
+    assert!(lines[1].contains("hello") && lines[1].contains("re: hello"), "{}", lines[1]);
+}
+
+async fn on_lane_io<R: Send + 'static>(
+    store: &Arc<dyn super::ThreadStore>,
+    job: impl FnOnce(&dyn super::ThreadStore, &mixdog_rt::InLane<mixdog_rt::InteractiveIo>) -> Result<R, CoreError> + Send + 'static,
+) -> R {
+    use mixdog_rt::LaneToken;
+    let tokens = mixdog_rt::testing::tokens();
+    let store = store.clone();
+    tokens
+        .interactive_io
+        .submit(&CancellationToken::new(), move |lane| job(store.as_ref(), lane))
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("read")
 }

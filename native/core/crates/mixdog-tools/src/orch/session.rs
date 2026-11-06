@@ -134,7 +134,7 @@ pub trait SessionPort: Send + Sync {
     async fn set_project(&self, thread: &ThreadId, cwd: &AbsPath, raw_path: &str) -> Result<String, PortError>;
     async fn rename(&self, thread: &ThreadId, title: &str) -> Result<String, RenameError>;
     /// Compaction runs right after the current turn finishes.
-    async fn schedule_compact(&self, thread: &ThreadId);
+    async fn schedule_compact(&self, thread: &ThreadId) -> Result<(), PortError>;
     /// Returns the new session id and whether the copy was compacted.
     async fn fork(&self, thread: &ThreadId, compact: bool) -> Result<(String, bool), PortError>;
     async fn sidebar(&self, thread: &ThreadId, flag: SidebarFlag, value: bool) -> Result<(), PortError>;
@@ -275,7 +275,7 @@ impl Tool for SessionTool {
             raw_action.to_lowercase()
         };
         let action = action.as_str();
-        if self.facts.is_heartbeat(thread) && !HEARTBEAT_ACTIONS.contains(&action) {
+        if self.facts.is_heartbeat(thread).await && !HEARTBEAT_ACTIONS.contains(&action) {
             let why = if matches!(action, "create" | "send") {
                 HEARTBEAT_NO_HANDOFF.to_owned()
             } else {
@@ -297,7 +297,7 @@ impl Tool for SessionTool {
         if action == "suggest" {
             lead()?;
             let caller = self.port.caller(thread).await;
-            if !caller.is_mixy_chat && !self.facts.is_heartbeat(thread) {
+            if !caller.is_mixy_chat && !self.facts.is_heartbeat(thread).await {
                 return Err(denied("session: suggest belongs to Mixy's chat"));
             }
             let receipt = self
@@ -347,7 +347,7 @@ impl Tool for SessionTool {
             }
             "compact" => {
                 lead()?;
-                self.port.schedule_compact(thread).await;
+                self.port.schedule_compact(thread).await?;
                 text(pretty(&Compacting {
                     action,
                     session_id,

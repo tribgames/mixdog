@@ -4,13 +4,16 @@
 // (`routine-results.json`), driven by a script of operations. After every operation the recorder
 // stores what the delivery left: the queue file, every home thread's messages, the live notices
 // and the wake turns it asked for. The Rust AgentHomeDelivery replays the same script over its own
-// fixtures and must leave the same values once generated wake ids are masked as <uuid>.
+// fixtures and must leave the same values, wake ids included: Node's crypto.randomUUID is replaced by
+// a counter here, and the Rust queue's id source by the same counter, so ids compare exactly.
 //
 //   node benchmarks/rust-core/recorders/record-home-delivery.mjs --tree <tree w/ node_modules>
 // Output: native/core/fixtures/home-delivery/golden.json
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import nodeCrypto from 'node:crypto';
+import { syncBuiltinESMExports } from 'node:module';
 import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
@@ -18,14 +21,19 @@ const tree = resolveTree(args);
 const dir = mkdtempSync(join(tmpdir(), 'home-delivery-'));
 process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
 
+// The delivery draws its wake batch ids from crypto.randomUUID: a counter makes them repeatable.
+let uuidCounter = 0;
+nodeCrypto.randomUUID = () => `00000000-0000-4000-8000-${(++uuidCounter).toString(16).padStart(12, '0')}`;
+syncBuiltinESMExports();
+
 const { createAgentHomeDelivery, createRoutineResultQueue } = await importFrom(tree, 'src/session-runtime/agent-home-delivery.mjs');
 
 const T0 = 1_800_000_000_000;
 let clock = T0;
 Date.now = () => clock;
 
-const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
-const mask = (value) => JSON.parse(JSON.stringify(value ?? null).replace(UUID, '<uuid>'));
+const plain = (value) => JSON.parse(JSON.stringify(value ?? null));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const LEAD = 'sess_home_lead';
 const script = [];
@@ -83,7 +91,40 @@ op({ op: 'fire' });
 op({ op: 'drain', home: LEAD });
 op({ op: 'settle', status: 'done' });
 op({ op: 'drain', home: LEAD });
-// queue overflow past the limit leaves one omitted notice
+// wake retries: a relay turn that never finishes is tried again after 30s, 120s, 600s, then given up
+op({ op: 'extraDrains', value: false });
+op({ op: 'task', agent: 'lead', report: { runId: 'send_r1_end', taskSessionId: 'sess_task_r1', title: 'Retry', status: 'completed', text: 'retry me' } });
+op({ op: 'drain', home: LEAD });
+for (const wait of [30_000, 120_000, 600_000]) {
+  op({ op: 'settle', status: 'failed' });
+  op({ op: 'drain', home: LEAD });
+  op({ op: 'fire' });
+  op({ op: 'drain', home: LEAD });
+  op({ op: 'time', ms: wait - 1 });
+  op({ op: 'fire' });
+  op({ op: 'drain', home: LEAD });
+  op({ op: 'time', ms: 1 });
+  op({ op: 'fire' });
+  op({ op: 'drain', home: LEAD });
+}
+op({ op: 'settle', status: 'failed' });
+op({ op: 'drain', home: LEAD });
+op({ op: 'fire' });
+op({ op: 'drain', home: LEAD });
+// wake refusals: the 10th submission of one batch is the last; 9 refusals then an accepted wake
+op({ op: 'refuseWakes', count: 9 });
+op({ op: 'task', agent: 'lead', report: { runId: 'send_f1_end', taskSessionId: 'sess_task_f1', title: 'Refused nine', status: 'completed', text: 'nine refusals' } });
+op({ op: 'drain', home: LEAD });
+for (let i = 0; i < 9; i += 1) op({ op: 'fire' });
+op({ op: 'settle', status: 'done' });
+op({ op: 'drain', home: LEAD });
+// 10 refusals: given up with a note, nobody woken
+op({ op: 'refuseWakes', count: 10 });
+op({ op: 'task', agent: 'lead', report: { runId: 'send_f2_end', taskSessionId: 'sess_task_f2', title: 'Refused ten', status: 'completed', text: 'ten refusals' } });
+op({ op: 'drain', home: LEAD });
+for (let i = 0; i < 10; i += 1) op({ op: 'fire' });
+op({ op: 'drain', home: LEAD });
+op({ op: 'extraDrains', value: true });// queue overflow past the limit leaves one omitted notice
 op({ op: 'busy', value: true });
 for (let i = 1; i <= 6; i += 1) op({ op: 'message', agent: 'lead', runId: `hb_over_${i}`, text: `over ${i}` });
 op({ op: 'busy', value: false });
@@ -118,14 +159,29 @@ const sessions = new Map();
 const notices = [];
 const wakes = [];
 const retries = [];
+const scheduled = [];
 const turns = [];
-const ctl = { busy: false, refuse: 0, presence: {}, homeAgents: {}, mixy: true };
+const ctl = { extraDrains: true, busy: false, refuse: 0, presence: {}, homeAgents: {}, mixy: true };
 let queue;
 let delivery;
+let inFlight = 0;
 
 function build(limit) {
   const path = join(dir, 'routine-results.json');
   queue = createRoutineResultQueue(path, { limit, now: () => clock });
+  // Queue calls in flight (a durable write can take a while) keep the step open.
+  for (const key of Object.keys(queue)) {
+    const fn = queue[key];
+    if (typeof fn !== 'function') continue;
+    queue[key] = async (...args) => {
+      inFlight += 1;
+      try {
+        return await fn(...args);
+      } finally {
+        inFlight -= 1;
+      }
+    };
+  }
   delivery = createAgentHomeDelivery({
     loadSession: (id) => sessions.get(id) || null,
     saveSession: async () => {},
@@ -149,11 +205,14 @@ function build(limit) {
         return { settled };
       },
     }),
-    retryLater: (fn, ms) => retries.push({ fn, ms }),
+    retryLater: (fn, ms) => {
+      scheduled.push(ms);
+      retries.push({ fn, ms });
+    },
     agentPresence: (id) => ctl.presence[id] || 'unknown',
     homeAgent: (id) => ctl.homeAgents[id] || 'unknown',
     mixyExists: async () => ctl.mixy,
-    log: () => {},
+    log: (m) => { if (process.env.HD_LOG) console.error('step ' + steps.length + ': ' + m); },
   });
   return path;
 }
@@ -168,10 +227,21 @@ const readQueue = () => {
 };
 
 const HOMES = ['sess_home_reviewer', LEAD, 'sess_home_ghost', 'sess_home_critic'];
+// Background passes (a fired retry, a settled wake) finish on their own: wait until nothing moves.
+const fingerprint = () => JSON.stringify([readQueue(), notices.length, wakes.length, scheduled.length, [...sessions].map(([, s]) => s.messages.length)]);
+async function stable() {
+  let last = null;
+  for (let same = 0; same < 5; ) {
+    await sleep(25);
+    const now = fingerprint();
+    same = now === last && inFlight === 0 ? same + 1 : 0;
+    last = now;
+  }
+}
 const steps = [];
 for (const o of script) {
   let out = null;
-  const before = { notices: notices.length, wakes: wakes.length };
+  const before = { notices: notices.length, wakes: wakes.length, scheduled: scheduled.length };
   switch (o.op) {
     case 'config':
       queuePath = build(o.limit);
@@ -196,6 +266,9 @@ for (const o of script) {
       break;
     case 'thread':
       sessions.set(o.id, { id: o.id, messages: structuredClone(o.messages), generation: 1 });
+      break;
+    case 'extraDrains':
+      ctl.extraDrains = o.value;
       break;
     case 'busy':
       ctl.busy = o.value;
@@ -261,21 +334,23 @@ for (const o of script) {
   }
   // A drain started in the background (a moved result, a settled wake) is waited for, so the snapshot is
   // the same wherever the pass was scheduled.
-  for (let round = 0; round < 2; round += 1) await Promise.all(HOMES.map((home) => delivery.drain(home)));
+  if (ctl.extraDrains) for (let round = 0; round < 2; round += 1) await Promise.all(HOMES.map((home) => delivery.drain(home)));
+  await stable();
   steps.push({
     op: o,
-    out: mask(out),
-    queue: mask(readQueue()),
-    threads: mask(Object.fromEntries([...sessions].map(([id, s]) => [id, s.messages]))),
-    notices: mask(notices.slice(before.notices)),
-    wakes: mask(wakes.slice(before.wakes)),
+    out: plain(out),
+    queue: plain(readQueue()),
+    threads: plain(Object.fromEntries([...sessions].map(([id, s]) => [id, s.messages]))),
+    notices: plain(notices.slice(before.notices)),
+    wakes: plain(wakes.slice(before.wakes)),
+    delays: scheduled.slice(before.scheduled),
   });
 }
 
 const finalOut = join(FIXTURES_ROOT, 'home-delivery');
 const out = stageSet(finalOut);
 writeJson(join(out, 'golden.json'), {
-  note: 'agent home delivery steps of the real 1.4.5 createAgentHomeDelivery over a real routine-results.json; time is frozen at 1800000000000 (+ the time ops) and generated wake ids are masked as <uuid>',
+  note: 'agent home delivery steps of the real 1.4.5 createAgentHomeDelivery over a real routine-results.json; time is frozen at 1800000000000 (+ the time ops) and wake ids come from a counter',
   steps,
 });
 writeSetManifest(out, {

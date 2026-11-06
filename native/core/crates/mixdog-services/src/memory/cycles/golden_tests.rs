@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::quality::*;
-use super::requests::{resolve_coalesce_max_drains, resolve_coalesce_max_retries};
+use super::requests::{resolve_coalesce_max_drains_in, resolve_coalesce_max_retries_in};
 use super::rows::{PlanOptions, cycle1_row_due_sql, cycle1_unchunked_sql, resolve_cycle1_plan, select_root_id};
 use super::run::{Cycle1Result, EmbeddingDirty, merge_cycle1_results, pack_cycle1_windows};
 use super::signature::{make_cycle_request_signature, parse_interval, periodic_cycle_due, scheduled_cycle1_signature};
@@ -119,9 +119,11 @@ fn intervals_and_the_due_rule_equal_node() {
 
 #[test]
 fn coalesce_limits_equal_node() {
-    for case in golden()["coalesce"].as_array().unwrap().iter().filter(|c| c["env"].as_object().unwrap().is_empty()) {
-        assert_eq!(resolve_coalesce_max_retries(&case["config"], 3.0), case["maxRetries"].as_f64().unwrap(), "{case}");
-        assert_eq!(resolve_coalesce_max_drains(&case["config"], 1.0), case["maxDrains"].as_f64().unwrap(), "{case}");
+    for case in golden()["coalesce"].as_array().unwrap() {
+        // The recorded environment of the case, not the process's.
+        let env = |name: &str| case["env"][name].as_str().map(str::to_owned);
+        assert_eq!(resolve_coalesce_max_retries_in(&env, &case["config"], 3.0), case["maxRetries"].as_f64().unwrap(), "{case}");
+        assert_eq!(resolve_coalesce_max_drains_in(&env, &case["config"], 1.0), case["maxDrains"].as_f64().unwrap(), "{case}");
     }
 }
 
@@ -162,7 +164,12 @@ fn the_plan_and_sql_equal_node() {
     assert_eq!(cycle1_unchunked_sql(""), sql["unchunked"].as_str().unwrap());
     assert_eq!(cycle1_unchunked_sql("e"), sql["unchunkedAlias"].as_str().unwrap());
     for case in g["roots"].as_array().unwrap() {
-        let members: Vec<Row> = case["members"].as_array().unwrap().iter().filter(|m| m["id"].as_str().is_some_and(|s| s.parse::<i64>().is_ok())).map(row).collect();
+        // A member whose id is not a number never reaches a `Row`: the database's bigint column is
+        // the conversion boundary, exercised with these very members by `tests::jobs`.
+        if case["members"].as_array().unwrap().iter().any(|m| m["id"].as_str().is_none_or(|s| s.parse::<i64>().is_err())) {
+            continue;
+        }
+        let members: Vec<Row> = case["members"].as_array().unwrap().iter().map(row).collect();
         assert_eq!(select_root_id(&members).map(|id| id.to_string()), case["root"].as_i64().map(|id| id.to_string()), "{case}");
     }
 }

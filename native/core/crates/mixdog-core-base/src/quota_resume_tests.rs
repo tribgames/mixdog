@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use mixdog_rt::CancellationToken;
 use serde_json::{Value, json};
 
+use crate::support::on_lane;
 use crate::quota_resume::{Entry, QUOTA_RESUME_FILE, QuotaError, QuotaResumeStore, is_agent_only_session};
 
 fn twin() -> Value {
@@ -57,7 +58,13 @@ async fn the_store_matches_node() {
         let file = dir.path().join(QUOTA_RESUME_FILE);
         let mut last = case["preFile"].as_str().map(str::to_owned);
         if let Some(text) = &last {
-            std::fs::write(&file, text).unwrap();
+            let (path, bytes) = (file.clone(), text.clone().into_bytes());
+            on_lane(mixdog_rt::testing::tokens().durability_io, &CancellationToken::new(), move |lane| {
+                mixdog_statefile::append_file(lane, &path, &bytes)
+            })
+            .await
+            .unwrap()
+            .unwrap();
         }
         let store = QuotaResumeStore::open(dir.path(), mixdog_rt::testing::tokens().durability_io, CancellationToken::new()).await.unwrap();
         let events = Arc::new(Mutex::new(Vec::<Value>::new()));
@@ -79,7 +86,13 @@ async fn the_store_matches_node() {
             if let Some(text) = step.get("file") {
                 last = text.as_str().map(str::to_owned);
             }
-            assert_eq!(std::fs::read_to_string(&file).ok(), last, "{label} file");
+            let path = file.clone();
+            let on_disk = on_lane(mixdog_rt::testing::tokens().durability_io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&path))
+                .await
+                .unwrap()
+                .unwrap()
+                .map(|bytes| String::from_utf8(bytes).unwrap());
+            assert_eq!(on_disk, last, "{label} file");
         }
     }
 }

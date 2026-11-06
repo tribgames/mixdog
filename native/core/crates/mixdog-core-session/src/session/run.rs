@@ -49,33 +49,40 @@ impl ModelContext {
     /// The lineage's model rows since its last compaction, oldest first, before the run's input
     /// row (today's `session.messages` at ask start). Read once the input row is durable.
     pub async fn read(&self) -> Result<Vec<(ItemId, Value)>, CoreError> {
-        let token = CancellationToken::new();
-        let dropped = || CoreError::Internal {
-            incident_id: "session-context-job-dropped".into(),
-        };
-        let mut read = None;
-        loop {
-            let (store, thread) = (self.store.clone(), self.thread.clone());
-            let page = self
-                .lanes
-                .io
-                .submit(&token, move |lane| store.context_io(lane, &thread, read))?
-                .await
-                .map_err(|_| dropped())??;
-            let store = self.store.clone();
-            let step = self
-                .lanes
-                .cpu
-                .submit(&token, move |lane| store.context_cpu(lane, page))?
-                .await
-                .map_err(|_| dropped())??;
-            match step {
-                ContextStep::More(next) => read = Some(next),
-                ContextStep::Done(mut rows) => {
-                    rows.retain(|(iid, _)| *iid != self.input);
-                    return Ok(rows);
-                }
-            }
+        let mut rows = read_context(&self.store, &self.lanes, &self.thread).await?;
+        rows.retain(|(iid, _)| *iid != self.input);
+        Ok(rows)
+    }
+}
+
+/// The model context of `thread`: its lineage's model rows since the last compaction, oldest
+/// first, as of the rows acked so far.
+pub(crate) async fn read_context(
+    store: &Arc<dyn ThreadStore>,
+    lanes: &SessionLanes,
+    thread: &ThreadId,
+) -> Result<Vec<(ItemId, Value)>, CoreError> {
+    let token = CancellationToken::new();
+    let dropped = || CoreError::Internal {
+        incident_id: "session-context-job-dropped".into(),
+    };
+    let mut read = None;
+    loop {
+        let (store_io, thread) = (store.clone(), thread.clone());
+        let page = lanes
+            .io
+            .submit(&token, move |lane| store_io.context_io(lane, &thread, read))?
+            .await
+            .map_err(|_| dropped())??;
+        let store_cpu = store.clone();
+        let step = lanes
+            .cpu
+            .submit(&token, move |lane| store_cpu.context_cpu(lane, page))?
+            .await
+            .map_err(|_| dropped())??;
+        match step {
+            ContextStep::More(next) => read = Some(next),
+            ContextStep::Done(rows) => return Ok(rows),
         }
     }
 }
@@ -212,6 +219,11 @@ pub(crate) enum ProducerMsg {
     Compacted {
         turn: TurnId,
         compaction: Compaction,
+        ack: oneshot::Sender<Result<(), RunError>>,
+    },
+    ContextRewound {
+        turn: TurnId,
+        replacement: Vec<(ItemId, Value)>,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
 }
@@ -440,6 +452,17 @@ impl RunPort {
         })
         .await?;
         rx.await.map_err(|_| RunError::Closed)
+    }
+
+    /// A failed-turn retry's rewind (`prepareAskTurn` shrinking `session.messages`): the model
+    /// context restarts at `replacement`, which holds the context less the stale copy of the
+    /// failed prompt, then the run's input row. It is the store's `compacted` record that drops
+    /// rows from the context, written with nothing taken out of the transcript and no divider, so
+    /// the next turn reads the prompt once. Resolves once it is durable (or failed).
+    pub async fn context_rewound(&self, replacement: Vec<(ItemId, Value)>) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.send(ProducerMsg::ContextRewound { turn: self.turn.clone(), replacement, ack }).await?;
+        rx.await.map_err(|_| RunError::Closed)?
     }
 
     /// Appends the `compacted` record and resolves once it is durable (or failed).

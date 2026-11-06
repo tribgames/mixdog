@@ -14,6 +14,7 @@ doctest = false
 async-trait = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
+libc = { workspace = true }
 mixdog-ai = { workspace = true }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }

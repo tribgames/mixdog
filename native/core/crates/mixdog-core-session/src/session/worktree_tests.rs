@@ -42,6 +42,8 @@ pub(crate) struct HostState {
     pub(crate) shell_jobs: u64,
     /// A schedule, webhook, routine or room run: it may only list worktrees.
     pub(crate) unattended: bool,
+    /// The desktop classification a Project switch stored.
+    pub(crate) desktop: Option<Value>,
 }
 
 struct FakeHost {
@@ -99,13 +101,16 @@ impl WorkspaceHost for FakeHost {
         if state.fail_apply {
             return Err(plain("save failed"));
         }
-        let prior = (state.cwd.clone(), state.workspace.clone());
+        let prior = (state.cwd.clone(), state.workspace.clone(), state.desktop.clone());
         state.cwd = change.cwd;
         state.workspace = Some(change.workspace);
+        if change.desktop_session.is_some() {
+            state.desktop = change.desktop_session;
+        }
         let shared = self.state.clone();
         Ok(undo(async move {
             let mut state = shared.lock().unwrap();
-            (state.cwd, state.workspace) = prior;
+            (state.cwd, state.workspace, state.desktop) = prior;
             Ok(())
         }))
     }

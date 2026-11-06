@@ -1,0 +1,30 @@
+{
+  "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-session-sidebar.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 17173,
+      "path": "golden.json",
+      "sha256": "67fa127db929a26a4566eca76ee6f9b423b23f94f2994ec434939c04dcd3772b"
+    }
+  ],
+  "product": {
+    "appsSha256": "04b921c4ae348576f68a0a015207ce668e374e6d3cae8c8fdeff8ff229de0afa",
+    "commit": "433c7dfbb0d6763b0200667fabbf7f76e3f4abc7",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9241,
+    "refComparison": {
+      "closestCommit": "433c7dfbb0d6763b0200667fabbf7f76e3f4abc7",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-sidebar.mjs",
+  "set": "session-sidebar",
+  "totalBytes": 17173
+}

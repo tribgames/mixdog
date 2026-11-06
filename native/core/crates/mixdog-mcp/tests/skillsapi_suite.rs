@@ -177,7 +177,7 @@ async fn every_skill_method_answers_and_leaves_what_node_does() {
     let tokens = mixdog_rt::testing::tokens();
     let root = SkillRoot { dir: data.join("skills"), source: SkillSource::Global, plugin: None };
     let settings: Arc<dyn SkillSettingsSource> = Arc::new(Settings(settings));
-    let catalog = SkillCatalog::new(data.clone(), tokens.maintenance_io.clone(), Arc::new(move || vec![root.clone()]), Arc::clone(&settings), &SkillsWatch::new());
+    let catalog = SkillCatalog::new(data.clone(), tokens.maintenance_io.clone(), Arc::new(move |_| vec![root.clone()]), Arc::clone(&settings), &SkillsWatch::new());
     let service = SkillsService::new(catalog, settings, config.clone(), host, tokens.maintenance_io, tokens.durability_io, data.clone());
     for step in golden["steps"].as_array().unwrap() {
         let name = step["name"].as_str().unwrap();

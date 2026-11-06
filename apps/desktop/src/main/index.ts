@@ -1384,6 +1384,7 @@ const hostRole = createLocalHostRole({
   },
   visualize: () => ({
     execute: (command) => visualize.execute(command),
+    exportForDevice: (command) => visualize.exportForDevice(command),
     snapshot: () => visualize.hostSnapshot(),
   }),
   onVisualizePublishFailed: (error) => reportVisualizePublishFailure('host', error),

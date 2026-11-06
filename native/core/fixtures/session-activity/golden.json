@@ -1,0 +1,2525 @@
+{
+  "backgroundTasks": {
+    "agentTaskOwners": [
+      "A",
+      "B",
+      "C",
+      "E"
+    ],
+    "agentTasks": [
+      {
+        "running": true,
+        "sessionId": "sa",
+        "taskId": "t1"
+      },
+      {
+        "running": true,
+        "sessionId": "sb",
+        "taskId": "t2"
+      },
+      {
+        "running": false,
+        "sessionId": "sa2",
+        "taskId": "t3"
+      },
+      {
+        "running": true,
+        "sessionId": "sx",
+        "taskId": "t4"
+      },
+      {
+        "running": true,
+        "sessionId": null,
+        "taskId": "t5"
+      },
+      {
+        "running": true,
+        "sessionId": "sc",
+        "taskId": "t6"
+      },
+      {
+        "running": false,
+        "sessionId": "sf",
+        "taskId": "t8"
+      },
+      {
+        "running": false,
+        "sessionId": "sg",
+        "taskId": "t9"
+      },
+      {
+        "running": true,
+        "sessionId": "sa3",
+        "taskId": "t10"
+      }
+    ],
+    "registered": [
+      {
+        "context": {
+          "callerSessionId": "A",
+          "routingSessionId": "R"
+        },
+        "meta": {
+          "sessionId": "sa"
+        },
+        "notify": {
+          "callerSessionId": "A",
+          "routingSessionId": "R"
+        },
+        "surface": "agent",
+        "taskId": "t1"
+      },
+      {
+        "context": {
+          "routingSessionId": "B"
+        },
+        "meta": {
+          "sessionId": "sb"
+        },
+        "notify": {
+          "callerSessionId": "B",
+          "routingSessionId": "B"
+        },
+        "surface": "agent",
+        "taskId": "t2"
+      },
+      {
+        "context": {
+          "callerSessionId": "A"
+        },
+        "finish": "completed",
+        "meta": {
+          "sessionId": "sa2"
+        },
+        "notify": {
+          "callerSessionId": "A",
+          "routingSessionId": "A"
+        },
+        "surface": "agent",
+        "taskId": "t3"
+      },
+      {
+        "context": {},
+        "meta": {
+          "sessionId": "sx"
+        },
+        "notify": {
+          "callerSessionId": null,
+          "routingSessionId": null
+        },
+        "surface": "agent",
+        "taskId": "t4"
+      },
+      {
+        "context": {
+          "callerSessionId": "E"
+        },
+        "meta": {
+          "sessionId": ""
+        },
+        "notify": {
+          "callerSessionId": "E",
+          "routingSessionId": "E"
+        },
+        "surface": "agent",
+        "taskId": "t5"
+      },
+      {
+        "context": {
+          "sessionId": "C"
+        },
+        "meta": {
+          "sessionId": "sc",
+          "tag": "worker"
+        },
+        "notify": {
+          "callerSessionId": "C",
+          "routingSessionId": "C"
+        },
+        "surface": "agent",
+        "taskId": "t6"
+      },
+      {
+        "context": {
+          "callerSessionId": "D"
+        },
+        "meta": {},
+        "notify": {
+          "callerSessionId": "D",
+          "routingSessionId": "D"
+        },
+        "surface": "shell",
+        "taskId": "t7"
+      },
+      {
+        "context": {
+          "callerSessionId": "F"
+        },
+        "finish": "failed",
+        "meta": {
+          "sessionId": "sf"
+        },
+        "notify": {
+          "callerSessionId": "F",
+          "routingSessionId": "F"
+        },
+        "surface": "agent",
+        "taskId": "t8"
+      },
+      {
+        "context": {
+          "callerSessionId": "G"
+        },
+        "finish": "cancelled",
+        "meta": {
+          "sessionId": "sg"
+        },
+        "notify": {
+          "callerSessionId": "G",
+          "routingSessionId": "G"
+        },
+        "surface": "agent",
+        "taskId": "t9"
+      },
+      {
+        "context": {
+          "callerSessionId": "A"
+        },
+        "meta": {
+          "sessionId": "sa3"
+        },
+        "notify": {
+          "callerSessionId": "A",
+          "routingSessionId": "A"
+        },
+        "surface": "agent",
+        "taskId": "t10"
+      }
+    ]
+  },
+  "handoff": {
+    "collect": {
+      "cases": [
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": "go",
+              "role": "user"
+            },
+            {
+              "content": "Done. See [a](a.txt) and `b.md`, also <tmp>/work/sub/c.json and https://example.com/z.png then [spaced](sp%20ace.txt#top), [lined](a.txt:12:3), [file](file:///<tmp/>/work/b.md), [mail](mailto:a@b.c), [bad](%E0%A4%A.txt)",
+              "role": "assistant"
+            }
+          ],
+          "name": "reply links",
+          "result": {
+            "files": [
+              {
+                "id": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "a.txt",
+                "path": "<tmp>\\work\\a.txt",
+                "size": 6
+              },
+              {
+                "id": "4cf28831d09470e8185fbb6ace85c0ae1238bebb05972737d6422c7ff8783cce",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "sp ace.txt",
+                "path": "<tmp>\\work\\sp ace.txt",
+                "size": 6
+              },
+              {
+                "id": "d872451e4b3cda63d8cd50d1ea4bd9af3fbe0e8255bd3f9a6a16c84fcae54f7f",
+                "kind": "text",
+                "mimeType": "text/markdown",
+                "name": "b.md",
+                "path": "<tmp>\\work\\b.md",
+                "size": 4
+              },
+              {
+                "id": "015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862",
+                "kind": "text",
+                "mimeType": "application/json",
+                "name": "c.json",
+                "path": "<tmp>\\work\\sub\\c.json",
+                "size": 7
+              }
+            ],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": [
+                {
+                  "text": "first `a.txt`",
+                  "type": "text"
+                },
+                "and `b.md`",
+                {
+                  "type": "image"
+                }
+              ],
+              "role": "assistant"
+            }
+          ],
+          "name": "content parts",
+          "result": {
+            "files": [
+              {
+                "id": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "a.txt",
+                "path": "<tmp>\\work\\a.txt",
+                "size": 6
+              },
+              {
+                "id": "d872451e4b3cda63d8cd50d1ea4bd9af3fbe0e8255bd3f9a6a16c84fcae54f7f",
+                "kind": "text",
+                "mimeType": "text/markdown",
+                "name": "b.md",
+                "path": "<tmp>\\work\\b.md",
+                "size": 4
+              }
+            ],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": "old `a.txt`",
+              "role": "assistant"
+            },
+            {
+              "content": "   ",
+              "role": "assistant"
+            },
+            {
+              "content": "new `b.md`",
+              "role": "assistant"
+            },
+            {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"sub/c.json\"}",
+                    "name": "edit"
+                  }
+                }
+              ]
+            }
+          ],
+          "name": "last reply with text wins",
+          "result": {
+            "files": [
+              {
+                "id": "d872451e4b3cda63d8cd50d1ea4bd9af3fbe0e8255bd3f9a6a16c84fcae54f7f",
+                "kind": "text",
+                "mimeType": "text/markdown",
+                "name": "b.md",
+                "path": "<tmp>\\work\\b.md",
+                "size": 4
+              },
+              {
+                "id": "015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862",
+                "kind": "text",
+                "mimeType": "application/json",
+                "name": "c.json",
+                "path": "<tmp>\\work\\sub\\c.json",
+                "size": 7
+              }
+            ],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": "no paths here",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\" a.txt \"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"patch\":\"*** Begin Patch\\n*** Add File: many/f1.txt\\n+x\\n*** Update File: sub/c.json\\n*** Move to: b.md\\n*** End Patch\"}",
+                    "name": "apply_patch"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"action\":\"generate\",\"path\":\"img.png\"}",
+                    "name": "media"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"action\":\"status\",\"path\":\"p.svg\"}",
+                    "name": "media"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"action\":\"edit\",\"path\":\"doc.docx\"}",
+                    "name": "media"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"action\":\"author\",\"output\":\"doc.docx\",\"path\":\"s.pdf\"}",
+                    "name": "office"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"action\":\"read\",\"path\":\"noext\"}",
+                    "name": "office"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"action\":\"open\",\"input\":{\"output\":\"p.svg\",\"targets\":[\"b.md\",\"https://x.test/a.png\",\"ftp://h/f.txt\"]}}",
+                    "name": "visualize"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"action\":\"render\",\"input\":{\"targets\":[\"a.txt\"]}}",
+                    "name": "visualize"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "not json",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":3}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"path\":\"a.txt\"}",
+                    "name": "shell"
+                  }
+                }
+              ]
+            },
+            {
+              "content": "also",
+              "role": "assistant",
+              "toolCalls": [
+                {
+                  "arguments": {
+                    "file_path": "many/f2.txt"
+                  },
+                  "name": "edit"
+                },
+                {
+                  "input": {
+                    "file_path": "many/f3.txt"
+                  },
+                  "name": "edit"
+                }
+              ]
+            }
+          ],
+          "name": "tool calls",
+          "result": {
+            "files": [
+              {
+                "id": "218ad85a233eff829618a6865ab681222b734c62d35a32b3eabd5c37d8945f86",
+                "kind": "image",
+                "mimeType": "image/png",
+                "name": "img.png",
+                "path": "<tmp>\\work\\img.png",
+                "size": 12
+              },
+              {
+                "id": "d4dc56669143034f31aa309635d4113d9ad76a02b1739da22c965ed2049be9e6",
+                "kind": "text",
+                "mimeType": "image/svg+xml",
+                "name": "p.svg",
+                "path": "<tmp>\\work\\p.svg",
+                "size": 6
+              },
+              {
+                "id": "42164df5742dbd849bfb4ca39b66fbd2653af7096619be7c2e3b789e2236a382",
+                "kind": "file",
+                "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "name": "doc.docx",
+                "path": "<tmp>\\work\\doc.docx",
+                "size": 6
+              },
+              {
+                "id": "86edbaa24831badfa0a8b04bb410141e2ee4182b6d0014493fe262a7a331c20b",
+                "kind": "file",
+                "mimeType": "application/pdf",
+                "name": "s.pdf",
+                "path": "<tmp>\\work\\s.pdf",
+                "size": 8
+              },
+              {
+                "id": "d872451e4b3cda63d8cd50d1ea4bd9af3fbe0e8255bd3f9a6a16c84fcae54f7f",
+                "kind": "text",
+                "mimeType": "text/markdown",
+                "name": "b.md",
+                "path": "<tmp>\\work\\b.md",
+                "size": 4
+              },
+              {
+                "id": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "a.txt",
+                "path": "<tmp>\\work\\a.txt",
+                "size": 6
+              },
+              {
+                "id": "3f524cdc07a11d7c6220bdb049fe8dd41b27483c96cc59b581e022d547290d69",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f1.txt",
+                "path": "<tmp>\\work\\many\\f1.txt",
+                "size": 2
+              },
+              {
+                "id": "015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862",
+                "kind": "text",
+                "mimeType": "application/json",
+                "name": "c.json",
+                "path": "<tmp>\\work\\sub\\c.json",
+                "size": 7
+              }
+            ],
+            "omitted": 2
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": "x",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": {
+                      "file_path": "a.txt"
+                    },
+                    "name": "edit"
+                  }
+                },
+                {
+                  "arguments": "{\"file_path\":\"b.md\"}",
+                  "name": "edit"
+                },
+                {
+                  "input": {
+                    "file_path": "noext"
+                  },
+                  "name": "edit"
+                },
+                {
+                  "arguments": {
+                    "file_path": "many/f4.txt"
+                  },
+                  "function": {
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "",
+                    "name": "edit"
+                  },
+                  "input": {
+                    "file_path": "many/f5.txt"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": null,
+                    "name": "edit"
+                  },
+                  "input": {
+                    "file_path": "many/f6.txt"
+                  }
+                },
+                null
+              ]
+            }
+          ],
+          "name": "argument shapes",
+          "result": {
+            "files": [
+              {
+                "id": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "a.txt",
+                "path": "<tmp>\\work\\a.txt",
+                "size": 6
+              },
+              {
+                "id": "d872451e4b3cda63d8cd50d1ea4bd9af3fbe0e8255bd3f9a6a16c84fcae54f7f",
+                "kind": "text",
+                "mimeType": "text/markdown",
+                "name": "b.md",
+                "path": "<tmp>\\work\\b.md",
+                "size": 4
+              },
+              {
+                "id": "fcfb09747001a6e80d289a03381a059d7771bc472c6320851e9371c009e36781",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "noext",
+                "path": "<tmp>\\work\\noext",
+                "size": 11
+              },
+              {
+                "id": "608cdb524384f5ee06edc2830d6b13a92047229398768ff88e28ad68d02569e8",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f4.txt",
+                "path": "<tmp>\\work\\many\\f4.txt",
+                "size": 2
+              },
+              {
+                "id": "3efda6ee78c31bab6995b1122ec13f6adf73e55fb20b18be11027cba91bcc254",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f6.txt",
+                "path": "<tmp>\\work\\many\\f6.txt",
+                "size": 2
+              }
+            ],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": "`a.txt` `./a.txt` `sub/../a.txt` <tmp>/work/a.txt `a.txt`",
+              "role": "assistant"
+            }
+          ],
+          "name": "dedupe",
+          "result": {
+            "files": [
+              {
+                "id": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "a.txt",
+                "path": "<tmp>\\work\\a.txt",
+                "size": 6
+              }
+            ],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"many/f0.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"many/f1.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"many/f2.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"many/f3.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"many/f4.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"many/f5.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"many/f6.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"many/f7.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"many/f8.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"many/f9.txt\"}",
+                    "name": "edit"
+                  }
+                }
+              ]
+            }
+          ],
+          "name": "ten files cap",
+          "result": {
+            "files": [
+              {
+                "id": "865ab0d317f36965e43d20d275b545a6773137adad19db1d61ecb8032f473e0b",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f0.txt",
+                "path": "<tmp>\\work\\many\\f0.txt",
+                "size": 2
+              },
+              {
+                "id": "3f524cdc07a11d7c6220bdb049fe8dd41b27483c96cc59b581e022d547290d69",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f1.txt",
+                "path": "<tmp>\\work\\many\\f1.txt",
+                "size": 2
+              },
+              {
+                "id": "e4ab4e3b1493d5a997b4e51cdefbaa10570ef3ea9432bd72e7b6a89654ceb7f6",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f2.txt",
+                "path": "<tmp>\\work\\many\\f2.txt",
+                "size": 2
+              },
+              {
+                "id": "625e0f649de27800fc3bcf4c118ef79f69dcb762c2e73fbb1cfce0e7a86f6b80",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f3.txt",
+                "path": "<tmp>\\work\\many\\f3.txt",
+                "size": 2
+              },
+              {
+                "id": "608cdb524384f5ee06edc2830d6b13a92047229398768ff88e28ad68d02569e8",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f4.txt",
+                "path": "<tmp>\\work\\many\\f4.txt",
+                "size": 2
+              },
+              {
+                "id": "b6e1288527a6032c0f29c9da2c599202cc250fb404e4783820d4ce0b09459989",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f5.txt",
+                "path": "<tmp>\\work\\many\\f5.txt",
+                "size": 2
+              },
+              {
+                "id": "3efda6ee78c31bab6995b1122ec13f6adf73e55fb20b18be11027cba91bcc254",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f6.txt",
+                "path": "<tmp>\\work\\many\\f6.txt",
+                "size": 2
+              },
+              {
+                "id": "9327ca99aaea2b8f025e61e53b64fcdd38d7e5c0ad893c4ed271d3622ac14548",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "f7.txt",
+                "path": "<tmp>\\work\\many\\f7.txt",
+                "size": 2
+              }
+            ],
+            "omitted": 2
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": "`bigA.txt` `bigB.txt` `huge.txt` `a.txt`",
+              "role": "assistant"
+            }
+          ],
+          "name": "text budget",
+          "result": {
+            "files": [
+              {
+                "id": "0071c4a7e7200b572501284e9a46954580950d9a73d401869236e87ed2ce99f8",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "bigA.txt",
+                "path": "<tmp>\\work\\bigA.txt",
+                "size": 500000
+              },
+              {
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "bigB.txt",
+                "path": "<tmp>\\work\\bigB.txt",
+                "size": 500000
+              },
+              {
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "huge.txt",
+                "path": "<tmp>\\work\\huge.txt",
+                "size": 800000
+              },
+              {
+                "id": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "a.txt",
+                "path": "<tmp>\\work\\a.txt",
+                "size": 6
+              }
+            ],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": "`img.png` `doc.dat` `x.exe` `empty.txt` `p.svg` `s.pdf` `doc.docx` `folder.txt` `missing.txt`",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"blob\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"folder.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"missing.txt\"}",
+                    "name": "edit"
+                  }
+                },
+                {
+                  "function": {
+                    "arguments": "{\"file_path\":\"noext\"}",
+                    "name": "edit"
+                  }
+                }
+              ]
+            }
+          ],
+          "name": "types",
+          "result": {
+            "files": [
+              {
+                "id": "218ad85a233eff829618a6865ab681222b734c62d35a32b3eabd5c37d8945f86",
+                "kind": "image",
+                "mimeType": "image/png",
+                "name": "img.png",
+                "path": "<tmp>\\work\\img.png",
+                "size": 12
+              },
+              {
+                "id": "10c14705016e719a2a3e98653d2fa0572d504fc646db70a31766d242d4d4d81f",
+                "kind": "file",
+                "mimeType": "application/pdf",
+                "name": "doc.dat",
+                "path": "<tmp>\\work\\doc.dat",
+                "size": 13
+              },
+              {
+                "kind": "file",
+                "mimeType": "application/octet-stream",
+                "name": "x.exe",
+                "path": "<tmp>\\work\\x.exe",
+                "size": 2
+              },
+              {
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "empty.txt",
+                "path": "<tmp>\\work\\empty.txt",
+                "size": 0
+              },
+              {
+                "id": "d4dc56669143034f31aa309635d4113d9ad76a02b1739da22c965ed2049be9e6",
+                "kind": "text",
+                "mimeType": "image/svg+xml",
+                "name": "p.svg",
+                "path": "<tmp>\\work\\p.svg",
+                "size": 6
+              },
+              {
+                "id": "86edbaa24831badfa0a8b04bb410141e2ee4182b6d0014493fe262a7a331c20b",
+                "kind": "file",
+                "mimeType": "application/pdf",
+                "name": "s.pdf",
+                "path": "<tmp>\\work\\s.pdf",
+                "size": 8
+              },
+              {
+                "id": "42164df5742dbd849bfb4ca39b66fbd2653af7096619be7c2e3b789e2236a382",
+                "kind": "file",
+                "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "name": "doc.docx",
+                "path": "<tmp>\\work\\doc.docx",
+                "size": 6
+              },
+              {
+                "kind": "file",
+                "mimeType": "application/octet-stream",
+                "name": "blob",
+                "path": "<tmp>\\work\\blob",
+                "size": 5
+              }
+            ],
+            "omitted": 1
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": "`.env` <tmp>/outside/o.txt `../outside/o.txt` `a.txt`",
+              "role": "assistant"
+            }
+          ],
+          "name": "excluded",
+          "result": {
+            "files": [
+              {
+                "id": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "a.txt",
+                "path": "<tmp>\\work\\a.txt",
+                "size": 6
+              }
+            ],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>",
+          "messages": [
+            {
+              "content": "<tmp>/home/secrets/k.txt <tmp>/home/mixdog-config.json <tmp>/data-dir/ok.txt <tmp>/data-dir/auth.json",
+              "role": "assistant"
+            }
+          ],
+          "name": "mixdog state",
+          "result": {
+            "files": [
+              {
+                "id": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "ok.txt",
+                "path": "<tmp>\\data-dir\\ok.txt",
+                "size": 2
+              }
+            ],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": [
+            {
+              "content": "`a.txt`",
+              "role": "user"
+            }
+          ],
+          "name": "no assistant",
+          "result": {
+            "files": [],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "<tmp>/work",
+          "messages": null,
+          "name": "not a list",
+          "result": {
+            "files": [],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        },
+        {
+          "cwd": "",
+          "messages": [
+            {
+              "content": "<tmp>/work/a.txt",
+              "role": "assistant"
+            }
+          ],
+          "name": "cwd absent",
+          "result": {
+            "files": [
+              {
+                "id": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+                "kind": "text",
+                "mimeType": "text/plain",
+                "name": "a.txt",
+                "path": "<tmp>\\work\\a.txt",
+                "size": 6
+              }
+            ],
+            "omitted": 0
+          },
+          "roots": [
+            "<tmp>/work"
+          ]
+        }
+      ],
+      "files": [
+        {
+          "path": "work/a.txt",
+          "text": "hello\n"
+        },
+        {
+          "path": "work/b.md",
+          "text": "# b\n"
+        },
+        {
+          "hex": "89504e470d0a1a0a0000000d",
+          "path": "work/img.png"
+        },
+        {
+          "path": "work/doc.dat",
+          "text": "%PDF-1.4 body"
+        },
+        {
+          "hex": "0001020304",
+          "path": "work/blob"
+        },
+        {
+          "path": "work/x.exe",
+          "text": "MZ"
+        },
+        {
+          "path": "work/noext",
+          "text": "plain words"
+        },
+        {
+          "path": "work/empty.txt",
+          "text": ""
+        },
+        {
+          "path": "work/sub/c.json",
+          "text": "{\"a\":1}"
+        },
+        {
+          "path": "work/sp ace.txt",
+          "text": "spaced"
+        },
+        {
+          "path": "work/.env",
+          "text": "K=V"
+        },
+        {
+          "dir": true,
+          "path": "work/folder.txt"
+        },
+        {
+          "fill": [
+            "a",
+            500000
+          ],
+          "path": "work/bigA.txt"
+        },
+        {
+          "fill": [
+            "b",
+            500000
+          ],
+          "path": "work/bigB.txt"
+        },
+        {
+          "fill": [
+            "h",
+            800000
+          ],
+          "path": "work/huge.txt"
+        },
+        {
+          "path": "work/p.svg",
+          "text": "<svg/>"
+        },
+        {
+          "path": "work/s.pdf",
+          "text": "%PDF-1.7"
+        },
+        {
+          "path": "work/doc.docx",
+          "text": "PKdocx"
+        },
+        {
+          "path": "work/many/f0.txt",
+          "text": "f0"
+        },
+        {
+          "path": "work/many/f1.txt",
+          "text": "f1"
+        },
+        {
+          "path": "work/many/f2.txt",
+          "text": "f2"
+        },
+        {
+          "path": "work/many/f3.txt",
+          "text": "f3"
+        },
+        {
+          "path": "work/many/f4.txt",
+          "text": "f4"
+        },
+        {
+          "path": "work/many/f5.txt",
+          "text": "f5"
+        },
+        {
+          "path": "work/many/f6.txt",
+          "text": "f6"
+        },
+        {
+          "path": "work/many/f7.txt",
+          "text": "f7"
+        },
+        {
+          "path": "work/many/f8.txt",
+          "text": "f8"
+        },
+        {
+          "path": "work/many/f9.txt",
+          "text": "f9"
+        },
+        {
+          "path": "outside/o.txt",
+          "text": "out"
+        },
+        {
+          "path": "home/secrets/k.txt",
+          "text": "k"
+        },
+        {
+          "path": "home/mixdog-config.json",
+          "text": "{}"
+        },
+        {
+          "path": "data-dir/ok.txt",
+          "text": "ok"
+        },
+        {
+          "path": "data-dir/auth.json",
+          "text": "{}"
+        }
+      ]
+    },
+    "scopes": [
+      {
+        "root": [
+          "c",
+          "users",
+          "u",
+          ".mixdog"
+        ]
+      },
+      {
+        "root": [
+          "c",
+          "users",
+          "u",
+          ".mixdog",
+          "data"
+        ]
+      }
+    ],
+    "sensitive": [
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\proj\\.git\\config"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\.SSH\\id_rsa"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\.gnupg\\x"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\a.env"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\.env"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\.env.example"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\.envrc"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\prod.env"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\a.b.c.d.e.env"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\environment.txt"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\x.pem"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\KEYS.PEM"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\k.kdbx"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\id_ed25519"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\id_rsa.pub"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\id_rsa_notes.md"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\id_rsa_work"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\id_x"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\.npmrc"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\.npmrc.bak"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\.npmrc.bak.1"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\.npmrc~"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\kubeconfig"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\service-account-key.json"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\my_credentials.json"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\client_secret_123.json"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\credentials.txt"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\Users\\u\\.docker\\config.json"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.docker\\other.json"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\Users\\u\\AppData\\Roaming\\gcloud\\a"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\Users\\u\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cookies"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\Users\\u\\AppData\\Roaming\\Opera Software\\x"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\Users\\u\\.cargo\\credentials.toml"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.cargo\\config.toml"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\Windows\\System32\\config\\SAM"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\etc\\ssh\\sshd_config"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\etc\\hosts"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\readme.md"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\notes.txt"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\notes.txt:stream"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\x.pem."
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\x.pem "
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\a b.txt"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\src\\main.rs"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "\\\\?\\C:\\work\\.ssh\\k"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\.gitignore"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\work\\.github\\ci.yml"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\a.keystore"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\a.keychain-db"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\x.p12.old"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": true,
+        "path": "C:\\work\\.pgpass"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\secrets\\a"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\mixdog-config.json"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\auth.json"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\data\\x.dpapi"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\data\\a.token"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\data\\tool-results\\a.txt"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\data\\openai-oauth.json"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\data\\provider-accounts\\a"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\data\\sessions\\s.json"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\data\\media\\a.png"
+      },
+      {
+        "denied": true,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\.mixdog\\data\\foo-bridge.json"
+      },
+      {
+        "denied": false,
+        "deniedWithoutScopes": false,
+        "path": "C:\\Users\\u\\other\\auth.json"
+      }
+    ],
+    "turnSlices": [
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "c0"
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "a",
+            "role": "assistant"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "c1"
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "last",
+            "role": "assistant"
+          }
+        ],
+        "name": "checkpoint id",
+        "options": {
+          "runId": "c1"
+        },
+        "slice": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "c1"
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "last",
+            "role": "assistant"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "submissionIds": [
+                  "s0"
+                ]
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "a",
+            "role": "assistant"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "submissionIds": [
+                  "s1",
+                  "s2"
+                ]
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "x",
+            "role": "assistant"
+          }
+        ],
+        "name": "transcript submission ids",
+        "options": {
+          "runId": "s2"
+        },
+        "slice": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "submissionIds": [
+                  "s1",
+                  "s2"
+                ]
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "x",
+            "role": "assistant"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "submissionIds": [
+                "m0"
+              ]
+            },
+            "role": "user"
+          },
+          {
+            "content": "r",
+            "role": "assistant"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "submissionIds": [
+                "m1"
+              ]
+            },
+            "role": "user"
+          }
+        ],
+        "name": "meta submission ids",
+        "options": {
+          "runId": "m1"
+        },
+        "slice": [
+          {
+            "content": "u",
+            "meta": {
+              "submissionIds": [
+                "m1"
+              ]
+            },
+            "role": "user"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "c0"
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "a",
+            "role": "assistant"
+          }
+        ],
+        "name": "unknown run id",
+        "options": {
+          "runId": "nope"
+        },
+        "slice": []
+      },
+      {
+        "messages": [
+          {
+            "content": "a",
+            "meta": {
+              "transcript": {
+                "checkpointId": "c9"
+              }
+            },
+            "role": "assistant"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "c1"
+              }
+            },
+            "role": "user"
+          }
+        ],
+        "name": "assistant ids ignored",
+        "options": {
+          "runId": "c9"
+        },
+        "slice": []
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "dup"
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "1",
+            "role": "assistant"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "dup"
+              }
+            },
+            "role": "user"
+          }
+        ],
+        "name": "first match wins",
+        "options": {
+          "runId": "dup"
+        },
+        "slice": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "dup"
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "1",
+            "role": "assistant"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "dup"
+              }
+            },
+            "role": "user"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": 100
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "a",
+            "role": "assistant"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": 200
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "z",
+            "role": "assistant"
+          }
+        ],
+        "name": "since",
+        "options": {
+          "since": 150
+        },
+        "slice": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": 200
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "z",
+            "role": "assistant"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": 100
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": 200
+              }
+            },
+            "role": "user"
+          }
+        ],
+        "name": "since equal",
+        "options": {
+          "since": 200
+        },
+        "slice": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": 200
+              }
+            },
+            "role": "user"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": "300"
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "a",
+            "role": "assistant"
+          }
+        ],
+        "name": "since text number",
+        "options": {
+          "since": 250
+        },
+        "slice": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": "300"
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "a",
+            "role": "assistant"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "role": "user"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {}
+            },
+            "role": "user"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": null
+              }
+            },
+            "role": "user"
+          }
+        ],
+        "name": "since without at",
+        "options": {
+          "since": 1
+        },
+        "slice": []
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": 100
+              }
+            },
+            "role": "user"
+          }
+        ],
+        "name": "since beyond all",
+        "options": {
+          "since": 500
+        },
+        "slice": []
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": 900
+              }
+            },
+            "role": "user"
+          },
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "c1"
+              }
+            },
+            "role": "user"
+          }
+        ],
+        "name": "run id wins over since",
+        "options": {
+          "runId": "c1",
+          "since": 100
+        },
+        "slice": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "c1"
+              }
+            },
+            "role": "user"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "role": "user"
+          },
+          {
+            "content": "r",
+            "role": "assistant"
+          }
+        ],
+        "name": "neither",
+        "options": {},
+        "slice": [
+          {
+            "content": "u",
+            "role": "user"
+          },
+          {
+            "content": "r",
+            "role": "assistant"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "role": "user"
+          },
+          {
+            "content": "r",
+            "role": "assistant"
+          }
+        ],
+        "name": "zero since",
+        "options": {
+          "since": 0
+        },
+        "slice": [
+          {
+            "content": "u",
+            "role": "user"
+          },
+          {
+            "content": "r",
+            "role": "assistant"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": 5
+              }
+            },
+            "role": "user"
+          }
+        ],
+        "name": "negative since",
+        "options": {
+          "since": -1
+        },
+        "slice": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "at": 5
+              }
+            },
+            "role": "user"
+          }
+        ]
+      },
+      {
+        "messages": [],
+        "name": "empty",
+        "options": {
+          "runId": "x"
+        },
+        "slice": []
+      },
+      {
+        "messages": {
+          "0": "a"
+        },
+        "name": "not a list",
+        "options": {
+          "since": 1
+        },
+        "slice": []
+      },
+      {
+        "messages": [
+          null,
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "k"
+              }
+            },
+            "role": "user"
+          }
+        ],
+        "name": "null entries",
+        "options": {
+          "runId": "k"
+        },
+        "slice": [
+          {
+            "content": "u",
+            "meta": {
+              "transcript": {
+                "checkpointId": "k"
+              }
+            },
+            "role": "user"
+          }
+        ]
+      },
+      {
+        "messages": [
+          {
+            "content": "u",
+            "meta": {
+              "submissionIds": {
+                "0": "k"
+              },
+              "transcript": {
+                "submissionIds": "k"
+              }
+            },
+            "role": "user"
+          }
+        ],
+        "name": "non-array ids",
+        "options": {
+          "runId": "k"
+        },
+        "slice": []
+      }
+    ]
+  },
+  "inFlight": {
+    "cases": [
+      {
+        "after": {
+          "agentWorking": [],
+          "working": []
+        },
+        "dispatched": [],
+        "during": {
+          "agentWorking": [],
+          "working": []
+        },
+        "entries": {},
+        "name": "empty"
+      },
+      {
+        "after": {
+          "agentWorking": [],
+          "working": [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e"
+          ]
+        },
+        "dispatched": [],
+        "during": {
+          "agentWorking": [],
+          "working": [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e"
+          ]
+        },
+        "entries": {
+          "a": {
+            "stage": "connecting"
+          },
+          "b": {
+            "stage": "requesting"
+          },
+          "c": {
+            "stage": "streaming"
+          },
+          "d": {
+            "stage": "tool_running"
+          },
+          "e": {
+            "stage": "cancelling"
+          },
+          "f": {
+            "stage": "idle"
+          },
+          "g": {
+            "stage": "done"
+          },
+          "h": {},
+          "i": {
+            "stage": "Streaming"
+          }
+        },
+        "name": "stages"
+      },
+      {
+        "after": {
+          "agentWorking": [],
+          "working": [
+            "abortedStreaming",
+            "live",
+            "liveIdle"
+          ]
+        },
+        "dispatched": [],
+        "during": {
+          "agentWorking": [],
+          "working": [
+            "abortedStreaming",
+            "live",
+            "liveIdle"
+          ]
+        },
+        "entries": {
+          "aborted": {
+            "controller": "aborted"
+          },
+          "abortedStreaming": {
+            "controller": "aborted",
+            "stage": "streaming"
+          },
+          "live": {
+            "controller": "live"
+          },
+          "liveIdle": {
+            "controller": "live",
+            "stage": "idle"
+          }
+        },
+        "name": "controller"
+      },
+      {
+        "after": {
+          "agentWorking": [],
+          "working": [
+            "closedTruthy",
+            "openFalse"
+          ]
+        },
+        "dispatched": [],
+        "during": {
+          "agentWorking": [],
+          "working": [
+            "closedTruthy",
+            "openFalse"
+          ]
+        },
+        "entries": {
+          "closedLive": {
+            "closed": true,
+            "controller": "live"
+          },
+          "closedStage": {
+            "closed": true,
+            "stage": "streaming"
+          },
+          "closedTruthy": {
+            "closed": 1,
+            "stage": "streaming"
+          },
+          "openFalse": {
+            "closed": false,
+            "stage": "streaming"
+          }
+        },
+        "name": "closed"
+      },
+      {
+        "after": {
+          "agentWorking": [
+            "12",
+            "lead-1",
+            "lead-13",
+            "lead-2",
+            "lead-4",
+            "lead-7"
+          ],
+          "working": [
+            "w1",
+            "w11",
+            "w12",
+            "w13",
+            "w2",
+            "w3",
+            "w4",
+            "w5",
+            "w6",
+            "w7",
+            "w8",
+            "w9"
+          ]
+        },
+        "dispatched": [],
+        "during": {
+          "agentWorking": [
+            "12",
+            "lead-1",
+            "lead-13",
+            "lead-2",
+            "lead-4",
+            "lead-7"
+          ],
+          "working": [
+            "w1",
+            "w11",
+            "w12",
+            "w13",
+            "w2",
+            "w3",
+            "w4",
+            "w5",
+            "w6",
+            "w7",
+            "w8",
+            "w9"
+          ]
+        },
+        "entries": {
+          "w1": {
+            "session": {
+              "owner": "agent",
+              "ownerSessionId": "lead-1"
+            },
+            "stage": "streaming"
+          },
+          "w10": {
+            "session": {
+              "owner": "agent",
+              "ownerSessionId": "lead-10"
+            },
+            "stage": "idle"
+          },
+          "w11": {
+            "session": null,
+            "stage": "streaming"
+          },
+          "w12": {
+            "session": {
+              "agent": "  ",
+              "ownerSessionId": "lead-12"
+            },
+            "stage": "streaming"
+          },
+          "w13": {
+            "controller": "live",
+            "session": {
+              "agent": "worker",
+              "owner": "LEAD",
+              "ownerSessionId": "lead-13"
+            }
+          },
+          "w2": {
+            "session": {
+              "agent": "worker",
+              "parentSessionId": "lead-2"
+            },
+            "stage": "streaming"
+          },
+          "w3": {
+            "session": {
+              "agent": "Lead",
+              "ownerSessionId": "lead-3"
+            },
+            "stage": "streaming"
+          },
+          "w4": {
+            "session": {
+              "owner": "AGENT ",
+              "ownerSessionId": " lead-4 "
+            },
+            "stage": "streaming"
+          },
+          "w5": {
+            "session": {
+              "owner": "agent",
+              "ownerSessionId": "w5"
+            },
+            "stage": "streaming"
+          },
+          "w6": {
+            "session": {
+              "agent": "worker"
+            },
+            "stage": "streaming"
+          },
+          "w7": {
+            "session": {
+              "agent": " Reviewer ",
+              "ownerSessionId": "",
+              "parentSessionId": "lead-7"
+            },
+            "stage": "streaming"
+          },
+          "w8": {
+            "session": {
+              "owner": "user",
+              "ownerSessionId": "lead-8"
+            },
+            "stage": "streaming"
+          },
+          "w9": {
+            "session": {
+              "agent": "worker",
+              "ownerSessionId": 12,
+              "parentSessionId": "x"
+            },
+            "stage": "streaming"
+          }
+        },
+        "name": "agent owners"
+      },
+      {
+        "after": {
+          "agentWorking": [],
+          "working": []
+        },
+        "dispatched": [
+          "d1",
+          "d2",
+          "d1"
+        ],
+        "during": {
+          "agentWorking": [],
+          "working": [
+            "d1",
+            "d2"
+          ]
+        },
+        "entries": {},
+        "name": "dispatched only"
+      },
+      {
+        "after": {
+          "agentWorking": [],
+          "working": [
+            "r1"
+          ]
+        },
+        "dispatched": [
+          "d1",
+          "r1",
+          "d3"
+        ],
+        "during": {
+          "agentWorking": [],
+          "working": [
+            "d1",
+            "d3",
+            "r1"
+          ]
+        },
+        "entries": {
+          "d1": {
+            "stage": "idle"
+          },
+          "r1": {
+            "stage": "streaming"
+          }
+        },
+        "name": "dispatched and running"
+      }
+    ],
+    "sequence": [
+      {
+        "agentWorking": [],
+        "step": "two dispatched",
+        "working": [
+          "s"
+        ]
+      },
+      {
+        "agentWorking": [],
+        "step": "one settled",
+        "working": [
+          "s"
+        ]
+      },
+      {
+        "agentWorking": [],
+        "step": "both settled",
+        "working": []
+      },
+      {
+        "agentWorking": [],
+        "step": "throwing run in flight",
+        "working": [
+          "t"
+        ]
+      },
+      {
+        "agentWorking": [],
+        "message": "boom",
+        "step": "throwing run settled",
+        "working": []
+      }
+    ],
+    "stages": [
+      "connecting",
+      "requesting",
+      "streaming",
+      "tool_running",
+      "cancelling"
+    ]
+  }
+}

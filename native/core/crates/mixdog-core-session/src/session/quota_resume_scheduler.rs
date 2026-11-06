@@ -14,7 +14,7 @@ use mixdog_core_base::quota_resume::{Entry, QuotaError, QuotaResumeStore};
 use mixdog_js::json_number;
 use mixdog_rt::CancellationToken;
 use serde_json::json;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
 
 /// A still-exhausted reading is re-taken once, this much later.
@@ -131,7 +131,8 @@ fn message(error: QuotaError) -> String {
     error.to_string()
 }
 
-/// One start of the clock: what its task shares.
+/// The one pass state the clock's timer and every public `tick()` share: the holdoffs and the
+/// pass in flight live here, not in a call.
 struct Pass {
     store: Arc<QuotaResumeStore>,
     host: Arc<dyn ResumeHost>,
@@ -143,6 +144,22 @@ struct Pass {
     /// `at`, so a full disk is not retried in a loop. Only that entry waits; the one timer still
     /// goes to the earliest time any entry may run.
     not_before: Mutex<HashMap<String, (u64, f64)>>,
+    /// The pass in flight, as a signal that turns true when it ends. A tick that finds one waits
+    /// for it instead of starting another, as Node's `tick()` answers `running`.
+    running: Mutex<Option<watch::Receiver<bool>>>,
+}
+
+/// Ends the pass in flight when its leader finishes or is dropped.
+struct Release<'a> {
+    pass: &'a Pass,
+    finished: watch::Sender<bool>,
+}
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        *self.pass.running.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        self.finished.send_replace(true);
+    }
 }
 
 fn number(value: &serde_json::Number) -> f64 {
@@ -163,7 +180,7 @@ impl Pass {
         let mut held = self.not_before.lock().unwrap_or_else(PoisonError::into_inner);
         match held.get(&entry.session_id) {
             Some((generation, _)) if *generation != entry.generation => {
-                held.remove(&entry.session_id);
+                held.retain(|id, _| id != &entry.session_id);
                 reset
             }
             Some((_, at)) => reset.max(*at),
@@ -251,8 +268,36 @@ impl Pass {
         Ok(Outcome::Fire(outcome))
     }
 
-    /// Runs every due entry now.
+    /// Runs every due entry now. A call that finds a pass in flight waits for that pass, so one
+    /// generation is never fired by two passes; after `stop` it does nothing.
     async fn tick(&self) {
+        let leader = {
+            let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
+            if self.closed() {
+                return;
+            }
+            match running.as_ref() {
+                Some(done) => Err(done.clone()),
+                None => {
+                    let (finished, done) = watch::channel(false);
+                    *running = Some(done);
+                    Ok(finished)
+                }
+            }
+        };
+        match leader {
+            Err(mut done) => {
+                // Ends when the leader's release signals, or when the leader is dropped.
+                let _ = done.wait_for(|finished| *finished).await;
+            }
+            Ok(finished) => {
+                let _release = Release { pass: self, finished };
+                self.run_pass().await;
+            }
+        }
+    }
+
+    async fn run_pass(&self) {
         if let Err(error) = self.run_due().await {
             // Not tied to one entry (the setting's cancel-all): all wait.
             for entry in self.store.list() {
@@ -281,7 +326,7 @@ impl Pass {
             }
             match self.resume_due(&entry).await {
                 Ok(outcome) => {
-                    self.not_before.lock().unwrap_or_else(PoisonError::into_inner).remove(&entry.session_id);
+                    self.not_before.lock().unwrap_or_else(PoisonError::into_inner).retain(|id, _| id != &entry.session_id);
                     (self.log)(&format!("quota resume session={} outcome={}", entry.session_id, outcome.as_str()));
                 }
                 Err(error) => {
@@ -318,18 +363,10 @@ impl Pass {
     }
 }
 
-struct Started {
-    cancel: CancellationToken,
-    task: JoinHandle<()>,
-}
-
 pub struct QuotaResumeScheduler {
-    store: Arc<QuotaResumeStore>,
-    host: Arc<dyn ResumeHost>,
-    clock: Arc<dyn ResumeClock>,
-    auto_resume: Arc<dyn Fn() -> bool + Send + Sync>,
-    log: ResumeLog,
-    started: Mutex<Option<Started>>,
+    pass: Arc<Pass>,
+    /// The timer's task, once started.
+    started: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl QuotaResumeScheduler {
@@ -341,58 +378,57 @@ impl QuotaResumeScheduler {
         auto_resume: Arc<dyn Fn() -> bool + Send + Sync>,
         log: ResumeLog,
     ) -> Self {
-        Self { store, host, clock, auto_resume, log, started: Mutex::new(None) }
-    }
-
-    fn pass(&self, cancel: CancellationToken) -> Pass {
-        Pass {
-            store: self.store.clone(),
-            host: self.host.clone(),
-            clock: self.clock.clone(),
-            auto_resume: self.auto_resume.clone(),
-            log: self.log.clone(),
-            cancel,
-            not_before: Mutex::default(),
-        }
+        let pass = Pass { store, host, clock, auto_resume, log, cancel: CancellationToken::new(), not_before: Mutex::default(), running: Mutex::default() };
+        Self { pass: Arc::new(pass), started: Mutex::new(None) }
     }
 
     /// The delay the one timer would wait now, or none when nothing is queued.
     pub fn armed_ms(&self) -> Option<u64> {
-        self.pass(CancellationToken::new()).arm()
+        self.pass.arm()
     }
 
-    /// `tick()`: runs every due entry now, and answers the delay the timer re-arms for.
+    /// `tick()`: runs every due entry now (joining the pass already running, if any), and answers
+    /// the delay the timer re-arms for. After `stop` it runs nothing and answers none.
     pub async fn tick(&self) -> Option<u64> {
-        let pass = self.pass(CancellationToken::new());
-        pass.tick().await;
-        pass.arm()
+        if self.pass.closed() {
+            return None;
+        }
+        self.pass.tick().await;
+        self.pass.arm()
     }
 
-    /// Starts the clock; entries already due run right away.
+    /// Starts the clock; entries already due run right away. A stopped clock stays stopped.
     pub fn start(&self) {
         let mut started = self.started.lock().unwrap_or_else(PoisonError::into_inner);
-        if started.is_some() {
+        if started.is_some() || self.pass.closed() {
             return;
         }
-        let cancel = CancellationToken::new();
         let changed = Arc::new(Notify::new());
         let subscription = {
             let changed = changed.clone();
-            self.store.subscribe(move |_| changed.notify_one())
+            self.pass.store.subscribe(move |_| changed.notify_one())
         };
-        let pass = Arc::new(self.pass(cancel.clone()));
-
-        let task = tokio::spawn(async move {
+        let pass = self.pass.clone();
+        *started = Some(tokio::spawn(async move {
             let _subscription = subscription;
             pass.run(changed).await;
-        });
-        *started = Some(Started { cancel, task });
+        }));
     }
 
-    pub fn stop(&self) {
-        if let Some(started) = self.started.lock().unwrap_or_else(PoisonError::into_inner).take() {
-            started.cancel.cancel();
-            started.task.abort();
+    /// Ends the clock for good: the timer's task and the pass in flight (its current entry
+    /// finishes, no further one starts) are over when this returns, and no tick runs after it.
+    pub async fn stop(&self) {
+        self.pass.cancel.cancel();
+        let task = self.started.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(task) = task
+            && let Err(error) = task.await
+            && error.is_panic()
+        {
+            std::panic::resume_unwind(error.into_panic());
+        }
+        let in_flight = self.pass.running.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(mut done) = in_flight {
+            let _ = done.wait_for(|finished| *finished).await;
         }
     }
 }

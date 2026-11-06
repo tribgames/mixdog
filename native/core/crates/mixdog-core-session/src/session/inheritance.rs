@@ -27,6 +27,9 @@ pub struct InheritTarget {
     pub selected_context_window: Option<u64>,
     /// The session whose tool surface sizes the heir's request reserve (`session.tools`).
     pub tools_of: Option<ThreadId>,
+    /// The session whose conversation is measured (`sourceSessionId`): the host prices its media
+    /// through that session's own attachments.
+    pub source: Option<ThreadId>,
 }
 
 /// What the target route's compaction policy says of a conversation
@@ -105,7 +108,13 @@ impl SessionDirectory {
         let basis = if provider.is_empty() || model.is_empty() {
             None
         } else {
-            let target = InheritTarget { provider: provider.clone(), model: model.clone(), selected_context_window, tools_of: current.cloned() };
+            let target = InheritTarget {
+                provider: provider.clone(),
+                model: model.clone(),
+                selected_context_window,
+                tools_of: current.cloned(),
+                source: id.clone().map(ThreadId::from),
+            };
             self.deps().inherit.basis(&target, &carried).await
         };
         // `inheritanceFit`: the base names the target's route, empty when it has none.

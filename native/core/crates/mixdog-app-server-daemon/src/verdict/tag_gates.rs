@@ -1009,3 +1009,76 @@ fn gate_7_contenders_interleaved_with_the_link_record_and_rename_exit() {
         assert_eq!(core.expect("REVALIDATE "), "Ok(())");
     }
 }
+
+// ---------------------------------------------------------------------------
+// LR §3 startup against a real 1.4.5 claimant
+// ---------------------------------------------------------------------------
+
+/// Startup progress as a real 1.4.5 daemon sees it: when the block is published the daemon is
+/// still alive and no barrier stands; the daemon is then killed, and startup must continue.
+struct KillsOnBlock<'a> {
+    temp: &'a TempData,
+    daemon: Child,
+    pid: u32,
+    events: Vec<String>,
+}
+
+impl crate::startup::Publish for KillsOnBlock<'_> {
+    fn blocked(&mut self, blocked: &Blocked) {
+        assert_eq!(blocked.process.identity.pid, self.pid);
+        assert!(self.daemon.try_wait().unwrap().is_none(), "the daemon was alive when published");
+        assert!(!has_barrier(self.temp), "B was installed beside a live 1.4.5 owner");
+        self.events.push("blocked".into());
+        kill_tree(&mut self.daemon);
+    }
+
+    fn migrating(&mut self) {
+        // The OS has confirmed the exit before the barrier, and so before this migration.
+        assert!(OsProcessTable.query(u64::from(self.pid)).unwrap().is_none());
+        assert!(has_barrier(self.temp), "the migration started before B stood");
+        self.events.push("migrating".into());
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag)"]
+async fn startup_is_blocked_by_a_real_1_4_5_claim_and_continues_once_it_exits() {
+    let temp = TempData::new();
+    let mut daemon = daemon(&temp).stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("daemon");
+    let pid = await_published(&temp, &mut daemon);
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = crate::startup::Lanes { durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+    let (_release, releases) = std::sync::mpsc::channel();
+    let config = crate::startup::Startup {
+        data_dir: temp.data(),
+        discovery_path: crate::discovery::path(&temp.runtime()),
+        record: record(),
+        interrupt: Arc::new(Interrupt::new().unwrap()),
+        releases,
+    };
+    let mut publish = KillsOnBlock { temp: &temp, daemon, pid, events: Vec::new() };
+    let seen = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = seen.clone();
+    let init_events = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
+    let init_seen = init_events.clone();
+    let started = crate::startup::start(
+        config,
+        lanes,
+        &mut publish,
+        async move {
+            init_seen.lock().unwrap().push("init");
+            Ok(())
+        },
+        move || {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        },
+    )
+    .await
+    .expect("startup continues after the 1.4.5 daemon exits");
+    assert_eq!(publish.events, ["blocked", "migrating"]);
+    assert_eq!(*init_events.lock().unwrap(), ["init"]);
+    assert!(seen.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), barrier_bytes(started.ownership().instance_id()));
+    assert_eq!(started.ownership().revalidate(), Ok(()));
+}

@@ -37,19 +37,23 @@ impl ThreadSearchService {
     /// `requiredSessionContentQuery` then the search: `[{ sessionId, snippet, rank }]`.
     pub async fn run(&self, query: &str) -> Result<Value, CoreError> {
         let text = mixdog_js::js_trim(query);
-        if text.is_empty() || mixdog_js::utf16_len(&text) > MAX_QUERY_UNITS {
+        if text.is_empty() || mixdog_js::utf16_len(text) > MAX_QUERY_UNITS {
             return Err(failed(DOMAIN, "session search query is invalid."));
         }
-        let hits = self.search.search(&text, LIMIT).await.map_err(|e| failed(DOMAIN, e.to_string()))?;
-        Ok(Value::Array(
-            hits.into_iter()
-                .map(|hit| {
-                    // JS prints a whole rank without a fraction.
-                    let rank = if hit.rank.fract() == 0.0 { json!(hit.rank as i64) } else { json!(hit.rank) };
-                    json!({ "sessionId": hit.session_id, "snippet": hit.snippet, "rank": rank })
-                })
-                .collect(),
-        ))
+        let hits = self.search.search(text, LIMIT).await.map_err(|e| failed(DOMAIN, e.to_string()))?;
+        let mut out = Vec::with_capacity(hits.len());
+        for hit in hits {
+            // `ts_rank_cd` is a float4, which node-postgres parses from its shortest decimal
+            // text; a JS number with no fraction prints without one. f32's own text always
+            // parses as f64, so a failure is a defect surfaced as an error.
+            let shortest: f64 = (hit.rank as f32)
+                .to_string()
+                .parse()
+                .map_err(|e| failed(DOMAIN, format!("session search rank is not a number: {e}")))?;
+            let rank = if shortest.fract() == 0.0 { json!(shortest as i64) } else { json!(shortest) };
+            out.push(json!({ "sessionId": hit.session_id, "snippet": hit.snippet, "rank": rank }));
+        }
+        Ok(Value::Array(out))
     }
 }
 
@@ -71,3 +75,7 @@ impl DomainService for ThreadSearchService {
         Admit::Accepted
     }
 }
+
+#[cfg(test)]
+#[path = "thread_search_tests.rs"]
+mod tests;

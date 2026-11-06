@@ -133,14 +133,15 @@ impl TodoStore for NoTodos {
 
 struct Facts;
 
+#[async_trait]
 impl CallerFacts for Facts {
-    fn is_heartbeat(&self, _: &ThreadId) -> bool {
+    async fn is_heartbeat(&self, _: &ThreadId) -> bool {
         false
     }
-    fn is_unattended(&self, _: &ThreadId) -> bool {
+    async fn is_unattended(&self, _: &ThreadId) -> bool {
         false
     }
-    fn user_available(&self, _: &ThreadId) -> bool {
+    async fn user_available(&self, _: &ThreadId) -> bool {
         true
     }
 }

@@ -319,6 +319,8 @@ struct Inner {
     on_change: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     command_settled: OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
     error_text: OnceLock<Arc<dyn ErrorText>>,
+    /// Woken after every row change, for [`JobBoard::wait_terminal`].
+    changed: tokio::sync::Notify,
     state: Mutex<State>,
 }
 
@@ -347,6 +349,7 @@ impl JobBoard {
                 on_change,
                 command_settled: OnceLock::new(),
                 error_text: OnceLock::new(),
+                changed: tokio::sync::Notify::new(),
                 state: Mutex::new(State::default()),
             }),
         }
@@ -379,7 +382,22 @@ impl JobBoard {
         self.inner.clock.now_ms()
     }
 
+    /// Resolves with the row once it is terminal (`None`: no such row, or it was pruned).
+    pub async fn wait_terminal(&self, task_id: &str) -> Option<JobSnapshot> {
+        loop {
+            let woken = self.inner.changed.notified();
+            tokio::pin!(woken);
+            woken.as_mut().enable();
+            let row = self.lock().tasks.iter().find(|t| t.task_id == task_id).map(Self::snapshot)?;
+            if is_terminal(&row.status) {
+                return Some(row);
+            }
+            woken.await;
+        }
+    }
+
     fn run(&self, effects: Effects) {
+        self.inner.changed.notify_waiters();
         if let Some(on_change) = &self.inner.on_change {
             for owner in &effects.changed {
                 on_change(owner);
@@ -541,6 +559,12 @@ impl JobBoard {
     /// started (its caller, else its owner) is still running. A job with no session is nobody's.
     pub fn has_running(&self, session_id: &str) -> bool {
         self.lock().tasks.iter().any(|t| t.status == "running" && t.notify_session.as_deref() == Some(session_id))
+    }
+
+    /// `activeBackgroundTaskSessionIds({ surface: 'agent' })`: the owner (caller, else routing)
+    /// of every running job, from one pass; a job with no session adds nothing.
+    pub fn running_owners(&self) -> std::collections::HashSet<String> {
+        self.lock().tasks.iter().filter(|t| t.status == "running").filter_map(|t| t.notify_session.clone()).collect()
     }
 
     pub fn cleanup_jobs(&self, scope: &Scope, force: bool) -> u64 {

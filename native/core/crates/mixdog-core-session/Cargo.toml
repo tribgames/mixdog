@@ -33,12 +33,14 @@ mixdog-workspace = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha1 = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v7"] }
 mixdog-core-base = { workspace = true }
 mixdog-core-config = { workspace = true }
+mixdog-core-domains = { workspace = true }
 mixdog-core-goal = { workspace = true }
 mixdog-core-ports = { workspace = true }
 mixdog-core-run = { workspace = true }

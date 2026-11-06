@@ -1,0 +1,1244 @@
+{
+  "bindThenType": [
+    {
+      "browser": true,
+      "step": "a browser binding is made"
+    },
+    {
+      "held": false,
+      "outcome": "no_field",
+      "step": "typed with a browser binding"
+    }
+  ],
+  "type": [
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and Tr0ub4dor&3!",
+        "remembered": [
+          "7"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "7",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a single character is typed once and not read back",
+      "outcome": "entered",
+      "provide": "7",
+      "script": []
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and Tr0ub4dor&3!",
+        "remembered": [
+          "😀"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "😀",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a single astral character is one character",
+      "outcome": "entered",
+      "provide": "😀",
+      "script": []
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a value with no field read back is typed once",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": []
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and Tr0ub4dor&3!",
+        "remembered": [
+          "482190"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "482190",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        },
+        {
+          "action": "type",
+          "delivery": "foreground",
+          "ref": "e2",
+          "session_id": "S1",
+          "text": "482190",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a segmented code box holding the first character gets real keystrokes",
+      "outcome": "entered",
+      "provide": "482190",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": [
+              {
+                "bound_ref": true,
+                "is_password": false,
+                "ref": "e2",
+                "value": "4"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and Tr0ub4dor&3!",
+        "remembered": [
+          "😀😀"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "😀😀",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        },
+        {
+          "action": "type",
+          "delivery": "foreground",
+          "ref": "e9",
+          "session_id": "S1",
+          "text": "😀😀",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a segmented read matches the first astral character",
+      "outcome": "entered",
+      "provide": "😀😀",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": [
+              {
+                "bound_ref": true,
+                "is_password": false,
+                "ref": "e9",
+                "value": "😀"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a password field is never sent keystrokes",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": [
+              {
+                "bound_ref": true,
+                "is_password": true,
+                "ref": "e2",
+                "value": "T"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a field that does not state it is no password is a password",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": [
+              {
+                "bound_ref": true,
+                "ref": "e2",
+                "value": "T"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a field holding more than the first character gets no keystrokes",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": [
+              {
+                "bound_ref": true,
+                "is_password": false,
+                "ref": "e2",
+                "value": "Tr"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a read with no bound element gets no keystrokes",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": [
+              {
+                "is_password": false,
+                "ref": "e2",
+                "value": "T"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a bound element with no ref gets no keystrokes",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": [
+              {
+                "bound_ref": true,
+                "is_password": false,
+                "value": "T"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a bound element with an empty ref gets no keystrokes",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": [
+              {
+                "bound_ref": true,
+                "is_password": false,
+                "ref": "",
+                "value": "T"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "the first bound element is the field",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": [
+              {
+                "bound_ref": true,
+                "is_password": false,
+                "ref": "e2",
+                "value": "q"
+              },
+              {
+                "bound_ref": true,
+                "is_password": false,
+                "ref": "e3",
+                "value": "T"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a read that fails leaves the write as it was",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {},
+        {
+          "throw": "read failed"
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a read with no elements leaves the write as it was",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {},
+        {
+          "reply": {}
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a read whose elements are no list leaves the write as it was",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": {
+              "bound_ref": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and Tr0ub4dor&3!",
+        "remembered": [
+          "482190"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "482190",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        },
+        {
+          "action": "type",
+          "delivery": "foreground",
+          "ref": "e2",
+          "session_id": "S1",
+          "text": "482190",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "the keystrokes failing as stale answer page_changed",
+      "outcome": "page_changed",
+      "provide": "482190",
+      "script": [
+        {},
+        {
+          "reply": {
+            "elements": [
+              {
+                "bound_ref": true,
+                "is_password": false,
+                "ref": "e2",
+                "value": "4"
+              }
+            ]
+          }
+        },
+        {
+          "throw": "the ref is stale"
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "the target going away on the write is page_changed",
+      "outcome": "page_changed",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {
+          "throw": "stale_target: window gone"
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "is stale needs word boundaries",
+      "outcome": "blocked",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {
+          "throw": "this is stalemate"
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "stale or invalid is matched without case",
+      "outcome": "page_changed",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {
+          "throw": "Ref is STALE OR INVALID"
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "a thrown string is matched like a message",
+      "outcome": "page_changed",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {
+          "throw": "string"
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "another failure of the write is blocked",
+      "outcome": "blocked",
+      "provide": "Tr0ub4dor&3",
+      "script": [
+        {
+          "throw": "input refused"
+        }
+      ]
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": false,
+        "held": false,
+        "redacted": "pw= and Tr0ub4dor&3!",
+        "remembered": []
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [],
+      "gateHeld": false,
+      "name": "a request never provided is expired",
+      "outcome": "expired",
+      "provide": null,
+      "script": []
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": false,
+        "held": false,
+        "redacted": "pw=Tr0ub4dor&3 and Tr0ub4dor&3!",
+        "remembered": []
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab"
+      },
+      "commands": [],
+      "gateHeld": false,
+      "name": "a command with no session is expired",
+      "outcome": "expired",
+      "provide": "Tr0ub4dor&3",
+      "script": []
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": false,
+        "held": false,
+        "redacted": "pw=Tr0ub4dor&3 and Tr0ub4dor&3!",
+        "remembered": []
+      },
+      "bind": null,
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [],
+      "gateHeld": false,
+      "name": "a value with no binding is no_field",
+      "outcome": "no_field",
+      "provide": "Tr0ub4dor&3",
+      "script": []
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": false,
+        "held": false,
+        "redacted": "pw=Tr0ub4dor&3 and Tr0ub4dor&3!",
+        "remembered": []
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S2",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [],
+      "gateHeld": false,
+      "name": "a binding of another session is blocked",
+      "outcome": "blocked",
+      "provide": "Tr0ub4dor&3",
+      "script": []
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": false,
+        "held": false,
+        "redacted": "pw=Tr0ub4dor&3 and Tr0ub4dor&3!",
+        "remembered": []
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1",
+        "window_id": "w2"
+      },
+      "commands": [],
+      "gateHeld": false,
+      "name": "another window than the bound one is page_changed",
+      "outcome": "page_changed",
+      "provide": "Tr0ub4dor&3",
+      "script": []
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": false,
+        "held": false,
+        "redacted": "pw=Tr0ub4dor&3 and Tr0ub4dor&3!",
+        "remembered": []
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "ref": "e2",
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [],
+      "gateHeld": false,
+      "name": "another ref than the bound one is page_changed",
+      "outcome": "page_changed",
+      "provide": "Tr0ub4dor&3",
+      "script": []
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": true,
+        "held": false,
+        "redacted": "pw=[redacted] and [redacted]!",
+        "remembered": [
+          "Tr0ub4dor&3"
+        ]
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "ref": "e1",
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1",
+        "window_id": "w1"
+      },
+      "commands": [
+        {
+          "action": "type",
+          "ref": "e1",
+          "session_id": "S1",
+          "text": "Tr0ub4dor&3",
+          "window_id": "w1"
+        },
+        {
+          "action": "find",
+          "max_elements": 1000,
+          "ref": "e1",
+          "session_id": "S1",
+          "window_id": "w1"
+        }
+      ],
+      "gateHeld": false,
+      "name": "the bound window and ref named again are typed",
+      "outcome": "entered",
+      "provide": "Tr0ub4dor&3",
+      "script": []
+    },
+    {
+      "after": {
+        "computer": null,
+        "focusArmed": false,
+        "held": false,
+        "redacted": "pw=Tr0ub4dor&3 and Tr0ub4dor&3!",
+        "remembered": []
+      },
+      "bind": {
+        "ref": "e1",
+        "session": "S1",
+        "windowId": "w1"
+      },
+      "command": {
+        "request_id": "secret_0123456789ab",
+        "session_id": "S1"
+      },
+      "commands": [],
+      "gateHeld": true,
+      "name": "a held screen blocks before the value is taken",
+      "outcome": "blocked",
+      "provide": "Tr0ub4dor&3",
+      "script": []
+    }
+  ]
+}

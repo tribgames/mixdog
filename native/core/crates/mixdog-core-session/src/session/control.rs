@@ -44,6 +44,9 @@ pub(crate) enum Ctl {
     RefreshSurface,
     /// The last subscriber left: an idle thread unloads.
     Unsubscribed,
+    /// The thread's tombstone landed (`closeSession`): no Goal continues it, and once its turn
+    /// has ended it unloads (`_clearSessionRuntime`) even if it was never subscribed.
+    Closed,
     /// Core shutdown: the actor stops and hands back its memory ingest.
     Shutdown(tokio::sync::oneshot::Sender<futures::future::BoxFuture<'static, ()>>),
     /// `thread/delete`'s close (`closeSession(id, reason)`): the thread takes no more work, its
@@ -51,21 +54,63 @@ pub(crate) enum Ctl {
     /// answers once the turn ended. With `idle`, a running turn or queued input refuses
     /// instead (`busy`, `queued`) and nothing changes. Then the delete mark is appended when
     /// `mark` fires, `marked` answering at its ack, and the actor stops; a dropped `mark`
-    /// stops it unmarked.
+    /// stops it unmarked. A `guard` is rechecked here, on the actor, before anything is closed
+    /// (`changed` refuses): Node hands `treeChanged` to the delete and asks it again inside
+    /// the destructive step.
     Delete {
         reason: String,
         idle: bool,
+        guard: Option<DeleteGuard>,
         closed: tokio::sync::oneshot::Sender<Result<(), &'static str>>,
         mark: tokio::sync::oneshot::Receiver<()>,
         marked: tokio::sync::oneshot::Sender<Result<(), super::run::RunError>>,
     },
 }
 
+/// What a retention delete re-asks under the thread's own admission: the thread must still be
+/// as the pass read it (nobody attached, no run, nothing queued, `activity` unmoved), and the
+/// sweep must not be shut down.
+pub(crate) struct DeleteGuard {
+    pub activity: f64,
+    pub cancel: mixdog_rt::CancellationToken,
+    /// The other members of the session's tree and the activity the sweep read for each
+    /// (`treeChanged`): any that is open now, or whose stored activity differs, refuses.
+    pub peers: Vec<(ThreadId, f64)>,
+    /// The directory's open count when the peers' stored activity was read; an open since
+    /// (which could have changed a peer and unloaded it again) refuses.
+    pub opens: u64,
+}
+
+/// The admission word's closed bit.
+pub(crate) const CLOSING: usize = 1 << (usize::BITS - 1);
+/// The admission word's history bit: an attach was admitted at some time.
+pub(crate) const ATTACHED: usize = 1 << (usize::BITS - 2);
+/// The admission word's attach count.
+const COUNT: usize = ATTACHED - 1;
+
 /// A worker's turn waiting for its run to start.
 pub(crate) struct AgentStart {
     pub turn: super::seams::AgentTurn,
     /// The model content of the turn's input row (`handoffContent`).
     pub content: serde_json::Value,
+    /// Answered with the run's outcome when it ends.
+    pub done: tokio::sync::oneshot::Sender<RunOutcome>,
+}
+
+/// A routine fire's turn waiting in the thread's queue, keyed by its submission id
+/// (`routine_<uuid>`); the actor takes it when the entry becomes a run (`routine-home-turn.mjs`
+/// `options`).
+pub(crate) struct RoutineStart {
+    /// The model content of the turn's input row.
+    pub content: serde_json::Value,
+    /// `transcriptMeta.routineTrigger`: the marker row the turn shows.
+    pub trigger: Option<serde_json::Value>,
+    /// `transcriptMeta.hop`: how deep in bot-descended turns the one that asked for this is.
+    pub hop: Option<u32>,
+    /// The trusted text the turn's skills are selected from.
+    pub skill_selection: Option<String>,
+    /// `onCommitted`: runs the moment the turn starts, before any tool can.
+    pub on_start: Box<dyn FnOnce() + Send>,
     /// Answered with the run's outcome when it ends.
     pub done: tokio::sync::oneshot::Sender<RunOutcome>,
 }
@@ -84,6 +129,9 @@ pub(crate) struct ControlCell {
     pub run: ArcSwapOption<ActiveRun>,
     /// Queue entries that exist (projected).
     pub queued: ArcSwap<HashSet<String>>,
+    /// The same entries in queue order with their stored form (projected): what the pending
+    /// queue reads answer from.
+    pub queue: ArcSwap<Vec<super::state::Queued>>,
     /// Approval ids that accept a decision.
     pub approvals: ArcSwap<HashSet<u64>>,
     /// The acked view (thread/read, resume results).
@@ -105,46 +153,92 @@ pub(crate) struct ControlCell {
     /// The worker turn the next `turn/start` of this thread runs (set by `SessionTurns` just
     /// before its start request; the actor takes it when it starts the run).
     pub agent_start: Mutex<Option<AgentStart>>,
+    /// Routine turns queued on this thread and not started yet, by submission id.
+    pub routine_starts: Mutex<std::collections::HashMap<String, RoutineStart>>,
     /// The session's "Allow for this session" grants: in memory, one set per loaded session.
     pub grants: Arc<mixdog_tools::policy::SessionGrants>,
     pub ctl_tx: mpsc::Sender<Ctl>,
     pub steer_cap: usize,
-    /// Feed subscribers attached now.
+    /// The admission word: the feed subscribers attached now (the low bits), [`ATTACHED`] once an
+    /// attach was ever admitted, and [`CLOSING`] once the thread is closed to attaches. Attach
+    /// and close are transitions of this one word, and the history bit is set by the very
+    /// compare-exchange that admits an attach, so no sequence of attaches and detaches returns
+    /// the word to a value a closer observed before them (read it through
+    /// [`ControlCell::admission`] and [`ControlCell::attached`]).
     pub subscribers: std::sync::atomic::AtomicUsize,
-    /// A subscriber was ever attached: only then does the thread unload when none is left.
-    pub ever_subscribed: std::sync::atomic::AtomicBool,
     /// Set (under the directory's shard lock) when the thread unloads; attaches then fail.
     pub closed: std::sync::atomic::AtomicBool,
 }
 
 impl ControlCell {
-    /// An attach starts: counted before the closed check, so an unload (which checks the count
-    /// under the shard lock, then closes) and an attach never both succeed. False when closed.
+    /// The attaches counted now.
+    pub fn attached(&self) -> usize {
+        self.subscribers.load(std::sync::atomic::Ordering::SeqCst) & COUNT
+    }
+
+    /// Whether an attach was ever admitted: only then does the thread unload when none is left.
+    pub fn ever_attached(&self) -> bool {
+        self.subscribers.load(std::sync::atomic::Ordering::SeqCst) & ATTACHED != 0
+    }
+
+    /// The admission word as it stands (`0`: open, never attached).
+    pub fn admission(&self) -> usize {
+        self.subscribers.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// An attach starts: admitted by one compare-exchange on the same word the closers
+    /// transition, so it and a close (an unload, a retention delete) never both succeed: the
+    /// attach is counted, and recorded in the history bit, only while the word is open, and a
+    /// close takes the word only at a count of zero. False when closed.
     pub fn subscribing(&self) -> bool {
         use std::sync::atomic::Ordering::SeqCst;
-        self.subscribers.fetch_add(1, SeqCst);
-        if self.closed.load(SeqCst) {
-            self.subscribers.fetch_sub(1, SeqCst);
-            return false;
+        self.subscribers.fetch_update(SeqCst, SeqCst, |word| (word & CLOSING == 0).then_some((word + 1) | ATTACHED)).is_ok()
+    }
+
+    /// Closes the thread to attaches when nobody is attached: the unload's admission decision,
+    /// atomic with [`Self::subscribing`]. False, nothing changed, when a subscriber is (being)
+    /// attached or the thread is already closed.
+    pub fn close_unattached(&self) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        let taken = self.subscribers.fetch_update(SeqCst, SeqCst, |word| (word & (COUNT | CLOSING) == 0).then_some(CLOSING)).is_ok();
+        if taken {
+            self.closed.store(true, SeqCst);
         }
-        true
+        taken
+    }
+
+    /// Closes the thread to attaches only if the word is still exactly `seen`, the word a
+    /// closer read before it asked its other questions (a never-attached thread reads `0`):
+    /// any attach since, even one already detached, changed the word and refuses the close.
+    pub fn close_if_unchanged(&self, seen: usize) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        let taken = seen & CLOSING == 0 && self.subscribers.compare_exchange(seen, CLOSING, SeqCst, SeqCst).is_ok();
+        if taken {
+            self.closed.store(true, SeqCst);
+        }
+        taken
+    }
+
+    /// Closes the thread whatever the attaches (a delete the user asked for, shutdown): later
+    /// attaches fail; those already counted stay counted.
+    pub fn close(&self) {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.subscribers.fetch_or(CLOSING, SeqCst);
+        self.closed.store(true, SeqCst);
     }
 
     /// The attach that [`Self::subscribing`] started ended (`ok`: the subscriber is attached).
     pub fn subscribed(&self, ok: bool) {
-        use std::sync::atomic::Ordering::SeqCst;
-        if ok {
-            self.ever_subscribed.store(true, SeqCst);
-        } else {
-            self.subscribers.fetch_sub(1, SeqCst);
+        if !ok {
+            self.subscribers.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         }
     }
 
     /// A subscriber detached; the last one asks the actor to unload when idle.
     pub fn unsubscribed(&self) {
         use std::sync::atomic::Ordering::SeqCst;
-        let before = self.subscribers.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1));
-        if before == Ok(1) {
+        let before = self.subscribers.fetch_update(SeqCst, SeqCst, |n| (n & COUNT > 0).then(|| n - 1));
+        if before.is_ok_and(|word| word & COUNT == 1) {
             let _ = self.ctl_tx.try_send(Ctl::Unsubscribed);
         }
     }

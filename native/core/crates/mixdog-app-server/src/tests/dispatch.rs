@@ -22,10 +22,14 @@ use super::reason;
 use super::sample::Samples;
 use super::settle;
 
-/// Methods the server answers itself instead of passing to the core.
-const HANDLED_HERE: [&str; 8] = [
+/// Methods the server answers itself instead of passing to the core. `feed/subscribe` is here
+/// because the server resolves its `feedId` to a live scoped feed itself and answers
+/// `invalidParams{feedId}` for one nobody holds (the generic sample id names none); the
+/// subscribe tests cover it.
+const HANDLED_HERE: [&str; 9] = [
     "initialize",
     "app/subscribe",
+    "feed/subscribe",
     "feed/unsubscribe",
     "thread/unsubscribe",
     "op/status",

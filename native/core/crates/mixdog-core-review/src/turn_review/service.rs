@@ -69,6 +69,15 @@ pub struct Config {
     pub disabled: bool,
 }
 
+impl Config {
+    /// `DISABLED = /^(0|false|off)$/i.test(String(process.env.MIXDOG_TURN_SNAPSHOT || ''))`, with
+    /// `get` reading the process environment.
+    pub fn from_env(get: impl Fn(&str) -> Option<String>) -> Self {
+        let raw = get("MIXDOG_TURN_SNAPSHOT").unwrap_or_default();
+        Self { disabled: ["0", "false", "off"].iter().any(|off| raw.eq_ignore_ascii_case(off)) }
+    }
+}
+
 /// A seal in flight: `true` once it landed.
 pub(super) type Done = tokio::sync::watch::Receiver<bool>;
 

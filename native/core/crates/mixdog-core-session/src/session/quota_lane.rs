@@ -10,7 +10,9 @@ use async_trait::async_trait;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_js::value_to_string;
 use mixdog_protocol::ThreadItem;
+use mixdog_app_protocol::v2::thread::TurnInput;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::oneshot;
@@ -140,16 +142,43 @@ pub(crate) fn transcript_rows<'a>(items: impl Iterator<Item = &'a ThreadItem>) -
         .collect()
 }
 
-/// `retainedRetryInput() !== null`: the last non-system model message is the failed turn's own
+/// `retainedRetryInput()`: the failed turn's own user message, resent as it is stored.
+pub(crate) struct Retained {
+    pub content: Value,
+    pub message_id: String,
+    pub attempt_id: Option<String>,
+}
+
+/// `retainedRetryInput()`: the last non-system model message, when it is the failed turn's own
 /// user message.
-fn retained_retry_input(messages: &[Value]) -> bool {
-    let Some(message) = messages.iter().rev().find(|m| m.get("role").and_then(Value::as_str) != Some("system")) else {
-        return false;
-    };
+fn retained_retry_input(messages: &[Value]) -> Option<Retained> {
+    let message = messages.iter().rev().find(|m| m.get("role").and_then(Value::as_str) != Some("system"))?;
     let transcript = message.pointer("/meta/transcript");
-    message.get("role").and_then(Value::as_str) == Some("user")
-        && truthy(transcript.and_then(|t| t.get("messageId")))
-        && transcript.and_then(|t| t.pointer("/completion/status")).and_then(Value::as_str) == Some("failed")
+    let id = transcript.and_then(|t| t.get("messageId")).filter(|id| truthy(Some(id)));
+    (message.get("role").and_then(Value::as_str) == Some("user")
+        && id.is_some()
+        && transcript.and_then(|t| t.pointer("/completion/status")).and_then(Value::as_str) == Some("failed"))
+    .then(|| Retained {
+        content: message.get("content").cloned().unwrap_or(Value::Null),
+        message_id: value_to_string(id.expect("checked")),
+        attempt_id: transcript.and_then(|t| t.pointer("/completion/attemptId")).and_then(Value::as_str).map(str::to_owned),
+    })
+}
+
+/// The retry a resume admits (`retryFailedTurn(key)`'s queued entry): the turn the session
+/// starts once the Goal is revived. `hidden`: the retained message is already on screen
+/// (`suppressDisplay`).
+#[derive(Clone)]
+pub(crate) struct RetryTurn {
+    pub input: TurnInput,
+    pub hidden: bool,
+}
+
+/// `resumeGoal`'s `token`: the admission the Goal runtime asked of the session, and the retry
+/// it let through.
+#[derive(Default)]
+pub(crate) struct ResumeToken {
+    pub admitted: std::sync::Mutex<Option<Option<RetryTurn>>>,
 }
 
 /// `latestFailedTurnKey`: the turn key of the failed turndone that ends the transcript, when no
@@ -187,7 +216,7 @@ pub(crate) struct ResumeCheck {
 
 impl ResumeCheck {
     /// `retainedRetryInput() !== null` over the session's model context.
-    pub(crate) async fn retained_retry(&self) -> bool {
+    pub(crate) async fn retained_retry(&self) -> Option<Retained> {
         let messages: Vec<Value> = self.context.read().await.map(|rows| rows.into_iter().map(|(_, m)| m).collect()).unwrap_or_default();
         retained_retry_input(&messages)
     }
@@ -196,7 +225,7 @@ impl ResumeCheck {
     pub async fn resume_context(&self, auto_resume: bool) -> ResumeContext {
         ResumeContext {
             auto_resume,
-            retained_retry: self.retained_retry().await,
+            retained_retry: self.retained_retry().await.is_some(),
             goal_reactivatable: !self.goal_id.is_empty(),
             route_provider: self.route_provider.clone(),
             route_model: self.route_model.clone(),
@@ -205,7 +234,7 @@ impl ResumeCheck {
 
     /// `hasResumeInput(key)`.
     pub async fn has_resume_input(&self, key: &str) -> bool {
-        if failed_turn_retry_prompt(&self.items, key).is_some() || self.retained_retry().await {
+        if failed_turn_retry_prompt(&self.items, key).is_some() || self.retained_retry().await.is_some() {
             return true;
         }
         if key.starts_with("turn:") {
