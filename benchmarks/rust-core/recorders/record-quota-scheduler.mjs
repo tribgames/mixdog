@@ -3,12 +3,13 @@
 // Node's real createQuotaResumeScheduler runs over Node's real quota-resume store, with a scripted
 // clock, timer, session and usage reading. Each case records the delay the one timer is armed
 // for, then per tick the log lines, the queue left behind and the re-armed delay. Rust
-// `mixdog_core_session::session::quota_resume_scheduler` must equal it.
+// `mixdog_core_session::session::quota_resume_scheduler` must equal it. The set also carries the
+// 1.4.5 app's own store file (`v145-quota-resume.json`), copied byte for byte from the migration corpus.
 //
-//   node benchmarks/rust-core/recorders/record-quota-scheduler.mjs --tree <dir>
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+//   node benchmarks/rust-core/recorders/record-quota-scheduler.mjs --tree <dir> [--corpus <migration-corpus>]
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const cli = parseArgs();
@@ -227,6 +228,8 @@ writeJson(join(outDir, 'golden.json'), {
   timerCases,
   coalesce,
 });
+const corpus = resolve(cli.get('corpus') ?? 'C:/Users/tempe/.mixdog/data/scratch/rust-core/migration-corpus');
+copyFileSync(join(corpus, 'v145', 'quota-resume.json'), join(outDir, 'v145-quota-resume.json'));
 writeSetManifest(outDir, {
   set: 'quota-scheduler',
   recorder: 'benchmarks/rust-core/recorders/record-quota-scheduler.mjs',

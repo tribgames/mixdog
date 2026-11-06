@@ -1,544 +1,2049 @@
 {
-  "clicks": {
-    "opened": [
-      "sess_click"
-    ],
-    "prefix": "turn-notification-",
-    "reported": [
-      {
-        "details": {},
-        "event": "requested",
-        "sessionId": "sess_click"
+  "frozenNow": 1700000000000,
+  "shell": [
+    {
+      "set": "   ",
+      "get": ""
+    },
+    {
+      "set": "  pwsh.exe ",
+      "get": "pwsh.exe"
+    },
+    {
+      "set": "pwsh.exe",
+      "get": "pwsh.exe"
+    },
+    {
+      "set": "",
+      "get": ""
+    },
+    {
+      "set": " C:\\Program Files\\Git\\bin\\bash.exe",
+      "get": "C:\\Program Files\\Git\\bin\\bash.exe"
+    },
+    {
+      "set": {
+        "undefined": true
       },
-      {
-        "details": {},
-        "event": "clicked",
-        "sessionId": "sess_click"
-      }
-    ]
-  },
+      "get": ""
+    },
+    {
+      "set": null,
+      "get": ""
+    },
+    {
+      "set": 0,
+      "get": ""
+    },
+    {
+      "set": "zsh",
+      "get": "zsh"
+    }
+  ],
   "developer": [
     {
+      "id": "allowAllActions",
+      "provider": null,
       "enabled": [
         {
-          "enabled": false,
-          "stored": {}
+          "stored": {},
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": null
+          "stored": null,
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": []
+          "stored": [],
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": "x"
+          "stored": "x",
+          "enabled": false
         },
         {
-          "enabled": true,
           "stored": {
             "allowAllActions": true
-          }
+          },
+          "enabled": true
         },
         {
-          "enabled": false,
           "stored": {
             "allowAllActions": false
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "allowAllActions": "true"
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "allowAllActions": 1
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "other": true
-          }
+          },
+          "enabled": false
         }
-      ],
-      "id": "allowAllActions",
-      "provider": null
+      ]
     },
     {
+      "id": "antigravityOAuth",
+      "provider": "antigravity-oauth",
       "enabled": [
         {
-          "enabled": false,
-          "stored": {}
+          "stored": {},
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": null
+          "stored": null,
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": []
+          "stored": [],
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": "x"
+          "stored": "x",
+          "enabled": false
         },
         {
-          "enabled": true,
           "stored": {
             "antigravityOAuth": true
-          }
+          },
+          "enabled": true
         },
         {
-          "enabled": false,
           "stored": {
             "antigravityOAuth": false
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "antigravityOAuth": "true"
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "antigravityOAuth": 1
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "other": true
-          }
+          },
+          "enabled": false
         }
-      ],
-      "id": "antigravityOAuth",
-      "provider": "antigravity-oauth"
+      ]
     },
     {
+      "id": "cursorOAuth",
+      "provider": "cursor-oauth",
       "enabled": [
         {
-          "enabled": false,
-          "stored": {}
+          "stored": {},
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": null
+          "stored": null,
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": []
+          "stored": [],
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": "x"
+          "stored": "x",
+          "enabled": false
         },
         {
-          "enabled": true,
           "stored": {
             "cursorOAuth": true
-          }
+          },
+          "enabled": true
         },
         {
-          "enabled": false,
           "stored": {
             "cursorOAuth": false
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "cursorOAuth": "true"
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "cursorOAuth": 1
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "other": true
-          }
+          },
+          "enabled": false
         }
-      ],
-      "id": "cursorOAuth",
-      "provider": "cursor-oauth"
+      ]
     },
     {
+      "id": "devinOAuth",
+      "provider": "devin-oauth",
       "enabled": [
         {
-          "enabled": false,
-          "stored": {}
+          "stored": {},
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": null
+          "stored": null,
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": []
+          "stored": [],
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": "x"
+          "stored": "x",
+          "enabled": false
         },
         {
-          "enabled": true,
           "stored": {
             "devinOAuth": true
-          }
+          },
+          "enabled": true
         },
         {
-          "enabled": false,
           "stored": {
             "devinOAuth": false
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "devinOAuth": "true"
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "devinOAuth": 1
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "other": true
-          }
+          },
+          "enabled": false
         }
-      ],
-      "id": "devinOAuth",
-      "provider": "devin-oauth"
+      ]
     },
     {
+      "id": "mimoOAuth",
+      "provider": "mimo-oauth",
       "enabled": [
         {
-          "enabled": false,
-          "stored": {}
+          "stored": {},
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": null
+          "stored": null,
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": []
+          "stored": [],
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": "x"
+          "stored": "x",
+          "enabled": false
         },
         {
-          "enabled": true,
           "stored": {
             "mimoOAuth": true
-          }
+          },
+          "enabled": true
         },
         {
-          "enabled": false,
           "stored": {
             "mimoOAuth": false
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "mimoOAuth": "true"
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "mimoOAuth": 1
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "other": true
-          }
+          },
+          "enabled": false
         }
-      ],
-      "id": "mimoOAuth",
-      "provider": "mimo-oauth"
+      ]
     },
     {
+      "id": "no-such-option",
+      "provider": null,
       "enabled": [
         {
-          "enabled": false,
-          "stored": {}
+          "stored": {},
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": null
+          "stored": null,
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": []
+          "stored": [],
+          "enabled": false
         },
         {
-          "enabled": false,
-          "stored": "x"
+          "stored": "x",
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "no-such-option": true
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "no-such-option": false
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "no-such-option": "true"
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "no-such-option": 1
-          }
+          },
+          "enabled": false
         },
         {
-          "enabled": false,
           "stored": {
             "other": true
-          }
+          },
+          "enabled": false
         }
-      ],
-      "id": "no-such-option",
-      "provider": null
+      ]
     }
   ],
   "fonts": {
     "definitions": [
       {
-        "bytes": 2049096,
+        "id": "noto-sans-latin",
         "family": "Noto Sans",
         "fileName": "NotoSans-Variable.ttf",
-        "id": "noto-sans-latin",
         "registryName": "Noto Sans (TrueType)",
-        "sha256": "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d",
-        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosans/NotoSans%5Bwdth%2Cwght%5D.ttf"
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosans/NotoSans%5Bwdth%2Cwght%5D.ttf",
+        "bytes": 2049096,
+        "sha256": "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"
       },
       {
-        "bytes": 10414588,
+        "id": "noto-sans-kr",
         "family": "Noto Sans KR",
         "fileName": "NotoSansKR-Variable.ttf",
-        "id": "noto-sans-kr",
         "registryName": "Noto Sans KR (TrueType)",
-        "sha256": "194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252",
-        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanskr/NotoSansKR%5Bwght%5D.ttf"
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanskr/NotoSansKR%5Bwght%5D.ttf",
+        "bytes": 10414588,
+        "sha256": "194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252"
       },
       {
-        "bytes": 17772300,
+        "id": "noto-sans-sc",
         "family": "Noto Sans SC",
         "fileName": "NotoSansSC-Variable.ttf",
-        "id": "noto-sans-sc",
         "registryName": "Noto Sans SC (TrueType)",
-        "sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
-        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf"
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf",
+        "bytes": 17772300,
+        "sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
       },
       {
-        "bytes": 9589900,
+        "id": "noto-sans-jp",
         "family": "Noto Sans JP",
         "fileName": "NotoSansJP-Variable.ttf",
-        "id": "noto-sans-jp",
         "registryName": "Noto Sans JP (TrueType)",
-        "sha256": "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f",
-        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf"
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf",
+        "bytes": 9589900,
+        "sha256": "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f"
       },
       {
-        "bytes": 11941968,
+        "id": "noto-sans-tc",
         "family": "Noto Sans TC",
         "fileName": "NotoSansTC-Variable.ttf",
-        "id": "noto-sans-tc",
         "registryName": "Noto Sans TC (TrueType)",
-        "sha256": "864727d210d54f2537bbe23b3a839436c3992af72de9322af5270897246bd44f",
-        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanstc/NotoSansTC%5Bwght%5D.ttf"
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanstc/NotoSansTC%5Bwght%5D.ttf",
+        "bytes": 11941968,
+        "sha256": "864727d210d54f2537bbe23b3a839436c3992af72de9322af5270897246bd44f"
       },
       {
-        "bytes": 844676,
+        "id": "noto-sans-arabic",
         "family": "Noto Sans Arabic",
         "fileName": "NotoSansArabic-Variable.ttf",
-        "id": "noto-sans-arabic",
         "registryName": "Noto Sans Arabic (TrueType)",
-        "sha256": "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e",
-        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansarabic/NotoSansArabic%5Bwdth%2Cwght%5D.ttf"
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansarabic/NotoSansArabic%5Bwdth%2Cwght%5D.ttf",
+        "bytes": 844676,
+        "sha256": "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e"
       },
       {
-        "bytes": 641944,
+        "id": "noto-sans-devanagari",
         "family": "Noto Sans Devanagari",
         "fileName": "NotoSansDevanagari-Variable.ttf",
-        "id": "noto-sans-devanagari",
         "registryName": "Noto Sans Devanagari (TrueType)",
-        "sha256": "14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e",
-        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansdevanagari/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf"
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansdevanagari/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf",
+        "bytes": 641944,
+        "sha256": "14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e"
       },
       {
-        "bytes": 218652,
+        "id": "noto-sans-thai",
         "family": "Noto Sans Thai",
         "fileName": "NotoSansThai-Variable.ttf",
-        "id": "noto-sans-thai",
         "registryName": "Noto Sans Thai (TrueType)",
-        "sha256": "5a1c559bb539583c8a1fd99d1c5b9491e5e14478c9cd2bd0970d5c3096cc9ef8",
-        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansthai/NotoSansThai%5Bwdth%2Cwght%5D.ttf"
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansthai/NotoSansThai%5Bwdth%2Cwght%5D.ttf",
+        "bytes": 218652,
+        "sha256": "5a1c559bb539583c8a1fd99d1c5b9491e5e14478c9cd2bd0970d5c3096cc9ef8"
       },
       {
-        "bytes": 112640,
+        "id": "noto-sans-hebrew",
         "family": "Noto Sans Hebrew",
         "fileName": "NotoSansHebrew-Variable.ttf",
-        "id": "noto-sans-hebrew",
         "registryName": "Noto Sans Hebrew (TrueType)",
-        "sha256": "7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88",
-        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanshebrew/NotoSansHebrew%5Bwdth%2Cwght%5D.ttf"
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosanshebrew/NotoSansHebrew%5Bwdth%2Cwght%5D.ttf",
+        "bytes": 112640,
+        "sha256": "7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88"
       },
       {
-        "bytes": 463668,
+        "id": "noto-sans-bengali",
         "family": "Noto Sans Bengali",
         "fileName": "NotoSansBengali-Variable.ttf",
-        "id": "noto-sans-bengali",
         "registryName": "Noto Sans Bengali (TrueType)",
-        "sha256": "dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a",
-        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf"
+        "url": "https://raw.githubusercontent.com/google/fonts/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf",
+        "bytes": 463668,
+        "sha256": "dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a"
+      }
+    ],
+    "verify": [
+      {
+        "name": "ok",
+        "family": "F",
+        "bytes": 15,
+        "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc",
+        "buffer": "good-font-bytes",
+        "error": null
+      },
+      {
+        "name": "size",
+        "family": "F",
+        "bytes": 16,
+        "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc",
+        "buffer": "good-font-bytes",
+        "error": "Font F size mismatch: expected 16 bytes, got 15"
+      },
+      {
+        "name": "sha",
+        "family": "F",
+        "bytes": 15,
+        "sha256": "a5b472f23a1964cd3fe2e888a345383bdf83a4240470e5dfcfc54a3009e08a16",
+        "buffer": "good-font-bytes",
+        "error": "Font F sha256 mismatch: expected a5b472f23a1964cd3fe2e888a345383bdf83a4240470e5dfcfc54a3009e08a16, got 1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
       }
     ],
     "prepare": {
-      "presentFile": "Present.ttf",
-      "results": {
-        "fresh": {
-          "installed": true,
-          "path": "<root>/home/.local/share/fonts/ok.ttf",
-          "skipped": false
-        },
-        "missing": {
-          "error": "Failed to download font Family missing (404)",
-          "installed": false
-        },
-        "present": {
-          "installed": true,
-          "path": "<root>/home/.local/share/fonts/Present.ttf",
-          "skipped": true
-        },
-        "short": {
-          "error": "Font Family short size mismatch: expected 15 bytes, got 5",
-          "installed": false
-        },
-        "wrong": {
-          "error": "Font Family wrong sha256 mismatch: expected 1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc, got 546308d937fccbbb5f99870a26637b30efad79a2a52d2022e95a89325e08634a",
-          "installed": false
-        }
-      },
-      "served": {
-        "/missing.ttf": {
-          "body": "",
-          "status": 404
-        },
-        "/ok.ttf": {
-          "body": "good-font-bytes",
-          "status": 200
-        },
-        "/short.ttf": {
-          "body": "short",
-          "status": 200
-        },
-        "/wrong.ttf": {
-          "body": "wrong-font-byte",
-          "status": 200
-        }
-      },
       "targets": [
         {
-          "bytes": 15,
+          "id": "present",
           "family": "Family present",
           "fileName": "Present.ttf",
-          "id": "present",
-          "served": "/ok.ttf",
-          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+          "bytes": 15,
+          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc",
+          "served": "/ok.ttf"
         },
         {
-          "bytes": 15,
+          "id": "missing",
           "family": "Family missing",
           "fileName": "missing.ttf",
-          "id": "missing",
-          "served": "/missing.ttf",
-          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+          "bytes": 15,
+          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc",
+          "served": "/missing.ttf"
         },
         {
-          "bytes": 15,
+          "id": "short",
           "family": "Family short",
           "fileName": "short.ttf",
-          "id": "short",
-          "served": "/short.ttf",
-          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+          "bytes": 15,
+          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc",
+          "served": "/short.ttf"
         },
         {
-          "bytes": 15,
+          "id": "wrong",
           "family": "Family wrong",
           "fileName": "wrong.ttf",
-          "id": "wrong",
-          "served": "/wrong.ttf",
-          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+          "bytes": 15,
+          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc",
+          "served": "/wrong.ttf"
         },
         {
-          "bytes": 15,
+          "id": "fresh",
           "family": "Family fresh",
           "fileName": "ok.ttf",
-          "id": "fresh",
-          "served": "/ok.ttf",
-          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+          "bytes": 15,
+          "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc",
+          "served": "/ok.ttf"
         }
-      ]
-    },
-    "verify": [
+      ],
+      "served": {
+        "/ok.ttf": {
+          "status": 200,
+          "body": "good-font-bytes"
+        },
+        "/missing.ttf": {
+          "status": 404,
+          "body": ""
+        },
+        "/short.ttf": {
+          "status": 200,
+          "body": "short"
+        },
+        "/wrong.ttf": {
+          "status": 200,
+          "body": "wrong-font-byte"
+        }
+      },
+      "presentFile": "Present.ttf",
+      "results": {
+        "present": {
+          "installed": true,
+          "skipped": true,
+          "path": "<root>/home/.local/share/fonts/Present.ttf"
+        },
+        "missing": {
+          "installed": false,
+          "error": "Failed to download font Family missing (404)"
+        },
+        "short": {
+          "installed": false,
+          "error": "Font Family short size mismatch: expected 15 bytes, got 5"
+        },
+        "wrong": {
+          "installed": false,
+          "error": "Font Family wrong sha256 mismatch: expected 1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc, got 546308d937fccbbb5f99870a26637b30efad79a2a52d2022e95a89325e08634a"
+        },
+        "fresh": {
+          "installed": true,
+          "skipped": false,
+          "path": "<root>/home/.local/share/fonts/ok.ttf"
+        }
+      }
+    }
+  },
+  "instructions": {
+    "trace": [
+      "context-status",
+      "listener-a",
+      "listener-b"
+    ],
+    "saveError": null,
+    "userOverride": true,
+    "afterUnsubscribe": [
+      "context-status",
+      "listener-a"
+    ]
+  },
+  "hooks": {
+    "payloads": [
       {
-        "buffer": "good-font-bytes",
-        "bytes": 15,
-        "error": null,
-        "family": "F",
-        "name": "ok",
-        "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+        "payload": {},
+        "summary": "",
+        "compact": {}
       },
       {
-        "buffer": "good-font-bytes",
-        "bytes": 16,
-        "error": "Font F size mismatch: expected 16 bytes, got 15",
-        "family": "F",
-        "name": "size",
-        "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"
+        "payload": {
+          "session_id": "s1",
+          "tool_name": "bash",
+          "provider": "p",
+          "model": "m",
+          "prompt": "a   b\n c",
+          "reason": "r",
+          "error": "e",
+          "elapsedMs": 12
+        },
+        "summary": "session=s1 · name=bash · p/m · prompt=a b c · reason=r · error=e · 12ms",
+        "compact": {
+          "session_id": "s1",
+          "tool_name": "bash",
+          "provider": "p",
+          "model": "m",
+          "prompt": "a   b\n c",
+          "reason": "r",
+          "error": "e",
+          "elapsedMs": 12
+        }
       },
       {
-        "buffer": "good-font-bytes",
-        "bytes": 15,
-        "error": "Font F sha256 mismatch: expected a5b472f23a1964cd3fe2e888a345383bdf83a4240470e5dfcfc54a3009e08a16, got 1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc",
-        "family": "F",
-        "name": "sha",
-        "sha256": "a5b472f23a1964cd3fe2e888a345383bdf83a4240470e5dfcfc54a3009e08a16"
+        "payload": {
+          "sessionId": "x",
+          "name": "n",
+          "model": "only-model"
+        },
+        "summary": "session=x · name=n · only-model",
+        "compact": {
+          "sessionId": "x",
+          "name": "n",
+          "model": "only-model"
+        }
+      },
+      {
+        "payload": {
+          "provider": "only-provider",
+          "elapsedMs": 0
+        },
+        "summary": "only-provider · 0ms",
+        "compact": {
+          "provider": "only-provider",
+          "elapsedMs": 0
+        }
+      },
+      {
+        "payload": {
+          "prompt": "p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p ",
+          "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+          "error": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+        },
+        "summary": "prompt=p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p  · reason=rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr · error=éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "compact": {
+          "prompt": "p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p ",
+          "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr...",
+          "error": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+        }
+      },
+      {
+        "payload": {
+          "sessionId": 0,
+          "name": "",
+          "prompt": 0,
+          "elapsedMs": null
+        },
+        "summary": "",
+        "compact": {
+          "sessionId": 0,
+          "name": "",
+          "prompt": 0,
+          "elapsedMs": null
+        }
+      },
+      {
+        "payload": {
+          "apiKey": "k",
+          "Token": "t",
+          "nested": {
+            "password": "p",
+            "ok": 1,
+            "list": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              {
+                "secret": "s"
+              }
+            ]
+          },
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "flag": true,
+          "none": null,
+          "n": 1.5
+        },
+        "summary": "",
+        "compact": {
+          "apiKey": "<redacted>",
+          "Token": "<redacted>",
+          "nested": {
+            "password": "<redacted>",
+            "ok": 1,
+            "list": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...",
+          "flag": true,
+          "none": null,
+          "n": 1.5
+        }
+      },
+      {
+        "payload": {
+          "a1": 1,
+          "a2": 2,
+          "a3": 3,
+          "a4": 4,
+          "a5": 5,
+          "a6": 6,
+          "a7": 7,
+          "a8": 8,
+          "a9": 9,
+          "a10": 10,
+          "a11": 11,
+          "a12": 12,
+          "a13": 13
+        },
+        "summary": "",
+        "compact": {
+          "a1": 1,
+          "a2": 2,
+          "a3": 3,
+          "a4": 4,
+          "a5": 5,
+          "a6": 6,
+          "a7": 7,
+          "a8": 8,
+          "a9": 9,
+          "a10": 10,
+          "a11": 11,
+          "a12": 12
+        }
+      }
+    ],
+    "rules": [
+      {
+        "rule": {},
+        "index": 0,
+        "summary": {
+          "index": 0,
+          "enabled": true,
+          "tool": "*",
+          "action": "allow",
+          "match": null,
+          "cwd": null,
+          "reason": null,
+          "patch": null
+        }
+      },
+      {
+        "rule": {
+          "tool": "bash",
+          "action": "deny",
+          "match": "rm",
+          "cwd": "/x",
+          "reason": "no"
+        },
+        "index": 1,
+        "summary": {
+          "index": 1,
+          "enabled": true,
+          "tool": "bash",
+          "action": "deny",
+          "match": "rm",
+          "cwd": "/x",
+          "reason": "no",
+          "patch": null
+        }
+      },
+      {
+        "rule": {
+          "name": "edit",
+          "decision": "ask",
+          "contains": "x",
+          "message": "m",
+          "enabled": false,
+          "patch": {
+            "token": "x",
+            "path": "y"
+          }
+        },
+        "index": 2,
+        "summary": {
+          "index": 2,
+          "enabled": false,
+          "tool": "edit",
+          "action": "ask",
+          "match": "x",
+          "cwd": null,
+          "reason": "m",
+          "patch": {
+            "token": "<redacted>",
+            "path": "y"
+          }
+        }
+      },
+      {
+        "rule": {
+          "tools": [
+            "a",
+            "b"
+          ],
+          "args": {
+            "key": "v",
+            "n": 2
+          },
+          "action": "",
+          "decision": "modify",
+          "enabled": 0
+        },
+        "index": 3,
+        "summary": {
+          "index": 3,
+          "enabled": true,
+          "tool": [
+            "a",
+            "b"
+          ],
+          "action": "modify",
+          "match": null,
+          "cwd": null,
+          "reason": null,
+          "patch": {
+            "key": "<redacted>",
+            "n": 2
+          }
+        }
+      },
+      {
+        "rule": {
+          "tool": null,
+          "name": "n2",
+          "match": null,
+          "contains": "c",
+          "reason": "",
+          "message": "mm"
+        },
+        "index": 4,
+        "summary": {
+          "index": 4,
+          "enabled": true,
+          "tool": "n2",
+          "action": "allow",
+          "match": "c",
+          "cwd": null,
+          "reason": "mm",
+          "patch": null
+        }
+      }
+    ],
+    "scenarios": [
+      {
+        "name": "legacy-rules",
+        "files": {
+          "data/hooks.json": "[{\"tool\":\"bash\",\"action\":\"deny\",\"match\":\"rm -rf\",\"reason\":\"no\"},{\"name\":\"edit\",\"decision\":\"ask\",\"enabled\":false,\"patch\":{\"token\":\"x\",\"path\":\"y\"}}]"
+        },
+        "events": [
+          [
+            "runtime:start",
+            {
+              "sessionId": "boot"
+            }
+          ],
+          [
+            "tool:deny",
+            {
+              "name": "bash",
+              "reason": "r"
+            }
+          ],
+          [
+            "tool:deny",
+            {
+              "name": "bash",
+              "reason": "r"
+            }
+          ],
+          [
+            "my:event",
+            {
+              "prompt": "hello   world"
+            }
+          ]
+        ],
+        "countOrder": [
+          "hook:error",
+          "my:event",
+          "PostToolUse",
+          "PreToolUse",
+          "runtime:start",
+          "session:create",
+          "SessionStart",
+          "Stop",
+          "tool:ask",
+          "tool:before",
+          "tool:deny",
+          "tool:modify",
+          "tool:planned",
+          "turn:end",
+          "turn:error",
+          "turn:start",
+          "UserPromptSubmit"
+        ],
+        "recentNames": [
+          "my:event",
+          "tool:deny",
+          "tool:deny",
+          "runtime:start"
+        ],
+        "loaderEmits": [],
+        "status": {
+          "enabled": true,
+          "mode": "standalone-standard",
+          "configMode": "legacy",
+          "rulesPath": "<root>/data/hooks.json",
+          "configSources": [
+            "<root>/data/hooks.json"
+          ],
+          "configSourceEntries": [
+            {
+              "path": "<root>/data/hooks.json",
+              "sourceType": "data",
+              "pluginRoot": null
+            }
+          ],
+          "ruleCount": 2,
+          "rules": [
+            {
+              "index": 0,
+              "enabled": true,
+              "tool": "bash",
+              "action": "deny",
+              "match": "rm -rf",
+              "cwd": null,
+              "reason": "no",
+              "patch": null
+            },
+            {
+              "index": 1,
+              "enabled": false,
+              "tool": "edit",
+              "action": "ask",
+              "match": null,
+              "cwd": null,
+              "reason": null,
+              "patch": {
+                "token": "<redacted>",
+                "path": "y"
+              }
+            }
+          ],
+          "configuredEvents": [],
+          "events": [
+            "runtime:start",
+            "session:create",
+            "turn:start",
+            "turn:end",
+            "turn:error",
+            "tool:planned",
+            "tool:before",
+            "tool:ask",
+            "tool:deny",
+            "tool:modify",
+            "hook:error",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop",
+            "my:event"
+          ],
+          "counts": {
+            "hook:error": 0,
+            "my:event": 1,
+            "PostToolUse": 0,
+            "PreToolUse": 0,
+            "runtime:start": 1,
+            "session:create": 0,
+            "SessionStart": 0,
+            "Stop": 0,
+            "tool:ask": 0,
+            "tool:before": 0,
+            "tool:deny": 2,
+            "tool:modify": 0,
+            "tool:planned": 0,
+            "turn:end": 0,
+            "turn:error": 0,
+            "turn:start": 0,
+            "UserPromptSubmit": 0
+          },
+          "recent": [
+            {
+              "ts": "2023-11-14T22:13:20.000Z",
+              "name": "my:event",
+              "summary": "prompt=hello world",
+              "payload": {
+                "prompt": "hello   world"
+              }
+            },
+            {
+              "ts": "2023-11-14T22:13:20.000Z",
+              "name": "tool:deny",
+              "summary": "name=bash · reason=r",
+              "payload": {
+                "name": "bash",
+                "reason": "r"
+              }
+            },
+            {
+              "ts": "2023-11-14T22:13:20.000Z",
+              "name": "tool:deny",
+              "summary": "name=bash · reason=r",
+              "payload": {
+                "name": "bash",
+                "reason": "r"
+              }
+            },
+            {
+              "ts": "2023-11-14T22:13:20.000Z",
+              "name": "runtime:start",
+              "summary": "session=boot",
+              "payload": {
+                "sessionId": "boot"
+              }
+            }
+          ],
+          "errors": [],
+          "note": "Legacy before-tool hook rules are active. Rules may allow, deny, or modify tool arguments."
+        }
+      },
+      {
+        "name": "standard-merge-order",
+        "files": {
+          "project/.mixdog/hooks.json": "{\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo a\"}]}],\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"echo b\"}]}],\"Bad\":\"nope\"}}",
+          "data/hooks.json": "{\"hooks\":{\"SessionStart\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo c\"}]}],\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo d\"}]}]}}"
+        },
+        "events": [
+          [
+            "PreToolUse",
+            {
+              "tool_name": "Bash"
+            }
+          ],
+          [
+            "tool:ask",
+            {
+              "name": "x"
+            }
+          ]
+        ],
+        "countOrder": [
+          "hook:error",
+          "PostToolUse",
+          "PreToolUse",
+          "runtime:start",
+          "session:create",
+          "SessionStart",
+          "Stop",
+          "tool:ask",
+          "tool:before",
+          "tool:deny",
+          "tool:modify",
+          "tool:planned",
+          "turn:end",
+          "turn:error",
+          "turn:start",
+          "UserPromptSubmit"
+        ],
+        "recentNames": [
+          "hook:error",
+          "tool:ask",
+          "PreToolUse"
+        ],
+        "loaderEmits": [
+          {
+            "name": "hook:error",
+            "payload": {
+              "error": "failed to parse hooks file <root>/project/.mixdog/hooks.json: ignored malformed hook event(s): Bad"
+            }
+          }
+        ],
+        "status": {
+          "enabled": true,
+          "mode": "standalone-standard",
+          "configMode": "standard",
+          "rulesPath": "<root>/data/hooks.json",
+          "configSources": [
+            "<root>/project/.mixdog/hooks.json",
+            "<root>/data/hooks.json"
+          ],
+          "configSourceEntries": [
+            {
+              "path": "<root>/project/.mixdog/hooks.json",
+              "sourceType": "project",
+              "pluginRoot": null
+            },
+            {
+              "path": "<root>/data/hooks.json",
+              "sourceType": "data",
+              "pluginRoot": null
+            }
+          ],
+          "ruleCount": 0,
+          "rules": [],
+          "configuredEvents": [
+            "Stop",
+            "PreToolUse",
+            "SessionStart"
+          ],
+          "events": [
+            "runtime:start",
+            "session:create",
+            "turn:start",
+            "turn:end",
+            "turn:error",
+            "tool:planned",
+            "tool:before",
+            "tool:ask",
+            "tool:deny",
+            "tool:modify",
+            "hook:error",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop"
+          ],
+          "counts": {
+            "hook:error": 1,
+            "PostToolUse": 0,
+            "PreToolUse": 1,
+            "runtime:start": 0,
+            "session:create": 0,
+            "SessionStart": 0,
+            "Stop": 0,
+            "tool:ask": 1,
+            "tool:before": 0,
+            "tool:deny": 0,
+            "tool:modify": 0,
+            "tool:planned": 0,
+            "turn:end": 0,
+            "turn:error": 0,
+            "turn:start": 0,
+            "UserPromptSubmit": 0
+          },
+          "recent": [
+            {
+              "ts": "2023-11-14T22:13:20.000Z",
+              "name": "tool:ask",
+              "summary": "name=x",
+              "payload": {
+                "name": "x"
+              }
+            },
+            {
+              "ts": "2023-11-14T22:13:20.000Z",
+              "name": "PreToolUse",
+              "summary": "name=Bash",
+              "payload": {
+                "tool_name": "Bash"
+              }
+            }
+          ],
+          "errors": [
+            {
+              "file": "<root>/project/.mixdog/hooks.json",
+              "error": "ignored malformed hook event(s): Bad"
+            }
+          ],
+          "note": "Standard Mixdog hooks active for events: Stop, PreToolUse, SessionStart."
+        }
+      },
+      {
+        "name": "disabled",
+        "files": {
+          "data/hooks.json": "{\"disableAllHooks\":true,\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo a\"}]}]}}"
+        },
+        "events": [],
+        "countOrder": [
+          "hook:error",
+          "PostToolUse",
+          "PreToolUse",
+          "runtime:start",
+          "session:create",
+          "SessionStart",
+          "Stop",
+          "tool:ask",
+          "tool:before",
+          "tool:deny",
+          "tool:modify",
+          "tool:planned",
+          "turn:end",
+          "turn:error",
+          "turn:start",
+          "UserPromptSubmit"
+        ],
+        "recentNames": [],
+        "loaderEmits": [],
+        "status": {
+          "enabled": false,
+          "mode": "standalone-standard",
+          "configMode": "standard",
+          "rulesPath": "<root>/data/hooks.json",
+          "configSources": [
+            "<root>/data/hooks.json"
+          ],
+          "configSourceEntries": [
+            {
+              "path": "<root>/data/hooks.json",
+              "sourceType": "data",
+              "pluginRoot": null
+            }
+          ],
+          "ruleCount": 0,
+          "rules": [],
+          "configuredEvents": [
+            "Stop"
+          ],
+          "events": [
+            "runtime:start",
+            "session:create",
+            "turn:start",
+            "turn:end",
+            "turn:error",
+            "tool:planned",
+            "tool:before",
+            "tool:ask",
+            "tool:deny",
+            "tool:modify",
+            "hook:error",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop"
+          ],
+          "counts": {
+            "hook:error": 0,
+            "PostToolUse": 0,
+            "PreToolUse": 0,
+            "runtime:start": 0,
+            "session:create": 0,
+            "SessionStart": 0,
+            "Stop": 0,
+            "tool:ask": 0,
+            "tool:before": 0,
+            "tool:deny": 0,
+            "tool:modify": 0,
+            "tool:planned": 0,
+            "turn:end": 0,
+            "turn:error": 0,
+            "turn:start": 0,
+            "UserPromptSubmit": 0
+          },
+          "recent": [],
+          "errors": [],
+          "note": "Hooks are disabled by disableAllHooks."
+        }
+      },
+      {
+        "name": "empty",
+        "files": {},
+        "events": [
+          [
+            "turn:start",
+            {
+              "sessionId": "s"
+            }
+          ]
+        ],
+        "countOrder": [
+          "hook:error",
+          "PostToolUse",
+          "PreToolUse",
+          "runtime:start",
+          "session:create",
+          "SessionStart",
+          "Stop",
+          "tool:ask",
+          "tool:before",
+          "tool:deny",
+          "tool:modify",
+          "tool:planned",
+          "turn:end",
+          "turn:error",
+          "turn:start",
+          "UserPromptSubmit"
+        ],
+        "recentNames": [
+          "turn:start"
+        ],
+        "loaderEmits": [],
+        "status": {
+          "enabled": true,
+          "mode": "standalone-standard",
+          "configMode": "legacy",
+          "rulesPath": "<root>/data/hooks.json",
+          "configSources": [],
+          "configSourceEntries": [],
+          "ruleCount": 0,
+          "rules": [],
+          "configuredEvents": [],
+          "events": [
+            "runtime:start",
+            "session:create",
+            "turn:start",
+            "turn:end",
+            "turn:error",
+            "tool:planned",
+            "tool:before",
+            "tool:ask",
+            "tool:deny",
+            "tool:modify",
+            "hook:error",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop"
+          ],
+          "counts": {
+            "hook:error": 0,
+            "PostToolUse": 0,
+            "PreToolUse": 0,
+            "runtime:start": 0,
+            "session:create": 0,
+            "SessionStart": 0,
+            "Stop": 0,
+            "tool:ask": 0,
+            "tool:before": 0,
+            "tool:deny": 0,
+            "tool:modify": 0,
+            "tool:planned": 0,
+            "turn:end": 0,
+            "turn:error": 0,
+            "turn:start": 1,
+            "UserPromptSubmit": 0
+          },
+          "recent": [
+            {
+              "ts": "2023-11-14T22:13:20.000Z",
+              "name": "turn:start",
+              "summary": "session=s",
+              "payload": {
+                "sessionId": "s"
+              }
+            }
+          ],
+          "errors": [],
+          "note": "No hook rules configured; lifecycle and tool events are recorded in observer mode."
+        }
       }
     ]
   },
-  "frozenNow": 1700000000000,
+  "sessionLog": [
+    {
+      "name": "nothing",
+      "files": {},
+      "status": {
+        "complete": false,
+        "started": false,
+        "logs": 0,
+        "pending": 0,
+        "skipped": []
+      }
+    },
+    {
+      "name": "no-progress-legacy-pending",
+      "files": {
+        "sessions/a.json": "{}",
+        "sessions/b.json": "{}"
+      },
+      "status": {
+        "complete": false,
+        "started": false,
+        "logs": 0,
+        "pending": 2,
+        "skipped": []
+      }
+    },
+    {
+      "name": "complete",
+      "files": {
+        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"json-to-log-v1\",\"cursor\":null,\"complete\":true,\"updatedAt\":5,\"skipped\":{}}",
+        "sessions/a.log.jsonl": "",
+        "sessions/b.log.jsonl": ""
+      },
+      "status": {
+        "complete": true,
+        "started": true,
+        "logs": 2,
+        "pending": 0,
+        "skipped": []
+      }
+    },
+    {
+      "name": "skips",
+      "files": {
+        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"json-to-log-v1\",\"cursor\":null,\"complete\":false,\"updatedAt\":5,\"skipped\":{\"a\":{\"reason\":\"unreadable\"},\"b\":{\"reason\":\"busy\"},\"z9\":{\"reason\":\"failed\"}}}",
+        "sessions/a.json": "{}",
+        "sessions/b.json": "{}",
+        "sessions/c.json": "{}",
+        "sessions/c.log.jsonl": "",
+        "sessions/d.json": "{}",
+        "sessions/bad name.json": "{}",
+        "sessions/e.log.jsonl.torn-1-ab": "",
+        "sessions/note.txt": ""
+      },
+      "status": {
+        "complete": false,
+        "started": true,
+        "logs": 1,
+        "pending": 2,
+        "skipped": [
+          {
+            "id": "a",
+            "reason": "unreadable"
+          },
+          {
+            "id": "b",
+            "reason": "busy"
+          },
+          {
+            "id": "z9",
+            "reason": "failed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "never-started",
+      "files": {
+        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"json-to-log-v1\",\"cursor\":null,\"complete\":false,\"updatedAt\":0,\"skipped\":{}}",
+        "sessions/a.json": "{}"
+      },
+      "status": {
+        "complete": false,
+        "started": false,
+        "logs": 0,
+        "pending": 1,
+        "skipped": []
+      }
+    },
+    {
+      "name": "wrong-version",
+      "files": {
+        "session-log-migration.json": "{\"v\":2}"
+      },
+      "status": {
+        "unreadable": true
+      }
+    },
+    {
+      "name": "not-json",
+      "files": {
+        "session-log-migration.json": "{broken"
+      },
+      "status": {
+        "unreadable": true
+      }
+    },
+    {
+      "name": "wrong-id",
+      "files": {
+        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"other\",\"cursor\":null,\"complete\":false,\"updatedAt\":5,\"skipped\":{}}"
+      },
+      "status": {
+        "unreadable": true
+      }
+    }
+  ],
+  "marker": {
+    "pid": 4242,
+    "now": 1700000000000,
+    "uuid": "0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b",
+    "cases": [
+      {
+        "name": "none",
+        "prior": null,
+        "file": "{\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\"\n}\n"
+      },
+      {
+        "name": "keeps-others",
+        "prior": "{\"openai\":\"t0\",\"#deleted\":\"d0\"}",
+        "file": "{\n  \"openai\": \"t0\",\n  \"#deleted\": \"d0\",\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\"\n}\n"
+      },
+      {
+        "name": "replaces-own",
+        "prior": "{\"#plugins\":\"old\",\"openai\":\"t0\"}",
+        "file": "{\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\",\n  \"openai\": \"t0\"\n}\n"
+      },
+      {
+        "name": "array-starts-over",
+        "prior": "[1]",
+        "file": "{\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\"\n}\n"
+      }
+    ]
+  },
+  "remote": {
+    "relayUrl": [
+      {
+        "env": null,
+        "url": "wss://192-255-139-161.sslip.io/"
+      },
+      {
+        "env": "",
+        "url": "wss://192-255-139-161.sslip.io/"
+      },
+      {
+        "env": "   ",
+        "url": "wss://192-255-139-161.sslip.io/"
+      },
+      {
+        "env": "0",
+        "url": null
+      },
+      {
+        "env": "false",
+        "url": null
+      },
+      {
+        "env": "OFF",
+        "url": null
+      },
+      {
+        "env": " Off ",
+        "url": null
+      },
+      {
+        "env": "wss://relay.example",
+        "url": "wss://relay.example/"
+      },
+      {
+        "env": " wss://relay.example/path?x=1 ",
+        "url": "wss://relay.example/path?x=1"
+      },
+      {
+        "env": "ws://127.0.0.1:9800",
+        "url": "ws://127.0.0.1:9800/"
+      },
+      {
+        "env": "ws://localhost",
+        "url": "ws://localhost/"
+      },
+      {
+        "env": "ws://[::1]:9",
+        "url": "ws://[::1]:9/"
+      },
+      {
+        "env": "ws://relay.example",
+        "error": "MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development."
+      },
+      {
+        "env": "https://relay.example",
+        "error": "MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development."
+      },
+      {
+        "env": "not a url",
+        "error": "MIXDOG_RELAY_URL is invalid."
+      },
+      {
+        "env": "wss://user:pw@relay.example",
+        "error": "MIXDOG_RELAY_URL must not contain credentials."
+      },
+      {
+        "env": "wss://u@relay.example",
+        "error": "MIXDOG_RELAY_URL must not contain credentials."
+      }
+    ],
+    "settings": {
+      "reads": [
+        {
+          "name": "fresh",
+          "files": {},
+          "view": {
+            "enabled": false,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "disabled": false,
+          "aliases": {},
+          "after": []
+        },
+        {
+          "name": "activated",
+          "files": {
+            "remote-activated.json": "{\"activatedAt\":1}"
+          },
+          "view": {
+            "enabled": true,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "disabled": false,
+          "aliases": {},
+          "after": [
+            "remote-activated.json"
+          ]
+        },
+        {
+          "name": "legacy-evidence",
+          "files": {
+            "relay-device.json": "{}"
+          },
+          "view": {
+            "enabled": true,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "disabled": false,
+          "aliases": {},
+          "after": [
+            "relay-device.json",
+            "remote-activated.json"
+          ]
+        },
+        {
+          "name": "trust-evidence",
+          "files": {
+            "remote-client-trust.json": "{}"
+          },
+          "view": {
+            "enabled": true,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "disabled": false,
+          "aliases": {},
+          "after": [
+            "remote-activated.json",
+            "remote-client-trust.json"
+          ]
+        },
+        {
+          "name": "switched-off",
+          "files": {
+            "remote-activated.json": "{}",
+            "remote-access-settings.json": "{\"enabled\":false}"
+          },
+          "view": {
+            "enabled": false,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "disabled": true,
+          "aliases": {},
+          "after": [
+            "remote-access-settings.json",
+            "remote-activated.json"
+          ]
+        },
+        {
+          "name": "named",
+          "files": {
+            "remote-access-settings.json": "{\"name\":\"My PC\",\"enabled\":true}"
+          },
+          "view": {
+            "enabled": true,
+            "name": "My PC",
+            "defaultName": "HOST-FIXED"
+          },
+          "disabled": false,
+          "aliases": {},
+          "after": [
+            "remote-access-settings.json"
+          ]
+        },
+        {
+          "name": "empty-name",
+          "files": {
+            "remote-access-settings.json": "{\"name\":\"\"}"
+          },
+          "view": {
+            "enabled": false,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "disabled": false,
+          "aliases": {},
+          "after": [
+            "remote-access-settings.json"
+          ]
+        },
+        {
+          "name": "long-name-kept",
+          "files": {
+            "remote-access-settings.json": "{\"name\":\"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\"}"
+          },
+          "view": {
+            "enabled": false,
+            "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "defaultName": "HOST-FIXED"
+          },
+          "disabled": false,
+          "aliases": {},
+          "after": [
+            "remote-access-settings.json"
+          ]
+        },
+        {
+          "name": "damaged",
+          "files": {
+            "remote-access-settings.json": "{broken"
+          },
+          "view": {
+            "enabled": false,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "disabled": false,
+          "aliases": {},
+          "after": [
+            "remote-access-settings.json"
+          ]
+        },
+        {
+          "name": "wrong-types",
+          "files": {
+            "remote-access-settings.json": "{\"enabled\":\"yes\",\"name\":5}"
+          },
+          "view": {
+            "enabled": false,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "disabled": false,
+          "aliases": {},
+          "after": [
+            "remote-access-settings.json"
+          ]
+        }
+      ],
+      "mutations": [
+        {
+          "op": "setEnabled",
+          "args": [
+            true
+          ],
+          "result": {
+            "enabled": true,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "file": {
+            "enabled": true
+          }
+        },
+        {
+          "op": "setName",
+          "args": [
+            "  My Desk  "
+          ],
+          "result": {
+            "enabled": true,
+            "name": "My Desk",
+            "defaultName": "HOST-FIXED"
+          },
+          "file": {
+            "enabled": true,
+            "name": "My Desk"
+          }
+        },
+        {
+          "op": "setName",
+          "args": [
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ],
+          "result": {
+            "enabled": true,
+            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "defaultName": "HOST-FIXED"
+          },
+          "file": {
+            "enabled": true,
+            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        {
+          "op": "setName",
+          "args": [
+            ""
+          ],
+          "result": {
+            "enabled": true,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "file": {
+            "enabled": true
+          }
+        },
+        {
+          "op": "setDeviceAlias",
+          "args": [
+            "c1",
+            "  Phone  "
+          ],
+          "result": {
+            "c1": "Phone"
+          },
+          "file": {
+            "enabled": true,
+            "deviceAliases": {
+              "c1": "Phone"
+            }
+          }
+        },
+        {
+          "op": "setDeviceAlias",
+          "args": [
+            "c2",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          "result": {
+            "c1": "Phone",
+            "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "file": {
+            "enabled": true,
+            "deviceAliases": {
+              "c1": "Phone",
+              "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        },
+        {
+          "op": "setDeviceAlias",
+          "args": [
+            "c1",
+            ""
+          ],
+          "result": {
+            "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "file": {
+            "enabled": true,
+            "deviceAliases": {
+              "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        },
+        {
+          "op": "setEnabled",
+          "args": [
+            false
+          ],
+          "result": {
+            "enabled": false,
+            "name": "HOST-FIXED",
+            "defaultName": "HOST-FIXED"
+          },
+          "file": {
+            "enabled": false,
+            "deviceAliases": {
+              "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        }
+      ]
+    },
+    "hostName": {
+      "hostname": "DESKTOP-IBLP835",
+      "computerName": "DESKTOP-IBLP835",
+      "platform": "win32"
+    },
+    "pairCode": {
+      "hostName": "PC-FIXED",
+      "steps": [
+        {
+          "op": "ensure",
+          "at": 0,
+          "result": null,
+          "sent": [
+            {
+              "type": "pair-code-request",
+              "lease": "$last",
+              "name": "PC-FIXED"
+            }
+          ]
+        },
+        {
+          "op": "ensure",
+          "at": 1000,
+          "result": null,
+          "sent": []
+        },
+        {
+          "op": "issued",
+          "at": 2000,
+          "envelope": {
+            "ok": true,
+            "code": "123456",
+            "expiresInMs": 600000,
+            "lease": "$last"
+          },
+          "result": null,
+          "sent": []
+        },
+        {
+          "op": "ensure",
+          "at": 3000,
+          "result": {
+            "code": "123456",
+            "expiresAt": 302000
+          },
+          "sent": []
+        },
+        {
+          "op": "used",
+          "at": 4000,
+          "envelope": {
+            "lease": "$other"
+          },
+          "result": null,
+          "sent": []
+        },
+        {
+          "op": "ensure",
+          "at": 4001,
+          "result": {
+            "code": "123456",
+            "expiresAt": 302000
+          },
+          "sent": []
+        },
+        {
+          "op": "used",
+          "at": 5000,
+          "envelope": {
+            "lease": "$last"
+          },
+          "result": null,
+          "sent": []
+        },
+        {
+          "op": "ensure",
+          "at": 5001,
+          "result": null,
+          "sent": [
+            {
+              "type": "pair-code-request",
+              "lease": "$last",
+              "name": "PC-FIXED"
+            }
+          ]
+        },
+        {
+          "op": "issued",
+          "at": 6000,
+          "envelope": {
+            "ok": true,
+            "code": "654321",
+            "expiresInMs": 100000,
+            "lease": "$other"
+          },
+          "result": null,
+          "sent": []
+        },
+        {
+          "op": "issued",
+          "at": 6100,
+          "envelope": {
+            "ok": true,
+            "code": "654321",
+            "expiresInMs": 100000,
+            "lease": "$last"
+          },
+          "result": null,
+          "sent": []
+        },
+        {
+          "op": "ensure",
+          "at": 6500,
+          "result": {
+            "code": "654321",
+            "expiresAt": 106100
+          },
+          "sent": []
+        },
+        {
+          "op": "ensure",
+          "at": 106100,
+          "result": null,
+          "sent": [
+            {
+              "type": "pair-code-request",
+              "lease": "$last",
+              "name": "PC-FIXED"
+            }
+          ]
+        },
+        {
+          "op": "release",
+          "at": 107000,
+          "result": null,
+          "sent": [
+            {
+              "type": "pair-code-clear"
+            }
+          ]
+        },
+        {
+          "op": "release",
+          "at": 108000,
+          "result": null,
+          "sent": []
+        },
+        {
+          "op": "ensure",
+          "at": 109000,
+          "result": null,
+          "sent": [
+            {
+              "type": "pair-code-request",
+              "lease": "$last",
+              "name": "PC-FIXED"
+            }
+          ]
+        },
+        {
+          "op": "connected",
+          "at": 109100,
+          "result": null,
+          "sent": [
+            {
+              "type": "pair-code-request",
+              "lease": "$last",
+              "name": "PC-FIXED"
+            }
+          ]
+        }
+      ],
+      "defaultLease": {
+        "length": 32,
+        "hex": true
+      }
+    }
+  },
   "git": [
     {
       "args": [
@@ -667,1409 +2172,27 @@
       "error": "git -C <root>/source diff --quiet failed"
     }
   ],
-  "hooks": {
-    "payloads": [
-      {
-        "compactJson": "{}",
-        "payloadJson": "{}",
-        "summary": ""
-      },
-      {
-        "compactJson": "{\"session_id\":\"s1\",\"tool_name\":\"bash\",\"provider\":\"p\",\"model\":\"m\",\"prompt\":\"a   b\\n c\",\"reason\":\"r\",\"error\":\"e\",\"elapsedMs\":12}",
-        "payloadJson": "{\"session_id\":\"s1\",\"tool_name\":\"bash\",\"provider\":\"p\",\"model\":\"m\",\"prompt\":\"a   b\\n c\",\"reason\":\"r\",\"error\":\"e\",\"elapsedMs\":12}",
-        "summary": "session=s1 · name=bash · p/m · prompt=a b c · reason=r · error=e · 12ms"
-      },
-      {
-        "compactJson": "{\"sessionId\":\"x\",\"name\":\"n\",\"model\":\"only-model\"}",
-        "payloadJson": "{\"sessionId\":\"x\",\"name\":\"n\",\"model\":\"only-model\"}",
-        "summary": "session=x · name=n · only-model"
-      },
-      {
-        "compactJson": "{\"provider\":\"only-provider\",\"elapsedMs\":0}",
-        "payloadJson": "{\"provider\":\"only-provider\",\"elapsedMs\":0}",
-        "summary": "only-provider · 0ms"
-      },
-      {
-        "compactJson": "{\"prompt\":\"p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p \",\"reason\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr...\",\"error\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"}",
-        "payloadJson": "{\"prompt\":\"p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p \",\"reason\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"error\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"}",
-        "summary": "prompt=p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p  · reason=rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr · error=éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
-      },
-      {
-        "compactJson": "{\"sessionId\":0,\"name\":\"\",\"prompt\":0,\"elapsedMs\":null}",
-        "payloadJson": "{\"sessionId\":0,\"name\":\"\",\"prompt\":0,\"elapsedMs\":null}",
-        "summary": ""
-      },
-      {
-        "compactJson": "{\"apiKey\":\"<redacted>\",\"Token\":\"<redacted>\",\"nested\":{\"password\":\"<redacted>\",\"ok\":1,\"list\":[1,2,3,4,5,6,7,8]},\"text\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...\",\"flag\":true,\"none\":null,\"n\":1.5}",
-        "payloadJson": "{\"apiKey\":\"k\",\"Token\":\"t\",\"nested\":{\"password\":\"p\",\"ok\":1,\"list\":[1,2,3,4,5,6,7,8,9,{\"secret\":\"s\"}]},\"text\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"flag\":true,\"none\":null,\"n\":1.5}",
-        "summary": ""
-      },
-      {
-        "compactJson": "{\"a1\":1,\"a2\":2,\"a3\":3,\"a4\":4,\"a5\":5,\"a6\":6,\"a7\":7,\"a8\":8,\"a9\":9,\"a10\":10,\"a11\":11,\"a12\":12}",
-        "payloadJson": "{\"a1\":1,\"a2\":2,\"a3\":3,\"a4\":4,\"a5\":5,\"a6\":6,\"a7\":7,\"a8\":8,\"a9\":9,\"a10\":10,\"a11\":11,\"a12\":12,\"a13\":13}",
-        "summary": ""
-      }
-    ],
-    "rules": [
-      {
-        "index": 0,
-        "rule": {},
-        "summary": {
-          "action": "allow",
-          "cwd": null,
-          "enabled": true,
-          "index": 0,
-          "match": null,
-          "patch": null,
-          "reason": null,
-          "tool": "*"
-        }
-      },
-      {
-        "index": 1,
-        "rule": {
-          "action": "deny",
-          "cwd": "/x",
-          "match": "rm",
-          "reason": "no",
-          "tool": "bash"
-        },
-        "summary": {
-          "action": "deny",
-          "cwd": "/x",
-          "enabled": true,
-          "index": 1,
-          "match": "rm",
-          "patch": null,
-          "reason": "no",
-          "tool": "bash"
-        }
-      },
-      {
-        "index": 2,
-        "rule": {
-          "contains": "x",
-          "decision": "ask",
-          "enabled": false,
-          "message": "m",
-          "name": "edit",
-          "patch": {
-            "path": "y",
-            "token": "x"
-          }
-        },
-        "summary": {
-          "action": "ask",
-          "cwd": null,
-          "enabled": false,
-          "index": 2,
-          "match": "x",
-          "patch": {
-            "path": "y",
-            "token": "<redacted>"
-          },
-          "reason": "m",
-          "tool": "edit"
-        }
-      },
-      {
-        "index": 3,
-        "rule": {
-          "action": "",
-          "args": {
-            "key": "v",
-            "n": 2
-          },
-          "decision": "modify",
-          "enabled": 0,
-          "tools": [
-            "a",
-            "b"
-          ]
-        },
-        "summary": {
-          "action": "modify",
-          "cwd": null,
-          "enabled": true,
-          "index": 3,
-          "match": null,
-          "patch": {
-            "key": "<redacted>",
-            "n": 2
-          },
-          "reason": null,
-          "tool": [
-            "a",
-            "b"
-          ]
-        }
-      },
-      {
-        "index": 4,
-        "rule": {
-          "contains": "c",
-          "match": null,
-          "message": "mm",
-          "name": "n2",
-          "reason": "",
-          "tool": null
-        },
-        "summary": {
-          "action": "allow",
-          "cwd": null,
-          "enabled": true,
-          "index": 4,
-          "match": "c",
-          "patch": null,
-          "reason": "mm",
-          "tool": "n2"
-        }
-      }
-    ],
-    "scenarios": [
-      {
-        "countOrder": [
-          "hook:error",
-          "my:event",
-          "PostToolUse",
-          "PreToolUse",
-          "runtime:start",
-          "session:create",
-          "SessionStart",
-          "Stop",
-          "tool:ask",
-          "tool:before",
-          "tool:deny",
-          "tool:modify",
-          "tool:planned",
-          "turn:end",
-          "turn:error",
-          "turn:start",
-          "UserPromptSubmit"
-        ],
-        "events": [
-          [
-            "runtime:start",
-            {
-              "sessionId": "boot"
-            }
-          ],
-          [
-            "tool:deny",
-            {
-              "name": "bash",
-              "reason": "r"
-            }
-          ],
-          [
-            "tool:deny",
-            {
-              "name": "bash",
-              "reason": "r"
-            }
-          ],
-          [
-            "my:event",
-            {
-              "prompt": "hello   world"
-            }
-          ]
-        ],
-        "files": {
-          "data/hooks.json": "[{\"tool\":\"bash\",\"action\":\"deny\",\"match\":\"rm -rf\",\"reason\":\"no\"},{\"name\":\"edit\",\"decision\":\"ask\",\"enabled\":false,\"patch\":{\"token\":\"x\",\"path\":\"y\"}}]"
-        },
-        "loaderEmits": [],
-        "name": "legacy-rules",
-        "recentNames": [
-          "my:event",
-          "tool:deny",
-          "tool:deny",
-          "runtime:start"
-        ],
-        "status": {
-          "configMode": "legacy",
-          "configSourceEntries": [
-            {
-              "path": "<root>/data/hooks.json",
-              "pluginRoot": null,
-              "sourceType": "data"
-            }
-          ],
-          "configSources": [
-            "<root>/data/hooks.json"
-          ],
-          "configuredEvents": [],
-          "counts": {
-            "PostToolUse": 0,
-            "PreToolUse": 0,
-            "SessionStart": 0,
-            "Stop": 0,
-            "UserPromptSubmit": 0,
-            "hook:error": 0,
-            "my:event": 1,
-            "runtime:start": 1,
-            "session:create": 0,
-            "tool:ask": 0,
-            "tool:before": 0,
-            "tool:deny": 2,
-            "tool:modify": 0,
-            "tool:planned": 0,
-            "turn:end": 0,
-            "turn:error": 0,
-            "turn:start": 0
-          },
-          "enabled": true,
-          "errors": [],
-          "events": [
-            "runtime:start",
-            "session:create",
-            "turn:start",
-            "turn:end",
-            "turn:error",
-            "tool:planned",
-            "tool:before",
-            "tool:ask",
-            "tool:deny",
-            "tool:modify",
-            "hook:error",
-            "SessionStart",
-            "UserPromptSubmit",
-            "PreToolUse",
-            "PostToolUse",
-            "Stop",
-            "my:event"
-          ],
-          "mode": "standalone-standard",
-          "note": "Legacy before-tool hook rules are active. Rules may allow, deny, or modify tool arguments.",
-          "recent": [
-            {
-              "name": "my:event",
-              "payload": {
-                "prompt": "hello   world"
-              },
-              "summary": "prompt=hello world",
-              "ts": "2023-11-14T22:13:20.000Z"
-            },
-            {
-              "name": "tool:deny",
-              "payload": {
-                "name": "bash",
-                "reason": "r"
-              },
-              "summary": "name=bash · reason=r",
-              "ts": "2023-11-14T22:13:20.000Z"
-            },
-            {
-              "name": "tool:deny",
-              "payload": {
-                "name": "bash",
-                "reason": "r"
-              },
-              "summary": "name=bash · reason=r",
-              "ts": "2023-11-14T22:13:20.000Z"
-            },
-            {
-              "name": "runtime:start",
-              "payload": {
-                "sessionId": "boot"
-              },
-              "summary": "session=boot",
-              "ts": "2023-11-14T22:13:20.000Z"
-            }
-          ],
-          "ruleCount": 2,
-          "rules": [
-            {
-              "action": "deny",
-              "cwd": null,
-              "enabled": true,
-              "index": 0,
-              "match": "rm -rf",
-              "patch": null,
-              "reason": "no",
-              "tool": "bash"
-            },
-            {
-              "action": "ask",
-              "cwd": null,
-              "enabled": false,
-              "index": 1,
-              "match": null,
-              "patch": {
-                "path": "y",
-                "token": "<redacted>"
-              },
-              "reason": null,
-              "tool": "edit"
-            }
-          ],
-          "rulesPath": "<root>/data/hooks.json"
-        }
-      },
-      {
-        "countOrder": [
-          "hook:error",
-          "PostToolUse",
-          "PreToolUse",
-          "runtime:start",
-          "session:create",
-          "SessionStart",
-          "Stop",
-          "tool:ask",
-          "tool:before",
-          "tool:deny",
-          "tool:modify",
-          "tool:planned",
-          "turn:end",
-          "turn:error",
-          "turn:start",
-          "UserPromptSubmit"
-        ],
-        "events": [
-          [
-            "PreToolUse",
-            {
-              "tool_name": "Bash"
-            }
-          ],
-          [
-            "tool:ask",
-            {
-              "name": "x"
-            }
-          ]
-        ],
-        "files": {
-          "data/hooks.json": "{\"hooks\":{\"SessionStart\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo c\"}]}],\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo d\"}]}]}}",
-          "project/.mixdog/hooks.json": "{\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo a\"}]}],\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"echo b\"}]}],\"Bad\":\"nope\"}}"
-        },
-        "loaderEmits": [
-          {
-            "name": "hook:error",
-            "payload": {
-              "error": "failed to parse hooks file <root>/project/.mixdog/hooks.json: ignored malformed hook event(s): Bad"
-            }
-          }
-        ],
-        "name": "standard-merge-order",
-        "recentNames": [
-          "hook:error",
-          "tool:ask",
-          "PreToolUse"
-        ],
-        "status": {
-          "configMode": "standard",
-          "configSourceEntries": [
-            {
-              "path": "<root>/project/.mixdog/hooks.json",
-              "pluginRoot": null,
-              "sourceType": "project"
-            },
-            {
-              "path": "<root>/data/hooks.json",
-              "pluginRoot": null,
-              "sourceType": "data"
-            }
-          ],
-          "configSources": [
-            "<root>/project/.mixdog/hooks.json",
-            "<root>/data/hooks.json"
-          ],
-          "configuredEvents": [
-            "Stop",
-            "PreToolUse",
-            "SessionStart"
-          ],
-          "counts": {
-            "PostToolUse": 0,
-            "PreToolUse": 1,
-            "SessionStart": 0,
-            "Stop": 0,
-            "UserPromptSubmit": 0,
-            "hook:error": 1,
-            "runtime:start": 0,
-            "session:create": 0,
-            "tool:ask": 1,
-            "tool:before": 0,
-            "tool:deny": 0,
-            "tool:modify": 0,
-            "tool:planned": 0,
-            "turn:end": 0,
-            "turn:error": 0,
-            "turn:start": 0
-          },
-          "enabled": true,
-          "errors": [
-            {
-              "error": "ignored malformed hook event(s): Bad",
-              "file": "<root>/project/.mixdog/hooks.json"
-            }
-          ],
-          "events": [
-            "runtime:start",
-            "session:create",
-            "turn:start",
-            "turn:end",
-            "turn:error",
-            "tool:planned",
-            "tool:before",
-            "tool:ask",
-            "tool:deny",
-            "tool:modify",
-            "hook:error",
-            "SessionStart",
-            "UserPromptSubmit",
-            "PreToolUse",
-            "PostToolUse",
-            "Stop"
-          ],
-          "mode": "standalone-standard",
-          "note": "Standard Mixdog hooks active for events: Stop, PreToolUse, SessionStart.",
-          "recent": [
-            {
-              "name": "tool:ask",
-              "payload": {
-                "name": "x"
-              },
-              "summary": "name=x",
-              "ts": "2023-11-14T22:13:20.000Z"
-            },
-            {
-              "name": "PreToolUse",
-              "payload": {
-                "tool_name": "Bash"
-              },
-              "summary": "name=Bash",
-              "ts": "2023-11-14T22:13:20.000Z"
-            }
-          ],
-          "ruleCount": 0,
-          "rules": [],
-          "rulesPath": "<root>/data/hooks.json"
-        }
-      },
-      {
-        "countOrder": [
-          "hook:error",
-          "PostToolUse",
-          "PreToolUse",
-          "runtime:start",
-          "session:create",
-          "SessionStart",
-          "Stop",
-          "tool:ask",
-          "tool:before",
-          "tool:deny",
-          "tool:modify",
-          "tool:planned",
-          "turn:end",
-          "turn:error",
-          "turn:start",
-          "UserPromptSubmit"
-        ],
-        "events": [],
-        "files": {
-          "data/hooks.json": "{\"disableAllHooks\":true,\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo a\"}]}]}}"
-        },
-        "loaderEmits": [],
-        "name": "disabled",
-        "recentNames": [],
-        "status": {
-          "configMode": "standard",
-          "configSourceEntries": [
-            {
-              "path": "<root>/data/hooks.json",
-              "pluginRoot": null,
-              "sourceType": "data"
-            }
-          ],
-          "configSources": [
-            "<root>/data/hooks.json"
-          ],
-          "configuredEvents": [
-            "Stop"
-          ],
-          "counts": {
-            "PostToolUse": 0,
-            "PreToolUse": 0,
-            "SessionStart": 0,
-            "Stop": 0,
-            "UserPromptSubmit": 0,
-            "hook:error": 0,
-            "runtime:start": 0,
-            "session:create": 0,
-            "tool:ask": 0,
-            "tool:before": 0,
-            "tool:deny": 0,
-            "tool:modify": 0,
-            "tool:planned": 0,
-            "turn:end": 0,
-            "turn:error": 0,
-            "turn:start": 0
-          },
-          "enabled": false,
-          "errors": [],
-          "events": [
-            "runtime:start",
-            "session:create",
-            "turn:start",
-            "turn:end",
-            "turn:error",
-            "tool:planned",
-            "tool:before",
-            "tool:ask",
-            "tool:deny",
-            "tool:modify",
-            "hook:error",
-            "SessionStart",
-            "UserPromptSubmit",
-            "PreToolUse",
-            "PostToolUse",
-            "Stop"
-          ],
-          "mode": "standalone-standard",
-          "note": "Hooks are disabled by disableAllHooks.",
-          "recent": [],
-          "ruleCount": 0,
-          "rules": [],
-          "rulesPath": "<root>/data/hooks.json"
-        }
-      },
-      {
-        "countOrder": [
-          "hook:error",
-          "PostToolUse",
-          "PreToolUse",
-          "runtime:start",
-          "session:create",
-          "SessionStart",
-          "Stop",
-          "tool:ask",
-          "tool:before",
-          "tool:deny",
-          "tool:modify",
-          "tool:planned",
-          "turn:end",
-          "turn:error",
-          "turn:start",
-          "UserPromptSubmit"
-        ],
-        "events": [
-          [
-            "turn:start",
-            {
-              "sessionId": "s"
-            }
-          ]
-        ],
-        "files": {},
-        "loaderEmits": [],
-        "name": "empty",
-        "recentNames": [
-          "turn:start"
-        ],
-        "status": {
-          "configMode": "legacy",
-          "configSourceEntries": [],
-          "configSources": [],
-          "configuredEvents": [],
-          "counts": {
-            "PostToolUse": 0,
-            "PreToolUse": 0,
-            "SessionStart": 0,
-            "Stop": 0,
-            "UserPromptSubmit": 0,
-            "hook:error": 0,
-            "runtime:start": 0,
-            "session:create": 0,
-            "tool:ask": 0,
-            "tool:before": 0,
-            "tool:deny": 0,
-            "tool:modify": 0,
-            "tool:planned": 0,
-            "turn:end": 0,
-            "turn:error": 0,
-            "turn:start": 1
-          },
-          "enabled": true,
-          "errors": [],
-          "events": [
-            "runtime:start",
-            "session:create",
-            "turn:start",
-            "turn:end",
-            "turn:error",
-            "tool:planned",
-            "tool:before",
-            "tool:ask",
-            "tool:deny",
-            "tool:modify",
-            "hook:error",
-            "SessionStart",
-            "UserPromptSubmit",
-            "PreToolUse",
-            "PostToolUse",
-            "Stop"
-          ],
-          "mode": "standalone-standard",
-          "note": "No hook rules configured; lifecycle and tool events are recorded in observer mode.",
-          "recent": [
-            {
-              "name": "turn:start",
-              "payload": {
-                "sessionId": "s"
-              },
-              "summary": "session=s",
-              "ts": "2023-11-14T22:13:20.000Z"
-            }
-          ],
-          "ruleCount": 0,
-          "rules": [],
-          "rulesPath": "<root>/data/hooks.json"
-        }
-      }
-    ]
-  },
-  "instructions": {
-    "afterUnsubscribe": [
-      "context-status",
-      "listener-a"
-    ],
-    "saveError": null,
-    "trace": [
-      "context-status",
-      "listener-a",
-      "listener-b"
-    ],
-    "userOverride": true
-  },
-  "marker": {
-    "cases": [
-      {
-        "file": "{\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\"\n}\n",
-        "name": "none",
-        "prior": null
-      },
-      {
-        "file": "{\n  \"openai\": \"t0\",\n  \"#deleted\": \"d0\",\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\"\n}\n",
-        "name": "keeps-others",
-        "prior": "{\"openai\":\"t0\",\"#deleted\":\"d0\"}"
-      },
-      {
-        "file": "{\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\",\n  \"openai\": \"t0\"\n}\n",
-        "name": "replaces-own",
-        "prior": "{\"#plugins\":\"old\",\"openai\":\"t0\"}"
-      },
-      {
-        "file": "{\n  \"#plugins\": \"4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b\"\n}\n",
-        "name": "array-starts-over",
-        "prior": "[1]"
-      }
-    ],
-    "now": 1700000000000,
-    "pid": 4242,
-    "uuid": "0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b"
-  },
   "nodeRuntime": {
-    "engines": "^22.19.0 || >=24.0.0",
     "packageJson": "{\n  \"name\": \"mixdog\",\n  \"version\": \"1.4.5\",\n  \"private\": false,\n  \"type\": \"module\",\n  \"description\": \"Open-source coding agent that matches Codex on Terminal-Bench 2.1 with 63% fewer tokens.\",\n  \"license\": \"Apache-2.0\",\n  \"repository\": {\n    \"type\": \"git\",\n    \"url\": \"git+https://github.com/tribgames/mixdog.git\"\n  },\n  \"bugs\": {\n    \"url\": \"https://github.com/tribgames/mixdog/issues\"\n  },\n  \"homepage\": \"https://mixdog.ai/\",\n  \"keywords\": [\n    \"ai\",\n    \"agent\",\n    \"coding-agent\",\n    \"llm\",\n    \"claude\",\n    \"codex\",\n    \"openai\",\n    \"token-efficiency\",\n    \"terminal-bench\",\n    \"desktop\",\n    \"cli\",\n    \"mcp\"\n  ],\n  \"bin\": {\n    \"mixdog\": \"src/cli.mjs\"\n  },\n  \"files\": [\n    \"README.md\",\n    \"NOTICE.md\",\n    \"LICENSES/\",\n    \"scripts/\",\n    \"!scripts/bench/\",\n    \"!scripts/recall-bench-*.txt\",\n    \"!scripts/*-test.mjs\",\n    \"!scripts/**/*.test.mjs\",\n    \"!scripts/tool-contracts/\",\n    \"!scripts/provider-toolcall/\",\n    \"!scripts/session-transport/\",\n    \"!scripts/shellhardening/\",\n    \"!scripts/*-smoke.mjs\",\n    \"!scripts/smoke-loop*.mjs\",\n    \"!scripts/*-bench.mjs\",\n    \"!scripts/*bench-*.mjs\",\n    \"!scripts/verify-embedding-runtime.mjs\",\n    \"!scripts/*.ps1\",\n    \"!scripts/*.jsx\",\n    \"src/\",\n    \"!src/tui/dev\",\n    \"!src/**/*.test.mjs\",\n    \"!src/**/*.test-hook.mjs\",\n    \"!src/**/*.test.jsx\"\n  ],\n  \"scripts\": {\n    \"postinstall\": \"node scripts/prune-embedding-runtime.mjs && node scripts/prepare-native-assets.mjs\",\n    \"prepack\": \"npm run build:shipped-history && npm run build:tui\",\n    \"build:shipped-history\": \"node scripts/build-shipped-history.mjs\",\n    \"check:shipped-history\": \"node scripts/build-shipped-history.mjs --check\",\n    \"check:model-recommendations\": \"node scripts/check-model-recommendations.mjs\",\n    \"prepublishOnly\": \"node -e \\\"if(!process.env.CI){console.error('local npm publish is disabled — run npm run release:patch');process.exit(1)}\\\"\",\n    \"start\": \"node src/cli.mjs\",\n    \"test\": \"node scripts/test.mjs\",\n    \"test:slow\": \"node scripts/test.mjs --lane slow\",\n    \"gate:local\": \"node scripts/gate-local.mjs\",\n    \"test:live\": \"npm run build:spawn:test && node scripts/test.mjs --lane live\",\n    \"smoke\": \"node scripts/smoke.mjs\",\n    \"smoke:all\": \"npm run smoke && npm run smoke:boot && npm run smoke:patch && npm run smoke:compact\",\n    \"smoke:boot\": \"node scripts/boot-smoke.mjs\",\n    \"smoke:compact\": \"node scripts/compact-smoke.mjs\",\n    \"smoke:loop\": \"node scripts/smoke-loop.mjs\",\n    \"smoke:loop:final\": \"node scripts/smoke-loop-report.mjs --require-complete --min-elapsed 5h --min-iterations 400 --max-gap 60s --max-smoke-ms 10000 --max-avg-smoke-ms 8500 --max-step-ms smoke.mjs=4000 --max-step-ms boot-smoke.mjs=8000 --max-rss-mb 140 --max-rss-growth-mb 50\",\n    \"smoke:loop:report\": \"node scripts/smoke-loop-report.mjs\",\n    \"build:spawn:test\": \"cargo build --locked --manifest-path native/mixdog-spawn/Cargo.toml\",\n    \"build:supervisor:test\": \"cargo build --locked --release --manifest-path native/mixdog-supervisor/Cargo.toml\",\n    \"test:tool-contracts\": \"npm run build:spawn:test && node scripts/test-direct.mjs --test-force-exit \\\"scripts/tool-contracts/*.test.mjs\\\"\",\n    \"smoke:patch\": \"node scripts/apply-patch-edit-smoke.mjs\",\n    \"test:shellhardening\": \"npm run build:spawn:test && node scripts/test-direct.mjs \\\"scripts/shellhardening/*.test.mjs\\\" scripts/suite-shell-direct-exe-test.mjs\",\n    \"test:providers\": \"node scripts/test-direct.mjs \\\"scripts/provider-toolcall/*.test.mjs\\\" scripts/provider-contract-test.mjs scripts/provider-stream-outcome-test.mjs scripts/cursor-provider-test.mjs src/runtime/agent/orchestrator/providers/openai-codex-identity.test.mjs src/runtime/agent/orchestrator/providers/openai-ws-delta-parity.test.mjs\",\n    \"test:embedding-runtime:warmup\": \"node scripts/verify-embedding-runtime.mjs --warmup\",\n    \"test:release-assets\": \"node --check scripts/verify-release-assets.mjs && node --check scripts/release-gate-test.mjs && node --check scripts/prepare-native-assets.mjs && node scripts/test-direct.mjs scripts/release-gate-test.mjs scripts/prepare-native-assets-test.mjs scripts/generate-voice-runtime-manifest.test.mjs\",\n    \"test:native-edit-wire\": \"node scripts/native-edit-wire-test.mjs\",\n    \"test:release-critical\": \"npm run test:release-assets && npm run smoke:patch && npm run test:providers\",\n    \"test:spec-advisory\": \"node scripts/run-advisory-spec.mjs && npm run test:spec-advisory --prefix apps/desktop\",\n    \"test:session-transport\": \"node scripts/test-direct.mjs \\\"scripts/session-transport/*.test.mjs\\\" scripts/daemon-bootstrap-test.mjs src/standalone/session-runtime-inline-host.test.mjs\",\n    \"test:office\": \"node scripts/test-direct.mjs scripts/run-office-live-tests.test.mjs src/runtime/office/office-runtime-contract.test.mjs src/runtime/office/office-runtime-com.test.mjs src/runtime/office/office-runtime-portable.slow.test.mjs src/runtime/office/xlsx-formula-audit.test.mjs src/runtime/office/xlsx-portable-snapshot.test.mjs src/runtime/office/office-runtime-pdf.slow.test.mjs src/runtime/office/office-runtime-design.test.mjs src/runtime/office/office-assurance.slow.test.mjs src/runtime/office/office-design-aesthetics.test.mjs src/runtime/office/portable-authoring.slow.test.mjs src/runtime/office/slide-quality.test.mjs src/runtime/office/authoring/pptx-brief.test.mjs src/runtime/office/authoring/pptx-receipt.test.mjs src/runtime/office/quality/render-air.test.mjs src/runtime/office/quality/pptx-deck-rubric.test.mjs && npm run test:office-approval --prefix apps/desktop\",\n    \"test:office:live\": \"node scripts/run-office-live-tests.mjs\",\n    \"test:office:compat\": \"node scripts/run-office-live-tests.mjs compat\",\n    \"test:office:live:all\": \"node scripts/run-office-live-tests.mjs all\",\n    \"test:office:render\": \"node scripts/test-direct.mjs src/runtime/office/pptx-skill-kit.slow.test.mjs\",\n    \"office:icons\": \"node scripts/office/build-pptx-icons.mjs\",\n    \"failures\": \"node scripts/tool-failures.mjs\",\n    \"trace:llm\": \"node scripts/llm-trace-summary.mjs\",\n    \"bench:office\": \"node src/runtime/office/bench/benchmark.mjs\",\n    \"bench:office:contract\": \"node src/runtime/office/bench/contract-benchmark.mjs\",\n    \"bench:office:assurance\": \"node src/runtime/office/bench/assurance-benchmark.mjs\",\n    \"bench:office:polish\": \"node src/runtime/office/bench/polish-benchmark.mjs\",\n    \"bench:office:deck\": \"node src/runtime/office/bench/deck-bench.mjs\",\n    \"bench:office:quality:live\": \"node src/runtime/office/bench/quality-live-benchmark.mjs\",\n    \"diag:sessions\": \"node scripts/session-diag.mjs\",\n    \"diag:tools\": \"node scripts/tool-efficiency-diag.mjs\",\n    \"diag:efficiency\": \"node scripts/session-efficiency-diag.mjs\",\n    \"diag:sweep\": \"node scripts/session-sweep.mjs\",\n    \"bench:session\": \"node scripts/session-bench.mjs\",\n    \"bench:task\": \"node scripts/task-bench.mjs\",\n    \"bench:corpus\": \"node scripts/routing-corpus.mjs\",\n    \"bench:run\": \"node scripts/bench-run.mjs\",\n    \"bench:recall\": \"node scripts/recall-bench.mjs\",\n    \"bench:recall:strict\": \"node scripts/recall-bench.mjs --strict\",\n    \"bench:tui-load\": \"node scripts/tui-runtime-load-bench.mjs\",\n    \"bench:output-style\": \"node scripts/output-style-bench.mjs\",\n    \"bench:session-context\": \"node scripts/session-context-bench.mjs\",\n    \"bench:session-transport\": \"node scripts/session-transport-bench.mjs\",\n    \"bench:tool-overhead\": \"node scripts/tool-overhead-microbench.mjs\",\n    \"bench:search-tools\": \"node scripts/tool-search-bench.mjs\",\n    \"bench:io-tools\": \"node scripts/tool-io-bench.mjs\",\n    \"bench:internal-comms\": \"node scripts/internal-comms-bench.mjs\",\n    \"audit:models\": \"node scripts/model-catalog-audit.mjs\",\n    \"patch:replay\": \"node scripts/patch-replay.mjs\",\n    \"build:tui\": \"node scripts/build-tui.mjs\",\n    \"build:local\": \"npm run build:fast --prefix apps/desktop\",\n    \"deploy:local\": \"npm run update:dev:fast --prefix apps/desktop\",\n    \"deploy:vps\": \"pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-remote.ps1\",\n    \"deploy:fast\": \"pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-remote.ps1 -FastDirect\",\n    \"release:patch\": \"gh workflow run deploy.yml --ref main -f bump=patch -f native=auto\",\n    \"release:minor\": \"gh workflow run deploy.yml --ref main -f bump=minor -f native=auto\",\n    \"release:major\": \"gh workflow run deploy.yml --ref main -f bump=major -f native=auto\",\n    \"tidy:engines:sync\": \"node scripts/tidy/sync-engines-manifest.mjs\",\n    \"graph:parity\": \"node scripts/graph-parity.mjs\"\n  },\n  \"engines\": {\n    \"node\": \"^22.19.0 || >=24.0.0\"\n  },\n  \"os\": [\n    \"darwin\",\n    \"linux\",\n    \"win32\"\n  ],\n  \"cpu\": [\n    \"x64\",\n    \"arm64\"\n  ],\n  \"dependencies\": {\n    \"@anthropic-ai/sdk\": \"^0.137.0\",\n    \"@formulajs/formulajs\": \"^4.6.1\",\n    \"@huggingface/transformers\": \"^4.3.1\",\n    \"@img/sharp-wasm32\": \"0.35.5\",\n    \"@modelcontextprotocol/sdk\": \"^1.32.1\",\n    \"@mozilla/readability\": \"^0.6.0\",\n    \"@napi-rs/canvas\": \"^1.0.8\",\n    \"@pdf-lib/fontkit\": \"^1.1.1\",\n    \"ajv\": \"^8.20.0\",\n    \"chalk\": \"^5.6.2\",\n    \"cli-highlight\": \"^2.1.11\",\n    \"diff\": \"^9.0.0\",\n    \"imapflow\": \"^2.5.7\",\n    \"ink\": \"https://github.com/tribgames/mixdog/releases/download/ink-runtime-v7.1.0-mixdog.1/ink-7.1.0.tgz\",\n    \"jsdom\": \"^27.0.0\",\n    \"jszip\": \"^3.10.1\",\n    \"marked\": \"^14.1.4\",\n    \"node-cron\": \"^4.5.0\",\n    \"nodemailer\": \"^10.1.7\",\n    \"onnxruntime-node\": \"1.30.0\",\n    \"openai\": \"^6.44.0\",\n    \"pdf-lib\": \"^1.17.1\",\n    \"pdfjs-dist\": \"^6.2.108\",\n    \"pg\": \"^8.22.0\",\n    \"pptxgenjs\": \"^4.0.1\",\n    \"puppeteer-core\": \"^25.2.0\",\n    \"react\": \"^19.2.7\",\n    \"saxes\": \"^6.0.0\",\n    \"sharp\": \"^0.35.5\",\n    \"string-width\": \"^8.2.1\",\n    \"strip-ansi\": \"^7.2.0\",\n    \"tesseract.js\": \"^7.0.0\",\n    \"tldts\": \"^7.4.18\",\n    \"undici\": \"^8.10.2\",\n    \"unpdf\": \"^1.8.0\",\n    \"wrap-ansi\": \"^10.0.0\",\n    \"ws\": \"^8.21.0\",\n    \"yaml\": \"^2.9.0\",\n    \"zod\": \"^4.6.7\"\n  },\n  \"overrides\": {\n    \"onnxruntime-node\": {\n      \".\": \"1.30.0\",\n      \"global-agent\": \"^4.1.3\"\n    },\n    \"sharp\": \"^0.35.5\",\n    \"pptxgenjs\": {\n      \"image-size\": \"2.0.3\"\n    }\n  },\n  \"devDependencies\": {\n    \"acorn\": \"^8.17.0\",\n    \"esbuild\": \"^0.28.1\",\n    \"eslint-scope\": \"^9.1.2\",\n    \"lucide-static\": \"^1.41.0\"\n  },\n  \"directories\": {\n    \"doc\": \"docs\"\n  },\n  \"author\": \"\"\n}\n",
-    "version": "22.20.0"
+    "version": "22.20.0",
+    "engines": "^22.19.0 || >=24.0.0"
   },
-  "remote": {
-    "hostName": {
-      "computerName": "DESKTOP-IBLP835",
-      "hostname": "DESKTOP-IBLP835",
-      "platform": "win32"
-    },
-    "pairCode": {
-      "defaultLease": {
-        "hex": true,
-        "length": 32
-      },
-      "hostName": "PC-FIXED",
-      "steps": [
-        {
-          "at": 0,
-          "op": "ensure",
-          "result": null,
-          "sent": [
-            {
-              "lease": "$last",
-              "name": "PC-FIXED",
-              "type": "pair-code-request"
-            }
-          ]
-        },
-        {
-          "at": 1000,
-          "op": "ensure",
-          "result": null,
-          "sent": []
-        },
-        {
-          "at": 2000,
-          "envelope": {
-            "code": "123456",
-            "expiresInMs": 600000,
-            "lease": "$last",
-            "ok": true
-          },
-          "op": "issued",
-          "result": null,
-          "sent": []
-        },
-        {
-          "at": 3000,
-          "op": "ensure",
-          "result": {
-            "code": "123456",
-            "expiresAt": 302000
-          },
-          "sent": []
-        },
-        {
-          "at": 4000,
-          "envelope": {
-            "lease": "$other"
-          },
-          "op": "used",
-          "result": null,
-          "sent": []
-        },
-        {
-          "at": 4001,
-          "op": "ensure",
-          "result": {
-            "code": "123456",
-            "expiresAt": 302000
-          },
-          "sent": []
-        },
-        {
-          "at": 5000,
-          "envelope": {
-            "lease": "$last"
-          },
-          "op": "used",
-          "result": null,
-          "sent": []
-        },
-        {
-          "at": 5001,
-          "op": "ensure",
-          "result": null,
-          "sent": [
-            {
-              "lease": "$last",
-              "name": "PC-FIXED",
-              "type": "pair-code-request"
-            }
-          ]
-        },
-        {
-          "at": 6000,
-          "envelope": {
-            "code": "654321",
-            "expiresInMs": 100000,
-            "lease": "$other",
-            "ok": true
-          },
-          "op": "issued",
-          "result": null,
-          "sent": []
-        },
-        {
-          "at": 6100,
-          "envelope": {
-            "code": "654321",
-            "expiresInMs": 100000,
-            "lease": "$last",
-            "ok": true
-          },
-          "op": "issued",
-          "result": null,
-          "sent": []
-        },
-        {
-          "at": 6500,
-          "op": "ensure",
-          "result": {
-            "code": "654321",
-            "expiresAt": 106100
-          },
-          "sent": []
-        },
-        {
-          "at": 106100,
-          "op": "ensure",
-          "result": null,
-          "sent": [
-            {
-              "lease": "$last",
-              "name": "PC-FIXED",
-              "type": "pair-code-request"
-            }
-          ]
-        },
-        {
-          "at": 107000,
-          "op": "release",
-          "result": null,
-          "sent": [
-            {
-              "type": "pair-code-clear"
-            }
-          ]
-        },
-        {
-          "at": 108000,
-          "op": "release",
-          "result": null,
-          "sent": []
-        },
-        {
-          "at": 109000,
-          "op": "ensure",
-          "result": null,
-          "sent": [
-            {
-              "lease": "$last",
-              "name": "PC-FIXED",
-              "type": "pair-code-request"
-            }
-          ]
-        },
-        {
-          "at": 109100,
-          "op": "connected",
-          "result": null,
-          "sent": [
-            {
-              "lease": "$last",
-              "name": "PC-FIXED",
-              "type": "pair-code-request"
-            }
-          ]
-        }
-      ]
-    },
-    "relayUrl": [
+  "clicks": {
+    "reported": [
       {
-        "env": null,
-        "url": "wss://192-255-139-161.sslip.io/"
+        "event": "requested",
+        "sessionId": "sess_click",
+        "details": {}
       },
       {
-        "env": "",
-        "url": "wss://192-255-139-161.sslip.io/"
-      },
-      {
-        "env": "   ",
-        "url": "wss://192-255-139-161.sslip.io/"
-      },
-      {
-        "env": "0",
-        "url": null
-      },
-      {
-        "env": "false",
-        "url": null
-      },
-      {
-        "env": "OFF",
-        "url": null
-      },
-      {
-        "env": " Off ",
-        "url": null
-      },
-      {
-        "env": "wss://relay.example",
-        "url": "wss://relay.example/"
-      },
-      {
-        "env": " wss://relay.example/path?x=1 ",
-        "url": "wss://relay.example/path?x=1"
-      },
-      {
-        "env": "ws://127.0.0.1:9800",
-        "url": "ws://127.0.0.1:9800/"
-      },
-      {
-        "env": "ws://localhost",
-        "url": "ws://localhost/"
-      },
-      {
-        "env": "ws://[::1]:9",
-        "url": "ws://[::1]:9/"
-      },
-      {
-        "env": "ws://relay.example",
-        "error": "MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development."
-      },
-      {
-        "env": "https://relay.example",
-        "error": "MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development."
-      },
-      {
-        "env": "not a url",
-        "error": "MIXDOG_RELAY_URL is invalid."
-      },
-      {
-        "env": "wss://user:pw@relay.example",
-        "error": "MIXDOG_RELAY_URL must not contain credentials."
-      },
-      {
-        "env": "wss://u@relay.example",
-        "error": "MIXDOG_RELAY_URL must not contain credentials."
+        "event": "clicked",
+        "sessionId": "sess_click",
+        "details": {}
       }
     ],
-    "settings": {
-      "mutations": [
-        {
-          "args": [
-            true
-          ],
-          "file": {
-            "enabled": true
-          },
-          "op": "setEnabled",
-          "result": {
-            "defaultName": "HOST-FIXED",
-            "enabled": true,
-            "name": "HOST-FIXED"
-          }
-        },
-        {
-          "args": [
-            "  My Desk  "
-          ],
-          "file": {
-            "enabled": true,
-            "name": "My Desk"
-          },
-          "op": "setName",
-          "result": {
-            "defaultName": "HOST-FIXED",
-            "enabled": true,
-            "name": "My Desk"
-          }
-        },
-        {
-          "args": [
-            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-          ],
-          "file": {
-            "enabled": true,
-            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-          },
-          "op": "setName",
-          "result": {
-            "defaultName": "HOST-FIXED",
-            "enabled": true,
-            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-          }
-        },
-        {
-          "args": [
-            ""
-          ],
-          "file": {
-            "enabled": true
-          },
-          "op": "setName",
-          "result": {
-            "defaultName": "HOST-FIXED",
-            "enabled": true,
-            "name": "HOST-FIXED"
-          }
-        },
-        {
-          "args": [
-            "c1",
-            "  Phone  "
-          ],
-          "file": {
-            "deviceAliases": {
-              "c1": "Phone"
-            },
-            "enabled": true
-          },
-          "op": "setDeviceAlias",
-          "result": {
-            "c1": "Phone"
-          }
-        },
-        {
-          "args": [
-            "c2",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          ],
-          "file": {
-            "deviceAliases": {
-              "c1": "Phone",
-              "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            },
-            "enabled": true
-          },
-          "op": "setDeviceAlias",
-          "result": {
-            "c1": "Phone",
-            "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          }
-        },
-        {
-          "args": [
-            "c1",
-            ""
-          ],
-          "file": {
-            "deviceAliases": {
-              "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            },
-            "enabled": true
-          },
-          "op": "setDeviceAlias",
-          "result": {
-            "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          }
-        },
-        {
-          "args": [
-            false
-          ],
-          "file": {
-            "deviceAliases": {
-              "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            },
-            "enabled": false
-          },
-          "op": "setEnabled",
-          "result": {
-            "defaultName": "HOST-FIXED",
-            "enabled": false,
-            "name": "HOST-FIXED"
-          }
-        }
-      ],
-      "reads": [
-        {
-          "after": [],
-          "aliases": {},
-          "disabled": false,
-          "files": {},
-          "name": "fresh",
-          "view": {
-            "defaultName": "HOST-FIXED",
-            "enabled": false,
-            "name": "HOST-FIXED"
-          }
-        },
-        {
-          "after": [
-            "remote-activated.json"
-          ],
-          "aliases": {},
-          "disabled": false,
-          "files": {
-            "remote-activated.json": "{\"activatedAt\":1}"
-          },
-          "name": "activated",
-          "view": {
-            "defaultName": "HOST-FIXED",
-            "enabled": true,
-            "name": "HOST-FIXED"
-          }
-        },
-        {
-          "after": [
-            "relay-device.json",
-            "remote-activated.json"
-          ],
-          "aliases": {},
-          "disabled": false,
-          "files": {
-            "relay-device.json": "{}"
-          },
-          "name": "legacy-evidence",
-          "view": {
-            "defaultName": "HOST-FIXED",
-            "enabled": true,
-            "name": "HOST-FIXED"
-          }
-        },
-        {
-          "after": [
-            "remote-activated.json",
-            "remote-client-trust.json"
-          ],
-          "aliases": {},
-          "disabled": false,
-          "files": {
-            "remote-client-trust.json": "{}"
-          },
-          "name": "trust-evidence",
-          "view": {
-            "defaultName": "HOST-FIXED",
-            "enabled": true,
-            "name": "HOST-FIXED"
-          }
-        },
-        {
-          "after": [
-            "remote-access-settings.json",
-            "remote-activated.json"
-          ],
-          "aliases": {},
-          "disabled": true,
-          "files": {
-            "remote-access-settings.json": "{\"enabled\":false}",
-            "remote-activated.json": "{}"
-          },
-          "name": "switched-off",
-          "view": {
-            "defaultName": "HOST-FIXED",
-            "enabled": false,
-            "name": "HOST-FIXED"
-          }
-        },
-        {
-          "after": [
-            "remote-access-settings.json"
-          ],
-          "aliases": {},
-          "disabled": false,
-          "files": {
-            "remote-access-settings.json": "{\"name\":\"My PC\",\"enabled\":true}"
-          },
-          "name": "named",
-          "view": {
-            "defaultName": "HOST-FIXED",
-            "enabled": true,
-            "name": "My PC"
-          }
-        },
-        {
-          "after": [
-            "remote-access-settings.json"
-          ],
-          "aliases": {},
-          "disabled": false,
-          "files": {
-            "remote-access-settings.json": "{\"name\":\"\"}"
-          },
-          "name": "empty-name",
-          "view": {
-            "defaultName": "HOST-FIXED",
-            "enabled": false,
-            "name": "HOST-FIXED"
-          }
-        },
-        {
-          "after": [
-            "remote-access-settings.json"
-          ],
-          "aliases": {},
-          "disabled": false,
-          "files": {
-            "remote-access-settings.json": "{\"name\":\"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\"}"
-          },
-          "name": "long-name-kept",
-          "view": {
-            "defaultName": "HOST-FIXED",
-            "enabled": false,
-            "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
-          }
-        },
-        {
-          "after": [
-            "remote-access-settings.json"
-          ],
-          "aliases": {},
-          "disabled": false,
-          "files": {
-            "remote-access-settings.json": "{broken"
-          },
-          "name": "damaged",
-          "view": {
-            "defaultName": "HOST-FIXED",
-            "enabled": false,
-            "name": "HOST-FIXED"
-          }
-        },
-        {
-          "after": [
-            "remote-access-settings.json"
-          ],
-          "aliases": {},
-          "disabled": false,
-          "files": {
-            "remote-access-settings.json": "{\"enabled\":\"yes\",\"name\":5}"
-          },
-          "name": "wrong-types",
-          "view": {
-            "defaultName": "HOST-FIXED",
-            "enabled": false,
-            "name": "HOST-FIXED"
-          }
-        }
-      ]
-    }
-  },
-  "sessionLog": [
-    {
-      "files": {},
-      "name": "nothing",
-      "status": {
-        "complete": false,
-        "logs": 0,
-        "pending": 0,
-        "skipped": [],
-        "started": false
-      }
-    },
-    {
-      "files": {
-        "sessions/a.json": "{}",
-        "sessions/b.json": "{}"
-      },
-      "name": "no-progress-legacy-pending",
-      "status": {
-        "complete": false,
-        "logs": 0,
-        "pending": 2,
-        "skipped": [],
-        "started": false
-      }
-    },
-    {
-      "files": {
-        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"json-to-log-v1\",\"cursor\":null,\"complete\":true,\"updatedAt\":5,\"skipped\":{}}",
-        "sessions/a.log.jsonl": "",
-        "sessions/b.log.jsonl": ""
-      },
-      "name": "complete",
-      "status": {
-        "complete": true,
-        "logs": 2,
-        "pending": 0,
-        "skipped": [],
-        "started": true
-      }
-    },
-    {
-      "files": {
-        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"json-to-log-v1\",\"cursor\":null,\"complete\":false,\"updatedAt\":5,\"skipped\":{\"a\":{\"reason\":\"unreadable\"},\"b\":{\"reason\":\"busy\"},\"z9\":{\"reason\":\"failed\"}}}",
-        "sessions/a.json": "{}",
-        "sessions/b.json": "{}",
-        "sessions/bad name.json": "{}",
-        "sessions/c.json": "{}",
-        "sessions/c.log.jsonl": "",
-        "sessions/d.json": "{}",
-        "sessions/e.log.jsonl.torn-1-ab": "",
-        "sessions/note.txt": ""
-      },
-      "name": "skips",
-      "status": {
-        "complete": false,
-        "logs": 1,
-        "pending": 2,
-        "skipped": [
-          {
-            "id": "a",
-            "reason": "unreadable"
-          },
-          {
-            "id": "b",
-            "reason": "busy"
-          },
-          {
-            "id": "z9",
-            "reason": "failed"
-          }
-        ],
-        "started": true
-      }
-    },
-    {
-      "files": {
-        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"json-to-log-v1\",\"cursor\":null,\"complete\":false,\"updatedAt\":0,\"skipped\":{}}",
-        "sessions/a.json": "{}"
-      },
-      "name": "never-started",
-      "status": {
-        "complete": false,
-        "logs": 0,
-        "pending": 1,
-        "skipped": [],
-        "started": false
-      }
-    },
-    {
-      "files": {
-        "session-log-migration.json": "{\"v\":2}"
-      },
-      "name": "wrong-version",
-      "status": {
-        "unreadable": true
-      }
-    },
-    {
-      "files": {
-        "session-log-migration.json": "{broken"
-      },
-      "name": "not-json",
-      "status": {
-        "unreadable": true
-      }
-    },
-    {
-      "files": {
-        "session-log-migration.json": "{\"v\":1,\"migrationId\":\"other\",\"cursor\":null,\"complete\":false,\"updatedAt\":5,\"skipped\":{}}"
-      },
-      "name": "wrong-id",
-      "status": {
-        "unreadable": true
-      }
-    }
-  ],
-  "shell": [
-    {
-      "get": "",
-      "set": "   "
-    },
-    {
-      "get": "pwsh.exe",
-      "set": "  pwsh.exe "
-    },
-    {
-      "get": "pwsh.exe",
-      "set": "pwsh.exe"
-    },
-    {
-      "get": "",
-      "set": ""
-    },
-    {
-      "get": "C:\\Program Files\\Git\\bin\\bash.exe",
-      "set": " C:\\Program Files\\Git\\bin\\bash.exe"
-    },
-    {
-      "get": "",
-      "set": {
-        "undefined": true
-      }
-    },
-    {
-      "get": "",
-      "set": null
-    },
-    {
-      "get": "",
-      "set": 0
-    },
-    {
-      "get": "zsh",
-      "set": "zsh"
-    }
-  ]
+    "opened": [
+      "sess_click"
+    ],
+    "prefix": "turn-notification-"
+  }
 }

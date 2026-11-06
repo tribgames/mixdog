@@ -18,6 +18,7 @@ mod process_tests;
 mod process_services_tests;
 pub mod tool_exposure;
 pub mod tool_surface;
+pub mod rearm;
 pub mod route_surface;
 pub mod session_tools;
 pub mod rules;

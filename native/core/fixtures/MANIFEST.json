@@ -92,6 +92,15 @@
       "totalBytes": 34095
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-compaction-plan.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "compaction-plan/MANIFEST.json",
+      "manifestSha256": "8c96f7f068408b780de5bdb051bd7ddba4f399d7e964faf32eb62dd184602137",
+      "recorder": "benchmarks/rust-core/recorders/record-compaction-plan.mjs",
+      "set": "compaction-plan",
+      "totalBytes": 108250
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-compaction-redactor.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "compaction-redactor/MANIFEST.json",
@@ -108,6 +117,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-connectors.mjs",
       "set": "connectors",
       "totalBytes": 26384
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-context-status.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "context-status/MANIFEST.json",
+      "manifestSha256": "255961789638980b0c63803dbcd12d643ff31c9b5b5b8b3b7bc56f9356eb536d",
+      "recorder": "benchmarks/rust-core/recorders/record-context-status.mjs",
+      "set": "context-status",
+      "totalBytes": 100436
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-custom-admin.mjs --tree <tree>",
@@ -147,12 +165,12 @@
     },
     {
       "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop.mjs --tree <tree>",
-      "fileCount": 37,
+      "fileCount": 38,
       "manifest": "desktop/MANIFEST.json",
-      "manifestSha256": "bd037149bdfb0c0ad9cf70face2ac31a27ce996b55a060a1cc89860b1fb81922",
+      "manifestSha256": "1de240d4636087df20f4a79fdcfd3fff0aa95713090df67864654a5426cb814c",
       "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
       "set": "desktop",
-      "totalBytes": 40776633
+      "totalBytes": 41080132
     },
     {
       "command": "written by the product's own tests: apps/desktop/src/main/host/host-twin.test.mjs and apps/desktop/src/main/browser/golden-twin.integration.ts (no P0-BENCH recorder)",
@@ -162,6 +180,15 @@
       "recorder": "apps/desktop/src/main/host/host-twin.test.mjs",
       "set": "desktop-host",
       "totalBytes": 108603
+    },
+    {
+      "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-domain-seams.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "domain-seams/MANIFEST.json",
+      "manifestSha256": "830d1cdceb77d149abcad7121248312c104f50f8b5e8c0542872cebe92084c04",
+      "recorder": "benchmarks/rust-core/recorders/record-domain-seams.mjs",
+      "set": "domain-seams",
+      "totalBytes": 67124
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-event-pipeline.mjs --tree <tree>",
@@ -198,6 +225,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-google-traits.mjs",
       "set": "google-traits",
       "totalBytes": 21747
+    },
+    {
+      "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-handoff-env.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "handoff-env/MANIFEST.json",
+      "manifestSha256": "7310fd49fc9216ad0c795c5bcba920620a985e5e632e59857077133ea43de5d0",
+      "recorder": "benchmarks/rust-core/recorders/record-handoff-env.mjs",
+      "set": "handoff-env",
+      "totalBytes": 62931
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-heartbeat.mjs --tree <tree>",
@@ -239,10 +275,19 @@
       "command": "node benchmarks/rust-core/recorders/record-idle-sweep.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "idle-sweep/MANIFEST.json",
-      "manifestSha256": "cea3d3c8928e43a73d6413e4778f903998fe9055228ffea981c170be33cf4481",
+      "manifestSha256": "16c39002ef3c516409597fd9b6ebe698a1d7d55428cd548c6e9c8d50b72c0e9a",
       "recorder": "benchmarks/rust-core/recorders/record-idle-sweep.mjs",
       "set": "idle-sweep",
-      "totalBytes": 59091
+      "totalBytes": 60466
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-inheritance-fit.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "inheritance-fit/MANIFEST.json",
+      "manifestSha256": "a9229c1acc0fab8e4f886aec1efe002435c6d6094d27700e72ab62cf198940cb",
+      "recorder": "benchmarks/rust-core/recorders/record-inheritance-fit.mjs",
+      "set": "inheritance-fit",
+      "totalBytes": 360488
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-ladder-rows.mjs --tree <tree>",
@@ -371,13 +416,31 @@
       "totalBytes": 5771
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-pending-queue.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "pending-queue/MANIFEST.json",
+      "manifestSha256": "8457c03c4e543b5f3c63d0e1665ac2c348f0155d14a459857cccba248d0cec76",
+      "recorder": "benchmarks/rust-core/recorders/record-pending-queue.mjs",
+      "set": "pending-queue",
+      "totalBytes": 90444
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-process-services.mjs --tree <tree>",
+      "fileCount": 3,
+      "manifest": "process-services/MANIFEST.json",
+      "manifestSha256": "0e5f60ecf28c46f2d393a723fb8a7e6d558f186b4442849ff733cb22e1222da8",
+      "recorder": "benchmarks/rust-core/recorders/record-process-services.mjs",
+      "set": "process-services",
+      "totalBytes": 16513
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-project-methods.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "project-methods/MANIFEST.json",
-      "manifestSha256": "c06c69f43fe3038c370a04eae135bc034934ec13fc179c7d7a0a9d00e312b4c0",
+      "manifestSha256": "2d9dbc65edf98835ab66707cf8db66a1ba928fc878adb3fca64abe74d9a500df",
       "recorder": "benchmarks/rust-core/recorders/record-project-methods.mjs",
       "set": "project-methods",
-      "totalBytes": 21095
+      "totalBytes": 74420
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-prompt.mjs --tree <tree>",
@@ -426,12 +489,21 @@
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-quota-scheduler.mjs --tree <tree>",
-      "fileCount": 1,
+      "fileCount": 2,
       "manifest": "quota-scheduler/MANIFEST.json",
-      "manifestSha256": "42be13d97b1ea9d2b84973a1c005420e1b13e356c5c5845b29ac9b117daed61f",
+      "manifestSha256": "f551682dfe9a830fb1bc42caa94f16ab6b1a8f2ed197e1e01b9de167dc7527d1",
       "recorder": "benchmarks/rust-core/recorders/record-quota-scheduler.mjs",
       "set": "quota-scheduler",
-      "totalBytes": 46274
+      "totalBytes": 46351
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-rearm.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "rearm/MANIFEST.json",
+      "manifestSha256": "253b43dcb53707864ccf2a0d9183bfeabc65407db26b0d046b5177e9a79b4744",
+      "recorder": "benchmarks/rust-core/recorders/record-rearm.mjs",
+      "set": "rearm",
+      "totalBytes": 53977
     },
     {
       "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-remote-e2ee-session.mjs --tree <tree>",
@@ -450,6 +522,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-remote-transport.mjs",
       "set": "remote-transport",
       "totalBytes": 126512
+    },
+    {
+      "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-secret-gates.mjs --tree <tree>)",
+      "fileCount": 1,
+      "manifest": "secret-gates/MANIFEST.json",
+      "manifestSha256": "6e1a217fbadd9393b14ed4a588722d8d9176af33c521c6b1f7ee1d45c0da3b05",
+      "recorder": "benchmarks/rust-core/recorders/record-secret-gates.mjs",
+      "set": "secret-gates",
+      "totalBytes": 8522
     },
     {
       "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-secret-input.mjs --tree <tree>)",
@@ -479,6 +560,15 @@
       "totalBytes": 62256
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-session-delete.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "session-delete/MANIFEST.json",
+      "manifestSha256": "6e6283e8d6b3fcfe024787c92b462043f1360cb8b6f80d8306b92abe18dc89e1",
+      "recorder": "benchmarks/rust-core/recorders/record-session-delete.mjs",
+      "set": "session-delete",
+      "totalBytes": 33795
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-session-list.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "session-list/MANIFEST.json",
@@ -488,6 +578,15 @@
       "totalBytes": 33175
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-session-log-export.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "session-log-export/MANIFEST.json",
+      "manifestSha256": "1511e2e1a186e11fd95992bd4f30f9819da230ce5f83c875928410225c2d77cc",
+      "recorder": "benchmarks/rust-core/recorders/record-session-log-export.mjs",
+      "set": "session-log-export",
+      "totalBytes": 2111
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-session-reads.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "session-reads/MANIFEST.json",
@@ -495,15 +594,6 @@
       "recorder": "benchmarks/rust-core/recorders/record-session-reads.mjs",
       "set": "session-reads",
       "totalBytes": 82054
-    },
-    {
-      "command": "node benchmarks/rust-core/recorders/record-todo-list.mjs --tree <tree>",
-      "fileCount": 1,
-      "manifest": "todo-list/MANIFEST.json",
-      "manifestSha256": "b87ccffaafad8749cb20d20bcf8132a5ab06a308c7812089fd2b7672f0b93d22",
-      "recorder": "benchmarks/rust-core/recorders/record-todo-list.mjs",
-      "set": "todo-list",
-      "totalBytes": 13045
     },
     {
       "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-session-sidebar.mjs --tree <tree>",
@@ -551,6 +641,15 @@
       "totalBytes": 5742
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-side-question-store.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "side-question-store/MANIFEST.json",
+      "manifestSha256": "23447ec12afdf1391b0770fd690b9bf7432e5bfc76a129216eccdb0a6553a33b",
+      "recorder": "benchmarks/rust-core/recorders/record-side-question-store.mjs",
+      "set": "side-question-store",
+      "totalBytes": 29343
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-step-ladder.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "step-ladder/MANIFEST.json",
@@ -588,12 +687,30 @@
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-thread-settings.mjs --tree <tree>",
-      "fileCount": 9,
+      "fileCount": 10,
       "manifest": "thread-settings/MANIFEST.json",
-      "manifestSha256": "7470967181c80171c12dd1a94a4908381e92bba9e4bc05b5971a5fc9d55ce53a",
+      "manifestSha256": "ba98b6d6c79059640885f76c2ad9be4209e65b3ff68fccbf0d43bf716b59946b",
       "recorder": "benchmarks/rust-core/recorders/record-thread-settings.mjs",
       "set": "thread-settings",
-      "totalBytes": 125315
+      "totalBytes": 282038
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-todo-list.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "todo-list/MANIFEST.json",
+      "manifestSha256": "b87ccffaafad8749cb20d20bcf8132a5ab06a308c7812089fd2b7672f0b93d22",
+      "recorder": "benchmarks/rust-core/recorders/record-todo-list.mjs",
+      "set": "todo-list",
+      "totalBytes": 13045
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-tool-pool.mjs --tree <dir with node_modules>",
+      "fileCount": 3,
+      "manifest": "tool-pool/MANIFEST.json",
+      "manifestSha256": "5460900f2f79440cc8239682fa878eefc0ab0a3e53eed56ea5500e3405479915",
+      "recorder": "benchmarks/rust-core/recorders/record-tool-pool.mjs",
+      "set": "tool-pool",
+      "totalBytes": 58935
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-tools.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-tools-extra.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-media-text.mjs --tree <tree>",
