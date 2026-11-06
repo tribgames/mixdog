@@ -77,7 +77,7 @@ pub fn canonical_route_provider(value: &str) -> String {
 pub fn route_chain(route: &Value) -> Result<Vec<Value>, String> {
     let Some(object) = route.as_object() else { return Ok(Vec::new()) };
     let mut primary = object.clone();
-    let fallbacks = primary.remove("fallbacks");
+    let fallbacks = primary.shift_remove("fallbacks");
     let fallbacks = match fallbacks {
         // The `= []` default applies to a missing key only; `null` is not an array.
         None => Vec::new(),

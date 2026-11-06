@@ -1,0 +1,17 @@
+[
+  {
+    "dataBase64": "JVBERi0xLjcKJYGBgYEKCjUgMCBvYmoKPDwKL0ZpbHRlciAvRmxhdGVEZWNvZGUKL0xlbmd0aCAxMDgKPj4Kc3RyZWFtCnicK+RyCuEyUADBonQufY/UnLLUkszkRF1zA0sLEwsDcwtLBSMDhZA0LiMThRAfLkOwUkOQmKEBUDyXy8bEwszUzBkI3YwMzFyAbBMzSzNDIwNzEzNTcwtzEzuFkCyuEC0u1xCuQC4ApyUYmAplbmRzdHJlYW0KZW5kb2JqCgo3IDAgb2JqCjw8Ci9GaWx0ZXIgL0ZsYXRlRGVjb2RlCi9MZW5ndGggMTAxCj4+CnN0cmVhbQp4nCvkcgrhMlAAwaJ0Ln2P1Jyy1JLM5ERdS3MTIzMLI1MzCwUjA4WQNC4jE4UQHy5DsFJDkJihAVA8l8vG1NjM1MzYzM3M1czEyMDcwMzQzNzM1E4hJIsrRIvLNYQrkAsAtcQWXAplbmRzdHJlYW0KZW5kb2JqCgo4IDAgb2JqCjw8Ci9GaWx0ZXIgL0ZsYXRlRGVjb2RlCi9UeXBlIC9PYmpTdG0KL04gNQovRmlyc3QgMjYKL0xlbmd0aCAyNTkKPj4Kc3RyZWFtCnictZBhS8MwEIa/51fcH5BLu7RNYQy2sSmIKJugIH7I2lAyRiJLKvPfe9dVxz6LlJTcm/fuXp4MJORQSJiAVqAgK0soYaIKmE4FPn99WMAn09ko8N61Ed7II2FDHv6/C1yG3ifIxWwmLh1Lk8whdOLcChmbrx3r4JPAbb9LQ8liJnBhouUXwDt7+LTJNUbgyjehdb4DfHF+7qP7Ea4n8ipeeLTUf96IGxtDf2woAvuGyXz5HX5TyVorLStdE4AxJL4+7va2Gaxcrk7pdptMsqPA2oNtnVmEE/GQ9ClJFOkQj7n3ITGngY1PlIarYuT198h1pfJS50Wp/zlydYn8DVWDlNMKZW5kc3RyZWFtCmVuZG9iagoKOSAwIG9iago8PAovU2l6ZSAxMAovUm9vdCAyIDAgUgovRmlsdGVyIC9GbGF0ZURlY29kZQovVHlwZSAvWFJlZgovTGVuZ3RoIDQ1Ci9XIFsgMSAyIDIgXQovSW5kZXggWyAwIDEwIF0KPj4Kc3RyZWFtCnicJcixFQAQEETBv0sg1KsadaGXY59kggGqzICg4NDE/NfFBmk9fOACdf4EZgplbmRzdHJlYW0KZW5kb2JqCgpzdGFydHhyZWYKNzMyCiUlRU9G",
+    "name": "two-pages",
+    "text": "--- Page 1 ---\nHello media text\n\n--- Page 2 ---\nSecond page"
+  },
+  {
+    "dataBase64": "dGhpcyBpcyBub3QgYSBwZGY=",
+    "name": "not-a-pdf",
+    "text": "[PDF text unavailable: this PDF could not be read]"
+  },
+  {
+    "dataBase64": "JVBERi0xLjcKJYGBgYEKCjUgMCBvYmoKPDwKL0ZpbHRlciAvRmxhdGVEZWNvZGUKL0xlbmd0aCA5Nwo+PgpzdHJlYW0KeJwr5HIK4TJQAMGidC59j9ScstSSzOREXXMDSwsTCwNzC0sFIwOFkDQuIxOFEB8uQ7BS",
+    "name": "truncated-pdf",
+    "text": "[PDF text unavailable: this PDF could not be read]"
+  }
+]

@@ -64,7 +64,7 @@ impl SetupCallers for Callers {
             "human" => CallerScope::Human,
             "agent" => CallerScope::Agent { agent_id: "helper".into(), unattended: false },
             "heartbeat" => CallerScope::Agent { agent_id: "mixy".into(), unattended: false },
-            "acting" | "mixy_acting" => CallerScope::Human,
+            "acting" | "mixy_acting" | "open_fails" => CallerScope::Human,
             "unattended" => CallerScope::Agent { agent_id: "helper".into(), unattended: true },
             "room" => CallerScope::RoomMember,
             _ => CallerScope::Headless,
@@ -76,12 +76,15 @@ impl SetupCallers for Callers {
     async fn settings_reach_session(&self, _: &ThreadId) -> bool {
         *self.0.reach.lock().unwrap()
     }
-    async fn acting_agent(&self, _: &ThreadId) -> String {
-        match self.0.caller.lock().unwrap().as_str() {
+    async fn acting_agent(&self, thread: &ThreadId) -> Result<String, mixdog_core_api::CoreError> {
+        if self.0.caller.lock().unwrap().as_str() == "open_fails" {
+            return Err(mixdog_core_api::CoreError::ThreadNotFound { thread_id: thread.clone() });
+        }
+        Ok(match self.0.caller.lock().unwrap().as_str() {
             "acting" => "writer".into(),
             "mixy_acting" => "lead".into(),
             _ => String::new(),
-        }
+        })
     }
 }
 
@@ -147,7 +150,7 @@ async fn the_dispatcher_answers_what_the_recorded_node_executor_answered() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-dispatch-twin.json");
     let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let entries = twin["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 256);
+    assert_eq!(entries.len(), 287);
 
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();

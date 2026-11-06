@@ -98,8 +98,26 @@ pub(crate) fn write(root: &Path, rel: &str, bytes: &[u8]) {
     std::fs::write(path, bytes).unwrap();
 }
 
+/// Every record of a published session's log with its ordinal.
+fn log_records(dir: &Path) -> Vec<(u64, Record)> {
+    let mut out = Vec::new();
+    let mut ordinal = 0;
+    for file_no in 0.. {
+        let path = dir.join(format!("{}{file_no:06}", mixdog_store::schema::frame::LOG_FILE_PREFIX));
+        if !path.exists() {
+            break;
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        for frame in crate::frame::scan(&bytes, ordinal).0 {
+            ordinal = frame.ordinal + 1;
+            out.push((frame.ordinal, serde_json::from_slice(&bytes[frame.payload.clone()]).unwrap()));
+        }
+    }
+    out
+}
+
 /// A data dir with every data kind: 1.4.5 json with archive, pending job, recoverable
-/// checkpoint, a lone surrogate and a blob-sized body; a dev pair; spool, worker row,
+/// checkpoint, a lone surrogate, a model switch and a blob-sized body; a dev pair; spool, worker row,
 /// set-aside, tmp, orphan checkpoint, preserved stores, settings with legacy compaction
 /// keys and one-account connector servers an agent and the accounts in use name, a pending
 /// connector merge, the genuine 1.4.5 ledger and an imported legacy usage file.
@@ -111,7 +129,7 @@ fn fixture(root: &Path) -> MigrationRoots {
     write(&data, &format!("prompt-attachments/sha256/{}/{blob_hex}", &blob_hex[..2]), blob);
     let big = "x".repeat(300 * 1024);
     let a = format!(
-        r#"{{"id":"sess_a","title":"A","generation":2,"compaction":{{"archive":{{"nextSeq":3,"clearedThrough":0}}}},"messages":[{{"role":"user","content":"hi \ud800 there","meta":{{"transcript":{{"messageId":"m1"}}}}}},{{"role":"assistant","content":[{{"type":"text","text":"x"}},{{"type":"image","attachmentRef":"{blob_hex}"}},{{"type":"image","attachmentRef":"{}"}}]}},{{"role":"user","content":"{big}"}},{{"role":"user","content":"s","meta":"skill"}}]}}"#,
+        r#"{{"id":"sess_a","title":"A","generation":2,"compaction":{{"archive":{{"nextSeq":3,"clearedThrough":0}}}},"messages":[{{"role":"user","content":"hi \ud800 there","meta":{{"transcript":{{"messageId":"m1"}}}}}},{{"role":"assistant","content":[{{"type":"text","text":"x"}},{{"type":"image","attachmentRef":"{blob_hex}"}},{{"type":"image","attachmentRef":"{}"}}],"meta":{{"modelSwitches":[{{"provider":"openai","modelId":"gpt-5","at":11}}]}}}},{{"role":"user","content":"{big}"}},{{"role":"user","content":"s","meta":"skill"}}]}}"#,
         "0".repeat(64)
     );
     write(&data, "sessions/sess_a.json", a.as_bytes());
@@ -313,6 +331,24 @@ fn fixture_migrates_every_kind() {
     assert_eq!(a.rows.len(), 9);
     assert_eq!(a.runs[0].0, "ckpt:t1");
     assert!(a.rows[3].body["content"] == "hi \u{fffd} there");
+    // The assistant's model switch is a record anchored on its row, out of the stored body.
+    let switches: Vec<_> = log_records(&roots.data.join("sessions/sess_a"))
+        .into_iter()
+        .filter_map(|(ordinal, r)| match r {
+            Record::ModelSwitch(s) => Some((ordinal, s)),
+            Record::Item(i) if i.iid.as_str() == a.rows[4].iid => {
+                assert!(serde_json::to_string(&i.body).unwrap().contains(r#""meta":{}"#));
+                None
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(switches.len(), 1);
+    let (ordinal, switch) = &switches[0];
+    assert_eq!((switch.anchor.iid.as_str(), switch.anchor.ordinal), (a.rows[4].iid.as_str(), a.rows[4].ordinal));
+    assert_eq!(*ordinal, a.rows[4].ordinal + 1);
+    assert_eq!(serde_json::to_value(&switch.entry).unwrap(), json!({"inline":{"provider":"openai","modelId":"gpt-5","at":11}}));
+    assert_eq!(a.rows[4].body["meta"], json!({"modelSwitches":[{"provider":"openai","modelId":"gpt-5","at":11}]}));
     // A second run finds the completion marker.
     assert_eq!(migrator(&roots, None).run().unwrap(), complete);
 }
@@ -691,6 +727,96 @@ fn v145_legacy_agent_sessions_get_their_parent_link() {
     let folded = crate::session::target::read_session(&cx, &roots.data.join("sessions").join(ID)).unwrap();
     assert_eq!(folded.header["parentSessionId"], row["parentSessionId"]);
     assert_eq!(folded.header["ownerSessionId"], row["ownerSessionId"]);
+}
+
+/// The v145 corpus records no model switch; one session given two on the message 1.4.5
+/// anchors them on (`set-route.mjs` `modelSwitchAnchorIndex`), one entry 1.4.5 would not
+/// have written on an earlier assistant message, and on the assistant before that a switch
+/// a later `workflowSwitches` follows in `meta` (`recordTranscriptBoundary` keeps the first
+/// position of a list it extends). The two become `model_switch` records on the anchor's
+/// item, in order; the other two stay in their messages; every body reads back with 1.4.5's
+/// bytes, key order included (the session verifies), and a second run under the same
+/// journal changes nothing.
+#[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
+fn v145_model_switches_become_records() {
+    const ID: &str = "sess_daemon_1793820141688_38d110060e784a52aa9c2668671040df";
+    let switches = json!([
+        {"provider": "openai", "modelId": "gpt-5", "at": 1793820200000_i64},
+        {"provider": "anthropic", "modelId": "claude-opus-4-1", "at": 1793820300000_i64},
+    ]);
+    let odd = json!([{"provider": "openai", "modelId": "gpt-5", "at": 1793820100000_i64, "note": "x"}]);
+    let followed = json!({
+        "modelSwitches": [{"provider": "openai", "modelId": "gpt-5", "at": 1793820000000_i64}],
+        "workflowSwitches": [{"from": "a", "to": "b", "at": 1793820050000_i64}],
+    });
+    let mut anchor = None;
+    let mut kept = Vec::new();
+    let (_dir, roots, complete) = migrate_corpus("v145", |data| {
+        let path = data.join(format!("sessions/{ID}.json"));
+        let mut doc: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let messages = doc["messages"].as_array_mut().unwrap();
+        let role = |m: &Value| m["role"].as_str().unwrap_or_default().to_owned();
+        let at = (0..messages.len()).rev().find(|&i| !["user", "system"].contains(&role(&messages[i]).as_str())).unwrap();
+        let before = (0..at).rev().find(|&i| role(&messages[i]) == "assistant").unwrap();
+        for (i, list) in [(at, &switches), (before, &odd)] {
+            assert!(messages[i].pointer("/meta/modelSwitches").is_none());
+            let message = messages[i].as_object_mut().unwrap();
+            let meta = message.entry("meta").or_insert_with(|| json!({}));
+            meta.as_object_mut().unwrap().insert("modelSwitches".into(), list.clone());
+        }
+        let ahead = (0..before).rev().find(|&i| role(&messages[i]) == "assistant").unwrap();
+        let meta = messages[ahead].as_object_mut().unwrap().entry("meta").or_insert_with(|| json!({}));
+        for (k, v) in followed.as_object().unwrap() {
+            assert!(meta.as_object_mut().unwrap().insert(k.clone(), v.clone()).is_none());
+        }
+        anchor = Some(messages[at].clone());
+        kept = vec![messages[before].clone(), messages[ahead].clone()];
+        std::fs::write(&path, serde_json::to_vec(&doc).unwrap()).unwrap();
+    });
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{complete:?}");
+    let disk: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let cx = ItemContext {
+        roots: &roots,
+        manifest: &disk,
+        manifest_sha256: &complete.manifest_sha256,
+        fault: None,
+        blobs: &blobs,
+        states: &states,
+    };
+    for (id, is_dir) in durable::list_dir(&roots.data.join("sessions")).unwrap() {
+        let dir = roots.data.join("sessions").join(&id);
+        if !is_dir || id == ID {
+            continue;
+        }
+        assert!(!log_records(&dir).iter().any(|(_, r)| matches!(r, Record::ModelSwitch(_))), "{id}");
+    }
+    let dir = roots.data.join("sessions").join(ID);
+    let folded = crate::session::target::read_session(&cx, &dir).unwrap();
+    let bytes = |v: &Value| serde_json::to_string(v).unwrap();
+    let row = |message: &Value| {
+        let rows: Vec<_> = folded.rows.iter().filter(|r| bytes(&r.body) == bytes(message)).collect();
+        assert_eq!(rows.len(), 1);
+        (rows[0].iid.clone(), rows[0].ordinal)
+    };
+    let (anchor_iid, anchor_ordinal) = row(anchor.as_ref().unwrap());
+    kept.iter().for_each(|message| drop(row(message)));
+    let records: Vec<Value> = log_records(&dir)
+        .into_iter()
+        .filter_map(|(ordinal, r)| match r {
+            Record::ModelSwitch(s) => {
+                assert_eq!((s.anchor.iid.as_str(), s.anchor.ordinal), (anchor_iid.as_str(), anchor_ordinal));
+                assert!(ordinal > anchor_ordinal);
+                Some(serde_json::to_value(&s.entry).unwrap()["inline"].clone())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(Value::Array(records), switches);
+    let again = Migrator::new(roots.clone(), drivers(), MigrateOptions::default()).run().unwrap();
+    assert_eq!(again, complete);
 }
 
 #[test]

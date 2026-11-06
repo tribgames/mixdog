@@ -169,6 +169,51 @@ async function ooxmlText(ctx) {
   return { value: { text } };
 }
 
+// ---- attached-document text ------------------------------------------------------------------
+
+// The text provider lowering gives an attached document (`media-normalization.mjs`): the bytes
+// arrive base64, as a part carries them, and no path is touched. Both run Node's own functions, so
+// the limits, the unreadable-file `null` and the fixed unreadable-PDF text are Node's.
+async function mediaOfficeText(ctx) {
+  const { data, filename } = ctx.params;
+  if (typeof data !== 'string') throw coded('invalid_params', 'data must be a base64 string');
+  const { officeTextForFile } = await import('../runtime/agent/orchestrator/providers/media-normalization.mjs');
+  return { value: { text: officeTextForFile({ data, filename }) } };
+}
+
+// A PDF the parser rejects is the fixed text; an environment failure (the machine, not the bytes)
+// fails the call, as it fails the send in Node.
+async function mediaPdfText(ctx) {
+  const { data } = ctx.params;
+  if (typeof data !== 'string') throw coded('invalid_params', 'data must be a base64 string');
+  const { extractPdfText } = await import('../runtime/agent/orchestrator/providers/media-normalization.mjs');
+  return { value: { text: await extractPdfText(data) } };
+}
+
+// The PDF text-layer counts Node's intake prices a PDF with (`preparePromptSubmissionForProvider`,
+// `attachments/store.mjs`): `inspectPdfBuffer` with `measureText` and the intake timeout. The page
+// limit of a native-PDF provider is the caller's to apply to `pageCount`; here there is none, as
+// for a text-only provider. Bytes the parser rejects answer `rejected`, the parser's own message
+// (the text Node's intake throws); an environment failure or the intake timeout fails the call, as
+// it fails the intake in Node.
+async function mediaPdfCounts(ctx) {
+  const { data } = ctx.params;
+  if (typeof data !== 'string') throw coded('invalid_params', 'data must be a base64 string');
+  const { inspectPdfBuffer, PDF_INTAKE_TIMEOUT_MS } = await import('../runtime/attachments/pdf-extract.mjs');
+  const { isEnvironmentError } = await import('../runtime/shared/environment-error.mjs');
+  try {
+    const { pageCount, textPages, textChars } = await inspectPdfBuffer(Buffer.from(data, 'base64'), {
+      maxPages: Infinity,
+      measureText: true,
+      timeoutMs: PDF_INTAKE_TIMEOUT_MS,
+    });
+    return { value: { counts: { pageCount, textPages, textChars } } };
+  } catch (error) {
+    if (error?.code === 'PDF_INSPECTION_TIMEOUT' || isEnvironmentError(error)) throw error;
+    return { value: { rejected: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
 // ---- syntax ---------------------------------------------------------------------------------
 
 // Whether Node (V8) compiles `source`, for callers that must decide exactly as Node does. Only
@@ -189,6 +234,9 @@ export const handlers = {
   ...documentHandlers,
   'syntax.check': syntaxCheck,
   'ooxml.text': ooxmlText,
+  'media.officeText': mediaOfficeText,
+  'media.pdfText': mediaPdfText,
+  'media.pdfCounts': mediaPdfCounts,
   'office.run': officeRun,
   'pdf.inspect': pdfInspect,
   'pdf.render': pdfRender,

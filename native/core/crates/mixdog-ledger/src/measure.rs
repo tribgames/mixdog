@@ -4,7 +4,6 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-use serde_json::Number;
 use serde_json::Value;
 
 /// The cost source of a failure that reported no usage: the request log lists it, but
@@ -39,14 +38,7 @@ pub fn json_or_zero(value: Option<&Value>) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// The JSON a JavaScript number serializes to: an integral value is an integer.
-pub fn js_number(value: f64) -> Value {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() < 9.007_199_254_740_992e15 {
-        Value::Number(Number::from(value as i64))
-    } else {
-        Number::from_f64(value).map_or(Value::Null, Value::Number)
-    }
-}
+pub use mixdog_js::json_number as js_number;
 
 const BACKGROUND_SOURCES: [&str; 5] = [
     "memory-cycle",

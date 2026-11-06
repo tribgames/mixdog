@@ -71,13 +71,18 @@ const cases = [];
 async function record(name, { caller, config = LEAD_CONFIG, others = [], args, controlAnswer = true }) {
   const all = [caller, ...others];
   const records = Object.fromEntries(all.map((s) => [s.id, s]));
-  const calls = { setRoute: [], control: [] };
+  // Every write the executor makes, in order, with the arguments it made it with. The stubs
+  // answer the route they were given, so the answer's `route` is the executor's own input.
+  const calls = { writes: [], control: [] };
   const rt = {
     setRoute: async (route, options) => {
-      calls.setRoute.push(plain({ route, options }));
+      calls.writes.push(plain({ call: 'setRoute', route, options }));
       return route;
     },
-    setAgentRoute: async (_agent, route) => route,
+    setAgentRoute: async (agent, route) => {
+      calls.writes.push(plain({ call: 'setAgentRoute', agent, route }));
+      return route;
+    },
     getOrchestrationMode: () => 'none',
   };
   const executor = createSetupToolExecutor({
@@ -125,7 +130,7 @@ async function record(name, { caller, config = LEAD_CONFIG, others = [], args, c
     sessions: all.map((s) => factsOf(s, config)),
     agentSessions,
     ...result,
-    effects: { setRoute: calls.setRoute, control: calls.control.map(({ call }) => [call.session_id, call.method, call.input ?? null]) },
+    effects: { writes: calls.writes, control: calls.control.map(({ call }) => [call.session_id, call.method, call.input ?? null]) },
   });
   void added;
 }
@@ -156,6 +161,30 @@ for (const [cname, caller] of Object.entries(callers)) {
   });
   await record(`set_agent_route without a chain: ${cname}`, {
     caller, args: { action: 'set_agent_route', agent: 'helper', route: { effort: 'high' } },
+  });
+}
+// A route as the executor copies it (routeInput): every field it reads, and a chain that is not
+// a list of routes.
+const FALLBACK_SHAPES = [
+  null, 'x', 5, true, {}, [null], ['x'], [5], [[]], [{}], [{ provider: ' a ', model: ' b ', effort: ' high ', fast: 'yes' }],
+  [{ provider: 'a', model: 'b', fallbacks: null }], [{ provider: 'a', model: 'b', fallbacks: [{ provider: 'c' }] }],
+  [{ provider: null, model: 7, modelParameters: { a: 1 }, contextPercent: 5, contextTokens: null, disabled: true, autoEffort: false }],
+];
+for (const fallbacks of FALLBACK_SHAPES) {
+  await record(`set_route fallbacks ${JSON.stringify(fallbacks)}`, {
+    caller: callers.hoppedLead, args: { action: 'set_route', route: { fallbacks } },
+  });
+  await record(`set_agent_route fallbacks ${JSON.stringify(fallbacks)}`, {
+    caller: callers.hoppedLead, args: { action: 'set_agent_route', agent: 'helper', route: { fallbacks } },
+  });
+}
+for (const route of [
+  { provider: '', model: ' m ', effort: ' ', fast: true, autoEffort: 'no', modelParameters: { tier: 'x' }, contextPercent: 0, contextTokens: 100 },
+  { provider: null }, { model: 5 }, { provider: ' p ' }, { effort: 'high', modelParameters: null }, { modelParameters: [1] },
+]) {
+  await record(`set_route fields ${JSON.stringify(route)}`, { caller: callers.hoppedLead, args: { action: 'set_route', route } });
+  await record(`set_agent_route fields ${JSON.stringify(route)}`, {
+    caller: callers.hoppedLead, args: { action: 'set_agent_route', agent: ' helper ', route },
   });
 }
 await record('set_agent_route needs an agent', { caller: callers.hoppedLead, args: { action: 'set_agent_route', agent: '  ', route: { fallbacks: [] } } });

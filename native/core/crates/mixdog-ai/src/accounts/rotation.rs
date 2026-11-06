@@ -158,6 +158,24 @@ impl PoolError {
     fn of(cause: Cause) -> Self {
         Self { cause, quota_exhausted: None }
     }
+
+    /// The text of the error Node's pool throws for this end (`account-pool.mjs`
+    /// `accountsExhaustedError`, `accountsCoolingDownError`, or the error that ended the send).
+    pub fn message(&self) -> String {
+        match &self.cause {
+            Cause::Provider(error) => error.message.clone(),
+            Cause::AccountsExhausted { use_credits: true } => {
+                "All connected accounts have exhausted their quota. Check account usage and reset times.".into()
+            }
+            Cause::AccountsExhausted { use_credits: false } => {
+                "The plan limit is reached and credit use is off. Turn on credit use or wait for the limit to reset.".into()
+            }
+            Cause::CoolingDown { .. } => "Every connected account is cooling down after a rate limit. Try again shortly.".into(),
+            Cause::Message(message) => message.clone(),
+            Cause::Cancelled => "This operation was aborted".into(),
+            Cause::Store(error) => error.to_string(),
+        }
+    }
 }
 
 impl From<AccountError> for PoolError {

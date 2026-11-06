@@ -1,0 +1,2858 @@
+{
+ "win32": [
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\a\\b"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\b"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "C:\\a\\b"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "c:\\A\\B"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "C:\\a\\x"
+   ],
+   "out": "..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "C:\\"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "..\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "C:/a/b/c"
+   ],
+   "out": "c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "C:\\a\\b\\"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b",
+    "C:\\a b\\c"
+   ],
+   "out": "..\\..\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "C:\\a\\b\\c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "C:\\a\\b"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "c:\\A\\B"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "C:\\a\\x"
+   ],
+   "out": "..\\..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "C:\\"
+   ],
+   "out": "..\\..\\..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "..\\..\\..\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "C:/a/b/c"
+   ],
+   "out": ".."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "..\\..\\..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "C:\\a\\b\\"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\c\\d",
+    "C:\\a b\\c"
+   ],
+   "out": "..\\..\\..\\..\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "c:\\A\\B"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "c:\\A\\B"
+   ],
+   "out": "c:\\A\\B"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "C:\\a\\b"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "c:\\A\\B"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "C:\\a\\x"
+   ],
+   "out": "..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "C:\\"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "..\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "C:/a/b/c"
+   ],
+   "out": "c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "C:\\a\\b\\"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "c:\\A\\B",
+    "C:\\a b\\c"
+   ],
+   "out": "..\\..\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\a\\x"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\x"
+   ],
+   "out": "C:\\a\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "C:\\a\\b"
+   ],
+   "out": "..\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "..\\b\\c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "c:\\A\\B"
+   ],
+   "out": "..\\B"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "C:\\a\\x"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "C:\\"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "..\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": "..\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "C:/a/b/c"
+   ],
+   "out": "..\\b\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "C:\\a\\b\\"
+   ],
+   "out": "..\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\x",
+    "C:\\a b\\c"
+   ],
+   "out": "..\\..\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "D:\\a\\b"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "C:\\a\\b"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "C:\\a\\b\\c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "c:\\A\\B"
+   ],
+   "out": "c:\\A\\B"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "C:\\a\\x"
+   ],
+   "out": "C:\\a\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "D:\\a\\b"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "C:\\"
+   ],
+   "out": "C:\\"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "C:\\a\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "C:/a/b/c"
+   ],
+   "out": "C:\\a\\b\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "C:\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "C:\\a\\b\\"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "D:\\a\\b",
+    "C:\\a b\\c"
+   ],
+   "out": "C:\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\"
+   ],
+   "out": "C:\\"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "C:\\a\\b"
+   ],
+   "out": "a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "a\\b\\c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "c:\\A\\B"
+   ],
+   "out": "A\\B"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "C:\\a\\x"
+   ],
+   "out": "a\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "C:\\"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "a\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": "a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "C:/a/b/c"
+   ],
+   "out": "a\\b\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "C:\\a\\b\\"
+   ],
+   "out": "a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\",
+    "C:\\a b\\c"
+   ],
+   "out": "a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "C:\\a\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "C:\\a\\b"
+   ],
+   "out": "..\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "..\\b\\c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "c:\\A\\B"
+   ],
+   "out": "..\\B"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "C:\\a\\x"
+   ],
+   "out": "..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "C:\\"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": "..\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "C:/a/b/c"
+   ],
+   "out": "..\\b\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "C:\\a\\b\\"
+   ],
+   "out": "..\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\..\\c",
+    "C:\\a b\\c"
+   ],
+   "out": "..\\..\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\a\\.\\b\\"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\.\\b\\"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "C:\\a\\b"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "c:\\A\\B"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "C:\\a\\x"
+   ],
+   "out": "..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "C:\\"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "..\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "C:/a/b/c"
+   ],
+   "out": "c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "C:\\a\\b\\"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\.\\b\\",
+    "C:\\a b\\c"
+   ],
+   "out": "..\\..\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "\\\\srv\\share\\dir"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "C:\\a\\b"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "C:\\a\\b\\c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "c:\\A\\B"
+   ],
+   "out": "c:\\A\\B"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "C:\\a\\x"
+   ],
+   "out": "C:\\a\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "C:\\"
+   ],
+   "out": "C:\\"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "C:\\a\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "C:/a/b/c"
+   ],
+   "out": "C:\\a\\b\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "C:\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "C:\\a\\b\\"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir",
+    "C:\\a b\\c"
+   ],
+   "out": "C:\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "C:\\a\\b"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "C:\\a\\b\\c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "c:\\A\\B"
+   ],
+   "out": "c:\\A\\B"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "C:\\a\\x"
+   ],
+   "out": "C:\\a\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "C:\\"
+   ],
+   "out": "C:\\"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "C:\\a\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": ".."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "C:/a/b/c"
+   ],
+   "out": "C:\\a\\b\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "C:\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "C:\\a\\b\\"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "\\\\srv\\share\\dir\\f.txt",
+    "C:\\a b\\c"
+   ],
+   "out": "C:\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:/a/b/c"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:/a/b/c"
+   ],
+   "out": "C:\\a\\b\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "C:\\a\\b"
+   ],
+   "out": ".."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "c:\\A\\B"
+   ],
+   "out": ".."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "C:\\a\\x"
+   ],
+   "out": "..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "C:\\"
+   ],
+   "out": "..\\..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "..\\..\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": ".."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "C:/a/b/c"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "..\\..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "C:\\a\\b\\"
+   ],
+   "out": ".."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:/a/b/c",
+    "C:\\a b\\c"
+   ],
+   "out": "..\\..\\..\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "C:\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "C:\\a\\b"
+   ],
+   "out": "..\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "..\\a\\b\\c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "c:\\A\\B"
+   ],
+   "out": "..\\A\\B"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "C:\\a\\x"
+   ],
+   "out": "..\\a\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "C:\\"
+   ],
+   "out": ".."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "..\\a\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": "..\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "C:/a/b/c"
+   ],
+   "out": "..\\a\\b\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "C:\\a\\b\\"
+   ],
+   "out": "..\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\..\\..\\x",
+    "C:\\a b\\c"
+   ],
+   "out": "..\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\a\\b\\"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\b\\"
+   ],
+   "out": "C:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "C:\\a\\b"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "c:\\A\\B"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "C:\\a\\x"
+   ],
+   "out": "..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "C:\\"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "..\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "C:/a/b/c"
+   ],
+   "out": "c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "C:\\a\\b\\"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a\\b\\",
+    "C:\\a b\\c"
+   ],
+   "out": "..\\..\\a b\\c"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\a b\\c"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a b\\c"
+   ],
+   "out": "C:\\a b\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "C:\\a\\b"
+   ],
+   "out": "..\\..\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "..\\..\\a\\b\\c\\d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "c:\\A\\B"
+   ],
+   "out": "..\\..\\A\\B"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "C:\\a\\x"
+   ],
+   "out": "..\\..\\a\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "D:\\a\\b"
+   ],
+   "out": "D:\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "C:\\"
+   ],
+   "out": "..\\.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "C:\\a\\b\\..\\c"
+   ],
+   "out": "..\\..\\a\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "C:\\a\\.\\b\\"
+   ],
+   "out": "..\\..\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "\\\\srv\\share\\dir"
+   ],
+   "out": "\\\\srv\\share\\dir"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "\\\\srv\\share\\dir\\f.txt"
+   ],
+   "out": "\\\\srv\\share\\dir\\f.txt"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "C:/a/b/c"
+   ],
+   "out": "..\\..\\a\\b\\c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "C:\\a\\..\\..\\x"
+   ],
+   "out": "..\\..\\x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "C:\\a\\b\\"
+   ],
+   "out": "..\\..\\a\\b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "C:\\a b\\c",
+    "C:\\a b\\c"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\b",
+    "x/y"
+   ],
+   "out": "C:\\a\\b\\x\\y"
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\b",
+    "../z"
+   ],
+   "out": "C:\\a\\z"
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\b",
+    "C:\\a\\b\\c\\d"
+   ],
+   "out": "C:\\a\\b\\c\\d"
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "C:\\a\\b",
+    "./q/../r"
+   ],
+   "out": "C:\\a\\b\\r"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "x"
+   ],
+   "out": false
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/x"
+   ],
+   "out": true
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:x"
+   ],
+   "out": false
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "\\x"
+   ],
+   "out": true
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "..\\x"
+   ],
+   "out": false
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\x"
+   ],
+   "out": true
+  }
+ ],
+ "posix": [
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/a/b"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/b"
+   ],
+   "out": "/a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b",
+    "/a/b"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b",
+    "/a/b/c/d"
+   ],
+   "out": "c/d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b",
+    "/a/x"
+   ],
+   "out": "../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b",
+    "/"
+   ],
+   "out": "../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b",
+    "/a/b/../c"
+   ],
+   "out": "../c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b",
+    "/a/./b/"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b",
+    "/a/../../x"
+   ],
+   "out": "../../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b",
+    "/a/b/"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b",
+    "/a b/c"
+   ],
+   "out": "../../a b/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b",
+    "/A/b"
+   ],
+   "out": "../../A/b"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/a/b/c/d"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/b/c/d"
+   ],
+   "out": "/a/b/c/d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/c/d",
+    "/a/b"
+   ],
+   "out": "../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/c/d",
+    "/a/b/c/d"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/c/d",
+    "/a/x"
+   ],
+   "out": "../../../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/c/d",
+    "/"
+   ],
+   "out": "../../../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/c/d",
+    "/a/b/../c"
+   ],
+   "out": "../../../c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/c/d",
+    "/a/./b/"
+   ],
+   "out": "../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/c/d",
+    "/a/../../x"
+   ],
+   "out": "../../../../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/c/d",
+    "/a/b/"
+   ],
+   "out": "../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/c/d",
+    "/a b/c"
+   ],
+   "out": "../../../../a b/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/c/d",
+    "/A/b"
+   ],
+   "out": "../../../../A/b"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/a/x"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/x"
+   ],
+   "out": "/a/x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/x",
+    "/a/b"
+   ],
+   "out": "../b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/x",
+    "/a/b/c/d"
+   ],
+   "out": "../b/c/d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/x",
+    "/a/x"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/x",
+    "/"
+   ],
+   "out": "../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/x",
+    "/a/b/../c"
+   ],
+   "out": "../c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/x",
+    "/a/./b/"
+   ],
+   "out": "../b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/x",
+    "/a/../../x"
+   ],
+   "out": "../../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/x",
+    "/a/b/"
+   ],
+   "out": "../b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/x",
+    "/a b/c"
+   ],
+   "out": "../../a b/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/x",
+    "/A/b"
+   ],
+   "out": "../../A/b"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/"
+   ],
+   "out": "/"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/",
+    "/a/b"
+   ],
+   "out": "a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/",
+    "/a/b/c/d"
+   ],
+   "out": "a/b/c/d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/",
+    "/a/x"
+   ],
+   "out": "a/x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/",
+    "/"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/",
+    "/a/b/../c"
+   ],
+   "out": "a/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/",
+    "/a/./b/"
+   ],
+   "out": "a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/",
+    "/a/../../x"
+   ],
+   "out": "x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/",
+    "/a/b/"
+   ],
+   "out": "a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/",
+    "/a b/c"
+   ],
+   "out": "a b/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/",
+    "/A/b"
+   ],
+   "out": "A/b"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/a/b/../c"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/b/../c"
+   ],
+   "out": "/a/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/../c",
+    "/a/b"
+   ],
+   "out": "../b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/../c",
+    "/a/b/c/d"
+   ],
+   "out": "../b/c/d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/../c",
+    "/a/x"
+   ],
+   "out": "../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/../c",
+    "/"
+   ],
+   "out": "../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/../c",
+    "/a/b/../c"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/../c",
+    "/a/./b/"
+   ],
+   "out": "../b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/../c",
+    "/a/../../x"
+   ],
+   "out": "../../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/../c",
+    "/a/b/"
+   ],
+   "out": "../b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/../c",
+    "/a b/c"
+   ],
+   "out": "../../a b/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/../c",
+    "/A/b"
+   ],
+   "out": "../../A/b"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/a/./b/"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/./b/"
+   ],
+   "out": "/a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/./b/",
+    "/a/b"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/./b/",
+    "/a/b/c/d"
+   ],
+   "out": "c/d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/./b/",
+    "/a/x"
+   ],
+   "out": "../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/./b/",
+    "/"
+   ],
+   "out": "../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/./b/",
+    "/a/b/../c"
+   ],
+   "out": "../c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/./b/",
+    "/a/./b/"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/./b/",
+    "/a/../../x"
+   ],
+   "out": "../../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/./b/",
+    "/a/b/"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/./b/",
+    "/a b/c"
+   ],
+   "out": "../../a b/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/./b/",
+    "/A/b"
+   ],
+   "out": "../../A/b"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/a/../../x"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/../../x"
+   ],
+   "out": "/x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/../../x",
+    "/a/b"
+   ],
+   "out": "../a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/../../x",
+    "/a/b/c/d"
+   ],
+   "out": "../a/b/c/d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/../../x",
+    "/a/x"
+   ],
+   "out": "../a/x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/../../x",
+    "/"
+   ],
+   "out": ".."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/../../x",
+    "/a/b/../c"
+   ],
+   "out": "../a/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/../../x",
+    "/a/./b/"
+   ],
+   "out": "../a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/../../x",
+    "/a/../../x"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/../../x",
+    "/a/b/"
+   ],
+   "out": "../a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/../../x",
+    "/a b/c"
+   ],
+   "out": "../a b/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/../../x",
+    "/A/b"
+   ],
+   "out": "../A/b"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/a/b/"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/b/"
+   ],
+   "out": "/a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/",
+    "/a/b"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/",
+    "/a/b/c/d"
+   ],
+   "out": "c/d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/",
+    "/a/x"
+   ],
+   "out": "../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/",
+    "/"
+   ],
+   "out": "../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/",
+    "/a/b/../c"
+   ],
+   "out": "../c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/",
+    "/a/./b/"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/",
+    "/a/../../x"
+   ],
+   "out": "../../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/",
+    "/a/b/"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/",
+    "/a b/c"
+   ],
+   "out": "../../a b/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a/b/",
+    "/A/b"
+   ],
+   "out": "../../A/b"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/a b/c"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a b/c"
+   ],
+   "out": "/a b/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a b/c",
+    "/a/b"
+   ],
+   "out": "../../a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a b/c",
+    "/a/b/c/d"
+   ],
+   "out": "../../a/b/c/d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a b/c",
+    "/a/x"
+   ],
+   "out": "../../a/x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a b/c",
+    "/"
+   ],
+   "out": "../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a b/c",
+    "/a/b/../c"
+   ],
+   "out": "../../a/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a b/c",
+    "/a/./b/"
+   ],
+   "out": "../../a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a b/c",
+    "/a/../../x"
+   ],
+   "out": "../../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a b/c",
+    "/a/b/"
+   ],
+   "out": "../../a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a b/c",
+    "/a b/c"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/a b/c",
+    "/A/b"
+   ],
+   "out": "../../A/b"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/A/b"
+   ],
+   "out": true
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/A/b"
+   ],
+   "out": "/A/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/A/b",
+    "/a/b"
+   ],
+   "out": "../../a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/A/b",
+    "/a/b/c/d"
+   ],
+   "out": "../../a/b/c/d"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/A/b",
+    "/a/x"
+   ],
+   "out": "../../a/x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/A/b",
+    "/"
+   ],
+   "out": "../.."
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/A/b",
+    "/a/b/../c"
+   ],
+   "out": "../../a/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/A/b",
+    "/a/./b/"
+   ],
+   "out": "../../a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/A/b",
+    "/a/../../x"
+   ],
+   "out": "../../x"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/A/b",
+    "/a/b/"
+   ],
+   "out": "../../a/b"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/A/b",
+    "/a b/c"
+   ],
+   "out": "../../a b/c"
+  },
+  {
+   "fn": "relative",
+   "args": [
+    "/A/b",
+    "/A/b"
+   ],
+   "out": ""
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/b",
+    "x/y"
+   ],
+   "out": "/a/b/x/y"
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/b",
+    "../z"
+   ],
+   "out": "/a/z"
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/b",
+    "/a/b/c/d"
+   ],
+   "out": "/a/b/c/d"
+  },
+  {
+   "fn": "resolve",
+   "args": [
+    "/a/b",
+    "./q/../r"
+   ],
+   "out": "/a/b/r"
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "x"
+   ],
+   "out": false
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "/x"
+   ],
+   "out": true
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:x"
+   ],
+   "out": false
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "\\x"
+   ],
+   "out": false
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "..\\x"
+   ],
+   "out": false
+  },
+  {
+   "fn": "isAbsolute",
+   "args": [
+    "C:\\x"
+   ],
+   "out": false
+  }
+ ]
+}

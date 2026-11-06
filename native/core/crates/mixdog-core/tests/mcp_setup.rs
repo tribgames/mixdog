@@ -217,6 +217,8 @@ impl SecretOps for Ops {
 /// A service that records the calls it gets and answers `{"plugin": {"id": <plugin>}}`.
 struct Recorder {
     methods: &'static [&'static str],
+    /// Methods that fail with `registry unreadable`.
+    failing: &'static [&'static str],
     seen: Mutex<Vec<(String, Value)>>,
 }
 
@@ -228,6 +230,9 @@ impl DomainService for Recorder {
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         self.seen.lock().unwrap().push((req.method.as_str().to_owned(), req.params.clone()));
+        if self.failing.contains(&req.method.as_str()) {
+            return Err(CoreError::DomainError { domain: "plugins".into(), code: None, message: Some("registry unreadable".into()), detail: None });
+        }
         Ok(Reply::Value(match req.method.as_str() {
             "skills/setDisabledSkills" => json!({"disabled": req.params["names"]}),
             "config/setExtensionScope" => json!({"skills": [{"name": req.params["name"]}]}),
@@ -258,9 +263,10 @@ fn fixture() -> Fixture {
     let runtime = Arc::new(Runtime { config: Arc::clone(&config), dir: dir.path().to_string_lossy().into_owned() });
     let secrets = Arc::new(McpServerSecrets::new(Arc::new(Ops), std::env::vars().collect()));
     let mcp = Arc::new(McpService::new(config.clone(), host, runtime, secrets, dir.path().join("home")));
-    let skills = Arc::new(Recorder { methods: &["skills/setDisabledSkills"], seen: Mutex::default() });
+    let skills = Arc::new(Recorder { methods: &["skills/setDisabledSkills"], failing: &[], seen: Mutex::default() });
     let plugins = Arc::new(Recorder {
         methods: &["plugins/addPlugin", "plugins/updatePlugin", "plugins/setPluginEnabled", "plugins/removePlugin", "plugins/pluginsStatus", "config/setExtensionScope"],
+        failing: &[],
         seen: Mutex::default(),
     });
     let setup = McpSetup::new(Arc::new(ServiceSetupRuntime::new(mcp, skills.clone(), plugins.clone())));
@@ -311,6 +317,23 @@ async fn a_failure_of_the_service_is_the_message_node_throws() {
 }
 
 #[tokio::test]
+async fn a_failing_status_read_is_the_failure_not_an_empty_status() {
+    let failing = Arc::new(Recorder {
+        methods: &["mcp/mcpStatus", "plugins/pluginsStatus"],
+        failing: &["mcp/mcpStatus", "plugins/pluginsStatus"],
+        seen: Mutex::default(),
+    });
+    let skills = Arc::new(Recorder { methods: &[], failing: &[], seen: Mutex::default() });
+    let setup = McpSetup::new(Arc::new(ServiceSetupRuntime::new(failing.clone(), skills, failing.clone())));
+    let thread = ThreadId::from("s");
+    for args in [json!({"action": "enable_plugin_mcp", "name": "alpha"}), json!({"action": "connect_connector", "connector": "notion"})] {
+        let action = args["action"].as_str().unwrap().to_owned();
+        let error = setup.run(&SetupCall { action: &action, args: &args, thread: &thread }).await.unwrap_err();
+        assert!(matches!(&error, PortError::Failed { message, .. } if message == "registry unreadable"), "{action}: {error:?}");
+    }
+}
+
+#[tokio::test]
 async fn skills_and_plugins_actions_reach_their_services_with_the_runtime_api_parameters() {
     let f = fixture();
     let skills = run(&f, json!({"action": "set_disabled_skills", "skills": [" a ", "", "b"]})).await.unwrap();
@@ -336,3 +359,4 @@ async fn skills_and_plugins_actions_reach_their_services_with_the_runtime_api_pa
         ]
     );
 }
+

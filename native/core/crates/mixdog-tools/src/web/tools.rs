@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use super::args::FetchArgs;
+use super::lanes::WebLanes;
 use super::args::fetch_args;
 use super::args::search_args;
 use super::cache::CacheFile;
@@ -60,13 +61,15 @@ pub struct WebConfig {
     /// Where the page and search caches persist (`cache.local.json` in the data directory);
     /// without it they live in memory only.
     pub cache_file: Option<CacheFile>,
+    pub lanes: WebLanes,
     pub(crate) public_policy: AddressPolicy,
 }
 
 impl WebConfig {
-    pub fn new(version: impl Into<String>) -> Self {
+    pub fn new(version: impl Into<String>, lanes: WebLanes) -> Self {
         Self {
             version: version.into(),
+            lanes,
             renderer: None,
             search: None,
             request_timeout: Duration::from_secs(120),
@@ -104,10 +107,10 @@ fn text_output(text: String) -> ToolOutput {
 
 impl WebService {
     pub fn new(config: WebConfig) -> Result<Arc<Self>, FetchError> {
-        let public = Arc::new(Fetcher::new(config.public_policy, &config.version)?);
+        let public = Arc::new(Fetcher::new(config.public_policy, &config.version, config.lanes)?);
         let cache = Arc::new(NodeCache::new(config.cache_file));
         Ok(Arc::new(Self {
-            loopback: Fetcher::new(AddressPolicy::LoopbackOnly, &config.version)?,
+            loopback: Fetcher::new(AddressPolicy::LoopbackOnly, &config.version, config.lanes)?,
             pipeline: Pipeline::new(public.clone(), config.renderer),
             public,
             search: SearchService::new(config.search, cache.clone()),

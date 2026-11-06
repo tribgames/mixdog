@@ -1,0 +1,326 @@
+//! The session side of the agent tool's worker turns (WP-AGENT `agent_tool::flow::seams`): the
+//! worker's tag and agent, its row writes, the tool calls that started agent tasks, and the
+//! completions a worker or its owner is handed (Node `agent-tool/notify.mjs`,
+//! `notification-bus.mjs` `notifySessionCompletion`, `agent-task-starts.mjs`).
+
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+
+use mixdog_agent::agent_tool::flow::seams::OwnerNotify;
+use mixdog_agent::agent_tool::flow::seams::RowUpdate;
+use mixdog_agent::agent_tool::flow::seams::SessionNames;
+use mixdog_agent::agent_tool::flow::seams::TaskStarts;
+use mixdog_agent::agent_tool::flow::seams::TurnListener;
+use mixdog_agent::agent_tool::flow::seams::TurnSource;
+use mixdog_agent::agent_tool::flow::seams::Unobserve;
+use mixdog_agent::agent_tool::flow::seams::WorkerInbox;
+use mixdog_agent::agent_tool::flow::seams::WorkerRows;
+use mixdog_agent::agent_tool::host::Registry;
+use mixdog_agent::agent_tool::scope::clean;
+use mixdog_agent::agent_tool::scope::clean_str;
+use mixdog_core_api::ids::ThreadId;
+use mixdog_tools::exec::TaskNotifier;
+use serde_json::Value;
+
+use super::AgentRegistry;
+use super::Row;
+use crate::session::SessionDirectory;
+
+impl SessionNames for AgentRegistry {
+    fn tag_for_session(&self, session_id: &str) -> Option<String> {
+        Registry::tag_for_session(self, session_id)
+    }
+
+    /// `sessionOf(sessionId).agent`: the loaded session's, else its worker row's.
+    fn agent(&self, session_id: &str) -> Option<String> {
+        let agent = clean(self.session_of(session_id)?.get("agent"));
+        (!agent.is_empty()).then_some(agent)
+    }
+}
+
+/// A row update as `upsertWorkerSessionDeferred`'s patch.
+fn patch(update: RowUpdate) -> Row {
+    let mut extra = Row::new();
+    let mut put = |key: &str, value: Option<String>| {
+        if let Some(value) = value {
+            extra.insert(key.to_owned(), Value::String(value));
+        }
+    };
+    put("status", update.status);
+    put("stage", update.stage);
+    put("turnStartedAt", update.turn_started_at);
+    put("finishedAt", update.finished_at);
+    put("failureReason", update.failure_reason);
+    if let Some(task) = update.task_id {
+        extra.insert("task_id".into(), task.map_or(Value::Null, Value::String));
+    }
+    extra
+}
+
+impl WorkerRows for AgentRegistry {
+    /// `upsertWorkerSessionDeferred(sessionOf(sessionId), tag, patch)`.
+    fn upsert(&self, session_id: &str, tag: Option<&str>, update: RowUpdate) {
+        let Some(session) = self.session_of(session_id) else { return };
+        self.upsert_session_row(&session, tag.unwrap_or_default(), &patch(update));
+    }
+}
+
+/// `MAX_CALLS` of `agent-task-starts.mjs`.
+const MAX_CALLS: usize = 1000;
+
+/// The agent task ids each `agent` tool call started, keyed by the tool call id, until the
+/// tool batch takes them for that call's result message (`agentTaskIds`).
+#[derive(Default)]
+pub struct AgentTaskStarts(Mutex<VecDeque<(String, Vec<String>)>>);
+
+impl AgentTaskStarts {
+    /// `takeAgentTaskStarts`: the task ids tool call `tool_call_id` started, forgotten once taken.
+    pub fn take(&self, tool_call_id: &str) -> Vec<String> {
+        let call = mixdog_js::js_trim(tool_call_id);
+        let mut calls = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        match calls.iter().position(|(id, _)| id == call) {
+            Some(at) => calls.remove(at).map(|(_, ids)| ids).unwrap_or_default(),
+            None => Vec::new(),
+        }
+    }
+}
+
+impl TaskStarts for AgentTaskStarts {
+    /// `recordAgentTaskStart`: a call seen again keeps its place, as a JS `Map` does.
+    fn record(&self, tool_call_id: &str, task_id: &str) {
+        let (call, id) = (mixdog_js::js_trim(tool_call_id), mixdog_js::js_trim(task_id));
+        if call.is_empty() || id.is_empty() {
+            return;
+        }
+        let mut calls = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        match calls.iter_mut().find(|(c, _)| c == call) {
+            Some((_, ids)) if !ids.iter().any(|t| t == id) => ids.push(id.to_owned()),
+            Some(_) => {}
+            None => calls.push_back((call.to_owned(), vec![id.to_owned()])),
+        }
+        while calls.len() > MAX_CALLS {
+            calls.pop_front();
+        }
+    }
+}
+
+/// Subscription ids of turn observers.
+static NEXT_OBSERVER: AtomicU64 = AtomicU64::new(1);
+
+impl TurnSource for SessionDirectory {
+    /// `observeSessionTurns`: a session this process runs reports its turns (start, then the
+    /// run host's final result unchanged); one it does not host reports none.
+    fn observe_session_turns(&self, session_id: &str, listener: Arc<dyn TurnListener>) -> Option<Unobserve> {
+        let handle = self.handle(&ThreadId::from(clean_str(session_id).as_str()))?;
+        let id = NEXT_OBSERVER.fetch_add(1, Ordering::Relaxed);
+        handle.cell.turn_listeners.lock().unwrap_or_else(|p| p.into_inner()).push((id, listener));
+        let cell = Arc::downgrade(&handle.cell);
+        Some(Box::new(move || {
+            if let Some(cell) = cell.upgrade() {
+                cell.turn_listeners.lock().unwrap_or_else(|p| p.into_inner()).retain(|(at, _)| *at != id);
+            }
+        }))
+    }
+}
+
+/// `NON_PERSISTENT_TOOL_STATUSES`.
+const NON_PERSISTENT: [&str; 3] = ["running", "pending", "queued"];
+
+/// `modelVisibleToolCompletionMessage(text, meta)` for the completions the core produces: a
+/// `<task-notification>` envelope persists as it is; a completion the model must not see (or one
+/// still running) yields nothing. The core's producers render envelopes only, so the legacy
+/// wrapper forms Node still converts never reach here.
+fn model_visible(text: &str, meta: &Value) -> Option<String> {
+    let message = mixdog_js::js_trim(text);
+    if message.is_empty() || meta.get("model_visible") == Some(&Value::Bool(false)) {
+        return None;
+    }
+    let status = clean(meta.get("status")).to_lowercase();
+    if NON_PERSISTENT.contains(&status.as_str()) {
+        return None;
+    }
+    mixdog_protocol::text_class::parse_task_notification(message).map(|_| message.to_owned())
+}
+
+/// The model-visible completion queue of a session (`enqueueCompletion`): the session takes it at
+/// its next model-call boundary, or an idle one turns for it. One completion is one entry,
+/// addressed by its execution.
+pub struct SessionCompletions {
+    directory: Arc<SessionDirectory>,
+}
+
+impl SessionCompletions {
+    pub fn new(directory: Arc<SessionDirectory>) -> Self {
+        Self { directory }
+    }
+
+    fn enqueue(&self, session_id: &str, text: &str, meta: &Value) -> bool {
+        let target = clean_str(session_id);
+        let Some(visible) = model_visible(text, meta) else { return false };
+        if target.is_empty() {
+            return false;
+        }
+        let surface = clean(meta.get("execution_surface"));
+        let task = clean(meta.get("execution_id"));
+        let status = clean(meta.get("status"));
+        let directory = self.directory.clone();
+        // The queue write runs on the session, opened when not loaded.
+        drop(mixdog_rt::spawn("session-completion", mixdog_rt::TaskClass::Work, async move {
+            directory.finished(&ThreadId::from(target.as_str()), &surface, &task, &status, visible).await;
+        }));
+        true
+    }
+}
+
+impl WorkerInbox for SessionCompletions {
+    /// `enqueueCompletionMessage(sessionId, text, meta)`.
+    fn enqueue_completion(&self, session_id: &str, text: &str, meta: &Value) -> bool {
+        self.enqueue(session_id, text, meta)
+    }
+}
+
+impl OwnerNotify for SessionCompletions {
+    /// `notifyOwner` → `notifySessionCompletion(owner, text, meta)`: the owner's own id as the
+    /// caller, never a routing session; a closed owner keeps nothing for the model.
+    fn notify(&self, owner_session_id: &str, text: &str, meta: &Value) -> bool {
+        let owner = clean_str(owner_session_id);
+        if owner.is_empty() {
+            return false;
+        }
+        let mut owner_meta = meta.as_object().cloned().unwrap_or_default();
+        owner_meta.insert("caller_session_id".into(), Value::String(owner.clone()));
+        owner_meta.shift_remove("routing_session_id");
+        let closed = self
+            .directory
+            .handle(&ThreadId::from(owner.as_str()))
+            .is_some_and(|handle| handle.cell.header.load().get("closed") == Some(&Value::Bool(true)));
+        if closed {
+            return false;
+        }
+        self.enqueue(&owner, text, &Value::Object(owner_meta))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn task_starts_are_kept_per_call_until_taken() {
+        let starts = AgentTaskStarts::default();
+        starts.record(" call-1 ", "task-a");
+        starts.record("call-1", "task-a");
+        starts.record("call-1", "task-b");
+        starts.record("", "task-c");
+        assert_eq!(starts.take("call-1"), ["task-a", "task-b"]);
+        assert!(starts.take("call-1").is_empty(), "forgotten once taken");
+        for n in 0..=MAX_CALLS {
+            starts.record(&format!("c{n}"), "t");
+        }
+        assert!(starts.take("c0").is_empty(), "the oldest call goes past the cap");
+        assert_eq!(starts.take(&format!("c{MAX_CALLS}")), ["t"]);
+    }
+
+    #[test]
+    fn a_row_update_is_the_deferred_upserts_patch() {
+        let update = RowUpdate {
+            status: Some("failed".into()),
+            stage: Some("failed".into()),
+            task_id: Some(None),
+            failure_reason: Some("stalled".into()),
+            ..RowUpdate::default()
+        };
+        assert_eq!(
+            Value::Object(patch(update)),
+            json!({ "status": "failed", "stage": "failed", "failureReason": "stalled", "task_id": null })
+        );
+    }
+
+    const ENVELOPE: &str =
+        "<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>Agent \"rev\" completed</summary>\n</task-notification>";
+
+    #[test]
+    fn only_a_model_visible_envelope_is_queued() {
+        let envelope = ENVELOPE;
+        assert_eq!(model_visible(envelope, &json!({ "status": "completed" })).as_deref(), Some(envelope));
+        assert_eq!(model_visible(envelope, &json!({ "model_visible": false })), None);
+        assert_eq!(model_visible(envelope, &json!({ "status": "Running" })), None);
+        assert_eq!(model_visible("background task\ntask_id: t1", &json!({})), None);
+        assert_eq!(model_visible("  ", &json!({})), None);
+    }
+
+    #[derive(Default)]
+    struct Heard(Mutex<Vec<String>>);
+    impl TurnListener for Heard {
+        fn turn_started(&self, start: mixdog_agent::agent_tool::flow::seams::TurnStart) {
+            self.0.lock().unwrap().push(format!("start {}", start.turn_id.len() > 0));
+        }
+        fn turn_settled(&self, outcome: mixdog_agent::agent_tool::flow::seams::TurnOutcome) {
+            let result = outcome.result.map(|r| format!("{}/{}", r.content, r.iterations)).unwrap_or_default();
+            self.0.lock().unwrap().push(format!("settled {} {result}", outcome.done));
+        }
+    }
+
+    /// `observeSessionTurns`: the observer hears each turn start and the run host's final
+    /// result unchanged, until it stops observing; a session not hosted here reports nothing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_observer_hears_each_turn_and_its_final_result() {
+        use crate::session::tests::eventually;
+        use crate::session::tests::idle;
+        use crate::session::tests::start_thread;
+        use crate::session::tests::turn;
+
+        let rig = crate::session::testing::Rig::new();
+        rig.set_script(Arc::new(|_run| {
+            Box::pin(async move {
+                let result = mixdog_agent::agent_tool::flow::seams::TurnResult {
+                    content: "done".into(),
+                    iterations: 2,
+                    ..Default::default()
+                };
+                crate::session::RunOutcome::Completed(Box::new(result))
+            })
+        }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = start_thread(&directory).await;
+        let heard = Arc::new(Heard::default());
+        let stop = directory.observe_session_turns(handle.id.as_str(), heard.clone()).expect("hosted here");
+        turn(&handle, "go", "op-1").await;
+        eventually(|| (heard.0.lock().unwrap().len() == 2).then_some(())).await;
+        assert_eq!(*heard.0.lock().unwrap(), ["start true", "settled true done/2"]);
+        eventually(|| idle(&handle).then_some(())).await;
+        stop();
+        turn(&handle, "again", "op-2").await;
+        eventually(|| idle(&handle).then_some(())).await;
+        assert_eq!(heard.0.lock().unwrap().len(), 2, "no longer observed");
+        assert!(directory.observe_session_turns("sess_elsewhere", heard).is_none());
+    }
+
+    /// A completion handed to a worker reaches its queue; a closed owner takes none.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_completion_reaches_the_session_queue() {
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let header = |value: Value| value.as_object().cloned().unwrap();
+        directory.create_with_id(ThreadId::from("sess_worker"), header(json!({})), json!({})).await.expect("worker");
+        directory.create_with_id(ThreadId::from("sess_owner"), header(json!({ "closed": true })), json!({})).await.expect("owner");
+        let completions = SessionCompletions::new(directory.clone());
+        let envelope = ENVELOPE;
+        let meta = json!({ "execution_surface": "agent", "execution_id": "t1", "status": "completed" });
+        assert!(completions.enqueue_completion("sess_worker", envelope, &meta));
+        let worker = ThreadId::from("sess_worker");
+        let queued = || {
+            rig.store.records(&worker).iter().any(|(_, record)| {
+                matches!(record, mixdog_store::schema::record::Record::Queue(q) if q.qid.as_str().starts_with("completion_"))
+            })
+        };
+        crate::session::tests::eventually(|| queued().then_some(())).await;
+        assert!(!completions.notify("sess_owner", envelope, &meta), "a closed owner keeps nothing for the model");
+        assert!(!completions.notify(" ", envelope, &meta));
+    }
+}

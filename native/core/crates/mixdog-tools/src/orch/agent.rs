@@ -453,9 +453,9 @@ impl Tool for AgentTool {
         // `attachments` reach the agent's turn, and its skills are selected from its prompt.
         let mut rest = args.clone();
         let attachments = rest.as_object_mut().and_then(|o| {
-            o.remove("attachmentParts");
-            o.remove("skillSelection");
-            o.remove("attachments")
+            o.shift_remove("attachmentParts");
+            o.shift_remove("skillSelection");
+            o.shift_remove("attachments")
         });
         let attachment_parts = match &attachments {
             Some(names) => self.sessions.resolve_attachments(&ctx.thread_id, names, &ctx.cwd, "agent").await?,

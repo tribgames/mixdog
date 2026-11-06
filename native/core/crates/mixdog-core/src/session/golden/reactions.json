@@ -1,0 +1,1402 @@
+[
+ {
+  "name": "set on newest",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1"
+     }
+    }
+   },
+   {
+    "role": "assistant",
+    "content": "hi"
+   },
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m2"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 2,
+   "messageId": "m2",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m2",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "set back one",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1"
+     }
+    }
+   },
+   {
+    "role": "assistant",
+    "content": "hi"
+   },
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m2"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 1,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "too far back",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1"
+     }
+    }
+   },
+   {
+    "role": "assistant",
+    "content": "hi"
+   },
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m2"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 2,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "error": "react: there are only 2 user messages to react to"
+  }
+ },
+ {
+  "name": "no user message",
+  "messages": [
+   {
+    "role": "assistant",
+    "content": "hi"
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "error": "react: there is no user message to react to"
+  }
+ },
+ {
+  "name": "empty list",
+  "messages": [],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "error": "react: there is no user message to react to"
+  }
+ },
+ {
+  "name": "replace own",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "❤️",
+        "at": 5
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "😮",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "😮",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "😮",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "same emoji no change",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 5
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 5
+    }
+   ],
+   "changed": false,
+   "message": null
+  }
+ },
+ {
+  "name": "remove own keeps others",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 5
+       },
+       {
+        "agentId": "other",
+        "emoji": "🙏",
+        "at": 6
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [
+    {
+     "agentId": "other",
+     "emoji": "🙏",
+     "at": 6
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "other",
+        "emoji": "🙏",
+        "at": 6
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "remove last drops key",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 5
+       }
+      ],
+      "attachments": []
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "attachments": []
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "remove with none",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [],
+   "changed": false,
+   "message": null
+  }
+ },
+ {
+  "name": "append after others",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "other",
+        "emoji": "🙏",
+        "at": 6
+       }
+      ],
+      "tail": 1
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [
+    {
+     "agentId": "other",
+     "emoji": "🙏",
+     "at": 6
+    },
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "tail": 1,
+      "reactions": [
+       {
+        "agentId": "other",
+        "emoji": "🙏",
+        "at": 6
+       },
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "others keep refuses",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "other",
+        "emoji": "👍",
+        "at": 6
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": true,
+   "at": 77
+  },
+  "expected": {
+   "error": "react: other already left 👍 on that message"
+  }
+ },
+ {
+  "name": "others keep allows own",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 6
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": true,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 6
+    }
+   ],
+   "changed": false,
+   "message": null
+  }
+ },
+ {
+  "name": "others keep removal not refused",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "other",
+        "emoji": "👍",
+        "at": 6
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "",
+   "messagesBack": 0,
+   "othersKeep": true,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [
+    {
+     "agentId": "other",
+     "emoji": "👍",
+     "at": 6
+    }
+   ],
+   "changed": false,
+   "message": null
+  }
+ },
+ {
+  "name": "malformed entries dropped",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "bad id",
+        "emoji": "👍"
+       },
+       {
+        "agentId": "ok",
+        "emoji": ""
+       },
+       {
+        "agentId": "dup",
+        "emoji": "🙏",
+        "at": 1
+       },
+       {
+        "agentId": "dup",
+        "emoji": "😮",
+        "at": 1
+       },
+       {
+        "agentId": "noat",
+        "emoji": "😢"
+       },
+       5,
+       null
+      ]
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "new",
+   "emoji": "😆",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [
+    {
+     "agentId": "dup",
+     "emoji": "🙏",
+     "at": 1
+    },
+    {
+     "agentId": "noat",
+     "emoji": "😢"
+    },
+    {
+     "agentId": "new",
+     "emoji": "😆",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "dup",
+        "emoji": "🙏",
+        "at": 1
+       },
+       {
+        "agentId": "noat",
+        "emoji": "😢"
+       },
+       {
+        "agentId": "new",
+        "emoji": "😆",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "skips notices and routines",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "real"
+     }
+    }
+   },
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "source": "notice",
+     "transcript": {
+      "at": 1,
+      "messageId": "n1"
+     }
+    }
+   },
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "synthetic": true,
+     "transcript": {
+      "at": 1,
+      "messageId": "s1"
+     }
+    }
+   },
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "f1",
+      "fromAgent": "a"
+     }
+    }
+   },
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "r1",
+      "routineTrigger": {
+       "name": "n"
+      }
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "real",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "real",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "steering counts",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "typed"
+     }
+    }
+   },
+   {
+    "role": "user",
+    "content": "go",
+    "meta": {
+     "source": "steering",
+     "transcript": {
+      "at": 1,
+      "messageId": "steered"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 1,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "typed",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "typed",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "internal text skipped",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "real"
+     }
+    }
+   },
+   {
+    "role": "user",
+    "content": "<system-reminder>\nx\n</system-reminder>",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "i1"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "real",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "real",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "no message id skipped",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "real"
+     }
+    }
+   },
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "transcript": {
+      "at": 1
+     }
+    }
+   },
+   {
+    "role": "user",
+    "content": "x"
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "real",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "real",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "array content",
+  "messages": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "hello"
+     }
+    ],
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "arr"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "arr",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "hello"
+     }
+    ],
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "arr",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "room user row",
+  "messages": [
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {
+      "kind": "user"
+     },
+     "transcript": {
+      "at": 2,
+      "messageId": "r1"
+     }
+    }
+   },
+   {
+    "role": "assistant",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {
+      "kind": "speech"
+     },
+     "transcript": {
+      "at": 2,
+      "messageId": "r2"
+     }
+    }
+   },
+   {
+    "role": "assistant",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {
+      "kind": "pass"
+     },
+     "transcript": {
+      "at": 2,
+      "messageId": "r3"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "r1",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {
+      "kind": "user"
+     },
+     "transcript": {
+      "at": 2,
+      "messageId": "r1",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "room user fromSession skipped",
+  "messages": [
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {
+      "kind": "user"
+     },
+     "transcript": {
+      "at": 2,
+      "messageId": "r1"
+     }
+    }
+   },
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {
+      "kind": "user",
+      "fromSession": "sess"
+     },
+     "transcript": {
+      "at": 2,
+      "messageId": "r2"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "r1",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {
+      "kind": "user"
+     },
+     "transcript": {
+      "at": 2,
+      "messageId": "r1",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "room others keep",
+  "messages": [
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {
+      "kind": "user"
+     },
+     "transcript": {
+      "at": 2,
+      "messageId": "r1",
+      "reactions": [
+       {
+        "agentId": "other",
+        "emoji": "😆",
+        "at": 3
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "😆",
+   "messagesBack": 0,
+   "othersKeep": true,
+   "at": 77
+  },
+  "expected": {
+   "error": "react: other already left 😆 on that message"
+  }
+ },
+ {
+  "name": "room set",
+  "messages": [
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {
+      "kind": "user"
+     },
+     "transcript": {
+      "at": 2,
+      "messageId": "r1"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "🙏",
+   "messagesBack": 0,
+   "othersKeep": true,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "r1",
+   "reactions": [
+    {
+     "agentId": "rev",
+     "emoji": "🙏",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {
+      "kind": "user"
+     },
+     "transcript": {
+      "at": 2,
+      "messageId": "r1",
+      "reactions": [
+       {
+        "agentId": "rev",
+        "emoji": "🙏",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "room kind missing",
+  "messages": [
+   {
+    "role": "user",
+    "content": "x",
+    "meta": {
+     "source": "agent-room",
+     "room": {},
+     "transcript": {
+      "messageId": "z"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "rev",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "error": "react: there is no user message to react to"
+  }
+ },
+ {
+  "name": "dotted agent",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1"
+     }
+    }
+   }
+  ],
+  "change": {
+   "agentId": "bot.one_2-x",
+   "emoji": "👍",
+   "messagesBack": 0,
+   "othersKeep": false,
+   "at": 77
+  },
+  "expected": {
+   "index": 0,
+   "messageId": "m1",
+   "reactions": [
+    {
+     "agentId": "bot.one_2-x",
+     "emoji": "👍",
+     "at": 77
+    }
+   ],
+   "changed": true,
+   "message": {
+    "role": "user",
+    "content": "hello",
+    "meta": {
+     "transcript": {
+      "at": 1,
+      "messageId": "m1",
+      "reactions": [
+       {
+        "agentId": "bot.one_2-x",
+        "emoji": "👍",
+        "at": 77
+       }
+      ]
+     }
+    }
+   }
+  }
+ }
+]

@@ -222,7 +222,7 @@ impl SessionState {
             Record::Meta(meta) => {
                 if let Slot::Inline(change) = &meta.change {
                     for key in &change.unset {
-                        self.header.remove(key);
+                        self.header.shift_remove(key);
                     }
                     for (key, value) in &change.set {
                         self.header.insert(key.clone(), value.clone());
@@ -328,7 +328,26 @@ impl SessionState {
                 }
                 QueueAction::Dequeue => self.queue.retain(|q| q.qid != queue.qid.as_str()),
             },
-            Record::Compacted(_) | Record::Op(_) | Record::Checkpoint(_) | Record::ModelSwitch(_) => {}
+            // The boundary row follows its anchor's rows (and the anchor's earlier boundaries)
+            // while the anchor is in view; it lives and goes with the anchor's ordinal.
+            Record::ModelSwitch(switch) => {
+                let Display::Items(shown) = display else {
+                    return;
+                };
+                let anchor = Some(switch.anchor.ordinal);
+                let Some(last) = self.window.iter().rposition(|row| row.ordinal == anchor) else {
+                    return;
+                };
+                for (at, shown) in shown.iter().enumerate() {
+                    let Shown::Item(new) = shown else { continue };
+                    self.window.insert(last + 1 + at, WindowItem { ordinal: anchor, item: Arc::new(new.clone()), prompt: None });
+                }
+                while self.window.len() > self.view_items {
+                    self.window.pop_front();
+                    self.has_older = true;
+                }
+            }
+            Record::Compacted(_) | Record::Op(_) | Record::Checkpoint(_) => {}
         }
     }
 

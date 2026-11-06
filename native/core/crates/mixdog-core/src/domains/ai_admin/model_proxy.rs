@@ -582,6 +582,13 @@ fn picker_out(p: &p::PickerFields) -> w::ProxyPicker {
         additional_speed_tiers: p.additional_speed_tiers.clone(),
         reasoning_options: p.reasoning_options.iter().map(|r| w::ProxyReasoningOption { kind: r.kind.clone(), values: r.values.clone() }).collect(),
         custom_reasoning: p.custom_reasoning.as_ref().map(|c| w::ProxyCustomReasoning { wire_format: c.wire_format.clone(), wire_values: c.wire_values.clone(), replay: c.replay }),
+        tier: p.tier.clone(),
+        latest: p.latest,
+        description: p.description.clone(),
+        default_service_tier: p.default_service_tier.clone(),
+        default_model_parameters: p.default_model_parameters.clone(),
+        default_fast: p.default_fast,
+        supports_max_mode: p.supports_max_mode,
     }
 }
 
@@ -605,6 +612,13 @@ fn picker_in(p: w::ProxyPicker) -> p::PickerFields {
         additional_speed_tiers: p.additional_speed_tiers,
         reasoning_options: p.reasoning_options.into_iter().map(|r| p::ReasoningOption { kind: r.kind, values: r.values }).collect(),
         custom_reasoning: p.custom_reasoning.map(|c| p::CustomReasoning { wire_format: c.wire_format, wire_values: c.wire_values, replay: c.replay }),
+        tier: p.tier,
+        latest: p.latest,
+        description: p.description,
+        default_service_tier: p.default_service_tier,
+        default_model_parameters: p.default_model_parameters,
+        default_fast: p.default_fast,
+        supports_max_mode: p.supports_max_mode,
     }
 }
 pub fn model_out(m: &p::ModelRecord) -> w::ProxyModel {
@@ -612,6 +626,11 @@ pub fn model_out(m: &p::ModelRecord) -> w::ProxyModel {
         id: m.id.clone(),
         display_name: m.display_name.clone(),
         name: m.name.clone(),
+        provider_name: m.provider_name.clone(),
+        manual: m.manual,
+        supports_reasoning_effort_updates: m.supports_reasoning_effort_updates,
+        supports_prompt_caching: m.supports_prompt_caching,
+        reasoning_content_field: m.reasoning_content_field.clone(),
         context_window: m.context_window,
         max_context_window: m.max_context_window,
         max_output_tokens: m.max_output_tokens,
@@ -645,7 +664,12 @@ pub fn catalog_model_out(m: &mixdog_ai::catalog::ModelRecord) -> w::ProxyModel {
     w::ProxyModel {
         id: m.id.clone(),
         display_name: m.display_name.clone(),
-        name: None,
+        name: m.name.clone(),
+        provider_name: m.provider_name.clone(),
+        manual: m.manual,
+        supports_reasoning_effort_updates: m.supports_reasoning_effort_updates,
+        supports_prompt_caching: tri(m.prompt_caching),
+        reasoning_content_field: m.reasoning_content_field.clone(),
         context_window: m.context_window,
         max_context_window: m.max_context_window,
         max_output_tokens: m.output_tokens,
@@ -672,6 +696,11 @@ pub fn model_in(m: w::ProxyModel) -> p::ModelRecord {
     let mut out = p::ModelRecord::new(m.id);
     out.display_name = m.display_name;
     out.name = m.name;
+    out.provider_name = m.provider_name;
+    out.manual = m.manual;
+    out.supports_reasoning_effort_updates = m.supports_reasoning_effort_updates;
+    out.supports_prompt_caching = m.supports_prompt_caching;
+    out.reasoning_content_field = m.reasoning_content_field;
     out.context_window = m.context_window;
     out.max_context_window = m.max_context_window;
     out.max_output_tokens = m.max_output_tokens;

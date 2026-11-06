@@ -151,6 +151,60 @@ impl SessionDirectory {
         items.await.map_err(|_| dropped())
     }
 
+    /// The live history row `iid` with its ordinal, as the transcript reads it.
+    pub(crate) async fn history_row(
+        &self,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
+        let deps = &self.inner.deps;
+        let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
+        deps.lanes
+            .io
+            .submit(&CancellationToken::new(), move |lane| store.history_row(lane, &thread, &iid))?
+            .await
+            .map_err(|_| CoreError::Internal { incident_id: "session-history-job-dropped".into() })?
+    }
+
+    /// The ordinal of the live compaction whose replacement holds the entry `iid`.
+    pub(crate) async fn compaction_entry(&self, id: &ThreadId, iid: &str) -> Result<Option<u64>, CoreError> {
+        let deps = &self.inner.deps;
+        let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
+        deps.lanes
+            .io
+            .submit(&CancellationToken::new(), move |lane| store.compaction_entry(lane, &thread, &iid))?
+            .await
+            .map_err(|_| CoreError::Internal { incident_id: "session-history-job-dropped".into() })?
+    }
+
+    /// The agent the calling session's record names, as the agent-editor rule reads it:
+    /// `assertAgentEditorAccess` takes `String(caller?.agent || '').trim()` of the record
+    /// `getCallerSession` returns (`schedule-access.mjs:99`, `setup-tool/executor.mjs:928`), not
+    /// `resolveSessionMode`. An agent-mode session carries its agent there from creation
+    /// (`session-lifecycle.mjs:238`). Fills `SetupCallers::acting_agent`; a thread that cannot
+    /// be opened is the open's error.
+    pub async fn acting_agent(&self, thread: &ThreadId) -> Result<String, CoreError> {
+        let handle = self.open_handle(thread, &CallContext::internal("acting-agent")).await?;
+        let header = handle.cell.header.load_full();
+        let agent = match header.get("agent") {
+            None | Some(Value::Null) | Some(Value::Bool(false)) => String::new(),
+            Some(Value::Number(n)) if n.as_f64().is_some_and(|f| f == 0.0 || f.is_nan()) => String::new(),
+            Some(agent) => mixdog_js::value_to_string(agent),
+        };
+        Ok(mixdog_js::js_trim(&agent).to_owned())
+    }
+
+    /// The running state a worker's progress read is a function of (`Workers::live`): the
+    /// cell's published progress at `now`; nothing for a thread this process does not host.
+    pub fn worker_live(
+        &self,
+        id: &ThreadId,
+        now: i64,
+        jobs: &dyn crate::run_host::progress::WaitedJobs,
+    ) -> mixdog_agent::agent_tool::views::WorkerLive {
+        self.handle(id).map(|handle| handle.cell.progress.borrow().live(now, jobs)).unwrap_or_default()
+    }
+
     /// The ids of every loaded thread (the threads this process hosts).
     pub fn loaded_ids(&self) -> Vec<ThreadId> {
         self.inner
@@ -441,6 +495,9 @@ impl DirInner {
             view: arc_swap::ArcSwap::new(view),
             header: arc_swap::ArcSwap::from_pointee(state.header.clone()),
             surface: surface.subscribe(),
+            progress: watch::Sender::new(Default::default()),
+            turn_messages: watch::Sender::new(Default::default()),
+            turn_listeners: Default::default(),
             ctl_tx,
             steer_cap: limits.steer_queue,
             subscribers: Default::default(),
@@ -456,6 +513,7 @@ impl DirInner {
             lineage: lineage.clone(),
             deps: deps.clone(),
             directory: self.me.clone(),
+            reactions: Default::default(),
         });
         let durability = DurabilityTask::new(
             id.clone(),

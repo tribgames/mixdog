@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
+use crate::cancel::Cancel;
+use crate::env::Yielder;
 
 use crate::response::Termination;
 
@@ -91,6 +92,8 @@ pub struct TurnRequest {
     /// The trusted text a routine's skill is selected from (`skillSelection`).
     pub skill_selection: Option<String>,
     pub hooks: TurnHooks,
+    /// The job's admitted slot, for the loop to hand back during provider requests.
+    pub slot: Option<Arc<dyn Yielder>>,
 }
 
 /// One assistant row a session gained during a turn, as text: its own content and, when that is
@@ -104,10 +107,10 @@ pub struct AssistantText {
 /// The session manager, as a worker's turn uses it.
 #[async_trait]
 pub trait TurnSessions: Send + Sync {
-    /// `session.messages.length` (`resolveHandoffMessageStartIndex`).
-    fn message_count(&self, session_id: &str) -> usize;
-    /// The assistant rows appended from message index `start` on.
-    fn assistant_texts(&self, session_id: &str, start: usize) -> Vec<AssistantText>;
+    /// `session.messages.length` (`resolveHandoffMessageStartIndex`), read from the store.
+    async fn message_count(&self, session_id: &str) -> usize;
+    /// The assistant rows appended from message index `start` on, read from the store.
+    async fn assistant_texts(&self, session_id: &str, start: usize) -> Vec<AssistantText>;
     /// `notDoneReport(session)`: the lines naming what the agent's own todo list leaves undone.
     fn not_done_report(&self, session_id: &str) -> String;
     /// `whileTurnDispatched(sessionId, …)` around the route that runs the turn: the canonical
@@ -153,12 +156,15 @@ pub trait WorkerInbox: Send + Sync {
 #[async_trait]
 pub trait Lease: Send {
     async fn release(self: Box<Self>);
+    /// The handle the loop hands the slot back through while a provider request is in flight
+    /// (`runYielded`).
+    fn yielder(&self) -> Arc<dyn Yielder>;
 }
 
 #[async_trait]
 pub trait Admission: Send + Sync {
-    /// Waits for a slot; `cancel` abandons the wait.
-    async fn acquire(&self, label: &str, owner_key: Option<&str>, cancel: &CancellationToken) -> Result<Box<dyn Lease>, String>;
+    /// Waits for a slot; `cancel` abandons the wait, and its reason is the error.
+    async fn acquire(&self, label: &str, owner_key: Option<&str>, cancel: &Cancel) -> Result<Box<dyn Lease>, String>;
 }
 
 /// `recordAgentTaskStart`: the tool call that started a job owns it.

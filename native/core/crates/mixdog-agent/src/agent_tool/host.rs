@@ -123,8 +123,9 @@ pub trait SendFlow: Send + Sync {
     ) -> Result<mixdog_tools::orch::agent::AgentReply, String>;
 }
 
+#[async_trait]
 pub trait SpawnFlow: Send + Sync {
-    fn start_deferred_spawn_job(
+    async fn start_deferred_spawn_job(
         &self,
         args: &Value,
         caller_cwd: &str,
@@ -167,7 +168,7 @@ pub trait Views: Send + Sync {
     /// from the worker session. `include_result`: `read` shows the result, `status` does not.
     async fn get_job_or_worker(&self, args: &Value, scope: &Scope, include_result: bool) -> Result<Job, String>;
     async fn list(&self, scope: &Scope, options: ListOptions) -> Vec<WorkerRow>;
-    fn list_jobs(&self, scope: &Scope) -> Vec<JobRow>;
+    async fn list_jobs(&self, scope: &Scope) -> Vec<JobRow>;
 }
 
 /// Who a call's thread is: the owner session id and the host process it runs under.

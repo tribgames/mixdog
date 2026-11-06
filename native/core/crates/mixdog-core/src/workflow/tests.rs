@@ -96,7 +96,7 @@ fn without_empty_params(mut reply: Value) -> Value {
     if let Some(routes) = reply.pointer_mut("/result/workflowRoutes").and_then(Value::as_object_mut) {
         for route in routes.values_mut().filter_map(Value::as_object_mut) {
             if route.get("modelParameters") == Some(&json!({})) {
-                route.remove("modelParameters");
+                route.shift_remove("modelParameters");
             }
         }
     }

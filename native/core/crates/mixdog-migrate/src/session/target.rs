@@ -157,7 +157,7 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                 Record::Meta(m) => {
                     let (change, _) = resolve(cx, m.change)?;
                     for k in &change.unset {
-                        folded.header.remove(k);
+                        folded.header.shift_remove(k);
                     }
                     folded.header.extend(change.set);
                 }
@@ -220,7 +220,27 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                     }
                     QueueAction::Dequeue => folded.queue.retain(|q| q.0 != qr.qid.as_str()),
                 },
-                Record::Rewind(_) | Record::Approval(_) | Record::Op(_) | Record::ModelSwitch(_) => {
+                // Folded back into its anchor's `meta.modelSwitches`, where 1.4.5 kept it
+                // (a reader shows it there: `transcript_boundary.rs` `fold_model_switches`).
+                Record::ModelSwitch(s) => {
+                    let row = folded
+                        .rows
+                        .iter_mut()
+                        .rev()
+                        .find(|r| r.ordinal == s.anchor.ordinal && r.ordinal < frame.ordinal)
+                        .filter(|r| r.iid == s.anchor.iid.as_str() && r.form == Form::Message)
+                        .ok_or_else(|| format!("frame {}: a model switch of no earlier message row", frame.ordinal))?;
+                    let entry = serde_json::to_value(resolve(cx, s.entry)?.0).expect("an entry encodes");
+                    let body = row.body.as_object_mut().ok_or("a message body is an object")?;
+                    let meta = body.entry("meta").or_insert_with(|| Value::Object(Default::default()));
+                    let switches = meta
+                        .as_object_mut()
+                        .ok_or("a message meta is an object")?
+                        .entry("modelSwitches")
+                        .or_insert_with(|| Value::Array(Vec::new()));
+                    switches.as_array_mut().ok_or("modelSwitches is a list")?.push(entry);
+                }
+                Record::Rewind(_) | Record::Approval(_) | Record::Op(_) => {
                     return Err(format!("frame {}: a record migration never writes", frame.ordinal));
                 }
             }

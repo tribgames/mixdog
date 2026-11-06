@@ -12,6 +12,7 @@ use mixdog_js::js_trim;
 use mixdog_js::string_to_number;
 use mixdog_js::time::date_parse;
 use mixdog_js::to_number;
+use mixdog_js::to_number_of as js_number_of;
 use mixdog_protocol::message_class::js::or_str;
 use mixdog_protocol::message_class::js::string as js_string;
 use mixdog_store::schema::migration::ItemKind;
@@ -83,25 +84,6 @@ fn parse(text: &[u8], code: QuarantineCode, what: &str, replaced: &mut u64) -> R
     }
 }
 
-/// JavaScript `Number(v)` for the values 1.4.5 reads numerically.
-fn js_number_of(v: Option<&Value>) -> f64 {
-    match v {
-        None => f64::NAN,
-        Some(Value::Null) => 0.0,
-        Some(Value::Bool(b)) => f64::from(u8::from(*b)),
-        Some(Value::Number(n)) => n.as_f64().unwrap_or(f64::NAN),
-        Some(Value::String(s)) => {
-            let t = s.trim();
-            if t.is_empty() {
-                0.0
-            } else {
-                t.parse().unwrap_or(f64::NAN)
-            }
-        }
-        Some(_) => f64::NAN,
-    }
-}
-
 /// `Number.isSafeInteger(v) && v >= 0`.
 fn count_of(v: Option<&Value>) -> Option<u64> {
     let n = v?.as_number()?;
@@ -120,7 +102,7 @@ fn read_json(id: &str, bytes: &[u8], replaced: &mut u64) -> R<(Header, Vec<Value
     let Value::Object(mut map) = value else {
         return q(QuarantineCode::SchemaViolation, "session json is not an object");
     };
-    let messages = match map.remove("messages") {
+    let messages = match map.shift_remove("messages") {
         Some(Value::Array(m)) => m,
         _ => return q(QuarantineCode::SchemaViolation, "messages is not an array"),
     };
@@ -271,7 +253,7 @@ pub fn fold_log(id: &str, bytes: &[u8], replaced: &mut u64) -> R<LogFold> {
     let mut header = base["header"].as_object().cloned().unwrap_or_default();
     for r in accepted.iter().filter(|r| r["t"] == "patch") {
         for k in r["unset"].as_array().into_iter().flatten() {
-            header.remove(k.as_str().unwrap_or(""));
+            header.shift_remove(k.as_str().unwrap_or(""));
         }
         for (k, v) in r["set"].as_object().into_iter().flatten() {
             header.insert(k.clone(), v.clone());
@@ -715,16 +697,7 @@ fn replay_journal(header: &Map<String, Value>, journal: Option<&[u8]>, replaced:
         }),
     );
     out.insert("contextState".into(), context);
-    out.insert(
-        "updatedAt".into(),
-        serde_json::Number::from_f64(updated).map_or(Value::Null, |n| {
-            if updated.fract() == 0.0 && updated.abs() < 9.0e15 {
-                Value::from(updated as i64)
-            } else {
-                Value::Number(n)
-            }
-        }),
-    );
+    out.insert("updatedAt".into(), mixdog_js::json_number(updated));
     Value::Object(out)
 }
 
@@ -1014,7 +987,7 @@ fn queue(cx: &ItemContext<'_>, id: &str, shared: &[&SourceFile], replaced: &mut 
                 continue;
             };
             let mut rest = obj.clone();
-            rest.remove("id");
+            rest.shift_remove("id");
             let at = js_number_of(obj.get("enqueuedAt"));
             let n = entries.len();
             entries.push((if at.is_nan() { 0.0 } else { at }, n, qid.to_string(), Value::Object(rest)));

@@ -62,11 +62,21 @@ pub struct JobHandle {
     host_pid: Option<u64>,
     terminal: Mutex<Option<WorkerResult>>,
     early_notified: AtomicBool,
+    slot: std::sync::OnceLock<std::sync::Arc<dyn crate::env::Yielder>>,
 }
 
 impl JobHandle {
     pub fn new(board: JobBoard, task_id: String, operation: String, host_pid: Option<u64>) -> Self {
-        Self { board, task_id, operation, host_pid, terminal: Mutex::new(None), early_notified: AtomicBool::new(false) }
+        Self { board, task_id, operation, host_pid, terminal: Mutex::new(None), early_notified: AtomicBool::new(false), slot: std::sync::OnceLock::new() }
+    }
+
+    /// The admitted slot the job's turn hands back around provider requests.
+    pub fn set_slot(&self, slot: std::sync::Arc<dyn crate::env::Yielder>) {
+        let _ = self.slot.set(slot);
+    }
+
+    pub fn slot(&self) -> Option<std::sync::Arc<dyn crate::env::Yielder>> {
+        self.slot.get().cloned()
     }
 
     pub fn task_id(&self) -> &str {

@@ -34,7 +34,6 @@ use mixdog_statefile::Peek;
 use mixdog_statefile::StateError;
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use super::action::GrantKey;
@@ -200,7 +199,12 @@ fn without_lone_surrogates(line: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(out)
 }
 
-fn append_audit(path: &Path, entry: &AuditEntry) -> Result<(), StoreError> {
+#[allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the body of a durability-lane job; the proof argument is the lane's"
+)]
+fn append_audit(_lane: &InLane<DurabilityIo>, path: &Path, entry: &AuditEntry) -> Result<(), StoreError> {
     let at = entry.at_ms.unwrap_or_else(now_ms);
     let mut text = format!(
         r#"{{"at":{at},"agentId":{},"kind":{},"action":{},"tool":{},"target":{},"decision":{},"device":{}}}"#,
@@ -225,7 +229,16 @@ fn append_audit(path: &Path, entry: &AuditEntry) -> Result<(), StoreError> {
 }
 
 /// Newest first; `agent_id` filters to one agent; unparseable lines are skipped.
-fn read_audit_lines(path: &Path, agent_id: Option<&str>, limit: usize) -> Result<Vec<AuditEntry>, StoreError> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the body of an interactive-lane job; the proof argument is the lane's"
+)]
+fn read_audit_lines(
+    _lane: &InLane<InteractiveIo>,
+    path: &Path,
+    agent_id: Option<&str>,
+    limit: usize,
+) -> Result<Vec<AuditEntry>, StoreError> {
     let raw = match std::fs::read_to_string(path) {
         Ok(raw) => raw,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -258,17 +271,22 @@ fn read_audit_lines(path: &Path, agent_id: Option<&str>, limit: usize) -> Result
     Ok(rows)
 }
 
+#[allow(
+    clippy::disallowed_types,
+    reason = "`writes` is held across the lane job awaits on purpose: it orders whole read-modify-writes"
+)]
 pub struct FileGrantStore {
     grants_path: PathBuf,
     audit_path: PathBuf,
     interactive: InteractiveIo,
     durability: DurabilityIo,
     /// Orders grant read-modify-writes.
-    writes: Mutex<()>,
+    writes: tokio::sync::Mutex<()>,
 }
 
 impl FileGrantStore {
     /// `dir` is `<data>/human-gate`.
+    #[allow(clippy::disallowed_types, reason = "builds the `writes` lock; see the struct")]
     pub fn new(dir: impl Into<PathBuf>, interactive: InteractiveIo, durability: DurabilityIo) -> Arc<Self> {
         let dir = dir.into();
         Arc::new(Self {
@@ -276,7 +294,7 @@ impl FileGrantStore {
             audit_path: dir.join(AUDIT_FILE),
             interactive,
             durability,
-            writes: Mutex::new(()),
+            writes: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -370,7 +388,7 @@ impl FileGrantStore {
 
     pub async fn read_audit(&self, agent_id: Option<&str>, limit: usize) -> Result<Vec<AuditEntry>, StoreError> {
         let (path, agent) = (self.audit_path.clone(), agent_id.map(str::to_owned));
-        run(self.interactive, move |_| read_audit_lines(&path, agent.as_deref(), limit)).await
+        run(self.interactive, move |lane| read_audit_lines(lane, &path, agent.as_deref(), limit)).await
     }
 }
 
@@ -412,7 +430,7 @@ impl GrantStore for FileGrantStore {
 
     async fn record_audit(&self, entry: AuditEntry) -> Result<(), StoreError> {
         let path = self.audit_path.clone();
-        run(self.durability, move |_| append_audit(&path, &entry)).await
+        run(self.durability, move |lane| append_audit(lane, &path, &entry)).await
     }
 }
 

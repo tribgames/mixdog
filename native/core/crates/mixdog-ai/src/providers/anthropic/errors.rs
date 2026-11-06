@@ -82,11 +82,13 @@ fn lowered_type(value: Option<&Value>) -> Option<String> {
 /// `retry-after-ms`, then `retry-after` seconds; zero or negative is no advice.
 fn retry_after(headers: &[(String, String)]) -> Option<Duration> {
     let millis = header(headers, "retry-after-ms")
-        .and_then(|v| v.trim().parse::<f64>().ok())
+        .map(mixdog_js::string_to_number)
+        .filter(|n| !n.is_nan())
         .map(|ms| ms.ceil());
     let millis = millis.or_else(|| {
         header(headers, "retry-after")
-            .and_then(|v| v.trim().parse::<f64>().ok())
+            .map(mixdog_js::string_to_number)
+            .filter(|n| !n.is_nan())
             .map(|secs| (secs * 1000.0).ceil())
     })?;
     (millis.is_finite() && millis > 0.0).then(|| Duration::from_millis(millis as u64))
@@ -94,7 +96,7 @@ fn retry_after(headers: &[(String, String)]) -> Option<Duration> {
 
 /// The unified rate-limit window reset (epoch seconds).
 fn reset_at(headers: &[(String, String)]) -> Option<SystemTime> {
-    let secs = header(headers, RESET_HEADER)?.trim().parse::<f64>().ok()?;
+    let secs = mixdog_js::string_to_number(header(headers, RESET_HEADER)?);
     (secs.is_finite() && secs > 0.0)
         .then(|| SystemTime::UNIX_EPOCH + Duration::from_millis((secs * 1000.0).ceil() as u64))
 }

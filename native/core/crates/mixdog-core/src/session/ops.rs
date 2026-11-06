@@ -42,7 +42,7 @@ pub(crate) struct OpTable {
 pub(crate) fn digest(params: &Value) -> String {
     let mut params = params.clone();
     if let Value::Object(fields) = &mut params {
-        fields.remove("opId");
+        fields.shift_remove("opId");
     }
     let bytes = serde_json::to_vec(&canonical(params)).expect("json serializes");
     let hash = Sha256::digest(&bytes);

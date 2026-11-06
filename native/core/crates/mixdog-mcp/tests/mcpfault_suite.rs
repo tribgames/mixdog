@@ -167,6 +167,9 @@ struct Ops {
     keychain: Mutex<BTreeMap<String, String>>,
     /// Accounts (by name) whose sign-in release fails.
     failing_release: Mutex<Vec<String>>,
+    /// Accounts (by name) whose sign-in release waits for `gate` before it does anything.
+    stalled_release: Mutex<Vec<String>>,
+    gate: tokio::sync::Notify,
     released: Mutex<Vec<String>>,
     fail_gmail_forget: AtomicBool,
 }
@@ -216,8 +219,11 @@ impl SecretOps for Ops {
 
     async fn clear_oauth(&self, cfg: &Value) -> Result<bool, String> {
         let name = cfg["name"].as_str().unwrap_or_default().to_owned();
-        // The first release yields before it fails, as a keychain call does.
+        // A keychain call yields before it answers.
         tokio::task::yield_now().await;
+        if self.stalled_release.lock().unwrap().contains(&name) {
+            self.gate.notified().await;
+        }
         self.released.lock().unwrap().push(name.clone());
         if self.failing_release.lock().unwrap().contains(&name) { Err(format!("cannot revoke {name}")) } else { Ok(true) }
     }
@@ -245,6 +251,8 @@ fn fixture(servers: Value) -> Fixture {
         config: Arc::clone(&config),
         keychain: Mutex::default(),
         failing_release: Mutex::default(),
+        stalled_release: Mutex::default(),
+        gate: tokio::sync::Notify::new(),
         released: Mutex::default(),
         fail_gmail_forget: AtomicBool::new(false),
     });
@@ -298,17 +306,35 @@ async fn a_failed_save_does_not_leave_a_secret_that_was_never_there() {
 }
 
 #[tokio::test]
-async fn removing_a_connector_server_attempts_every_account_before_it_fails() {
+async fn a_failed_release_is_reported_at_once_and_the_others_still_run() {
     let account = |name: &str, key: &str| json!({"name": name, "url": "https://mcp.notion.com/mcp", "oauthKey": key});
     let f = fixture(json!({"hub": {"type": "http", "url": "https://mcp.notion.com/accounts", "connector": "notion", "accounts": [account("notion", "k1"), account("notion-2", "k2"), account("notion-3", "k3")]}}));
     f.ops.failing_release.lock().unwrap().push("notion".to_owned());
+    // The second account's release hangs until the gate opens.
+    f.ops.stalled_release.lock().unwrap().push("notion-2".to_owned());
 
-    assert_eq!(call(&f, "mcp/removeMcpServer", json!({"name": "hub"})).await.unwrap_err(), "cannot revoke notion");
+    // `Promise.all`: the failure comes back while a release is still pending (bounded: the
+    // call gets a thousand turns of the scheduler, then the test fails instead of hanging).
+    let outcome = tokio::select! {
+        outcome = call(&f, "mcp/removeMcpServer", json!({"name": "hub"})) => Some(outcome),
+        () = async { for _ in 0..1000 { tokio::task::yield_now().await } } => None,
+    };
+    assert_eq!(outcome.expect("the failure waited for the stalled release").unwrap_err(), "cannot revoke notion");
+    assert!(!f.ops.released.lock().unwrap().contains(&"notion-2".to_owned()));
+    // The server itself is gone: the failure is about the sign-ins left behind.
+    assert!(f.config.agent()["mcpServers"].get("hub").is_none());
+
+    // The release that was left running still finishes once it can.
+    f.ops.gate.notify_one();
+    for _ in 0..1000 {
+        if f.ops.released.lock().unwrap().len() == 3 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
     let mut released = f.ops.released.lock().unwrap().clone();
     released.sort();
     assert_eq!(released, ["notion", "notion-2", "notion-3"]);
-    // The server itself is gone: the failure is about the sign-ins left behind.
-    assert!(f.config.agent()["mcpServers"].get("hub").is_none());
 }
 
 #[tokio::test]

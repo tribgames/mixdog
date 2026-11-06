@@ -183,7 +183,7 @@ fn providers() -> Vec<Provider> {
 
 fn without_request_id(mut body: Value) -> Value {
     if let Some(map) = body.as_object_mut() {
-        map.remove("requestId");
+        map.shift_remove("requestId");
     }
     body
 }

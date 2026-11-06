@@ -68,8 +68,8 @@ impl SetupRuntime for ServiceSetupRuntime {
         call(self.mcp.as_ref(), "mcp/reconnectMcp", name.map_or_else(|| json!({}), |n| json!({"name": n}))).await
     }
 
-    async fn mcp_status(&self) -> Value {
-        call(self.mcp.as_ref(), "mcp/mcpStatus", json!({})).await.unwrap_or_else(|_| json!({}))
+    async fn mcp_status(&self) -> Result<Value, String> {
+        call(self.mcp.as_ref(), "mcp/mcpStatus", json!({})).await
     }
 
     async fn mcp_server_config(&self, name: &Value) -> Result<Value, String> {
@@ -100,8 +100,8 @@ impl SetupRuntime for ServiceSetupRuntime {
         call(self.plugins.as_ref(), "plugins/removePlugin", json!({"plugin": name})).await
     }
 
-    async fn plugins_status(&self) -> Value {
-        call(self.plugins.as_ref(), "plugins/pluginsStatus", json!({})).await.unwrap_or_else(|_| json!({}))
+    async fn plugins_status(&self) -> Result<Value, String> {
+        call(self.plugins.as_ref(), "plugins/pluginsStatus", json!({})).await
     }
 
     async fn enable_plugin_mcp(&self, plugin: &Value) -> Result<Value, String> {

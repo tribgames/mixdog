@@ -1,4 +1,4 @@
-//! The custom-provider probes against what Node answers (`fixtures/custom-probe/record.mjs`):
+//! The custom-provider probes against what Node answers (`benchmarks/rust-core/recorders/record-custom-probe.mjs`):
 //! the discovery result and its error view, the connection test's phases, and the thrown,
 //! redacted send failures. The endpoint is Node's scripted server replayed through the real
 //! `CustomListing`; the provider's send is scripted with the status Node's server gave.
@@ -29,7 +29,7 @@ use serde_json::json;
 use super::custom_probe::*;
 use super::failure::Failure;
 
-const GOLDEN: &str = include_str!("../../../fixtures/custom-probe/golden.json");
+const GOLDEN: &str = include_str!("../../../../../fixtures/custom-probe/golden.json");
 
 struct Once(Option<Bytes>);
 
@@ -110,7 +110,7 @@ impl CustomProbeHost for Host {
         let keyless = config["auth"] == "none";
         let credential = (!keyless).then(|| ("authorization".to_owned(), format!("Bearer {api_key}")));
         let chat = &self.case["chat"];
-        let message = chat["body"]["error"]["message"].as_str().or(chat["body"]["error"].as_str()).unwrap_or_default().replace("sk-probe", "sk-probe");
+        let message = chat["body"]["error"]["message"].as_str().or(chat["body"]["error"].as_str()).unwrap_or_default().to_owned();
         let listing = CustomListing::new(
             id,
             Protocol::OpenaiChat,

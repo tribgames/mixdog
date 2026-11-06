@@ -46,9 +46,11 @@ pub trait VertexAdc: Send + Sync {
 #[async_trait]
 pub trait CustomProviders: Send + Sync {
     async fn save(&self, input: Value) -> Result<Value, Failure>;
-    async fn save_key(&self, id: &str, secret: &str) -> Result<Value, Failure>;
+    /// `secret` is the request's value as sent: anything but a string is Node's `TypeError`.
+    async fn save_key(&self, id: &str, secret: &Value) -> Result<Value, Failure>;
     async fn remove(&self, id: &str) -> Result<Value, Failure>;
-    async fn update_model(&self, id: &str, model_id: &str, patch: Value) -> Result<Value, Failure>;
+    /// `patch`: `None` is absent (refused), `Some(null)` removes the model's override.
+    async fn update_model(&self, id: &str, model_id: &str, patch: Option<Value>) -> Result<Value, Failure>;
     async fn test(&self, input: Value) -> Result<Value, Failure>;
     async fn discover_models(&self, input: Value) -> Result<Value, Failure>;
 }

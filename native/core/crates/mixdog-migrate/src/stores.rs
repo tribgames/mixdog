@@ -222,7 +222,7 @@ pub fn fold_legacy_compaction(compaction: &Map<String, Value>) -> Option<Option<
     let off = |v: Option<&Value>| v == Some(&Value::Bool(false));
     let auto = !off(next.get("auto")) && !off(next.get("enabled"));
     for key in LEGACY_COMPACTION_KEYS {
-        next.remove(*key);
+        next.shift_remove(*key);
     }
     if !auto {
         next.insert("auto".into(), Value::Bool(false));
@@ -241,7 +241,7 @@ fn folded_config(doc: &Value) -> Option<Value> {
         .expect("agent is an object");
     match folded {
         Some(map) => agent.insert("compaction".into(), Value::Object(map)),
-        None => agent.remove("compaction"),
+        None => agent.shift_remove("compaction"),
     };
     Some(doc)
 }

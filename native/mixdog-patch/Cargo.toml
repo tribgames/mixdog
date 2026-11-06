@@ -3,6 +3,16 @@ name = "mixdog-patch"
 version = "0.7.34"
 edition = "2021"
 
+[lib]
+name = "mixdog_patch_engine"
+path = "src/lib.rs"
+
+# `resource` stamps the helper executable's Windows version info. A crate that links the engine
+# as a library (the Rust core) turns it off, so no resource is linked into its own executable.
+[features]
+default = ["resource"]
+resource = []
+
 [[bin]]
 name = "mixdog-patch"
 path = "src/main.rs"

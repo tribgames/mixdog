@@ -106,8 +106,8 @@ impl UsageService {
             }
             let label = labels.iter().find(|(k, _)| *k == key).map(|(_, l)| l.clone()).unwrap_or_default();
             if let Some(map) = request.as_object_mut() {
-                map.remove("ownerSessionId");
-                map.remove("sourceType");
+                map.shift_remove("ownerSessionId");
+                map.shift_remove("sourceType");
                 map.insert("sessionTitle".into(), label["title"].clone());
                 map.insert("agentRole".into(), label["role"].clone());
                 map.insert("agent".into(), label["agent"].clone());

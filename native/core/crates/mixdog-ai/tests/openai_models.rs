@@ -138,6 +138,18 @@ async fn the_codex_list_is_node_s_request_and_node_s_rows() {
         let id = node["id"].as_str().unwrap();
         assert_eq!(record.id, id);
         assert_eq!(record.display_name.as_deref(), node["name"].as_str(), "{id}: name");
+        assert_eq!(record.name.as_deref(), node["name"].as_str(), "{id}: the row's own name");
+        assert_eq!(record.picker.tier.as_deref(), node["tier"].as_str(), "{id}: tier");
+        assert_eq!(record.picker.description.as_deref(), node["description"].as_str(), "{id}: description");
+        assert_eq!(record.picker.default_service_tier.as_deref(), node["defaultServiceTier"].as_str(), "{id}: default service tier");
+        assert_eq!(
+            record.supports_reasoning_effort_updates,
+            node.get("supportsReasoningEffortUpdates").and_then(Value::as_bool),
+            "{id}: supportsReasoningEffortUpdates"
+        );
+        // `_markLatestCodex` over these rows, run in Node: the newest of each family.
+        let latest = ["gpt-5.5", "gpt-5.6-sol", "gpt-hidden"].contains(&id);
+        assert_eq!(record.picker.latest, latest, "{id}: latest");
         assert_eq!(record.context_window, node["contextWindow"].as_u64(), "{id}: context window");
         assert_eq!(record.max_output_tokens, node["outputTokens"].as_u64(), "{id}: output tokens");
         assert_eq!(record.max_context_window, node["maxContextWindow"].as_u64(), "{id}: max context window");
@@ -173,6 +185,7 @@ async fn the_api_key_list_is_node_s_request_with_each_row_kept() {
     for (record, row) in records.iter().zip(rows) {
         assert_eq!(record.id, row["id"].as_str().unwrap());
         assert_eq!(record.display_name, None, "Node's row has a name but no display");
+        assert_eq!(record.name.as_deref(), row["id"].as_str(), "openai-ws.mjs:304 names each row by its id");
         assert_eq!(record.created, row["created"].as_i64(), "the release stamp is a field of the record");
         assert_eq!(record.context_window, None, "Node lists 0: unknown");
         assert_eq!(record.raw.as_ref().unwrap()["created"], row["created"], "the release stamp is kept");

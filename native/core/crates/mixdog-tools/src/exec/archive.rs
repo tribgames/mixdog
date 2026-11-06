@@ -2,6 +2,7 @@
 //! `<data>/tool-results/<session>/<sha256>.txt`, so compacted output can be read back whole.
 #![allow(
     clippy::disallowed_methods,
+    clippy::disallowed_types,
     reason = "lane job bodies are the sanctioned home of blocking file I/O (clippy.toml)"
 )]
 

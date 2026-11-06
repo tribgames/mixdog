@@ -36,15 +36,12 @@ pub fn or_truthy<'a>(v: &'a Value, keys: &[&str]) -> Option<&'a Value> {
 /// `num(value, fallback)`: null/undefined/'' take the fallback, else `Number()`
 /// when finite.
 pub fn num(v: Option<&Value>, fallback: Option<f64>) -> Option<f64> {
-    let n = match v {
+    match v {
         None | Some(Value::Null) => return fallback,
         Some(Value::String(s)) if s.is_empty() => return fallback,
-        Some(Value::Number(n)) => n.as_f64(),
-        Some(Value::String(s)) => s.trim().parse::<f64>().ok().or_else(|| (s.trim().is_empty()).then_some(0.0)),
-        Some(Value::Bool(b)) => Some(f64::from(u8::from(*b))),
-        Some(_) => None,
-    };
-    n.filter(|f| f.is_finite()).or(fallback)
+        _ => {}
+    }
+    Some(mixdog_js::to_number_of(v)).filter(|f| f.is_finite()).or(fallback)
 }
 
 pub fn num_or(v: Option<&Value>, fallback: f64) -> f64 {
@@ -57,14 +54,7 @@ pub fn round(value: f64, digits: i32) -> f64 {
     (value * scale + 0.5).floor() / scale
 }
 
-/// A number as JS would serialize it: an integer when it is one.
-pub fn jn(f: f64) -> Value {
-    if f.fract() == 0.0 && f.abs() < 9_007_199_254_740_992.0 {
-        Value::from(f as i64)
-    } else {
-        serde_json::Number::from_f64(f).map_or(Value::Null, Value::Number)
-    }
-}
+pub use mixdog_js::json_number as jn;
 
 /// `cleanString`: a trimmed non-empty string, else None.
 pub fn clean(v: Option<&Value>) -> Option<String> {

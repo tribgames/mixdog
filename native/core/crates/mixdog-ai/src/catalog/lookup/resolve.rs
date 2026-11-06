@@ -89,7 +89,7 @@ fn put(o: &mut Obj, key: &str, value: Option<Value>) {
             o.insert(key.into(), v);
         }
         None => {
-            o.remove(key);
+            o.shift_remove(key);
         }
     }
 }

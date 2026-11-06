@@ -265,7 +265,7 @@ fn merge(proxy: Vec<Value>, api: Vec<Value>) -> Vec<Map<String, Value>> {
     for item in proxy {
         let Value::Object(mut row) = item else { continue };
         let Some(id) = row.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned) else { continue };
-        row.remove("created");
+        row.shift_remove("created");
         by_id.insert(id, Value::Object(row));
     }
     for item in api {

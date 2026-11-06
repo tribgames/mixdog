@@ -82,10 +82,23 @@ mod tests {
         listed.output_cost_per_m = Some(1.6);
         listed.cache_read_cost_per_m = Some(0.0);
         listed.cache_write_cost_per_m = Some(f64::INFINITY);
+        listed.name = Some("m1-name".into());
+        listed.provider_name = Some("My Gateway".into());
+        listed.manual = true;
+        listed.supports_reasoning_effort_updates = Some(false);
+        listed.supports_prompt_caching = Some(true);
+        listed.reasoning_content_field = Some("reasoning_content".into());
         listed.picker = PickerFields {
             release_date: Some("2026-03-17".into()),
             access_programs: Some(Vec::new()),
             service_tiers: vec![ServiceTier { id: "priority".into(), name: "Fast".into(), description: String::new() }],
+            tier: Some("version".into()),
+            latest: true,
+            description: Some("a model".into()),
+            default_service_tier: Some("priority".into()),
+            default_model_parameters: [("context".to_owned(), "272k".to_owned())].into(),
+            default_fast: true,
+            supports_max_mode: true,
             ..PickerFields::default()
         };
         provider.models = vec![listed.clone()];
@@ -112,6 +125,17 @@ mod tests {
         );
         assert_eq!((cached.rates.cache_write, cached.rates), (None, records[0].rates), "a price that is not finite is left out");
         assert_eq!(records[0].picker, listed.picker, "an empty access list stays empty, not absent");
+        // Every fact the `model/list` row reads survives the bridge and the cache file.
+        for record in [&records[0], &cached] {
+            assert_eq!(record.name.as_deref(), Some("m1-name"));
+            assert_eq!(record.display_name.as_deref(), Some("m1-name"), "the label falls back to the name");
+            assert_eq!(record.provider_name.as_deref(), Some("My Gateway"));
+            assert!(record.manual);
+            assert_eq!(record.supports_reasoning_effort_updates, Some(false));
+            assert_eq!(record.prompt_caching, Capability::Yes);
+            assert_eq!(record.reasoning_content_field.as_deref(), Some("reasoning_content"));
+            assert_eq!(record.picker, listed.picker);
+        }
     }
 }
 
@@ -128,7 +152,13 @@ fn tri(value: Option<bool>) -> Capability {
 fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::domain::provider::ModelRecord) -> ModelRecord {
     let mut record = ModelRecord::new(provider.clone(), listed.id);
     // `display || name` is every Node reader's label.
-    record.display_name = listed.display_name.or(listed.name);
+    record.display_name = listed.display_name.or_else(|| listed.name.clone());
+    record.name = listed.name;
+    record.provider_name = listed.provider_name;
+    record.manual = listed.manual;
+    record.supports_reasoning_effort_updates = listed.supports_reasoning_effort_updates;
+    record.reasoning_content_field = listed.reasoning_content_field;
+    record.prompt_caching = tri(listed.supports_prompt_caching);
     record.context_window = listed.context_window;
     record.max_context_window = listed.max_context_window;
     record.output_tokens = listed.max_output_tokens;

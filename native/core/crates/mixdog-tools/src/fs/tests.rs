@@ -2,6 +2,11 @@
 //! Cases replay in the recorder's order over one in-memory workspace (edits
 //! and patches mutate it for the cases after them). `list-meta` needs real
 //! mtimes and modes, which the in-memory file service does not carry.
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the golden tests build and inspect real work trees with blocking filesystem calls"
+)]
 
 use std::path::Path;
 use std::sync::Arc;
@@ -42,8 +47,13 @@ async fn context(root: &AbsPath) -> ToolContext {
 }
 
 async fn context_over(root: &AbsPath, files: Arc<dyn FileService>) -> ToolContext {
+    let seeds = seed().into_iter().map(|(rel, bytes)| (rel.to_owned(), bytes)).collect();
+    context_seeded(root, files, seeds).await
+}
+
+async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<(String, Vec<u8>)>) -> ToolContext {
     let tokens = mixdog_rt::testing::tokens();
-    for (rel, bytes) in seed() {
+    for (rel, bytes) in seeds {
         let path = AbsPath::new(root.as_path().join(rel)).unwrap();
         files
             .create_dir(tokens.durability_io, AbsPath::new(path.as_path().parent().unwrap()).unwrap(), true)
@@ -80,14 +90,14 @@ async fn context_over(root: &AbsPath, files: Arc<dyn FileService>) -> ToolContex
 fn schema_args(tool: &str, mut input: JsonValue) -> JsonValue {
     let obj = input.as_object_mut().unwrap();
     if matches!(tool, "read" | "edit") {
-        if let Some(p) = obj.remove("path") {
+        if let Some(p) = obj.shift_remove("path") {
             obj.insert("file_path".into(), p);
         }
     }
-    if let Some(h) = obj.remove("head_limit") {
+    if let Some(h) = obj.shift_remove("head_limit") {
         obj.insert("limit".into(), h);
     }
-    if let Some(m) = obj.remove("output_mode") {
+    if let Some(m) = obj.shift_remove("output_mode") {
         let m = if m == "files_with_matches" { "files".into() } else { m };
         obj.insert("mode".into(), m);
     }
@@ -117,7 +127,10 @@ const GOLDEN_CASES: [&str; 16] = [
 async fn file_tools_match_golden_fixtures() {
     let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-golden").join("ws")).unwrap();
     let ctx = context(&root).await;
-    run_golden(&ctx, &root, &GOLDEN_CASES).await;
+    // `apply_patch` hands in-base updates to the patch engine, which writes the real disk: its
+    // fixtures run in the on-disk test below.
+    let in_memory: Vec<&str> = GOLDEN_CASES.iter().copied().filter(|c| !c.starts_with("apply_patch/")).collect();
+    run_golden(&ctx, &root, &in_memory).await;
 }
 
 /// The same fixtures over the real file service, plus `list-meta` (real mtimes and modes).
@@ -169,6 +182,120 @@ async fn run_golden(ctx: &ToolContext, root: &AbsPath, cases: &[&str]) {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+fn snapshot(dir: &Path, base: &Path, out: &mut std::collections::BTreeMap<String, String>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            snapshot(&path, base, out);
+        } else {
+            let rel = path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
+            out.insert(rel, String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned());
+        }
+    }
+}
+
+/// Cases recorded from Node over the files each one starts with (`golden/record.mjs`): the reply
+/// text, the error flag and the resulting tree must all match.
+#[tokio::test]
+async fn edit_and_apply_patch_match_recorded_node_cases() {
+    let cases: Vec<JsonValue> = serde_json::from_str(include_str!("golden/cases.json")).unwrap();
+    let tools: Vec<Box<dyn Tool>> = vec![Box::new(EditTool::new()), Box::new(ApplyPatchTool::new())];
+    let mut failures = Vec::new();
+    for case in &cases {
+        // The delete-of-a-missing-file case quotes the recording machine's OS message and its
+        // Windows verbatim path.
+        let os_message = std::io::Error::from_raw_os_error(2).to_string();
+        let want = case["text"].as_str().unwrap().replace("지정된 파일을 찾을 수 없습니다. (os error 2)", &os_message);
+        if !cfg!(windows) && want.contains("\\\\?\\") {
+            continue;
+        }
+        let want = want.as_str();
+        let name = case["name"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = AbsPath::new(dir.path().join("ws")).unwrap();
+        std::fs::create_dir_all(root.as_path()).unwrap();
+        let seeds = case["files"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(rel, text)| (rel.clone(), text.as_str().unwrap().as_bytes().to_vec()))
+            .collect();
+        let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), seeds).await;
+        let tool_name = case["tool"].as_str().unwrap();
+        let tool = tools.iter().find(|t| t.spec().name == tool_name).unwrap();
+        let root_text = root.as_path().to_string_lossy().replace('\\', "/");
+        let mut input = case["input"].clone();
+        if let Some(b) = input.get_mut("base_path") {
+            *b = JsonValue::String(root_text.clone());
+        }
+        // `edit` also takes the recorded `path` key as it is.
+        let (is_error, text) = text_of(tool.call(&ctx, input).await);
+        let text = text.replace(&root_text, "<ROOT>").replace(&root.as_path().to_string_lossy().into_owned(), "<ROOT>");
+        let mut after = std::collections::BTreeMap::new();
+        snapshot(root.as_path(), root.as_path(), &mut after);
+        let want_after: std::collections::BTreeMap<String, String> = case["after"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+            .collect();
+        if text != want || is_error != case["isError"].as_bool().unwrap() || after != want_after {
+            failures.push(format!("{name}:\n  want {want:?}\n  got  {text:?} (error={is_error})\n  want tree {want_after:?}\n  got  tree {after:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} cases differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}
+
+/// Two routes to one file (a symlinked directory and its referent) share a lock: an edit through
+/// the link waits for a holder of the referent's own path.
+#[tokio::test]
+async fn an_edit_through_a_symlink_waits_for_the_referents_lock() {
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = AbsPath::new(dir.path().join("ws")).unwrap();
+    std::fs::create_dir_all(root.as_path().join("real")).unwrap();
+    std::fs::write(root.as_path().join("real").join("a.txt"), "one two\n").unwrap();
+    let link = root.as_path().join("link");
+    // A junction needs no privilege, unlike a Windows symlink; it routes to the file the same way.
+    #[cfg(windows)]
+    let linked = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(&link)
+        .arg(root.as_path().join("real"))
+        .output()
+        .map_err(|e| e.to_string())
+        .and_then(|o| if o.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&o.stdout).into_owned()) });
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(root.as_path().join("real"), &link);
+    // Creating a symlink needs a privilege some Windows accounts lack; there is nothing to
+    // serialise without one.
+    if let Err(error) = linked {
+        eprintln!("symlink test skipped: {error}");
+        return;
+    }
+    let ctx = Arc::new(
+        context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await,
+    );
+    let referent = std::fs::canonicalize(root.as_path().join("real").join("a.txt")).unwrap();
+    let referent = AbsPath::new(referent.to_string_lossy().trim_start_matches(r"\\?\")).unwrap();
+    let held = crate::git::path_locks::lock_paths(&[referent.as_path()], &ctx.cancel).await.unwrap();
+
+    let through_link = {
+        let ctx = ctx.clone();
+        tokio::spawn(async move {
+            let args = serde_json::json!({ "file_path": "link/a.txt", "old_string": "one", "new_string": "ONE" });
+            text_of(EditTool::new().call(&ctx, args).await)
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!through_link.is_finished(), "an edit through a symlink ran under its referent's lock");
+    drop(held);
+    let (is_error, text) = through_link.await.unwrap();
+    assert!(!is_error, "{text}");
+    assert_eq!(std::fs::read_to_string(root.as_path().join("real").join("a.txt")).unwrap(), "ONE two\n");
 }
 
 #[tokio::test]

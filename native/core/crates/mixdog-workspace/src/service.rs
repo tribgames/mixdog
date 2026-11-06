@@ -138,7 +138,7 @@ impl LspFeeds {
             let rows = p.state[section].as_object().cloned().unwrap_or_default();
             let mut rows = rows;
             if clears {
-                rows.remove(&key);
+                rows.shift_remove(&key);
             } else {
                 rows.insert(key.clone(), json!({ "revision": revision, "value": value.clone() }));
             }

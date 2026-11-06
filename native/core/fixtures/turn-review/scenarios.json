@@ -1,0 +1,3159 @@
+[
+ {
+  "name": "tracked turn: edit, create, delete, rename, mid-turn and sealed reviews",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "one\ntwo\nthree\n"
+    }
+   },
+   {
+    "op": "file",
+    "path": "c.txt",
+    "content": {
+     "text": "gone\n"
+    }
+   },
+   {
+    "op": "file",
+    "path": "d.txt",
+    "content": {
+     "text": "moves\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "card": "call-1",
+    "path": "a.txt",
+    "content": {
+     "text": "one\n2\nthree\nfour\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "b.txt",
+    "content": {
+     "text": "fresh\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "c.txt",
+    "content": null
+   },
+   {
+    "op": "edit",
+    "path": "d.txt",
+    "to": "e.txt"
+   },
+   {
+    "op": "card",
+    "call": "call-1"
+   },
+   {
+    "op": "card",
+    "call": "call-1"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "review",
+    "known": "@last"
+   },
+   {
+    "op": "review",
+    "summary": true
+   },
+   {
+    "op": "filePatch",
+    "file": "a.txt"
+   },
+   {
+    "op": "filePatch",
+    "file": "zzz.txt"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1",
+    "patch": true
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1",
+    "patch": true,
+    "file": "a.txt"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1",
+    "patch": true,
+    "file": "nope.txt"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "unknown"
+   },
+   {
+    "op": "records"
+   },
+   {
+    "op": "restart"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "review",
+    "summary": true
+   },
+   {
+    "op": "filePatch",
+    "file": "a.txt"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1"
+   }
+  ],
+  "results": [
+   {
+    "op": 3,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "diff": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\n"
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "diff": null
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "a.txt",
+       "status": "M",
+       "additions": 2,
+       "deletions": 1
+      },
+      {
+       "path": "b.txt",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      },
+      {
+       "path": "c.txt",
+       "status": "D",
+       "additions": 0,
+       "deletions": 1
+      },
+      {
+       "path": "e.txt",
+       "oldPath": "d.txt",
+       "status": "R",
+       "additions": 0,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\ndiff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1,1 @@\n+fresh\ndiff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\ndiff --git a/d.txt b/e.txt\n--- a/d.txt\n+++ b/e.txt\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 0,
+     "etag": "8973fb66bfd58d373d84cd7867fe07a8"
+    }
+   },
+   {
+    "op": 11,
+    "result": {
+     "unchanged": true,
+     "etag": "8973fb66bfd58d373d84cd7867fe07a8"
+    }
+   },
+   {
+    "op": 12,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "a.txt",
+       "status": "M",
+       "additions": 2,
+       "deletions": 1
+      },
+      {
+       "path": "b.txt",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      },
+      {
+       "path": "c.txt",
+       "status": "D",
+       "additions": 0,
+       "deletions": 1
+      },
+      {
+       "path": "e.txt",
+       "oldPath": "d.txt",
+       "status": "R",
+       "additions": 0,
+       "deletions": 0
+      }
+     ],
+     "patch": "",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 0,
+     "patchOmitted": true,
+     "etag": "a298da9c4b475f1ea27ab78fd8164dde"
+    }
+   },
+   {
+    "op": 13,
+    "result": {
+     "supported": true,
+     "path": "a.txt",
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\n"
+    }
+   },
+   {
+    "op": 14,
+    "result": {
+     "supported": true,
+     "path": "zzz.txt",
+     "patch": ""
+    }
+   },
+   {
+    "op": 15,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 16,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "a.txt",
+       "status": "M",
+       "additions": 2,
+       "deletions": 1
+      },
+      {
+       "path": "b.txt",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      },
+      {
+       "path": "c.txt",
+       "status": "D",
+       "additions": 0,
+       "deletions": 1
+      },
+      {
+       "path": "e.txt",
+       "oldPath": "d.txt",
+       "status": "R",
+       "additions": 0,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\ndiff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1,1 @@\n+fresh\ndiff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\ndiff --git a/d.txt b/e.txt\n--- a/d.txt\n+++ b/e.txt\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 1,
+     "etag": "40e28f889b2992cd098d9a57104b3a9a"
+    }
+   },
+   {
+    "op": 17,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 2,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "b.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "c.txt",
+        "status": "D",
+        "additions": 0,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "e.txt",
+        "oldPath": "d.txt",
+        "status": "R",
+        "additions": 0,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   },
+   {
+    "op": 18,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 2,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "b.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "c.txt",
+        "status": "D",
+        "additions": 0,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "e.txt",
+        "oldPath": "d.txt",
+        "status": "R",
+        "additions": 0,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false,
+      "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\ndiff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1,1 @@\n+fresh\ndiff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\ndiff --git a/d.txt b/e.txt\nsimilarity index 100%\nrename from d.txt\nrename to e.txt\n"
+     }
+    }
+   },
+   {
+    "op": 19,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 2,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "b.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "c.txt",
+        "status": "D",
+        "additions": 0,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "e.txt",
+        "oldPath": "d.txt",
+        "status": "R",
+        "additions": 0,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false,
+      "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\n"
+     }
+    }
+   },
+   {
+    "op": 20,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "nope.txt is not part of this turn's changes"
+     }
+    }
+   },
+   {
+    "op": 21,
+    "result": {
+     "ok": {
+      "status": "missing",
+      "checkpointId": "unknown",
+      "revision": 0,
+      "root": "",
+      "files": [],
+      "canUndo": false,
+      "canReapply": false
+     }
+    }
+   },
+   {
+    "op": 22,
+    "result": {
+     "records": [
+      {
+       "checkpointId": "cp1",
+       "kind": "tracked",
+       "root": "<ws>",
+       "agents": [],
+       "counts": "own",
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 2,
+         "deletions": 1,
+         "revertable": true,
+         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\n",
+         "patchEncoding": "utf8",
+         "state": "applied"
+        },
+        {
+         "path": "b.txt",
+         "status": "A",
+         "additions": 1,
+         "deletions": 0,
+         "revertable": true,
+         "patch": "diff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1,1 @@\n+fresh\n",
+         "patchEncoding": "utf8",
+         "state": "applied"
+        },
+        {
+         "path": "c.txt",
+         "status": "D",
+         "additions": 0,
+         "deletions": 1,
+         "revertable": true,
+         "patch": "diff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\n",
+         "patchEncoding": "utf8",
+         "state": "applied"
+        },
+        {
+         "path": "e.txt",
+         "oldPath": "d.txt",
+         "status": "R",
+         "additions": 0,
+         "deletions": 0,
+         "revertable": true,
+         "patch": "diff --git a/d.txt b/e.txt\nsimilarity index 100%\nrename from d.txt\nrename to e.txt\n",
+         "patchEncoding": "utf8",
+         "state": "applied"
+        }
+       ],
+       "revision": 1,
+       "createdAt": 0,
+       "updatedAt": 0
+      }
+     ]
+    }
+   },
+   {
+    "op": 24,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "a.txt",
+       "status": "M",
+       "additions": 2,
+       "deletions": 1
+      },
+      {
+       "path": "b.txt",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      },
+      {
+       "path": "c.txt",
+       "status": "D",
+       "additions": 0,
+       "deletions": 1
+      },
+      {
+       "path": "e.txt",
+       "oldPath": "d.txt",
+       "status": "R",
+       "additions": 0,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\ndiff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1,1 @@\n+fresh\ndiff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\ndiff --git a/d.txt b/e.txt\nsimilarity index 100%\nrename from d.txt\nrename to e.txt\n",
+     "snapshotKind": "scoped",
+     "revertMode": "scoped",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "reason": "recorded",
+     "historyTurns": 1,
+     "etag": "d0d9b38957d133391c94b0e3063ecf0b"
+    }
+   },
+   {
+    "op": 25,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "a.txt",
+       "status": "M",
+       "additions": 2,
+       "deletions": 1
+      },
+      {
+       "path": "b.txt",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      },
+      {
+       "path": "c.txt",
+       "status": "D",
+       "additions": 0,
+       "deletions": 1
+      },
+      {
+       "path": "e.txt",
+       "oldPath": "d.txt",
+       "status": "R",
+       "additions": 0,
+       "deletions": 0
+      }
+     ],
+     "patch": "",
+     "patchOmitted": true,
+     "snapshotKind": "scoped",
+     "revertMode": "scoped",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "reason": "recorded",
+     "historyTurns": 1,
+     "etag": "c5b777ac698dd2221e597ea31d22b796"
+    }
+   },
+   {
+    "op": 26,
+    "result": {
+     "supported": true,
+     "path": "a.txt",
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\n"
+    }
+   },
+   {
+    "op": 27,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 2,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "b.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "c.txt",
+        "status": "D",
+        "additions": 0,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "e.txt",
+        "oldPath": "d.txt",
+        "status": "R",
+        "additions": 0,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "running turn: composer undo of one file and of the whole review",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "x\ny\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "x\nY\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "n.txt",
+    "content": {
+     "text": "new\n"
+    }
+   },
+   {
+    "op": "revert",
+    "file": "a.txt"
+   },
+   {
+    "op": "disk",
+    "path": "a.txt"
+   },
+   {
+    "op": "revert",
+    "file": "missing.txt"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "revert",
+    "checkpoint": "other"
+   },
+   {
+    "op": "revert"
+   },
+   {
+    "op": "disk",
+    "path": "n.txt"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1"
+   }
+  ],
+  "results": [
+   {
+    "op": 1,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 4,
+    "result": {
+     "ok": {
+      "supported": true,
+      "files": [
+       {
+        "path": "n.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0
+       }
+      ],
+      "patch": "diff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,1 @@\n+new\n",
+      "snapshotKind": "tool",
+      "revertMode": "tracked",
+      "checkpointId": "cp1",
+      "patchTruncated": false,
+      "authoritative": true,
+      "agents": [],
+      "generation": 1,
+      "historyTurns": 0
+     }
+    }
+   },
+   {
+    "op": 5,
+    "result": {
+     "text": "eAp5Cg=="
+    }
+   },
+   {
+    "op": 6,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "turn review revert cannot attribute this file to the session"
+     }
+    }
+   },
+   {
+    "op": 7,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "n.txt",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,1 @@\n+new\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 0,
+     "etag": "420e54d2f4391c9ff33e89b05e425912"
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "turn review checkpoint changed; refresh the review"
+     }
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "ok": {
+      "supported": true,
+      "files": [],
+      "patch": "",
+      "snapshotKind": "tool",
+      "revertMode": "",
+      "checkpointId": "cp1",
+      "patchTruncated": false,
+      "authoritative": true,
+      "agents": [],
+      "generation": 1,
+      "historyTurns": 0
+     }
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "text": null
+    }
+   },
+   {
+    "op": 11,
+    "result": {
+     "supported": true,
+     "files": [],
+     "patch": "",
+     "snapshotKind": "tool",
+     "revertMode": "",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 0,
+     "etag": "4632a325a503b03b40f5f6961f22e8ea"
+    }
+   },
+   {
+    "op": 12,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 13,
+    "result": {
+     "ok": {
+      "status": "none",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [],
+      "canUndo": false,
+      "canReapply": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "sealed turn: composer undo, then historical undo and reapply, stale and busy failures",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "1\n2\n3\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "1\ntwo\n3\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "b.txt",
+    "content": {
+     "text": "b\n"
+    }
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "restart"
+   },
+   {
+    "op": "revert",
+    "file": "a.txt"
+   },
+   {
+    "op": "disk",
+    "path": "a.txt"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "undo",
+    "checkpoint": "cp1",
+    "revision": 99
+   },
+   {
+    "op": "undo",
+    "checkpoint": "cp1",
+    "revision": "@current",
+    "file": "a.txt"
+   },
+   {
+    "op": "redo",
+    "checkpoint": "cp1",
+    "revision": "@current",
+    "file": "a.txt"
+   },
+   {
+    "op": "disk",
+    "path": "a.txt"
+   },
+   {
+    "op": "undo",
+    "checkpoint": "cp1",
+    "revision": "@current"
+   },
+   {
+    "op": "disk",
+    "path": "b.txt"
+   },
+   {
+    "op": "undo",
+    "checkpoint": "cp1",
+    "revision": "@current"
+   },
+   {
+    "op": "redo",
+    "checkpoint": "cp1",
+    "revision": "@current"
+   },
+   {
+    "op": "disk",
+    "path": "b.txt"
+   },
+   {
+    "op": "undo",
+    "checkpoint": "nope",
+    "revision": 1
+   },
+   {
+    "op": "undo",
+    "checkpoint": "cp1",
+    "revision": 1.5
+   },
+   {
+    "op": "undo",
+    "checkpoint": "",
+    "revision": 1
+   },
+   {
+    "op": "records"
+   }
+  ],
+  "results": [
+   {
+    "op": 1,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 4,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 6,
+    "result": {
+     "ok": {
+      "supported": true,
+      "files": [
+       {
+        "path": "b.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0
+       }
+      ],
+      "patch": "diff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1,1 @@\n+b\n",
+      "snapshotKind": "scoped",
+      "revertMode": "scoped",
+      "checkpointId": "cp1",
+      "patchTruncated": false,
+      "authoritative": true,
+      "agents": [],
+      "reason": "recorded",
+      "historyTurns": 1
+     }
+    }
+   },
+   {
+    "op": 7,
+    "result": {
+     "text": "MQoyCjMK"
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "b.txt",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1,1 @@\n+b\n",
+     "snapshotKind": "scoped",
+     "revertMode": "scoped",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "reason": "recorded",
+     "historyTurns": 1,
+     "etag": "386887ee201879657c54104520818053"
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 2,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "reverted",
+        "revertable": true
+       },
+       {
+        "path": "b.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": true
+     }
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "turn changes changed; refresh"
+     }
+    }
+   },
+   {
+    "op": 11,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "a.txt is already undone"
+     }
+    }
+   },
+   {
+    "op": 12,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 3,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "b.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   },
+   {
+    "op": 13,
+    "result": {
+     "text": "MQp0d28KMwo="
+    }
+   },
+   {
+    "op": 14,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 4,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "reverted",
+        "revertable": true
+       },
+       {
+        "path": "b.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "reverted",
+        "revertable": true
+       }
+      ],
+      "canUndo": false,
+      "canReapply": true,
+      "reason": "all changes in this turn are already undone"
+     }
+    }
+   },
+   {
+    "op": 15,
+    "result": {
+     "text": null
+    }
+   },
+   {
+    "op": 16,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "this turn has no changes to be undone"
+     }
+    }
+   },
+   {
+    "op": 17,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 5,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "b.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   },
+   {
+    "op": 18,
+    "result": {
+     "text": "Ygo="
+    }
+   },
+   {
+    "op": 19,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "turn changes are unavailable: no record for this turn"
+     }
+    }
+   },
+   {
+    "op": 20,
+    "result": {
+     "error": {
+      "name": "TypeError",
+      "message": "revision must be an integer"
+     }
+    }
+   },
+   {
+    "op": 21,
+    "result": {
+     "error": {
+      "name": "TypeError",
+      "message": "checkpointId is required"
+     }
+    }
+   },
+   {
+    "op": 22,
+    "result": {
+     "records": [
+      {
+       "checkpointId": "cp1",
+       "kind": "tracked",
+       "root": "<ws>",
+       "agents": [],
+       "counts": "own",
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1,
+         "revertable": true,
+         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n 1\n-2\n+two\n 3\n",
+         "patchEncoding": "utf8",
+         "state": "applied"
+        },
+        {
+         "path": "b.txt",
+         "status": "A",
+         "additions": 1,
+         "deletions": 0,
+         "revertable": true,
+         "patch": "diff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1,1 @@\n+b\n",
+         "patchEncoding": "utf8",
+         "state": "applied"
+        }
+       ],
+       "revision": 5,
+       "createdAt": 0,
+       "updatedAt": 0
+      }
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "name": "foreign edits: outside the turn hunks survives, overlapping fails",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "top\nmid\nbottom\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "top\nMID\nbottom\n"
+    }
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "TOP\nMID\nbottom\n"
+    }
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "undo",
+    "checkpoint": "cp1",
+    "revision": "@current"
+   },
+   {
+    "op": "disk",
+    "path": "a.txt"
+   },
+   {
+    "op": "redo",
+    "checkpoint": "cp1",
+    "revision": "@current"
+   },
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "TOP\nchanged elsewhere\nbottom\n"
+    }
+   },
+   {
+    "op": "undo",
+    "checkpoint": "cp1",
+    "revision": "@current"
+   },
+   {
+    "op": "disk",
+    "path": "a.txt"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1"
+   }
+  ],
+  "results": [
+   {
+    "op": 1,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 3,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 5,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   },
+   {
+    "op": 6,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "undo failed; the worktree was not changed: error: patch failed: a.txt:1\nerror: a.txt: patch does not apply"
+     }
+    }
+   },
+   {
+    "op": 7,
+    "result": {
+     "text": "VE9QCk1JRApib3R0b20K"
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "this turn has no changes to be reapplied"
+     }
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "undo failed; the worktree was not changed: error: patch failed: a.txt:1\nerror: a.txt: patch does not apply"
+     }
+    }
+   },
+   {
+    "op": 11,
+    "result": {
+     "text": "VE9QCmNoYW5nZWQgZWxzZXdoZXJlCmJvdHRvbQo="
+    }
+   },
+   {
+    "op": 12,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "binary and uncaptured files",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "img.bin",
+    "content": {
+     "b64": "AAECA/8="
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "img.bin",
+    "content": {
+     "b64": "AAEJA/8H"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "big.dat",
+    "before": {
+     "omitted": {
+      "size": 70000000,
+      "reason": "oversized"
+     }
+    },
+    "content": {
+     "text": "now small\n"
+    }
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "revert",
+    "file": "big.dat"
+   },
+   {
+    "op": "revert",
+    "file": "img.bin"
+   },
+   {
+    "op": "disk",
+    "path": "img.bin"
+   },
+   {
+    "op": "revert"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1",
+    "patch": true
+   },
+   {
+    "op": "records"
+   }
+  ],
+  "results": [
+   {
+    "op": 1,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 4,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "big.dat",
+       "status": "M",
+       "additions": 0,
+       "deletions": 0,
+       "binary": true,
+       "omitted": true,
+       "size": 70000000
+      },
+      {
+       "path": "img.bin",
+       "status": "M",
+       "additions": 0,
+       "deletions": 0,
+       "binary": true
+      }
+     ],
+     "patch": "diff --git a/big.dat b/big.dat\nbinary/large file changed (70000000 bytes; content not captured)\nBinary files a/big.dat and b/big.dat differ\ndiff --git a/img.bin b/img.bin\nBinary files a/img.bin and b/img.bin differ\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 0,
+     "etag": "b50d827753b433c7a41b827ad833b6f8"
+    }
+   },
+   {
+    "op": 5,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "turn review revert is unavailable for big.dat: binary/large file content was not captured (70000000 bytes)"
+     }
+    }
+   },
+   {
+    "op": 6,
+    "result": {
+     "ok": {
+      "supported": true,
+      "files": [
+       {
+        "path": "big.dat",
+        "status": "M",
+        "additions": 0,
+        "deletions": 0,
+        "binary": true,
+        "omitted": true,
+        "size": 70000000
+       }
+      ],
+      "patch": "diff --git a/big.dat b/big.dat\nbinary/large file changed (70000000 bytes; content not captured)\nBinary files a/big.dat and b/big.dat differ\n",
+      "snapshotKind": "tool",
+      "revertMode": "tracked",
+      "checkpointId": "cp1",
+      "patchTruncated": false,
+      "authoritative": true,
+      "agents": [],
+      "generation": 1,
+      "historyTurns": 0
+     }
+    }
+   },
+   {
+    "op": 7,
+    "result": {
+     "text": "AAECA/8="
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "turn review revert is unavailable for big.dat: binary/large file content was not captured (70000000 bytes)"
+     }
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "big.dat",
+        "status": "M",
+        "additions": 0,
+        "deletions": 0,
+        "binary": true,
+        "state": "applied",
+        "revertable": false,
+        "reason": "binary/large file content was not captured"
+       }
+      ],
+      "canUndo": false,
+      "canReapply": false,
+      "reason": "big.dat cannot be undone: binary/large file content was not captured",
+      "patch": ""
+     }
+    }
+   },
+   {
+    "op": 11,
+    "result": {
+     "records": [
+      {
+       "checkpointId": "cp1",
+       "kind": "tracked",
+       "root": "<ws>",
+       "agents": [],
+       "counts": "own",
+       "files": [
+        {
+         "path": "big.dat",
+         "status": "M",
+         "additions": 0,
+         "deletions": 0,
+         "binary": true,
+         "revertable": false,
+         "reason": "binary/large file content was not captured",
+         "patch": null,
+         "state": "applied"
+        }
+       ],
+       "revision": 1,
+       "createdAt": 0,
+       "updatedAt": 0
+      }
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "name": "git turn: a file outside the root is view-only",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "git"
+   },
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "inside\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "inside!\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "../outside.txt",
+    "content": {
+     "text": "out\n"
+    }
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1",
+    "patch": true
+   },
+   {
+    "op": "snapshotRecord"
+   },
+   {
+    "op": "records"
+   }
+  ],
+  "results": [
+   {
+    "op": 2,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 5,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "a.txt",
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-inside\n+inside!\n",
+     "snapshotKind": "worktree",
+     "revertMode": "worktree",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 0,
+     "etag": "fc9962bca4f74a0e0d773e67c7bf3357"
+    }
+   },
+   {
+    "op": 6,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 7,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "a.txt",
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-inside\n+inside!\n",
+     "snapshotKind": "worktree",
+     "revertMode": "worktree",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 1,
+     "etag": "8b49ce9731b3936e6f4f7005af199097"
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "<sc>/outside.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": false,
+        "reason": "file is outside the recorded root"
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "<sc>/outside.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": false,
+        "reason": "file is outside the recorded root"
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false,
+      "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-inside\n+inside!\ndiff --git a/<sc>/outside.txt b/<sc>/outside.txt\nnew file mode 100644\n--- /dev/null\n+++ b/<sc>/outside.txt\n@@ -0,0 +1,1 @@\n+out\n"
+     }
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "generation": 1,
+     "checkpointId": "cp1",
+     "root": "<ws>",
+     "toolFiles": [
+      "a.txt"
+     ],
+     "sealed": true
+    }
+   },
+   {
+    "op": 11,
+    "result": {
+     "records": [
+      {
+       "checkpointId": "cp1",
+       "kind": "git",
+       "root": "<ws>",
+       "agents": [],
+       "counts": "own",
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1,
+         "revertable": true,
+         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-inside\n+inside!\n",
+         "patchEncoding": "utf8",
+         "state": "applied"
+        }
+       ],
+       "outside": [
+        {
+         "path": "<sc>/outside.txt",
+         "status": "A",
+         "additions": 1,
+         "deletions": 0,
+         "viewPatch": "diff --git a/<sc>/outside.txt b/<sc>/outside.txt\nnew file mode 100644\n--- /dev/null\n+++ b/<sc>/outside.txt\n@@ -0,0 +1,1 @@\n+out\n",
+         "revertable": false,
+         "reason": "file is outside the recorded root",
+         "patch": null
+        }
+       ],
+       "revision": 1,
+       "createdAt": 0,
+       "updatedAt": 0
+      }
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "name": "tool writes without a card (office, tidy) and a second turn replacing the first",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "doc.txt",
+    "content": {
+     "text": "v1\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "doc.txt",
+    "tool": true,
+    "content": {
+     "text": "v2\n"
+    }
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp2"
+   },
+   {
+    "op": "edit",
+    "path": "doc.txt",
+    "tool": true,
+    "content": {
+     "text": "v3\n"
+    }
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp2"
+   },
+   {
+    "op": "records"
+   }
+  ],
+  "results": [
+   {
+    "op": 1,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 3,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "doc.txt",
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/doc.txt b/doc.txt\n--- a/doc.txt\n+++ b/doc.txt\n@@ -1,1 +1,1 @@\n-v1\n+v2\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 0,
+     "etag": "6f5b8d3068898d525f34c671aaaaca3e"
+    }
+   },
+   {
+    "op": 4,
+    "result": {
+     "token": {
+      "generation": 2,
+      "checkpointId": "cp2"
+     }
+    }
+   },
+   {
+    "op": 6,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "doc.txt",
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/doc.txt b/doc.txt\n--- a/doc.txt\n+++ b/doc.txt\n@@ -1,1 +1,1 @@\n-v2\n+v3\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp2",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 2,
+     "historyTurns": 1,
+     "etag": "4a75d27d3cf99461792cdf99dd818c62"
+    }
+   },
+   {
+    "op": 7,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "doc.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp2",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "doc.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "records": [
+      {
+       "checkpointId": "cp1",
+       "kind": "tracked",
+       "root": "<ws>",
+       "agents": [],
+       "counts": "own",
+       "files": [
+        {
+         "path": "doc.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1,
+         "revertable": true,
+         "patch": "diff --git a/doc.txt b/doc.txt\n--- a/doc.txt\n+++ b/doc.txt\n@@ -1,1 +1,1 @@\n-v1\n+v2\n",
+         "patchEncoding": "utf8",
+         "state": "applied"
+        }
+       ],
+       "revision": 1,
+       "createdAt": 0,
+       "updatedAt": 0
+      },
+      {
+       "checkpointId": "cp2",
+       "kind": "tracked",
+       "root": "<ws>",
+       "agents": [],
+       "counts": "own",
+       "files": [
+        {
+         "path": "doc.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1,
+         "revertable": true,
+         "patch": "diff --git a/doc.txt b/doc.txt\n--- a/doc.txt\n+++ b/doc.txt\n@@ -1,1 +1,1 @@\n-v2\n+v3\n",
+         "patchEncoding": "utf8",
+         "state": "applied"
+        }
+       ],
+       "revision": 1,
+       "createdAt": 0,
+       "updatedAt": 0
+      }
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "name": "continue turn reopens the sealed turn",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "a1\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "a2\n"
+    }
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp-wake",
+    "continue": true
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "a3\n"
+    }
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1",
+    "patch": true
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp-wake"
+   }
+  ],
+  "results": [
+   {
+    "op": 1,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 3,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 4,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 6,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 7,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "a.txt",
+       "status": "M",
+       "additions": 2,
+       "deletions": 2
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-a1\n+a3\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 1,
+     "etag": "b95bfb5555e3545c69f9b90f5b06ff39"
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 2,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 2,
+        "deletions": 2,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false,
+      "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-a1\n+a3\n"
+     }
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "ok": {
+      "status": "missing",
+      "checkpointId": "cp-wake",
+      "revision": 0,
+      "root": "",
+      "files": [],
+      "canUndo": false,
+      "canReapply": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "worker reviews join the running lead turn, or park for the next one",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "lead.txt",
+    "content": {
+     "text": "l\n"
+    }
+   },
+   {
+    "op": "file",
+    "path": "w.txt",
+    "content": {
+     "text": "w\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "agentBegin",
+    "handle": "h1",
+    "owner": "s1",
+    "child": "worker-1",
+    "agent": "worker",
+    "tag": "task"
+   },
+   {
+    "op": "edit",
+    "session": "worker-1",
+    "path": "w.txt",
+    "content": {
+     "text": "w2\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "lead.txt",
+    "content": {
+     "text": "l2\n"
+    }
+   },
+   {
+    "op": "agentComplete",
+    "handle": "h1"
+   },
+   {
+    "op": "agentComplete",
+    "handle": "h1"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "agentBegin",
+    "handle": "h2",
+    "owner": "s1",
+    "child": "worker-2",
+    "agent": "worker",
+    "tag": "late"
+   },
+   {
+    "op": "edit",
+    "session": "worker-2",
+    "path": "w2.txt",
+    "content": {
+     "text": "late\n"
+    }
+   },
+   {
+    "op": "agentComplete",
+    "handle": "h2",
+    "patches": [
+     "diff --git a/x b/x\n"
+    ]
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp2"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "agentBegin",
+    "handle": "h3",
+    "owner": "s1",
+    "child": "worker-3",
+    "agent": "w",
+    "tag": "t"
+   },
+   {
+    "op": "agentComplete",
+    "handle": "h3",
+    "patches": [
+     "diff --git a/p b/p\n--- a/p\n+++ b/p\n@@ -1 +1 @@\n-a\n+b\n"
+    ]
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp2"
+   }
+  ],
+  "results": [
+   {
+    "op": 2,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 3,
+    "result": {
+     "handle": {
+      "id": "<id>",
+      "ownerSessionId": "s1",
+      "generation": 1,
+      "historyEpoch": 0,
+      "sessionId": "worker-1",
+      "agent": "worker",
+      "tag": "task",
+      "completed": false
+     }
+    }
+   },
+   {
+    "op": 6,
+    "result": {
+     "joined": true
+    }
+   },
+   {
+    "op": 7,
+    "result": {
+     "joined": false
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "lead.txt",
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      },
+      {
+       "path": "w.txt",
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/lead.txt b/lead.txt\n--- a/lead.txt\n+++ b/lead.txt\n@@ -1,1 +1,1 @@\n-l\n+l2\ndiff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1,1 +1,1 @@\n-w\n+w2\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [
+      {
+       "sessionId": "worker-1",
+       "agent": "worker",
+       "tag": "task",
+       "patch": "diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1,1 +1,1 @@\n-w\n+w2\n"
+      }
+     ],
+     "generation": 1,
+     "historyTurns": 0,
+     "etag": "4f1b509abbf18722aba945dafb7333e7"
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "handle": {
+      "id": "<id>",
+      "ownerSessionId": "s1",
+      "generation": 1,
+      "historyEpoch": 0,
+      "sessionId": "worker-2",
+      "agent": "worker",
+      "tag": "late",
+      "completed": false
+     }
+    }
+   },
+   {
+    "op": 12,
+    "result": {
+     "joined": true
+    }
+   },
+   {
+    "op": 13,
+    "result": {
+     "token": {
+      "generation": 2,
+      "checkpointId": "cp2"
+     }
+    }
+   },
+   {
+    "op": 14,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "w2.txt",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/w2.txt b/w2.txt\nnew file mode 100644\n--- /dev/null\n+++ b/w2.txt\n@@ -0,0 +1,1 @@\n+late\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp2",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [
+      {
+       "sessionId": "worker-2",
+       "agent": "worker",
+       "tag": "late",
+       "patch": "diff --git a/w2.txt b/w2.txt\nnew file mode 100644\n--- /dev/null\n+++ b/w2.txt\n@@ -0,0 +1,1 @@\n+late\n"
+      }
+     ],
+     "generation": 2,
+     "historyTurns": 1,
+     "etag": "d5d5196f1c7602dead206d7c77dcb6f3"
+    }
+   },
+   {
+    "op": 15,
+    "result": {
+     "handle": {
+      "id": "<id>",
+      "ownerSessionId": "s1",
+      "generation": 2,
+      "historyEpoch": 0,
+      "sessionId": "worker-3",
+      "agent": "w",
+      "tag": "t",
+      "completed": false
+     }
+    }
+   },
+   {
+    "op": 16,
+    "result": {
+     "joined": true
+    }
+   },
+   {
+    "op": 17,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "w2.txt",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/w2.txt b/w2.txt\nnew file mode 100644\n--- /dev/null\n+++ b/w2.txt\n@@ -0,0 +1,1 @@\n+late\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp2",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [
+      {
+       "sessionId": "worker-2",
+       "agent": "worker",
+       "tag": "late",
+       "patch": "diff --git a/w2.txt b/w2.txt\nnew file mode 100644\n--- /dev/null\n+++ b/w2.txt\n@@ -0,0 +1,1 @@\n+late\n"
+      },
+      {
+       "sessionId": "worker-3",
+       "agent": "w",
+       "tag": "t",
+       "patch": "diff --git a/p b/p\n--- a/p\n+++ b/p\n@@ -1 +1 @@\n-a\n+b\n"
+      }
+     ],
+     "generation": 2,
+     "historyTurns": 1,
+     "etag": "309a44b2bc8ea0a58790265682d95074"
+    }
+   },
+   {
+    "op": 18,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 19,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp2",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "w2.txt",
+        "status": "A",
+        "additions": 1,
+        "deletions": 0,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "clearing history, a deleted session, and the kill switch of a running turn",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "a\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "b\n"
+    }
+   },
+   {
+    "op": "clearHistory"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "clearHistory"
+   },
+   {
+    "op": "cleared"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp2"
+   },
+   {
+    "op": "cleared"
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "c\n"
+    }
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "cleared"
+   },
+   {
+    "op": "forget"
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp2"
+   }
+  ],
+  "results": [
+   {
+    "op": 1,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 3,
+    "result": {
+     "error": {
+      "name": "Error",
+      "message": "change history cannot be deleted while this session is running a turn"
+     }
+    }
+   },
+   {
+    "op": 4,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 5,
+    "result": {
+     "ok": {
+      "turns": 1
+     }
+    }
+   },
+   {
+    "op": 6,
+    "result": {
+     "cleared": true
+    }
+   },
+   {
+    "op": 7,
+    "result": {
+     "supported": true,
+     "files": [],
+     "patch": "",
+     "snapshotKind": "tool",
+     "revertMode": "",
+     "checkpointId": "",
+     "patchTruncated": false,
+     "authoritative": false,
+     "agents": [],
+     "reason": "no-turn",
+     "historyTurns": 0,
+     "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "ok": {
+      "status": "missing",
+      "checkpointId": "cp1",
+      "revision": 0,
+      "root": "",
+      "files": [],
+      "canUndo": false,
+      "canReapply": false
+     }
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp2"
+     }
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "cleared": true
+    }
+   },
+   {
+    "op": 12,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 13,
+    "result": {
+     "cleared": false
+    }
+   },
+   {
+    "op": 15,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "a.txt",
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-b\n+c\n",
+     "snapshotKind": "scoped",
+     "revertMode": "scoped",
+     "checkpointId": "cp2",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "reason": "recorded",
+     "historyTurns": 1,
+     "etag": "60ddef2a0d4e3eea744f11aad7bf642d"
+    }
+   },
+   {
+    "op": 16,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp2",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "a.txt",
+        "status": "M",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   }
+  ]
+ },
+ {
+  "name": "a binary rename, a move onto an existing path, and a rename chain",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "old.bin",
+    "content": {
+     "b64": "AAkJ"
+    }
+   },
+   {
+    "op": "file",
+    "path": "x.txt",
+    "content": {
+     "text": "x\n"
+    }
+   },
+   {
+    "op": "file",
+    "path": "y.txt",
+    "content": {
+     "text": "y\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "old.bin",
+    "to": "new.bin"
+   },
+   {
+    "op": "edit",
+    "path": "x.txt",
+    "to": "x2.txt"
+   },
+   {
+    "op": "edit",
+    "path": "x2.txt",
+    "to": "x3.txt",
+    "content": {
+     "text": "x edited\n"
+    }
+   },
+   {
+    "op": "review"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "changes",
+    "checkpoint": "cp1",
+    "patch": true
+   },
+   {
+    "op": "undo",
+    "checkpoint": "cp1",
+    "revision": "@current"
+   },
+   {
+    "op": "disk",
+    "path": "x.txt"
+   },
+   {
+    "op": "disk",
+    "path": "old.bin"
+   },
+   {
+    "op": "redo",
+    "checkpoint": "cp1",
+    "revision": "@current"
+   },
+   {
+    "op": "disk",
+    "path": "x3.txt"
+   }
+  ],
+  "results": [
+   {
+    "op": 3,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 7,
+    "result": {
+     "supported": true,
+     "files": [
+      {
+       "path": "new.bin",
+       "oldPath": "old.bin",
+       "status": "R",
+       "additions": 0,
+       "deletions": 0,
+       "binary": true
+      },
+      {
+       "path": "x3.txt",
+       "oldPath": "x.txt",
+       "status": "R",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/old.bin b/new.bin\nBinary files a/old.bin and b/new.bin differ\ndiff --git a/x.txt b/x3.txt\n--- a/x.txt\n+++ b/x3.txt\n@@ -1,1 +1,1 @@\n-x\n+x edited\n",
+     "snapshotKind": "tool",
+     "revertMode": "tracked",
+     "checkpointId": "cp1",
+     "patchTruncated": false,
+     "authoritative": true,
+     "agents": [],
+     "generation": 1,
+     "historyTurns": 0,
+     "etag": "0759363309ea1e39299b038d9bbf7b9c"
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 1,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "new.bin",
+        "oldPath": "old.bin",
+        "status": "R",
+        "additions": 0,
+        "deletions": 0,
+        "binary": true,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "x3.txt",
+        "oldPath": "x.txt",
+        "status": "R",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false,
+      "patch": "diff --git a/old.bin b/new.bin\nrename from old.bin\nrename to new.bin\nindex 797c34e1ab12fee2be33aeff0d120a3b1911aea7..797c34e1ab12fee2be33aeff0d120a3b1911aea7\nGIT binary patch\nliteral 3\nKc${P4<OBc!9sm;n\n\nliteral 3\nKc${P4<OBc!9sm;n\n\ndiff --git a/x.txt b/x3.txt\nrename from x.txt\nrename to x3.txt\n--- a/x.txt\n+++ b/x3.txt\n@@ -1,1 +1,1 @@\n-x\n+x edited\n"
+     }
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 2,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "new.bin",
+        "oldPath": "old.bin",
+        "status": "R",
+        "additions": 0,
+        "deletions": 0,
+        "binary": true,
+        "state": "reverted",
+        "revertable": true
+       },
+       {
+        "path": "x3.txt",
+        "oldPath": "x.txt",
+        "status": "R",
+        "additions": 1,
+        "deletions": 1,
+        "state": "reverted",
+        "revertable": true
+       }
+      ],
+      "canUndo": false,
+      "canReapply": true,
+      "reason": "all changes in this turn are already undone"
+     }
+    }
+   },
+   {
+    "op": 11,
+    "result": {
+     "text": "eAo="
+    }
+   },
+   {
+    "op": 12,
+    "result": {
+     "text": "AAkJ"
+    }
+   },
+   {
+    "op": 13,
+    "result": {
+     "ok": {
+      "status": "ready",
+      "checkpointId": "cp1",
+      "revision": 3,
+      "root": "<ws>",
+      "files": [
+       {
+        "path": "new.bin",
+        "oldPath": "old.bin",
+        "status": "R",
+        "additions": 0,
+        "deletions": 0,
+        "binary": true,
+        "state": "applied",
+        "revertable": true
+       },
+       {
+        "path": "x3.txt",
+        "oldPath": "x.txt",
+        "status": "R",
+        "additions": 1,
+        "deletions": 1,
+        "state": "applied",
+        "revertable": true
+       }
+      ],
+      "canUndo": true,
+      "canReapply": false
+     }
+    }
+   },
+   {
+    "op": 14,
+    "result": {
+     "text": "eCBlZGl0ZWQK"
+    }
+   }
+  ]
+ }
+]

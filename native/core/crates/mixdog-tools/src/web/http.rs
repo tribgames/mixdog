@@ -23,6 +23,7 @@ use url::Url;
 use super::error::FetchError;
 use super::error::FetchKind;
 use super::ssrf::AddressPolicy;
+use super::lanes::WebLanes;
 use super::ssrf::PolicyResolver;
 
 pub const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
@@ -60,6 +61,7 @@ pub struct BrowserResponse {
 pub struct Fetcher {
     client: Client,
     policy: AddressPolicy,
+    lanes: WebLanes,
     user_agent: String,
 }
 
@@ -174,9 +176,9 @@ async fn read_text(response: Response) -> Result<String, FetchError> {
 }
 
 impl Fetcher {
-    pub fn new(policy: AddressPolicy, version: &str) -> Result<Self, FetchError> {
+    pub fn new(policy: AddressPolicy, version: &str, lanes: WebLanes) -> Result<Self, FetchError> {
         let client = Client::builder()
-            .dns_resolver(Arc::new(PolicyResolver(policy)))
+            .dns_resolver(Arc::new(PolicyResolver(policy, lanes)))
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
             .build()
@@ -184,8 +186,13 @@ impl Fetcher {
         Ok(Self {
             client,
             policy,
+            lanes,
             user_agent: format!("mixdog-web-search/{version}"),
         })
+    }
+
+    pub fn lanes(&self) -> WebLanes {
+        self.lanes
     }
 
     pub fn parse_url(&self, text: &str) -> Result<Url, FetchError> {

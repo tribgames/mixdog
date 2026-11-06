@@ -13,11 +13,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { installFlowHooks } from './flow-hooks.mjs';
 import { commitStage, parseArgs, refreshSetManifest, resolveTree, stageSet } from '../../../../benchmarks/rust-core/recorders/lib/common.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const nodeRoot = resolveTree(parseArgs());
 const stage = stageSet(here, ['turns']);
+installFlowHooks();
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-turns-'));
 
 const START = Date.parse('2026-03-01T10:00:00.000Z');
@@ -38,6 +40,8 @@ const { createSpawnRunner } = await load('src/session-runtime/services/agent-too
 const { createJobStarter } = await load('src/session-runtime/services/agent-tool/spawn-flow/job-start.mjs');
 const { createSendFlow } = await load('src/session-runtime/services/agent-tool/send-flow.mjs');
 const { createWorkerTurns } = await load('src/session-runtime/services/agent-tool/worker-turns.mjs');
+const { createTurnReviewCollector } = await load('src/session-runtime/services/agent-tool/turn-review.mjs');
+const { _resetTurnSnapshotForTest } = await load('src/runtime/shared/turn-snapshot.mjs');
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 15));
 const settle = async () => {
@@ -49,6 +53,7 @@ const settle = async () => {
 const PRESET = { provider: 'openai', model: 'gpt-x', effort: 'high', fast: false };
 
 function newWorld(scenario) {
+  _resetTurnSnapshotForTest();
   const calls = [];
   const notices = [];
   const session = {
@@ -96,19 +101,12 @@ function newWorld(scenario) {
     notices.push({ session: owner, text, ...(meta?.model_visible === false ? { meta } : {}) });
     return true;
   };
-  const createTurnReviewCollector = (sess, tag, agent, ctx) => {
-    let latest = null;
-    let completed = false;
-    return {
-      onToolResult(message) {
-        if (Object.hasOwn(message || {}, 'uiDiff') && typeof message.uiDiff === 'string') latest = message.uiDiff;
-      },
-      complete() {
-        if (completed) return;
-        completed = true;
-        calls.push(`review:${JSON.stringify(latest === null ? [] : [latest])}`);
-      },
-    };
+  // The REAL review collector and review store run; the loader hook reports their calls.
+  globalThis.__flowStub = {
+    review: (kind, args, result) => {
+      if (kind === 'begin') calls.push(['reviewBegin', args[0], args[1], { tag: args[2]?.tag, agent: args[2]?.agent }]);
+      else if (result === true) calls.push(['reviewComplete', args[1]]);
+    },
   };
   const startJob = createJobStarter({ mgr, notifyStatusChange: () => {}, notifySessionCompletion });
   return {
@@ -269,6 +267,8 @@ const base = [
   { name: 'a_cancel_prefers_the_error_handoff', steps: [steps.assistant('ignored'), steps.cancel(), steps.throws('aborted', { partialHandoff: 'handed' })] },
   { name: 'a_cancel_with_an_empty_handoff_falls_back_to_the_result', steps: [steps.cancel(), steps.throws('aborted', { partialHandoff: '' })] },
   { name: 'a_cancel_with_nothing_produced_is_header_only', steps: [steps.cancel(), steps.throws('aborted')] },
+  { name: 'a_cancel_after_the_terminal_result_changes_nothing', steps: [steps.tool('diff-1'), steps.terminal({ content: 'done' }), steps.cancel(), steps.ret({ content: 'done' })] },
+  { name: 'a_cancel_before_the_terminal_result_keeps_the_review', steps: [steps.tool('diff-9'), steps.cancel(), steps.terminal({ content: 'late' }), steps.ret({ content: 'late' })] },
 ];
 
 const scenarios = [];

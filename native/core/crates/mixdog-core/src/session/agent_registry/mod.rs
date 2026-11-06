@@ -21,12 +21,17 @@
 //! files; `refresh_tags_from_sessions` reloads the index.
 
 mod rows;
+mod flow;
 mod sessions;
+mod workers;
 #[cfg(test)]
 mod tests;
 
 pub use self::sessions::AgentSessions;
 pub use self::sessions::AgentStatusline;
+pub use self::flow::AgentTaskStarts;
+pub use self::flow::SessionCompletions;
+pub use self::workers::AgentWorkers;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -45,6 +50,8 @@ use mixdog_agent::agent_tool::scope::TagRecord;
 use mixdog_agent::agent_tool::scope::clean;
 use mixdog_agent::agent_tool::scope::clean_str;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_rt::InLane;
+use mixdog_rt::InteractiveIo;
 use mixdog_rt::TaskClass;
 use mixdog_store::sqlite::SqliteStore;
 use mixdog_store::worker::WorkerScope;
@@ -270,11 +277,11 @@ fn without_row(map: &Row) -> Option<Row> {
 fn without_tombstone(map: &Row) -> Option<Row> {
     if clean(map.get("sessionId")).is_empty() {
         let mut rest = map.clone();
-        rest.remove("tombstone");
+        rest.shift_remove("tombstone");
         return without_row(&rest);
     }
     let mut out = map.clone();
-    out.remove("tombstone");
+    out.shift_remove("tombstone");
     Some(out)
 }
 
@@ -353,6 +360,18 @@ impl AgentRegistry {
         self.loaded_session(id).or_else(|| st.sessions.iter().find(|s| clean(s.get("id")) == id).cloned())
     }
 
+    /// `mgr.getSession(id)` for a worker's turn (`sessionOf`).
+    pub(super) fn session_of(&self, id: &str) -> Option<Row> {
+        let st = self.lock();
+        self.session(&st, &clean_str(id))
+    }
+
+    /// `upsertWorkerSessionDeferred(session, tag, extra)` from the worker's turn.
+    pub(super) fn upsert_session_row(&self, session: &Row, tag: &str, extra: &Row) {
+        let mut st = self.lock();
+        self.upsert_session(&mut st, session, tag, extra);
+    }
+
     /// `getLiveSession`.
     fn live_session_row(&self, st: &State, id: &str) -> Option<Row> {
         self.session(st, id).filter(|s| s.get("closed") != Some(&Value::Bool(true)))
@@ -368,11 +387,11 @@ impl AgentRegistry {
         let prev = st.map(&session).cloned().unwrap_or_default();
         let prev_row = (!clean(prev.get("sessionId")).is_empty()).then_some(&prev);
         let mut map = apply_upsert(prev_row, normalized, &iso(self.now()));
-        map.remove("released");
+        map.shift_remove("released");
         for key in ["tombstone", "releasedAt"] {
             match prev.get(key) {
                 Some(value) => map.insert(key.into(), value.clone()),
-                None => map.remove(key),
+                None => map.shift_remove(key),
             };
         }
         self.persist(st, &session, Some(map));
@@ -595,6 +614,13 @@ impl AgentRegistry {
             st.bind(&tag, &clean(session.get("id")), &clean(session.get("agent")), &clean(session.get("cwd")));
             self.scan_upsert(st, &session, &tag, &by_key);
         }
+    }
+
+    /// `agentSessionEntries` for the views (list and status keep terminal traces), over the
+    /// index as last refreshed.
+    pub fn session_entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, Row)> {
+        let mut st = self.lock();
+        self.entries(&mut st, scan_sessions, scope, false)
     }
 
     /// `agentSessionEntries`: the tag-bound sessions visible in `scope`, as `(tag, session)`.
@@ -978,7 +1004,7 @@ impl super::TurnStarts for AgentRegistry {
         let mut st = self.lock();
         let Some(map) = st.map(id).filter(|m| m.contains_key("releasedAt")).cloned() else { return };
         let mut map = map;
-        map.remove("releasedAt");
+        map.shift_remove("releasedAt");
         self.persist(&mut st, id, (!map.is_empty()).then_some(map));
     }
 }
@@ -991,11 +1017,18 @@ pub struct StoreWorkers {
     index: SqliteStore,
     threads: Arc<dyn ThreadState>,
     writes: mpsc::UnboundedSender<(String, Option<Row>)>,
+    io: InteractiveIo,
+}
+
+/// Whether `path` names a directory.
+#[allow(clippy::disallowed_methods, reason = "runs on the interactive-io lane job (lane proof argument)")]
+fn is_dir(_lane: &InLane<InteractiveIo>, path: &str) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_dir())
 }
 
 impl StoreWorkers {
     /// Call on the runtime the session tasks run on.
-    pub fn new(index: SqliteStore, threads: Arc<dyn ThreadState>) -> Self {
+    pub fn new(index: SqliteStore, threads: Arc<dyn ThreadState>, io: InteractiveIo) -> Self {
         let (writes, mut rx) = mpsc::unbounded_channel::<(String, Option<Row>)>();
         let patcher = threads.clone();
         drop(mixdog_rt::spawn("agent-worker-writes", TaskClass::Work, async move {
@@ -1013,7 +1046,7 @@ impl StoreWorkers {
                 };
             }
         }));
-        Self { index, threads, writes }
+        Self { index, threads, writes, io }
     }
 }
 
@@ -1034,7 +1067,13 @@ impl WorkerStore for StoreWorkers {
     }
 
     async fn is_directory(&self, path: &str) -> bool {
-        !path.is_empty() && tokio::fs::metadata(path).await.is_ok_and(|m| m.is_dir())
+        if path.is_empty() {
+            return false;
+        }
+        let path = path.to_owned();
+        crate::domains::support::on_lane(self.io, &mixdog_rt::CancellationToken::new(), move |lane| is_dir(lane, &path))
+            .await
+            .unwrap_or(false)
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
@@ -1059,7 +1098,7 @@ impl LiveSessions for super::SessionDirectory {
         self.running(session) || self.handle(&ThreadId::from(session)).is_some_and(|h| !h.cell.queued.load().is_empty())
     }
 
-    fn runtime_stage(&self, _session: &str) -> Option<String> {
-        None
+    fn runtime_stage(&self, session: &str) -> Option<String> {
+        self.handle(&ThreadId::from(session))?.cell.progress.borrow().stage()
     }
 }

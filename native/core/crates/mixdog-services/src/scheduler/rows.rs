@@ -116,7 +116,7 @@ pub fn delivery(s: &mut Schedule, run_id: &str, entry: Option<Value>) {
             map.insert(run_id.to_string(), entry);
         }
         None => {
-            map.remove(run_id);
+            map.shift_remove(run_id);
         }
     }
     s.result_delivery = (!map.is_empty()).then_some(Value::Object(map));

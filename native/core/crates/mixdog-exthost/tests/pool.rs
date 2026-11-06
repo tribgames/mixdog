@@ -457,6 +457,78 @@ async fn electron_workers_run_in_node_mode_and_others_do_not() {
     assert_eq!(run(&pool, call("a", "electronMode", json!(null))).await, json!(null));
 }
 
+/// Node's own extraction, recorded by `benchmarks/rust-core/recorders/record-media-text.mjs`: the text
+/// of each attached-document format, `null` for a file with no text form, and the fixed text for a
+/// PDF the parser rejects. The real worker must answer every case exactly as Node did.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn document_text_equals_nodes_recorded_extraction_for_every_format_error_and_limit() {
+    use mixdog_core_api::domain::ext::DocumentText;
+    use mixdog_core_api::domain::ext::PdfCounts;
+    use mixdog_core_api::domain::ext::PdfIntake;
+    use mixdog_exthost::ExtDocumentText;
+    use sha2::Digest;
+
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("fixtures/tools/media-text");
+    let load = |name: &str| -> Vec<Value> {
+        serde_json::from_slice(&std::fs::read(fixtures.join(name)).unwrap()).unwrap()
+    };
+    let mut real = config(1, &[]);
+    real.args = vec![host_dir().parent().unwrap().join("worker.mjs").into_os_string()];
+    let pool = std::sync::Arc::new(ExtHostPool::new(real).unwrap());
+    let media = ExtDocumentText::new(pool.clone());
+    let thread = ThreadId::from("t");
+
+    let office = load("office.json");
+    assert_eq!(office.len(), 10);
+    for case in &office {
+        let got = within(media.office_text(&thread, case["filename"].as_str().unwrap(), case["dataBase64"].as_str().unwrap()))
+            .await
+            .unwrap();
+        if let Some(bytes) = case["textBytes"].as_u64() {
+            // Too large to keep whole: the golden holds its size, hash and end.
+            let text = got.expect("the capped text exists");
+            assert_eq!(text.len() as u64, bytes, "office case {}", case["name"]);
+            assert_eq!(format!("{:x}", sha2::Sha256::digest(text.as_bytes())), case["textSha256"].as_str().unwrap());
+            assert!(text.ends_with(case["textTail"].as_str().unwrap()));
+        } else {
+            assert_eq!(got.as_deref(), case["text"].as_str(), "office case {}", case["name"]);
+        }
+    }
+    let pdf = load("pdf.json");
+    assert_eq!(pdf.len(), 3);
+    for case in &pdf {
+        let got = within(media.pdf_text(&thread, case["dataBase64"].as_str().unwrap())).await.unwrap();
+        assert_eq!(Some(got.as_str()), case["text"].as_str(), "pdf case {}", case["name"]);
+    }
+    // The intake's counts: a text PDF, a scan, a mix (one text page, one stamped number only, one
+    // image) and bytes the parser rejects.
+    let counts = load("pdf-counts.json");
+    assert_eq!(counts.len(), 5);
+    for case in &counts {
+        let got = within(media.pdf_counts(&thread, case["dataBase64"].as_str().unwrap())).await.unwrap();
+        let want = match case["rejected"].as_str() {
+            Some(message) => PdfIntake::Rejected(message.to_owned()),
+            None => {
+                let c = &case["counts"];
+                PdfIntake::Counts(PdfCounts {
+                    page_count: c["pageCount"].as_u64().unwrap(),
+                    text_pages: c["textPages"].as_u64().unwrap(),
+                    text_chars: c["textChars"].as_u64().unwrap(),
+                })
+            }
+        };
+        assert_eq!(got, want, "pdf-counts case {}", case["name"]);
+    }
+    let by_name = |n: &str| counts.iter().find(|c| c["name"] == n).unwrap().clone();
+    assert_eq!(by_name("scanned-pdf")["counts"]["textPages"], 0);
+    assert_eq!(by_name("text-scan-and-stamped-page")["counts"]["textPages"], 1);
+    assert_eq!(by_name("text-scan-and-stamped-page")["counts"]["pageCount"], 3);
+    // The message is pdf.js's own, not ours.
+    assert!(!by_name("unreadable-not-a-pdf")["rejected"].as_str().unwrap().is_empty());
+    assert!(!by_name("unreadable-truncated")["rejected"].as_str().unwrap().is_empty());
+    within(pool.close()).await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn syntax_check_asks_a_real_worker_whether_v8_compiles_the_source() {
     let mut real = config(1, &[]);

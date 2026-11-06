@@ -72,23 +72,22 @@ pub trait LiveRoute: Send + Sync {
     fn adopt_held(&self, thread: &ThreadId, held: &Route);
 }
 
-/// What the session actor and the runtime around it do for a route change. The adapter over
-/// the actor uses `thread/route/update`, `thread/boundary/record`, `thread/toolSurface/rebuild`
-/// and `thread/recreateEmpty`, which the actor must serve.
+/// What the session and the runtime around it do for a route change (the session side is
+/// `session::SessionRouteAdapter`).
+///
+/// Every thread is an addressed session (each client reaches the core through the daemon, by
+/// thread id), so an empty session is always updated in place: Node closes and recreates one
+/// only in an unaddressed runtime (`set-route.mjs:433-448`), which the core never hosts.
 #[async_trait]
 pub trait RouteSession: Send + Sync {
-    /// The session generation (advances whenever another conversation, or none, is installed).
+    /// The session generation (Node: advances whenever another conversation, or none, is
+    /// installed); an addressed thread keeps one for its lifetime.
     fn generation(&self, thread: &ThreadId) -> u64;
-    /// `getAddressedSessionId()`: the runtime serves one durable, addressed thread.
-    fn addressed(&self, thread: &ThreadId) -> bool;
     /// `session.liveTurnMessages`: the first turn's working messages before they are committed.
     async fn live_turn_messages(&self, thread: &ThreadId) -> Result<Vec<Value>, PortError>;
     /// `hasUserConversationMessage`: a user message that is not a protected context turn, a
     /// reference-files message or a summary anchor.
     fn has_user_conversation(&self, messages: &[Value]) -> bool;
-    /// Closes the empty session (tombstoned, kept if it has gained history meanwhile) and
-    /// materializes a fresh one; with `session_has_route_history` as the liveness check.
-    async fn recreate_empty(&self, thread: &ThreadId) -> Result<(), PortError>;
     /// `updateSessionRoute`: applies the fields, resets the session for a changed route (and
     /// strips provider replay and context readings on `cross_provider`), rebuilds the prompt's
     /// `Model:` line and saves. `false` when the session is closed or gone.
@@ -100,7 +99,7 @@ pub trait RouteSession: Send + Sync {
     async fn rebuild_tool_surface(&self, thread: &ThreadId, provider: &str) -> Result<(), PortError>;
     /// The fallback chain of a Lead-class session on `provider/model` (`ownerRouteFallbacks`);
     /// `None` for a session with no owner agent (an agent's session keeps its own).
-    fn owner_fallbacks(&self, header: &Header, provider: &str, model: &str) -> Option<Vec<Value>>;
+    fn owner_fallbacks(&self, thread: &ThreadId, header: &Header, provider: &str, model: &str) -> Option<Vec<Value>>;
     /// `writeStatuslineRoute`.
     fn write_statusline(&self, thread: &ThreadId, route: &Route);
     /// `invalidateContextStatusCache`.
@@ -121,7 +120,7 @@ fn text<'a>(map: &'a Map<String, Value>, key: &str) -> &'a str {
     map.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
-fn is_summary_anchor(message: &Value) -> bool {
+pub(crate) fn is_summary_anchor(message: &Value) -> bool {
     message.get("role").and_then(Value::as_str) == Some("user")
         && message.get("content").and_then(Value::as_str).is_some_and(|c| c.starts_with(SUMMARY_PREFIX))
 }
@@ -250,13 +249,6 @@ impl SessionRoutes {
         self.session.has_user_conversation(messages) || messages.iter().any(is_summary_anchor)
     }
 
-    /// `sessionHasRouteHistory`.
-    pub async fn session_has_route_history(&self, thread: &ThreadId) -> Result<bool, PortError> {
-        let messages = self.messages.messages(thread).await?;
-        let live = self.session.live_turn_messages(thread).await?;
-        Ok(self.has_route_history(&messages) || self.has_route_history(&live))
-    }
-
     /// `sessionRouteCommitted`: a model reply, a compaction summary or a first turn in flight.
     async fn route_committed(&self, thread: &ThreadId) -> Result<bool, PortError> {
         let live = self.session.live_turn_messages(thread).await?;
@@ -267,9 +259,9 @@ impl SessionRoutes {
         Ok(messages.iter().any(|m| m.get("role").and_then(Value::as_str) == Some("assistant") || is_summary_anchor(m)))
     }
 
-    fn fallback_fields(&self, header: &Header, route: &Route) -> Route {
+    fn fallback_fields(&self, thread: &ThreadId, header: &Header, route: &Route) -> Route {
         let mut fields = Route::new();
-        if let Some(chain) = self.session.owner_fallbacks(header, text(route, "provider"), text(route, "model")) {
+        if let Some(chain) = self.session.owner_fallbacks(thread, header, text(route, "provider"), text(route, "model")) {
             fields.insert("routeFallbacks".into(), Value::Array(chain));
         }
         fields
@@ -294,7 +286,7 @@ impl SessionRoutes {
         }
         fields.insert("contextTokens".into(), or_null("contextTokens"));
         fields.insert("selectedContextWindow".into(), or_null("selectedContextWindow"));
-        fields.extend(self.fallback_fields(header, &route));
+        fields.extend(self.fallback_fields(thread, header, &route));
         if !self.session.update_route(thread, fields.clone(), cross_provider).await? {
             self.threads.patch_header(thread, fields, Vec::new()).await?;
         }
@@ -318,10 +310,21 @@ impl SessionRoutes {
         Ok(recorded.then_some(boundary))
     }
 
+    /// `continueSessionInModel`'s session half: the adopted route switches the conversation in
+    /// place whatever it holds, then drops the stale context gauge and any held pick. The
+    /// recorded boundary, or `None` when nothing switched.
+    pub async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
+        let header = self.threads.header(thread).await?;
+        let model_switch = self.switch_in_place(thread, &header).await?;
+        self.session.invalidate_context_status(thread);
+        self.clear_pending(thread).await?;
+        Ok(model_switch)
+    }
+
     /// `refreshSessionFallbacks`: a same-model selection restarts the chain when the owner's no
     /// longer matches the session's.
     async fn refresh_fallbacks(&self, thread: &ThreadId, header: &Header) -> Result<(), PortError> {
-        let fields = self.fallback_fields(header, &self.live.route(thread));
+        let fields = self.fallback_fields(thread, header, &self.live.route(thread));
         let Some(chain) = fields.get("routeFallbacks") else { return Ok(()) };
         let held = header.get("routeFallbacks").filter(|v| truthy(Some(*v))).cloned().unwrap_or(Value::Array(Vec::new()));
         if mixdog_js::json_stringify(chain) == mixdog_js::json_stringify(&held) {
@@ -350,7 +353,7 @@ impl SessionRoutes {
         set.insert("effort".into(), if truthy(route.get("effectiveEffort")) { route["effectiveEffort"].clone() } else { Value::Null });
         let mut parameters = header.get("modelParameters").and_then(Value::as_object).cloned().unwrap_or_default();
         for key in TUNED_PARAMETERS {
-            parameters.remove(key);
+            parameters.shift_remove(key);
             if let Some(value) = route.get("modelParameters").and_then(|p| p.get(key)).filter(|v| truthy(Some(*v))) {
                 parameters.insert(key.to_owned(), value.clone());
             }
@@ -406,15 +409,7 @@ impl SessionRoutes {
             return Ok(Followed::default());
         }
         // An addressed runtime keeps its durable id: the empty session is updated in place,
-        // never closed and replaced by a freshly minted one.
-        if !self.session.addressed(thread)
-            && !options.apply_to_current_session
-            && !self.session_has_route_history(thread).await?
-        {
-            self.session.recreate_empty(thread).await?;
-            self.session.invalidate_context_status(thread);
-            return Ok(Followed::default());
-        }
+        // never closed and replaced by a freshly minted one (`set-route.mjs:433-448`).
         self.update_in_place(thread, &header, false).await?;
         self.session.invalidate_context_status(thread);
         Ok(Followed::default())
@@ -427,7 +422,7 @@ impl SessionRoutes {
         let held = header.get("pendingRoute").and_then(Value::as_object).cloned();
         if held.is_some() {
             self.threads.patch_header(thread, Map::new(), vec!["pendingRoute".into()]).await?;
-            header.remove("pendingRoute");
+            header.shift_remove("pendingRoute");
         }
         let selection = self.pending_lock().remove(thread.as_str());
         match (selection, &held) {
@@ -477,6 +472,7 @@ pub trait ChatRouteSetter: Send + Sync {
 pub struct AgentRouteFollow {
     chats: Arc<dyn AgentChats>,
     setter: Arc<dyn ChatRouteSetter>,
+    #[allow(clippy::disallowed_types, reason = "held across a chat's set_route on purpose: the chat takes the next update once the one before settled")]
     tails: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
@@ -588,7 +584,7 @@ mod tests {
             self.calls.log(format!("patch {} -{}", Value::Object(set.clone()), unset.join(",")));
             header.extend(set);
             for key in unset {
-                header.remove(&key);
+                header.shift_remove(&key);
             }
             Ok(())
         }
@@ -616,25 +612,17 @@ mod tests {
     struct Session {
         calls: Arc<Calls>,
         generation: u64,
-        addressed: bool,
     }
     #[async_trait]
     impl RouteSession for Session {
         fn generation(&self, _: &ThreadId) -> u64 {
             self.generation
         }
-        fn addressed(&self, _: &ThreadId) -> bool {
-            self.addressed
-        }
         async fn live_turn_messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
             Ok(Vec::new())
         }
         fn has_user_conversation(&self, messages: &[Value]) -> bool {
             messages.iter().any(|m| m["role"] == "user")
-        }
-        async fn recreate_empty(&self, _: &ThreadId) -> Result<(), PortError> {
-            self.calls.log("recreate");
-            Ok(())
         }
         async fn update_route(&self, _: &ThreadId, fields: Route, cross: bool) -> Result<bool, PortError> {
             self.calls.log(format!("update {} cross={cross}", fields["model"]));
@@ -648,7 +636,7 @@ mod tests {
             self.calls.log(format!("surface {provider}"));
             Ok(())
         }
-        fn owner_fallbacks(&self, _: &Header, _: &str, _: &str) -> Option<Vec<Value>> {
+        fn owner_fallbacks(&self, _: &ThreadId, _: &Header, _: &str, _: &str) -> Option<Vec<Value>> {
             None
         }
         fn write_statusline(&self, _: &ThreadId, _: &Route) {
@@ -657,10 +645,10 @@ mod tests {
         fn invalidate_context_status(&self, _: &ThreadId) {}
     }
 
-    fn routes(header: Value, messages: Vec<Value>, live: Value, addressed: bool) -> (SessionRoutes, Arc<Calls>) {
+    fn routes(header: Value, messages: Vec<Value>, live: Value) -> (SessionRoutes, Arc<Calls>) {
         let calls = Arc::new(Calls::default());
         let threads = Threads { header: Mutex::new(obj(header)), calls: calls.clone() };
-        let session = Session { calls: calls.clone(), generation: 3, addressed };
+        let session = Session { calls: calls.clone(), generation: 3 };
         let routes = SessionRoutes::new(Arc::new(threads), Arc::new(Messages(messages)), Arc::new(session), Arc::new(Live(obj(live))));
         (routes, calls)
     }
@@ -675,14 +663,14 @@ mod tests {
 
     #[tokio::test]
     async fn an_established_session_keeps_its_route_unless_addressed() {
-        let (routes, calls) = routes(json!({"provider": "openai", "model": "gpt-a"}), established(), json!({"provider": "anthropic", "model": "claude-x"}), false);
+        let (routes, calls) = routes(json!({"provider": "openai", "model": "gpt-a"}), established(), json!({"provider": "anthropic", "model": "claude-x"}));
         let followed = routes.follow(&thread(), &FollowOptions::default()).await.unwrap();
         assert_eq!((followed, calls.all()), (Followed::default(), Vec::<String>::new()));
     }
 
     #[tokio::test]
     async fn an_addressed_pick_of_another_model_switches_in_place_and_records_the_boundary() {
-        let (routes, calls) = routes(json!({"provider": "openai", "model": "gpt-a"}), established(), json!({"provider": "anthropic", "model": "claude-x"}), false);
+        let (routes, calls) = routes(json!({"provider": "openai", "model": "gpt-a"}), established(), json!({"provider": "anthropic", "model": "claude-x"}));
         let options = FollowOptions { switch_established: true, ..FollowOptions::default() };
         let followed = routes.follow(&thread(), &options).await.unwrap();
         let boundary = followed.model_switch.expect("a boundary");
@@ -696,7 +684,6 @@ mod tests {
             json!({"provider": "openai", "model": "gpt-a", "autoEffort": false, "modelParameters": {"serviceTier": "fast", "keep": "1"}}),
             established(),
             json!({"provider": "openai", "model": "gpt-a", "fast": true, "effectiveEffort": "low", "modelParameters": {}}),
-            false,
         );
         let options = FollowOptions { switch_established: true, ..FollowOptions::default() };
         routes.follow(&thread(), &options).await.unwrap();
@@ -706,29 +693,19 @@ mod tests {
         assert!(calls.all().contains(&"statusline".to_owned()));
     }
 
+    /// An addressed session is never recreated: an empty one takes the route in place.
     #[tokio::test]
-    async fn an_empty_session_is_recreated_unless_addressed_or_applied_in_place() {
+    async fn an_empty_session_takes_the_route_in_place() {
         let live = json!({"provider": "anthropic", "model": "claude-x"});
         let header = json!({"provider": "openai", "model": "gpt-a"});
-        let (routes, calls) = routes(header.clone(), Vec::new(), live.clone(), false);
-        routes.follow(&thread(), &FollowOptions::default()).await.unwrap();
-        assert_eq!(calls.all(), ["recreate"]);
-        let (routes, calls) = routes_for(header.clone(), live.clone(), true);
+        let (routes, calls) = routes(header, Vec::new(), live);
         routes.follow(&thread(), &FollowOptions::default()).await.unwrap();
         assert_eq!(calls.all(), ["update \"claude-x\" cross=false", "surface anthropic", "statusline"]);
-        let (routes, calls) = routes_for(header, live, false);
-        let options = FollowOptions { apply_to_current_session: true, ..FollowOptions::default() };
-        routes.follow(&thread(), &options).await.unwrap();
-        assert_eq!(calls.all()[0], "update \"claude-x\" cross=false");
-    }
-
-    fn routes_for(header: Value, live: Value, addressed: bool) -> (SessionRoutes, Arc<Calls>) {
-        routes(header, Vec::new(), live, addressed)
     }
 
     #[tokio::test]
     async fn a_stale_lease_skips_every_effect() {
-        let (routes, calls) = routes(json!({"provider": "openai", "model": "gpt-a"}), established(), json!({"provider": "anthropic", "model": "claude-x"}), false);
+        let (routes, calls) = routes(json!({"provider": "openai", "model": "gpt-a"}), established(), json!({"provider": "anthropic", "model": "claude-x"}));
         let options = FollowOptions { switch_established: true, lease: Some(2), ..FollowOptions::default() };
         assert_eq!(routes.follow(&thread(), &options).await.unwrap(), Followed::default());
         assert!(calls.all().is_empty());
@@ -737,7 +714,7 @@ mod tests {
     #[tokio::test]
     async fn a_deferred_pick_is_held_then_applied_at_the_next_turn() {
         let live = json!({"provider": "anthropic", "model": "claude-x", "fast": false, "preset": "p", "contextTokens": 0});
-        let (routes, calls) = routes(json!({"provider": "openai", "model": "gpt-a"}), established(), live, false);
+        let (routes, calls) = routes(json!({"provider": "openai", "model": "gpt-a"}), established(), live);
         let options = FollowOptions { switch_established: true, defer_until_next_turn: true, lease: Some(3), ..FollowOptions::default() };
         routes.follow(&thread(), &options).await.unwrap();
         let held = routes.threads.header(&thread()).await.unwrap()["pendingRoute"].clone();

@@ -143,6 +143,9 @@ async fn gemini_pages_are_fetched_and_normalized_as_node_does() {
     let records = adapter.models().expect("lists models").list_models().await.expect("listed");
     let expected = g["gemini"]["listed"]["rows"].as_array().unwrap();
     assert_eq!(raws(&records), *expected);
+    for (record, row) in records.iter().zip(expected) {
+        crate::providers::listing_row::testing::assert_row_facts(record, row, &format!("gemini {}", record.id));
+    }
     let sent = http.sent();
     let calls = g["gemini"]["listed"]["calls"].as_array().unwrap();
     assert_eq!(sent.len(), calls.len());
@@ -183,6 +186,9 @@ async fn vertex_lists_its_static_table_without_any_request() {
     );
     let records = adapter.models().expect("lists models").list_models().await.expect("listed");
     assert_eq!(raws(&records), *golden()["vertex"]["listed"].as_array().unwrap());
+    for (record, row) in records.iter().zip(golden()["vertex"]["listed"].as_array().unwrap()) {
+        crate::providers::listing_row::testing::assert_row_facts(record, row, &format!("vertex {}", record.id));
+    }
     assert!(http.sent().is_empty());
     let argon = &records[0];
     assert_eq!(argon.supports_reasoning, Some(true));
@@ -289,6 +295,9 @@ async fn a_send_after_a_listing_carries_the_tiers_wire_id() {
 #[tokio::test]
 async fn a_seeded_roster_routes_a_send_before_any_listing() {
     let restored = antigravity_records(catalog_body().as_bytes(), &Levels(ThinkingControl::Unspecified)).expect("listed");
+    for record in &restored {
+        crate::providers::listing_row::testing::assert_row_facts(record, record.raw.as_ref().unwrap(), &format!("antigravity {}", record.id));
+    }
     let http = Scripted::new(vec![(400, json!({"error": {"code": 400}}).to_string())]);
     let adapter = antigravity_adapter(http.clone(), "proj-1", traits()).with_roster(&restored);
     let _ = adapter.attempt(Arc::new(request("gemini-3.1-pro", "low", None))).await;

@@ -299,6 +299,13 @@ pub struct ProxyPicker {
     pub additional_speed_tiers: Vec<String>,
     pub reasoning_options: Vec<ProxyReasoningOption>,
     pub custom_reasoning: Option<ProxyCustomReasoning>,
+    pub tier: Option<String>,
+    pub latest: bool,
+    pub description: Option<String>,
+    pub default_service_tier: Option<String>,
+    pub default_model_parameters: BTreeMap<String, String>,
+    pub default_fast: bool,
+    pub supports_max_mode: bool,
 }
 /// The ids a picker model is sent under, in Node's `wire` shape: a bare id
 /// string, or an object of effort level to id (the provider's order is the
@@ -364,6 +371,13 @@ pub struct ProxyModel {
     pub display_name: Option<String>,
     /// The row's own `name`, the label when no display name is known.
     pub name: Option<String>,
+    /// A custom provider's own name for itself.
+    pub provider_name: Option<String>,
+    /// A custom model added by hand.
+    pub manual: bool,
+    pub supports_reasoning_effort_updates: Option<bool>,
+    pub supports_prompt_caching: Option<bool>,
+    pub reasoning_content_field: Option<String>,
     #[ts(type = "number | null")]
     pub context_window: Option<u64>,
     /// The largest window the listing states for the model.

@@ -140,7 +140,7 @@ async fn execute(ctx: &CoreContext<'_>, args: &Value, op: Op) -> Result<ToolRepl
     let mut write_args = args.clone();
     if matches!(op, Op::Add | Op::Edit) {
         if let Some(object) = write_args.as_object_mut() {
-            object.remove("category");
+            object.shift_remove("category");
         }
         let normalized = store::normalize_input(&write_args, Require { element: true, summary: true, category: false });
         let mut errors = normalized.errors.clone();

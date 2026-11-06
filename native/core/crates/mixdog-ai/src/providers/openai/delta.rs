@@ -16,22 +16,9 @@ fn text<'a>(item: &'a Value, key: &str) -> &'a str {
     item.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-/// `_stableStringify`: an object's keys sorted at every object level; arrays
-/// and scalars as `JSON.stringify` writes them.
-pub fn stable_stringify(value: &Value) -> String {
-    match value {
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
-            let parts: Vec<String> = keys
-                .iter()
-                .map(|k| format!("{}:{}", serde_json::to_string(k).expect("a string serializes"), stable_stringify(&map[*k])))
-                .collect();
-            format!("{{{}}}", parts.join(","))
-        }
-        other => serde_json::to_string(other).expect("a JSON value serializes"),
-    }
-}
+/// `_stableStringify`: arrays keep the key order of what is inside them, so a tool's `type`
+/// stays before its `name`.
+pub use mixdog_js::json_stringify_sorted_outside_arrays as stable_stringify;
 
 /// `_sansInput`: the request without its input and chain anchor; `generate`
 /// moves last.

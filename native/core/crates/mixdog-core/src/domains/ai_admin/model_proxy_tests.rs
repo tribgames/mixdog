@@ -92,6 +92,19 @@ fn a_listed_model_keeps_its_name_window_and_wire_over_the_wire() {
     listed.input_cost_per_m = Some(0.4);
     listed.output_cost_per_m = Some(1.6);
     listed.cache_read_cost_per_m = Some(0.0);
+    // Every fact the `model/list` row reads crosses with the model.
+    listed.provider_name = Some("Gateway".into());
+    listed.manual = true;
+    listed.supports_reasoning_effort_updates = Some(true);
+    listed.supports_prompt_caching = Some(true);
+    listed.reasoning_content_field = Some("reasoning_content".into());
+    listed.picker.tier = Some("version".into());
+    listed.picker.latest = true;
+    listed.picker.description = Some("a model".into());
+    listed.picker.default_service_tier = Some("priority".into());
+    listed.picker.default_model_parameters = [("context".to_owned(), "272k".to_owned())].into();
+    listed.picker.default_fast = true;
+    listed.picker.supports_max_mode = true;
     for wire in [None, Some(p::WireIds::One("sol-wire".into())), Some(p::WireIds::Tiers(vec![("high".into(), "sol-high".into()), ("low".into(), "sol-low".into())]))] {
         listed.wire = wire;
         let text = serde_json::to_string(&model_out(&listed)).unwrap();

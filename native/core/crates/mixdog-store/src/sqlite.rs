@@ -40,7 +40,6 @@ use crate::projection::Projection;
 use crate::schema::bounded::Digest;
 use crate::schema::checkpoint::FramePos;
 use crate::schema::record::ApprovalPhase;
-use crate::schema::bounded::Name;
 use crate::schema::record::Form;
 use crate::schema::record::ModelSwitchEntry;
 use crate::schema::record::RunPhase;
@@ -1445,7 +1444,59 @@ impl SqliteStore {
     ) -> Result<(Vec<HistoryRow>, Option<PageCursor>), DbError> {
         self.shared.pool.with(|c| page_on(c, lineage, cut, cursor, limit))
     }
+
+    /// The ordinal of the live `compacted` frame whose replacement holds the entry `iid`
+    /// (such as the summary, which has no history row), as the reader of `lineage` with
+    /// `cut` sees it: the `ordinal` of a `model_switch` anchor on that entry (FORMAT.md
+    /// §5.3). The newest such frame when later replacements kept the entry; `None` when no
+    /// live one holds it.
+    pub async fn compaction_entry(
+        &self,
+        lineage: Vec<LineageLevel>,
+        cut: Option<u64>,
+        iid: String,
+    ) -> Result<Option<u64>, DbError> {
+        self.read(move |c| compaction_entry_on(c, &lineage, cut, &iid)).await
+    }
+
+    /// `compaction_entry` inside a job already on the read lane.
+    pub fn compaction_entry_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        iid: &str,
+    ) -> Result<Option<u64>, DbError> {
+        self.shared.pool.with(|c| compaction_entry_on(c, lineage, cut, iid))
+    }
 }
+
+/// Newest level first: a session's own compactions follow its bases'.
+fn compaction_entry_on(
+    c: &Connection,
+    lineage: &[LineageLevel],
+    cut: Option<u64>,
+    iid: &str,
+) -> Result<Option<u64>, DbError> {
+    for (i, level) in lineage.iter().enumerate() {
+        let asof = level.end.map_or(i64::MAX, |v| v.min(i64::MAX as u64) as i64);
+        let bound = crate::archive_index::level_bound(lineage, cut, i);
+        let found: Option<i64> = c
+            .prepare_cached(COMPACTION_ENTRY_SQL)?
+            .query_row(params![level.session, iid, asof, bound], |r| r.get(0))?;
+        if let Some(ordinal) = found {
+            return Ok(Some(ordinal as u64));
+        }
+    }
+    Ok(None)
+}
+
+/// The newest `compacted` frame of session `?1` below `?4`, live as of `?3`, with a
+/// replacement entry `?2`.
+pub(crate) const COMPACTION_ENTRY_SQL: &str = "SELECT max(m.ordinal) FROM message_rows m
+     JOIN compactions c ON c.session = m.session AND c.ordinal = m.ordinal
+     WHERE m.session = ?1 AND m.iid = ?2 AND m.ver = m.ordinal AND m.ordinal < ?4
+       AND (c.superseded_rev IS NULL OR c.superseded_rev >= ?3)";
 
 /// The production `IndexProjector` of the migration (WP-MIGRATE `index.rs`): projects the
 /// verified `sessions` of data dir `data` into a new index database at `db` (absent
@@ -1653,6 +1704,10 @@ pub struct Divider {
     pub boundary: u64,
     /// The compaction's `Date.now()` in milliseconds, when the record carries it.
     pub at: Option<i64>,
+    /// The model-switch boundaries anchored on a replacement entry of this compaction (the
+    /// 1.4.5 summary message's `meta.modelSwitches`, FORMAT.md §5.3): shown after the
+    /// divider, by entry position, then oldest lineage level first, then record order.
+    pub model_switches: Vec<ModelSwitchEntry>,
 }
 
 fn dividers_on(
@@ -1685,6 +1740,23 @@ fn dividers_on(
         for (ordinal, (file_no, offset, len), cid, own_boundary, at) in found {
             let place = crate::archive_index::divider_place(c, lineage, cut, i, ordinal as u64, own_boundary as u64)?;
             if place.0 == level && place.1 >= from && place.1 < to {
+                // The records anchored here: the compaction's own log and each later
+                // level's up to its fork point, keyed (entry position, level, record).
+                let mut found = Vec::new();
+                for (rank, holder) in lineage[..=i].iter().rev().enumerate() {
+                    let end = holder.end.map_or(i64::MAX, clamp);
+                    let mut stmt = c.prepare_cached(ENTRY_SWITCHES_SQL)?;
+                    let rows = stmt.query_map(params![holder.session, ordinal, home.session, end], |s| {
+                        Ok((
+                            (s.get::<_, i64>(0)?, rank, s.get::<_, i64>(1)?),
+                            ModelSwitchEntry { provider: s.get(2)?, model_id: s.get(3)?, at: s.get(4)? },
+                        ))
+                    })?;
+                    for row in rows {
+                        found.push(row?);
+                    }
+                }
+                found.sort_by_key(|(key, _)| *key);
                 out.push(Divider {
                     session: home.session.clone(),
                     cid,
@@ -1693,6 +1765,7 @@ fn dividers_on(
                     level: place.0,
                     boundary: place.1,
                     at,
+                    model_switches: found.into_iter().map(|(_, entry)| entry).collect(),
                 });
             }
         }
@@ -1795,11 +1868,7 @@ fn page_on(
                         let end = holder.end.map_or(i64::MAX, |e| e as i64);
                         let mut stmt = c.prepare_cached(MODEL_SWITCHES_SQL)?;
                         let found = stmt.query_map(params![holder.session, ordinal as i64, iid, end], |s| {
-                            // The columns hold what a parsed record held, so the bounds hold.
-                            let name = |i: usize| {
-                                s.get::<_, String>(i).map(|v| Name::try_from(v).expect("a projected name"))
-                            };
-                            Ok(ModelSwitchEntry { provider: name(0)?, model_id: name(1)?, at: s.get(2)? })
+                            Ok(ModelSwitchEntry { provider: s.get(0)?, model_id: s.get(1)?, at: s.get(2)? })
                         })?;
                         for entry in found {
                             model_switches.push(entry?);
@@ -1850,6 +1919,13 @@ pub(crate) const KEPT_SQL: &str =
 /// iid `?3`, in record order.
 pub(crate) const MODEL_SWITCHES_SQL: &str = "SELECT provider, model_id, at FROM model_switches
      WHERE session = ?1 AND anchor_ordinal = ?2 AND anchor_iid = ?3 AND ordinal < ?4 ORDER BY ordinal";
+
+/// The model-switch boundaries in session `?1`'s log below `?4` anchored on a replacement
+/// entry of session `?3`'s `compacted` frame at `?2`, with the entry's position.
+pub(crate) const ENTRY_SWITCHES_SQL: &str = "SELECT min(m.idx), s.ordinal, s.provider, s.model_id, s.at
+     FROM model_switches s JOIN message_rows m ON m.session = ?3 AND m.ordinal = s.anchor_ordinal
+       AND m.iid = s.anchor_iid
+     WHERE s.session = ?1 AND s.anchor_ordinal = ?2 AND s.ordinal < ?4 GROUP BY s.ordinal";
 
 /// One history page level: visible rows below `?2`, live for the reader at `?3`.
 pub(crate) const PAGE_SQL: &str =

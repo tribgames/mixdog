@@ -1,12 +1,12 @@
 {
-  "cases": 6,
+  "cases": 10,
   "command": "node benchmarks/rust-core/recorders/record-model-switch.mjs --tree <tree>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 9766,
+      "bytes": 16032,
       "path": "cases.json",
-      "sha256": "144b0113eeb92ec4723d2dc8e04f7853ae4f4e7df8591dd99babed6dabc5bfaf"
+      "sha256": "b37958aec6a29d5e2384daba1568095bd0280dbc94e07ef7bf74c66fdb5cce86"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-switch.mjs",
   "set": "migration/model-switch",
-  "totalBytes": 9766
+  "totalBytes": 16032
 }

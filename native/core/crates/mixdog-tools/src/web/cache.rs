@@ -194,7 +194,7 @@ impl NodeCache {
                 };
                 let mut state = State::default();
                 if let Some(Value::Object(mut doc)) = stored {
-                    if let Some(Value::Object(entries)) = doc.remove("entries") {
+                    if let Some(Value::Object(entries)) = doc.shift_remove("entries") {
                         state.entries = entries;
                     }
                     state.approx_bytes = doc.get("__approxBytes").and_then(Value::as_f64).map(|n| n as i64);

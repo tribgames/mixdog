@@ -191,7 +191,7 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
             op(&r.op),
         ),
         Record::ModelSwitch(r) => {
-            (FrameKind::ModelSwitch { anchor: r.anchor.clone(), entry: r.entry.clone() }, op(&r.op))
+            (FrameKind::ModelSwitch { anchor: r.anchor.clone(), entry: resolve_slot(&r.entry, resolve)? }, op(&r.op))
         }
         Record::Queue(r) => (FrameKind::Other, op(&r.op)),
         Record::Op(r) => {

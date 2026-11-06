@@ -1,0 +1,118 @@
+{
+ "sanitize": [
+  {
+   "input": "report.pdf",
+   "name": "report.pdf"
+  },
+  {
+   "input": ".hidden.png",
+   "name": "hidden.png"
+  },
+  {
+   "input": "a.",
+   "name": "a"
+  },
+  {
+   "input": ".png",
+   "name": "png"
+  },
+  {
+   "input": "a/b\\c:d*.txt",
+   "name": "a-b-c-d-.txt"
+  },
+  {
+   "input": "  ..--x.md. ",
+   "name": "x.md"
+  },
+  {
+   "input": "...",
+   "name": "download"
+  },
+  {
+   "input": "",
+   "name": "download"
+  },
+  {
+   "input": "con<>.txt",
+   "name": "con-.txt"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.png",
+   "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+   "input": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀tail",
+   "name": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀"
+  },
+  {
+   "input": " ﻿name　",
+   "name": "name"
+  },
+  {
+   "input": "tab\tname.TXT",
+   "name": "tab-name.TXT"
+  },
+  {
+   "input": "ab",
+   "name": "ab"
+  },
+  {
+   "input": "dir.d/file",
+   "name": "dir.d-file"
+  },
+  {
+   "input": "archive.tar.GZ",
+   "name": "archive.tar.GZ"
+  },
+  {
+   "input": "-.-",
+   "name": "download"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.. .",
+   "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }
+ ],
+ "mime": [
+  {
+   "input": ".png",
+   "mime": "image/png"
+  },
+  {
+   "input": ".hidden.png",
+   "mime": "image/png"
+  },
+  {
+   "input": "a.",
+   "mime": "application/octet-stream"
+  },
+  {
+   "input": "a.PNG",
+   "mime": "image/png"
+  },
+  {
+   "input": "dir.png/noext",
+   "mime": "application/octet-stream"
+  },
+  {
+   "input": "C:\\x\\y.JPG",
+   "mime": "image/jpeg"
+  },
+  {
+   "input": "a.b.md",
+   "mime": "text/markdown"
+  },
+  {
+   "input": "noext",
+   "mime": "application/octet-stream"
+  },
+  {
+   "input": "x.unknown",
+   "mime": "application/octet-stream"
+  },
+  {
+   "input": ".gitignore",
+   "mime": "application/octet-stream"
+  }
+ ]
+}

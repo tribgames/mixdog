@@ -117,7 +117,7 @@ fn echo() -> Script {
                 })
                 .await
                 .expect("commit");
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     })
 }
@@ -281,7 +281,7 @@ async fn an_implicit_approval_session_asks_nobody() {
                 })
                 .await;
             *lock(&seen) = Some(resolution);
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -329,7 +329,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
                 })
                 .await;
             *lock(&seen) = Some(resolution);
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -451,7 +451,7 @@ async fn input_and_task_notifications_release_the_runs_wait() {
                 wait.released().await;
                 lock(&seen).push(wait.wake().expect("released").reason);
             }
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -495,7 +495,7 @@ async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
             open.notified().await;
             let steers = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take");
             lock(&out).extend(steers);
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -547,7 +547,7 @@ async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
                 let steers = run.port.take_steers(drain(stage)).await.expect("take");
                 lock(&out).push(steers);
             }
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -602,7 +602,7 @@ async fn completions_after_the_woken_turns_last_look_replay_oldest_first() {
             if first {
                 open.notified().await;
             }
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -678,7 +678,7 @@ async fn a_held_route_leaves_a_completion_to_the_next_turn() {
             }
             let n = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take").len();
             lock(&seen).push(n);
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = Arc::new(SessionDirectory::new(rig.deps()));
@@ -731,7 +731,7 @@ async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turn
         lock(&seen).push(run.input_body.clone());
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -943,6 +943,145 @@ async fn the_real_store_reads_the_whole_history_oldest_first() {
     assert!(directory.history_items(&ThreadId::from("missing")).await.is_err());
 }
 
+/// The run publishes its progress into the session cell; the registry's `runtime_stage` and the
+/// worker views' `live` read that one value, and a thread this process does not host has none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_runs_progress_is_read_from_the_session_cell() {
+    use crate::run_host::progress::ProgressPublisher;
+    use crate::run_host::progress::WaitedJobs;
+    use crate::session::agent_registry::LiveSessions;
+
+    struct At(i64);
+    impl mixdog_agent::env::Clock for At {
+        fn now_ms(&self) -> i64 {
+            self.0
+        }
+    }
+    struct NoJobs;
+    impl WaitedJobs for NoJobs {
+        fn silence(&self, _: &[String], _: i64) -> Option<mixdog_agent::agent_tool::progress::ToolSilence> {
+            None
+        }
+    }
+
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            let progress = ProgressPublisher::new(run.progress.clone(), Arc::new(At(1_000)));
+            progress.ask_start();
+            progress.stage("streaming");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    assert_eq!(LiveSessions::runtime_stage(&directory, handle.id.as_str()), None, "no marker yet");
+    turn(&handle, "go", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    assert_eq!(LiveSessions::runtime_stage(&directory, handle.id.as_str()).as_deref(), Some("streaming"));
+    let live = directory.worker_live(&handle.id, 2_000, &NoJobs);
+    assert_eq!(live.runtime_stage.as_deref(), Some("streaming"));
+    assert_eq!(live.runtime.map(|facts| facts.ask_started_at), Some(1_000));
+    assert_eq!(directory.worker_live(&ThreadId::from("elsewhere"), 2_000, &NoJobs), Default::default());
+}
+
+/// `assertAgentEditorAccess` reads the caller record's own `agent`
+/// (`String(caller?.agent || '').trim()`): an agent home carries it from creation, a coding
+/// Lead names none; a thread that cannot be opened is an error, not "no agent".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_acting_agent_is_the_callers_own_agent_field() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let header = |value: Value| value.as_object().cloned().unwrap();
+    directory
+        .create_with_id(ThreadId::from("sess_home_my_bot"), header(json!({ "agent": "my.bot" })), json!({}))
+        .await
+        .expect("home");
+    directory
+        .create_with_id(ThreadId::from("sess_w1"), header(json!({ "owner": "agent", "agent": " reviewer " })), json!({}))
+        .await
+        .expect("worker");
+    directory.create_with_id(ThreadId::from("sess_lead1"), header(json!({ "agent": false })), json!({})).await.expect("lead");
+    assert_eq!(directory.acting_agent(&ThreadId::from("sess_home_my_bot")).await.expect("home"), "my.bot");
+    assert_eq!(directory.acting_agent(&ThreadId::from("sess_w1")).await.expect("worker"), "reviewer");
+    assert_eq!(directory.acting_agent(&ThreadId::from("sess_lead1")).await.expect("lead"), "");
+    assert!(matches!(
+        directory.acting_agent(&ThreadId::from("sess_missing")).await,
+        Err(CoreError::ThreadNotFound { .. })
+    ));
+}
+
+/// After a compaction the conversation is the summary alone, so the switch anchors on the
+/// summary entry: it has no history row, and the record names the compaction frame.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_model_switch_after_a_compaction_anchors_on_the_summary() {
+    use mixdog_store::schema::record::Record;
+    let rig = Rig::new();
+    let id = ThreadId::from("sess_compacted");
+    let item: Record = serde_json::from_value(json!({
+        "k": "item", "iid": "u1", "form": "message", "model": true, "visible": true, "role": "user",
+        "refs": [], "body": { "inline": { "role": "user", "content": "hi" } },
+    }))
+    .expect("item");
+    let compacted: Record = serde_json::from_value(json!({
+        "k": "compacted", "cid": "c1", "summary_iid": "sum1",
+        "replacement": { "inline": [{ "iid": "sum1", "body": { "role": "user", "content": "[summary] earlier work" } }] },
+    }))
+    .expect("compacted");
+    rig.store.seed(&id, vec![item, compacted]);
+    let directory = SessionDirectory::new(rig.deps());
+    let boundary = json!({ "provider": "openai", "modelId": "gpt-next", "at": 300 });
+    assert!(super::record_model_switch(&directory, &id, &boundary).await.expect("record"));
+    let anchors: Vec<(String, u64)> = rig
+        .store
+        .records(&id)
+        .into_iter()
+        .filter_map(|(_, record)| match record {
+            Record::ModelSwitch(switch) => Some((switch.anchor.iid.as_str().to_owned(), switch.anchor.ordinal)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(anchors, [("sum1".to_owned(), 1)], "the compaction frame's ordinal");
+}
+
+/// `recordModelSwitchBoundary`: the boundary goes on the switch anchor once, as a record
+/// naming the stored row; the live row follows the anchor's, and a reader folds the record
+/// back onto the anchor's `meta.modelSwitches`. A connection cannot write one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_model_switch_is_recorded_once_on_its_anchor_and_read_back_folded() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    let id = handle.id.clone();
+    let boundary = json!({ "provider": "openai", "modelId": "gpt-next", "at": 200 });
+    assert!(super::record_model_switch(&directory, &id, &boundary).await.expect("record"));
+    assert!(super::record_model_switch(&directory, &id, &boundary).await.expect("again"), "recorded once");
+    let items = handle.cell.view.load_full().items.clone();
+    assert_eq!(items.len(), 3, "the switch row follows the anchor's");
+    // The test transcript shows a row under its stored id.
+    let anchor_iid = items[1].id().as_str().to_owned();
+    assert_eq!(items[2].id().as_str(), format!("{anchor_iid}:model:200"));
+
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    let (_, anchor) = reopened.history_row(&id, &anchor_iid).await.expect("read").expect("anchor row");
+    let mixdog_store::schema::blob::Slot::Inline(body) = &anchor.body else { panic!("inline") };
+    assert_eq!(body["meta"]["modelSwitches"], json!([boundary]));
+
+    let refused = handle
+        .request(request(
+            "thread/boundary/record",
+            json!({ "threadId": id, "anchor": { "iid": anchor_iid, "ordinal": 1 }, "entry": boundary }),
+            "op-x",
+        ))
+        .await;
+    assert!(matches!(refused, Err(CoreError::InvalidParams { .. })), "{refused:?}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_real_store_reopens_a_thread_and_appends_after_it() {
     let data = tempfile::tempdir().expect("data dir");
@@ -1077,7 +1216,7 @@ async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             let _ = gate.wait_for(|open| *open).await;
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -1133,7 +1272,7 @@ async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             let _ = gate.wait_for(|open| *open).await;
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -1183,7 +1322,7 @@ async fn a_saved_provider_state_reaches_the_next_turn_whole_and_a_clear_drops_it
             let state = run.port.provider_state().await;
             lock(&seen).push(state);
             run.port.save_provider_state(Some(saved)).await.expect("saved");
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -1236,7 +1375,7 @@ async fn a_tool_result_completes_its_call_in_place() {
                 })
                 .await
                 .expect("result");
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -1280,7 +1419,7 @@ async fn runs_get_the_sessions_tool_surface() {
         let record = record.clone();
         Box::pin(async move {
             lock(&record).push(run.surface.borrow().disallowed.clone());
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
@@ -1306,4 +1445,83 @@ async fn the_live_header_follows_acked_header_changes() {
         .await
         .expect("name/set");
     assert_eq!(live.header().get("title"), Some(&json!("renamed")));
+}
+
+/// `thread/reactions/set`: the reaction is stored on the user's message (an amend of its row), a
+/// repeat changes nothing, and the refusals carry Node's text.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reaction_is_stored_on_the_users_message_and_refused_as_node_does() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from("u1".to_owned()),
+                    role: Some("user".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "user", "content": "hello", "meta": { "transcript": { "at": 1, "messageId": "m1" } } }),
+                })
+                .await
+                .expect("commit");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    let id = handle.id.clone();
+    let react = |params: Value| {
+        handle.request(CoreRequest {
+            method: Method("thread/reactions/set"),
+            params,
+            op: None,
+            ctx: CallContext::internal("test"),
+        })
+    };
+    let value = |reply: Result<Reply, CoreError>| match reply.expect("reply") {
+        Reply::Value(value) => value,
+        Reply::Subscribe(_) => panic!("a value"),
+    };
+
+    let set = value(react(json!({ "agentId": "rev", "emoji": "👍", "messagesBack": 0 })).await);
+    assert_eq!((set["changed"].clone(), set["messageId"].clone()), (json!(true), json!("m1")));
+    assert_eq!(set["reactions"][0]["emoji"], "👍");
+    let again = value(react(json!({ "agentId": "rev", "emoji": "👍" })).await);
+    assert_eq!(again["changed"], false, "the same emoji again changes nothing");
+
+    let stored = |directory: SessionDirectory| {
+        let id = id.clone();
+        async move {
+            let (_, row) = directory.history_row(&id, "u1").await.expect("read").expect("row");
+            let mixdog_store::schema::blob::Slot::Inline(body) = row.body else { panic!("inline") };
+            body["meta"]["transcript"].clone()
+        }
+    };
+    let reopened = SessionDirectory::new(rig.deps_on(store.clone()));
+    let transcript = stored(reopened).await;
+    assert_eq!(transcript["reactions"][0]["agentId"], "rev");
+    assert_eq!(transcript["reactions"][0]["emoji"], "👍");
+
+    let domain = |reply: Result<Reply, CoreError>| match reply {
+        Err(CoreError::DomainError { message: Some(message), .. }) => message.to_string(),
+        other => panic!("a domain error, got {other:?}"),
+    };
+    let taken = domain(react(json!({ "agentId": "bob", "emoji": "👍", "othersKeep": true })).await);
+    assert_eq!(taken, "react: rev already left 👍 on that message");
+    let far = domain(react(json!({ "agentId": "rev", "emoji": "🙏", "messagesBack": 3 })).await);
+    assert_eq!(far, "react: there are only 1 user messages to react to");
+
+    let removed = value(react(json!({ "agentId": "rev", "emoji": null })).await);
+    assert_eq!((removed["changed"].clone(), removed["reactions"].clone()), (json!(true), json!([])));
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    assert!(stored(reopened).await.get("reactions").is_none(), "the last removal drops the key");
+    let refused = handle
+        .request(request("thread/reactions/set", json!({ "agentId": "rev", "emoji": "👍" }), "op-x"))
+        .await;
+    assert!(matches!(refused, Err(CoreError::InvalidParams { .. }) | Err(CoreError::PermissionDenied { .. })), "{refused:?}");
 }

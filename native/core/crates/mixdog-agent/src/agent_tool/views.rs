@@ -37,6 +37,28 @@ use super::stamp::elapsed_from_stamps;
 use super::stamp::iso_from_ms;
 use crate::env::Clock;
 
+/// A session clock as the record holds it. A session's own header carries epoch milliseconds (a
+/// number); a worker-index row carries an ISO string. Node passes either through (`createdAt ||
+/// null`, `String(updatedAt || lastUsedAt)`), so a number is shown as its digits, which
+/// `Date.parse` does not read as a time: no elapsed label.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Stamp {
+    Ms(i64),
+    Text(String),
+}
+
+impl Stamp {
+    /// `String(value)` when `value` is truthy (`0` and `''` are skipped by `||`).
+    pub fn shown(&self) -> Option<String> {
+        match self {
+            Self::Ms(0) => None,
+            Self::Ms(ms) => Some(ms.to_string()),
+            Self::Text(text) if text.is_empty() => None,
+            Self::Text(text) => Some(text.clone()),
+        }
+    }
+}
+
 /// What the host knows of a worker session (`mgr.getSession`).
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct WorkerFacts {
@@ -56,9 +78,10 @@ pub struct WorkerFacts {
     /// `session.stage`.
     pub stage: Option<String>,
     pub awaiting_user: bool,
-    pub created_at: Option<String>,
-    pub updated_at: Option<String>,
-    pub last_used_at: Option<String>,
+    /// The session's clocks exactly as the record holds them (see [`Stamp`]).
+    pub created_at: Option<Stamp>,
+    pub updated_at: Option<Stamp>,
+    pub last_used_at: Option<Stamp>,
     pub client_host_pid: Option<u64>,
     /// `workerResultText`: the last assistant message, else the last handoff, else a placeholder.
     pub result_text: String,
@@ -79,12 +102,14 @@ pub struct WorkerLive {
 }
 
 /// The worker sessions, from the session directory.
+#[async_trait]
 pub trait Workers: Send + Sync {
-    fn session(&self, session_id: &str) -> Option<WorkerFacts>;
+    /// Reads stored sessions too (workerResultText), so it waits on the store.
+    async fn session(&self, session_id: &str) -> Option<WorkerFacts>;
     fn live(&self, session_id: &str) -> WorkerLive;
     /// `agentSessionEntries`: the tag-bound sessions (and, when `scan_sessions`, stored ones)
     /// visible in `scope`, as `(tag, session)`.
-    fn entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, WorkerFacts)>;
+    async fn entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, WorkerFacts)>;
 }
 
 pub struct JobViews {
@@ -186,8 +211,8 @@ impl JobViews {
     }
 
     /// `sessionProgressExtras`.
-    fn progress_of(&self, session_id: &str, task_status: Option<&str>) -> Progress {
-        let facts = self.workers.session(session_id);
+    async fn progress_of(&self, session_id: &str, task_status: Option<&str>) -> Progress {
+        let facts = self.workers.session(session_id).await;
         let live = self.workers.live(session_id);
         progress_fields(&ProgressInput {
             now: self.clock.now_ms(),
@@ -205,7 +230,7 @@ impl JobViews {
     }
 
     /// `renderJob`: the job as a status card.
-    fn render(&self, job: JobData, include_result: bool) -> Job {
+    async fn render(&self, job: JobData, include_result: bool) -> Job {
         let now = self.clock.now_ms();
         let meta = &job.meta;
         let mut view = TaskView {
@@ -247,11 +272,11 @@ impl JobViews {
             view.stage = Some(frozen.worker_stage.clone());
             apply(&mut view, frozen);
         } else if let Some(session_id) = meta.session_id.as_deref().filter(|s| !s.is_empty()) {
-            if let Some(facts) = self.workers.session(session_id) {
+            if let Some(facts) = self.workers.session(session_id).await {
                 view.worker_status = Some(if facts.closed { "closed".to_owned() } else { facts.status.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "idle".to_owned()) });
-                view.stage = Some(self.progress_of(session_id, None).worker_stage);
+                view.stage = Some(self.progress_of(session_id, None).await.worker_stage);
             }
-            let live = self.progress_of(session_id, Some(&job.status));
+            let live = self.progress_of(session_id, Some(&job.status)).await;
             apply(&mut view, live);
         } else {
             let spawning = job.status == "running";
@@ -274,8 +299,9 @@ impl JobViews {
     }
 
     /// The job `task_id` as its status card (the answer to a spawn or send).
-    pub fn card(&self, task_id: &str, scope: &Scope, include_result: bool) -> Option<Job> {
-        self.board.get(task_id, scope).map(|s| self.render(s.into(), include_result))
+    pub async fn card(&self, task_id: &str, scope: &Scope, include_result: bool) -> Option<Job> {
+        let snapshot = self.board.get(task_id, scope)?;
+        Some(self.render(snapshot.into(), include_result).await)
     }
 
     /// `getJob`.
@@ -307,14 +333,18 @@ impl JobViews {
     async fn worker_fallback(&self, target: &str, scope: &Scope) -> Option<JobData> {
         self.registry.refresh_tags_from_sessions(true, scope).await;
         let bound = self.registry.tag_session(target);
-        let session_id = bound.clone().or_else(|| self.workers.session(target).map(|_| target.to_owned()))?;
-        let session = self.workers.session(&session_id)?;
+        let session_id = match bound.clone() {
+            Some(bound) => bound,
+            None => self.workers.session(target).await.map(|_| target.to_owned())?,
+        };
+        let session = self.workers.session(&session_id).await?;
         let status = if session.closed { "closed".to_owned() } else { session.status.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "idle".to_owned()) };
         Some(JobData {
             task_id: None,
             operation: "worker".to_owned(),
             status,
-            started_at: session.created_at.clone(),
+            // session.createdAt || null: the number itself, which the card shows as its digits.
+            started_at: session.created_at.as_ref().and_then(Stamp::shown),
             finished_at: None,
             error: None,
             result: Some(TaskResult::Content(session.result_text.clone())),
@@ -337,14 +367,14 @@ impl JobViews {
 impl Views for JobViews {
     async fn get_job_or_worker(&self, args: &Value, scope: &Scope, include_result: bool) -> Result<Job, String> {
         let error = match self.find(args, scope) {
-            Ok(snapshot) => return Ok(self.render(snapshot.into(), include_result)),
+            Ok(snapshot) => return Ok(self.render(snapshot.into(), include_result).await),
             Err(error) => error,
         };
         let target = first_truthy(&[args.get("tag"), args.get("sessionId")]);
         if !target.is_empty()
             && let Some(job) = self.worker_fallback(&target, scope).await
         {
-            return Ok(self.render(job, include_result));
+            return Ok(self.render(job, include_result).await);
         }
         Err(error)
     }
@@ -352,7 +382,7 @@ impl Views for JobViews {
     async fn list(&self, scope: &Scope, options: ListOptions) -> Vec<WorkerRow> {
         self.registry.refresh_tags_from_sessions(options.scan_sessions, scope).await;
         let mut rows = Vec::new();
-        for (tag, facts) in self.workers.entries(options.scan_sessions, scope) {
+        for (tag, facts) in self.workers.entries(options.scan_sessions, scope).await {
             let live = self.workers.live(&facts.id);
             let (status, stage) = row_state(&facts, live.runtime_stage.as_deref());
             // Whether a row is listed depends on its status and stage alone, so a finished
@@ -364,7 +394,7 @@ impl Views for JobViews {
             if !listed {
                 continue;
             }
-            let progress = self.progress_of(&facts.id, None);
+            let progress = self.progress_of(&facts.id, None).await;
             let hung = progress.diagnostic.starts_with("tool possibly hung").then(|| progress.diagnostic.clone());
             rows.push(WorkerRow {
                 tag,
@@ -374,37 +404,38 @@ impl Views for JobViews {
                 last_progress: Some(progress.last_progress),
                 tool_silent_for: progress.tool_silent_for,
                 hung_diagnostic: hung,
-                stamp: facts.updated_at.clone().filter(|s| !s.is_empty()).or_else(|| facts.last_used_at.clone()).unwrap_or_default(),
+                stamp: facts.updated_at.as_ref().and_then(Stamp::shown).or_else(|| facts.last_used_at.as_ref().and_then(Stamp::shown)).unwrap_or_default(),
             });
         }
         rows
     }
 
-    fn list_jobs(&self, scope: &Scope) -> Vec<JobRow> {
-        self.board
-            .list_jobs(scope)
-            .into_iter()
-            .filter(|task| {
-                // A running job whose worker belongs to another host process is not this one's.
-                let Some(wanted) = scope.host_pid else { return true };
-                if task.is_terminal() {
-                    return true;
+    async fn list_jobs(&self, scope: &Scope) -> Vec<JobRow> {
+        let mut rows = Vec::new();
+        for task in self.board.list_jobs(scope) {
+            // A running job whose worker belongs to another host process is not this one's.
+            if let Some(wanted) = scope.host_pid
+                && !task.is_terminal()
+            {
+                let pid = match task.meta.session_id.as_deref() {
+                    Some(id) => self.workers.session(id).await.and_then(|s| s.client_host_pid).filter(|p| *p > 0),
+                    None => None,
+                };
+                if pid.is_some_and(|pid| pid != wanted) {
+                    continue;
                 }
-                let pid = task.meta.session_id.as_deref().and_then(|id| self.workers.session(id)).and_then(|s| s.client_host_pid).filter(|p| *p > 0);
-                pid.is_none_or(|pid| pid == wanted)
-            })
-            .map(|task| {
-                let finished = task.is_terminal();
-                JobRow {
-                    stamp: iso_from_ms(task.finished_ms.unwrap_or(task.started_ms)),
-                    task_id: task.task_id,
-                    kind: task.operation,
-                    status: task.status,
-                    tag: task.meta.tag,
-                    error: task.error,
-                    finished,
-                }
-            })
-            .collect()
+            }
+            let finished = task.is_terminal();
+            rows.push(JobRow {
+                stamp: iso_from_ms(task.finished_ms.unwrap_or(task.started_ms)),
+                task_id: task.task_id,
+                kind: task.operation,
+                status: task.status,
+                tag: task.meta.tag,
+                error: task.error,
+                finished,
+            });
+        }
+        rows
     }
 }

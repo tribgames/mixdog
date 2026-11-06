@@ -1,6 +1,7 @@
 //! Frames of a migrated session (SM §11.4.1 order): `session`, archive rows, transcript
 //! rows, recovered checkpoint rows and runs, queue entries, header `meta`s, and a final
-//! `checkpoint`; rotated at `ROTATE_AT` with a `checkpoint` first in each later file.
+//! `checkpoint`; rotated at `ROTATE_AT` with a `checkpoint` first in each later file. A
+//! message row's `meta.modelSwitches` entries follow it as `model_switch` records.
 //! Byte-identical on every run (SM §11.3.4).
 
 use mixdog_protocol::INLINE_MAX;
@@ -19,12 +20,16 @@ use mixdog_store::schema::frame::FRAME_OVERHEAD;
 use mixdog_store::schema::frame::MAX_FRAME_PAYLOAD;
 use mixdog_store::schema::frame::ROTATE_AT;
 use mixdog_store::schema::migration::QuarantineCode;
+use mixdog_store::schema::record::Anchor;
 use mixdog_store::schema::record::CheckpointRecord;
+use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
 use mixdog_store::schema::record::ItemRecord;
 use mixdog_store::schema::record::MetaRecord;
 use mixdog_store::schema::record::MigrationOrigin;
+use mixdog_store::schema::record::ModelSwitchEntry;
+use mixdog_store::schema::record::ModelSwitchRecord;
 use mixdog_store::schema::record::Origin;
 use mixdog_store::schema::record::QueueAction;
 use mixdog_store::schema::record::QueueRecord;
@@ -34,6 +39,7 @@ use mixdog_store::schema::record::RunRecord;
 use mixdog_store::schema::record::SESSION_RECORD_VERSION;
 use mixdog_store::schema::record::SessionRecord;
 use serde::Serialize;
+use serde_json::Value;
 
 use super::model::Row;
 use super::model::SessionModel;
@@ -73,6 +79,39 @@ fn slot_within<T: Serialize>(cx: &ItemContext<'_>, value: T, budget: usize) -> R
         )),
         Err(e) => panic!("a slot value encodes: {e}"),
     }
+}
+
+/// A message row's `meta.modelSwitches` entries (1.4.5 `recordModelSwitchBoundary`) as
+/// `model_switch` entries, in order, and its body without them (FORMAT.md §5.2: the store
+/// appends the boundary instead of rewriting the row). None when there are none, or when any
+/// entry is not exactly a record's entry or repeats an earlier one's time and model (a reader
+/// shows such a repeat once), or when another `meta` key follows `modelSwitches` (a reader
+/// appends the folded list last; 1.4.5 kept its first position when a later boundary list
+/// such as `workflowSwitches` joined): the row then keeps them as 1.4.5 wrote them.
+fn model_switches(row: &Row) -> Option<(Value, Vec<ModelSwitchEntry>)> {
+    if row.form != Form::Message {
+        return None;
+    }
+    let meta = row.body.get("meta")?.as_object()?;
+    if meta.keys().next_back().map(String::as_str) != Some("modelSwitches") {
+        return None;
+    }
+    let switches = meta["modelSwitches"].as_array()?;
+    if switches.is_empty() {
+        return None;
+    }
+    let mut entries: Vec<ModelSwitchEntry> = Vec::new();
+    for value in switches {
+        let entry: ModelSwitchEntry = serde_json::from_value(value.clone()).ok()?;
+        let same = |e: &ModelSwitchEntry| e.at == entry.at && e.model_id == entry.model_id;
+        if serde_json::to_value(&entry).ok()? != *value || entries.iter().any(same) {
+            return None;
+        }
+        entries.push(entry);
+    }
+    let mut body = row.body.clone();
+    body["meta"].as_object_mut()?.shift_remove("modelSwitches");
+    Some((body, entries))
 }
 
 struct Builder<'a> {
@@ -134,8 +173,27 @@ impl Builder<'_> {
         Ok(self.append(&payload))
     }
 
+    /// The row, then one `model_switch` per entry it carried, anchored on the row.
     fn row(&mut self, row: &Row) -> R<()> {
-        let (body, blob, used) = slot_within(self.cx, row.body.clone(), INLINE_MAX)?;
+        let Some((body, entries)) = model_switches(row) else {
+            return self.item(row, row.body.clone()).map(drop);
+        };
+        let anchor = self.item(row, body)?;
+        for entry in entries {
+            self.push(&Record::ModelSwitch(ModelSwitchRecord {
+                anchor: Anchor {
+                    iid: bounded(&row.iid, "iid")?,
+                    ordinal: anchor.ordinal,
+                },
+                op: None,
+                entry: slot(self.cx, entry)?.0,
+            }))?;
+        }
+        Ok(())
+    }
+
+    fn item(&mut self, row: &Row, body: Value) -> R<FramePos> {
+        let (body, blob, used) = slot_within(self.cx, body, INLINE_MAX)?;
         let (prompt, prompt_blob) = match row.prompt.clone() {
             Some(text) => {
                 let (slot, hex, _) = slot_within(self.cx, text, INLINE_MAX - used)?;
@@ -165,10 +223,10 @@ impl Builder<'_> {
             refs: List::try_from(refs).or_else(|e| violation(format!("refs: {e}")))?,
             body,
         });
-        self.push(&record)?;
+        let pos = self.push(&record)?;
         self.rows += 1;
         self.visible_rows += u64::from(row.visible);
-        Ok(())
+        Ok(pos)
     }
 }
 

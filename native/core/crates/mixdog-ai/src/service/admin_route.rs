@@ -43,14 +43,7 @@ pub fn number(v: Option<&Value>) -> f64 {
     v.map_or(f64::NAN, to_number)
 }
 
-/// A JS number as JSON: integral values print without a fraction.
-pub fn jnum(f: f64) -> Value {
-    if f.fract() == 0.0 && f.abs() < 9.0e15 {
-        Value::from(f as i64)
-    } else {
-        serde_json::Number::from_f64(f).map_or(Value::Null, Value::Number)
-    }
-}
+pub use mixdog_js::json_number as jnum;
 
 /// `Math.round`: halves go toward +Infinity.
 pub fn js_round(x: f64) -> f64 {
@@ -230,7 +223,8 @@ fn clean_model_parameters(value: Option<&Value>) -> Obj {
     out
 }
 
-fn clean_context_percent(value: Option<&Value>) -> Option<f64> {
+/// `normalizeContextPercent`: a requested share snapped to 10% steps within 10..100.
+pub fn clean_context_percent(value: Option<&Value>) -> Option<f64> {
     let percent = number(value);
     if !percent.is_finite() || percent <= 0.0 {
         return None;

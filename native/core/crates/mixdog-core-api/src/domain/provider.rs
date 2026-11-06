@@ -904,6 +904,18 @@ pub struct PickerFields {
     pub additional_speed_tiers: Vec<String>,
     pub reasoning_options: Vec<ReasoningOption>,
     pub custom_reasoning: Option<CustomReasoning>,
+    /// How the id is classed in the listing (`dated`, `version`, `family`).
+    pub tier: Option<String>,
+    /// The newest of its family, as the adapter's second pass marks it.
+    pub latest: bool,
+    pub description: Option<String>,
+    /// The service tier the catalog selects when the route names none (Codex).
+    pub default_service_tier: Option<String>,
+    /// The default variant's route parameters minus `effort` and `fast` (Cursor).
+    pub default_model_parameters: std::collections::BTreeMap<String, String>,
+    /// Whether the default variant is the fast one (Cursor).
+    pub default_fast: bool,
+    pub supports_max_mode: bool,
 }
 
 /// One model as the provider lists it, before catalog enrichment (pricing
@@ -922,6 +934,17 @@ pub struct ModelRecord {
     /// display-name fallback, so `enrich_listed` reads it; the catalog shows
     /// it when no display name is known.
     pub name: Option<String>,
+    /// The custom provider's own name for itself, as its row states it.
+    pub provider_name: Option<String>,
+    /// A custom model the user added by hand, not one discovery listed.
+    pub manual: bool,
+    /// Whether the model takes a reasoning-effort change mid-conversation, where
+    /// the provider's catalog says (Codex `supports_reasoning_effort_updates`);
+    /// `None` when it does not, and the version rule then decides.
+    pub supports_reasoning_effort_updates: Option<bool>,
+    /// Whether the model caches prompts: the listing's own word, else the
+    /// catalog's (`enrich_listed`).
+    pub supports_prompt_caching: Option<bool>,
     pub context_window: Option<u64>,
     /// The largest window the model can be served with, where the listing
     /// states one above the served `context_window` (`maxContextWindow`).
@@ -968,6 +991,10 @@ impl ModelRecord {
             id: id.into(),
             display_name: None,
             name: None,
+            provider_name: None,
+            manual: false,
+            supports_reasoning_effort_updates: None,
+            supports_prompt_caching: None,
             context_window: None,
             max_context_window: None,
             max_output_tokens: None,

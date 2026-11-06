@@ -139,6 +139,19 @@
     },
     {
       "args": {
+        "action": "set_memory_enabled",
+        "enabled": true
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_memory_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "set_recap_enabled",
         "enabled": false
       },
@@ -269,6 +282,19 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup set_recap_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_recap_enabled",
+        "enabled": false
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_recap_enabled)",
         "ok": false
       },
       "voice": "ok"
@@ -411,6 +437,19 @@
     },
     {
       "args": {
+        "action": "set_web_search_enabled",
+        "enabled": true
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_web_search_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "set_instruction_files",
         "instructionFiles": "agents"
       },
@@ -541,6 +580,19 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup set_instruction_files is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_instruction_files",
+        "instructionFiles": "agents"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_instruction_files)",
         "ok": false
       },
       "voice": "ok"
@@ -683,6 +735,19 @@
     },
     {
       "args": {
+        "action": "set_auto_effort_base",
+        "autoEffortBase": "high"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_auto_effort_base)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "set_builtin_enabled",
         "enabled": true,
         "name": "git"
@@ -833,6 +898,20 @@
       "args": {
         "action": "set_builtin_enabled",
         "enabled": true,
+        "name": "git"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
         "name": "browser"
       },
       "caller": "human",
@@ -937,6 +1016,20 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup set_builtin_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "browser"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_builtin_enabled)",
         "ok": false
       },
       "voice": "ok"
@@ -1121,6 +1214,20 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup set_builtin_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_builtin_enabled)",
         "ok": false
       },
       "voice": "ok"
@@ -1320,6 +1427,20 @@
     },
     {
       "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "install_builtin",
         "name": "memory"
       },
@@ -1457,6 +1578,19 @@
     {
       "args": {
         "action": "install_builtin",
+        "name": "memory"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
         "name": "git"
       },
       "caller": "human",
@@ -1593,6 +1727,19 @@
     {
       "args": {
         "action": "install_builtin",
+        "name": "git"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
         "name": "computer"
       },
       "caller": "human",
@@ -1690,6 +1837,19 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup install_builtin is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "computer"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup install_builtin)",
         "ok": false
       },
       "voice": "ok"
@@ -1870,6 +2030,19 @@
     },
     {
       "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "set_worktree_settings",
         "worktree": {
           "cleanupArchived": true
@@ -2024,6 +2197,21 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup set_worktree_settings is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_worktree_settings",
+        "worktree": {
+          "cleanupArchived": true
+        }
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_worktree_settings)",
         "ok": false
       },
       "voice": "ok"
@@ -2190,6 +2378,22 @@
     },
     {
       "args": {
+        "action": "set_bot_order",
+        "botOrder": [
+          "b",
+          "a"
+        ]
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_bot_order)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "set_cache_warming_enabled",
         "enabled": false
       },
@@ -2308,6 +2512,19 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup set_cache_warming_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": false
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_cache_warming_enabled)",
         "ok": false
       },
       "voice": "ok"
@@ -2462,6 +2679,19 @@
     {
       "args": {
         "action": "set_output_style",
+        "style": "minimal"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_output_style)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
         "style": "   "
       },
       "caller": "human",
@@ -2572,6 +2802,19 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup set_output_style is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "   "
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_output_style)",
         "ok": false
       },
       "voice": "ok"
@@ -2714,6 +2957,19 @@
     },
     {
       "args": {
+        "action": "set_auto_update",
+        "enabled": true
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_auto_update)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "set_ai_session_titles",
         "enabled": false
       },
@@ -2850,6 +3106,19 @@
     },
     {
       "args": {
+        "action": "set_ai_session_titles",
+        "enabled": false
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_ai_session_titles)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "set_heartbeat_enabled",
         "enabled": true
       },
@@ -2980,6 +3249,19 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup set_heartbeat_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_heartbeat_enabled",
+        "enabled": true
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_heartbeat_enabled)",
         "ok": false
       },
       "voice": "ok"
@@ -3124,6 +3406,19 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup set_quota_auto_resume is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_quota_auto_resume",
+        "enabled": true
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_quota_auto_resume)",
         "ok": false
       },
       "voice": "ok"
@@ -3306,6 +3601,21 @@
     },
     {
       "args": {
+        "action": "set_model_preferences",
+        "hidden": true,
+        "model": "m",
+        "provider": "openai"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_model_preferences)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "set_system_shell",
         "command": "pwsh"
       },
@@ -3450,6 +3760,19 @@
     },
     {
       "args": {
+        "action": "set_system_shell",
+        "command": "pwsh"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_system_shell)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "set_reactions_enabled",
         "enabled": true
       },
@@ -3586,6 +3909,19 @@
     },
     {
       "args": {
+        "action": "set_reactions_enabled",
+        "enabled": true
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_reactions_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "set_cache_warming_enabled",
         "enabled": true
       },
@@ -3710,6 +4046,19 @@
     },
     {
       "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": true
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_cache_warming_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "reconnect_mcp"
       },
       "caller": "human",
@@ -3828,6 +4177,18 @@
       "reach": false,
       "result": {
         "error": "A heartbeat turn only pauses a routine or runs one again (setup reconnect_mcp is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "reconnect_mcp"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup reconnect_mcp)",
         "ok": false
       },
       "voice": "ok"
@@ -4045,6 +4406,23 @@
     },
     {
       "args": {
+        "action": "set_agent_route",
+        "agent": "helper",
+        "route": {
+          "model": "m",
+          "provider": "openai"
+        }
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_agent_route)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "connect_connector",
         "connector": "github"
       },
@@ -4140,6 +4518,19 @@
         "connector": "github"
       },
       "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "connect_connector",
+        "connector": "github"
+      },
+      "caller": "open_fails",
       "reach": false,
       "result": {
         "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.",
@@ -4273,6 +4664,20 @@
     },
     {
       "args": {
+        "action": "restore_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup restore_definition)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
         "action": "delete_definition",
         "definitionKind": "agent",
         "name": "writer"
@@ -4397,6 +4802,20 @@
       "reach": false,
       "result": {
         "error": "Only Mixy (the representative agent) can create, edit or delete agents (setup delete_definition); ask the user to do it with Mixy or in the Agents settings",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "open_fails",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup delete_definition)",
         "ok": false
       },
       "voice": "ok"

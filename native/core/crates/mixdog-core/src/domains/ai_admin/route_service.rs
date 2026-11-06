@@ -30,6 +30,8 @@ pub trait SessionFollow: Send + Sync {
     fn open_lease(&self, thread: &ThreadId, origin: Option<u64>) -> u64;
     async fn follow(&self, thread: &ThreadId, options: &FollowOptions) -> Result<Followed, PortError>;
     async fn tune(&self, thread: &ThreadId) -> Result<(), PortError>;
+    /// `continueSessionInModel`'s switch of the conversation in place.
+    async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError>;
 }
 
 #[async_trait]
@@ -44,6 +46,10 @@ impl SessionFollow for SessionRoutes {
 
     async fn tune(&self, thread: &ThreadId) -> Result<(), PortError> {
         SessionRoutes::tune(self, thread).await
+    }
+
+    async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
+        SessionRoutes::switch_now(self, thread).await
     }
 }
 
@@ -277,10 +283,10 @@ impl RouteService {
         // A conditional fill reaches the file only while no Lead route is stored there. When
         // another process wrote one after the re-read above, the file's route replaces the fill.
         let mut replaced = false;
-        if let Some(filled) = &filled {
-            if self.config.confirm_lead_fill(&Value::Object(filled.clone())).await.map_err(text)?.is_some() {
-                replaced = self.adopt_fill_winner(thread, filled)?;
-            }
+        if let Some(filled) = &filled
+            && self.config.confirm_lead_fill(&Value::Object(filled.clone())).await.map_err(text)?.is_some()
+        {
+            replaced = self.adopt_fill_winner(thread, filled)?;
         }
         // The refresh completes against the route just adopted and only while the selection still owns it.
         self.writer.refresh_route_effort(thread, (!replaced).then_some(meta), true, lease).await.map_err(port)?;
@@ -315,6 +321,24 @@ impl RouteService {
                 Value::Object(route)
             }
             None => live(),
+        })
+    }
+
+    /// `continueSessionInModel(sessionId, next)`: the quota escape hatch. The selection is adopted
+    /// as the live route and the addressed, established conversation switches onto it in place.
+    /// `{ modelSwitch }` with the recorded boundary, else `true` (nothing switched, or the
+    /// session moved on while the selection resolved).
+    pub async fn continue_session_in_model(&self, thread: &ThreadId, session_id: &str, next: &Obj) -> Result<Value, String> {
+        if session_id.is_empty() || session_id != thread.as_str() {
+            return Err(format!("session {session_id} is not the active session"));
+        }
+        let lease = Some(self.session.open_lease(thread, None));
+        if !self.adopt_route(thread, next, &SetRouteOptions::default(), lease).await? || !self.lease_holds(thread, lease) {
+            return Ok(Value::Bool(true));
+        }
+        Ok(match self.session.switch_now(thread).await.map_err(port)? {
+            Some(boundary) => json!({ "modelSwitch": boundary }),
+            None => Value::Bool(true),
         })
     }
 

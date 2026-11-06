@@ -17,6 +17,20 @@ use std::sync::PoisonError;
 use async_trait::async_trait;
 use mixdog_ai::accounts::AccountStore;
 use mixdog_ai::accounts::MAX_ACCOUNTS;
+use mixdog_ai::accounts::rotation::AccountRotation;
+use mixdog_ai::accounts::rotation::AccountSender;
+use mixdog_ai::accounts::rotation::CooldownPolicy;
+use mixdog_ai::accounts::rotation::Failed;
+use mixdog_ai::accounts::rotation::PoolError;
+use mixdog_ai::accounts::rotation::SendContext;
+use mixdog_ai::accounts::rotation::Stage;
+use mixdog_ai::admission::AdmissionRequest;
+use mixdog_ai::admission::LaneKey;
+use mixdog_ai::admission::LaneSettings;
+use mixdog_ai::broker::AttemptSink;
+use mixdog_ai::broker::ModelBroker;
+use mixdog_ai::broker::SendError;
+use mixdog_ai::broker::SendRequest;
 use mixdog_ai::providers::custom::listing::manual_rows;
 use mixdog_ai::providers::custom::listing::public_rows;
 use mixdog_ai::registry::builder::CustomParts;
@@ -37,8 +51,10 @@ use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StreamEvent;
+use tokio_util::sync::CancellationToken;
 use mixdog_js::js_trim;
 use mixdog_js::utf16_len;
+use mixdog_protocol::ProviderId;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -363,6 +379,18 @@ pub struct CustomHost {
     accounts: AccountStore,
     builder: Arc<DefaultProviderBuilder>,
     env: Arc<dyn Environment>,
+    /// The shared send path and key roster rotation: a connection test sends as a request does.
+    broker: Arc<ModelBroker>,
+    rotation: AccountRotation,
+    /// Where Node writes to stderr (`process.stderr.write`); the line carries its own newline.
+    log: Arc<dyn Fn(&str) + Send + Sync>,
+}
+
+/// What a host supplies beside the stores (`CustomHost::new`).
+pub struct CustomSeams {
+    pub broker: Arc<ModelBroker>,
+    pub rotation: AccountRotation,
+    pub log: Arc<dyn Fn(&str) + Send + Sync>,
 }
 
 impl CustomHost {
@@ -373,8 +401,10 @@ impl CustomHost {
         accounts: AccountStore,
         builder: Arc<DefaultProviderBuilder>,
         env: Arc<dyn Environment>,
+        seams: CustomSeams,
     ) -> Arc<Self> {
-        Arc::new(Self { config, vault, keys, accounts, builder, env })
+        let CustomSeams { broker, rotation, log } = seams;
+        Arc::new(Self { config, vault, keys, accounts, builder, env, broker, rotation, log })
     }
 
     async fn key_ids_of(&self, id: &str) -> Vec<String> {
@@ -410,7 +440,8 @@ impl CustomHost {
         let stored = self.vault.get(&api_key_account(id)).await.ok().flatten().is_some_and(|key| !key.is_empty());
         let unstored_status = if configured_enabled { "No Key" } else { "Off" };
         let mut status = if stored { "Set" } else { unstored_status };
-        let mut detail = if stored { "stored in keychain" } else { "custom endpoint" }.to_owned();
+        let located = if self.vault.is_fallback(&api_key_account(id)).await { "stored in private file" } else { "stored in keychain" };
+        let mut detail = if stored { located } else { "custom endpoint" }.to_owned();
         if !api_key_env.is_empty() {
             status = if env_set { "Env" } else { unstored_status };
             detail = api_key_env.clone();
@@ -478,6 +509,8 @@ struct BuiltEndpoint {
     builder: Arc<DefaultProviderBuilder>,
     id: String,
     config: Value,
+    broker: Arc<ModelBroker>,
+    rotation: AccountRotation,
 }
 
 fn plain_error(message: String) -> ProviderError {
@@ -486,18 +519,93 @@ fn plain_error(message: String) -> ProviderError {
     error
 }
 
-/// One `Reply with OK.` attempt; the stream is read to its end.
-async fn send_once(adapter: &dyn ProviderAdapter, model: &str) -> Result<(), ProviderError> {
-    let message = Message::new(Role::User, Content::Text(TEST_PROMPT.into()));
-    let options = RequestOptions { max_output_tokens_override: Some(TEST_MAX_TOKENS), ..RequestOptions::default() };
-    let request = Arc::new(ModelRequest { model: model.to_owned(), messages: vec![message], tools: Vec::new(), options });
-    let mut stream = adapter.attempt(request).await?;
-    while let Some(event) = stream.next().await {
-        if let StreamEvent::Completed { .. } = event? {
-            return Ok(());
+/// The events of a test send are not shown anywhere.
+struct Discard;
+
+impl AttemptSink for Discard {
+    fn event(&mut self, _: StreamEvent) {}
+    fn discard(&mut self) {}
+}
+
+/// The engines of a custom provider's keys: `default` is the primary key's, any other account id
+/// an additional key's own (`customKeyEngine`), built when first used.
+struct KeyEngines {
+    id: String,
+    primary: Arc<dyn ProviderAdapter>,
+    keys: ApiKeyStore,
+    builder: Arc<DefaultProviderBuilder>,
+    config: Value,
+    broker: Arc<ModelBroker>,
+    request: Arc<ModelRequest>,
+    built: Mutex<HashMap<String, Arc<dyn ProviderAdapter>>>,
+}
+
+impl KeyEngines {
+    async fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
+        if account == "default" {
+            return Ok(self.primary.clone());
+        }
+        if let Some(built) = self.built.lock().unwrap_or_else(PoisonError::into_inner).get(account) {
+            return Ok(built.clone());
+        }
+        let key = self.keys.read_custom(&self.id, account).await;
+        if key.is_empty() {
+            return Err(plain_error(format!(
+                "An additional API key of {} is not readable; enter it again in its settings.",
+                self.id
+            )));
+        }
+        // The key is the only source: an environment variable names the primary key alone.
+        let mut config = self.config.clone();
+        if let Some(object) = config.as_object_mut() {
+            object.shift_remove("apiKeyEnv");
+            object.insert("apiKey".into(), json!(key));
+        }
+        let engine = self.builder.build_custom_parts(&self.id, &config).map_err(plain_error)?.adapter;
+        self.built.lock().unwrap_or_else(PoisonError::into_inner).insert(account.to_owned(), engine.clone());
+        Ok(engine)
+    }
+}
+
+#[async_trait]
+impl AccountSender<Option<String>> for KeyEngines {
+    /// A custom provider's engines declare no cooldown policy.
+    fn cooldown_policy(&self, _: &str) -> Option<CooldownPolicy> {
+        None
+    }
+
+    /// One key's send through the shared broker: the retry rules every request follows.
+    async fn send(&self, account: &str, _scoped: bool) -> Result<Option<String>, Failed> {
+        let engine = self.engine(account).await.map_err(Failed::new)?;
+        let lane = self
+            .broker
+            .admission()
+            .lane(&LaneKey::new(ProviderId::from(self.id.as_str()), account), LaneSettings::default());
+        let send = SendRequest { request: self.request.clone(), lane, admission: AdmissionRequest::default() };
+        match self.broker.send(engine.as_ref(), send, &mut Discard, &CancellationToken::new()).await {
+            Ok(_) => Ok(None),
+            Err(SendError::Provider(error) | SendError::Exhausted(error) | SendError::Fallback { last: error, .. }) => {
+                Err(Failed::new(error))
+            }
+            Err(SendError::Admission(error)) => Err(Failed::new(plain_error(format!("{error:?}")))),
+            Err(SendError::Cancelled) => Err(Failed::new(plain_error("This operation was aborted".into()))),
         }
     }
-    Ok(())
+
+    /// The pool names the additional key that served; the primary's answer names none.
+    fn stamp(&self, result: &mut Option<String>, account: &str, _binding: &str) {
+        *result = (account != "default").then(|| account.to_owned());
+    }
+
+    fn notify(&self, _: Stage) {}
+}
+
+/// What a pool that ended without an answer throws.
+fn pool_failure(error: PoolError) -> ProviderError {
+    match error.cause {
+        mixdog_ai::accounts::rotation::Cause::Provider(provider) => provider,
+        _ => plain_error(error.message()),
+    }
 }
 
 #[async_trait]
@@ -510,38 +618,36 @@ impl CustomEndpoint for BuiltEndpoint {
         self.parts.listing.discovery_error()
     }
 
-    /// The key pool of a real request: the primary key first, and an explicit quota or rate
-    /// refusal moves on to the next additional key. The answer names the additional key that
-    /// served, `None` for the primary.
+    /// `Reply with OK.` as a real request is sent: every key's send goes through the shared
+    /// broker (its retry rules), and the roster rotation moves an explicit quota refusal on to
+    /// the next additional key. The answer names the additional key that served.
     async fn send_test(&self, model: &str, key_ids: &[String]) -> Result<Option<String>, ProviderError> {
-        let mut last = match send_once(self.parts.adapter.as_ref(), model).await {
-            Ok(()) => return Ok(None),
-            Err(error) => error,
+        let message = Message::new(Role::User, Content::Text(TEST_PROMPT.into()));
+        let options = RequestOptions { max_output_tokens_override: Some(TEST_MAX_TOKENS), ..RequestOptions::default() };
+        let request = Arc::new(ModelRequest { model: model.to_owned(), messages: vec![message], tools: Vec::new(), options });
+        let engines = KeyEngines {
+            id: self.id.clone(),
+            primary: self.parts.adapter.clone(),
+            keys: self.keys.clone(),
+            builder: self.builder.clone(),
+            config: self.config.clone(),
+            broker: self.broker.clone(),
+            request,
+            built: Mutex::new(HashMap::new()),
         };
-        for key_id in key_ids {
-            if !(last.kind.is_quota() || last.kind == ErrorKind::RateLimited) {
-                break;
-            }
-            let key = self.keys.read_custom(&self.id, key_id).await;
-            if key.is_empty() {
-                return Err(plain_error(format!(
-                    "An additional API key of {} is not readable; enter it again in its settings.",
-                    self.id
-                )));
-            }
-            // The key is the only source: an environment variable names the primary key alone.
-            let mut config = self.config.clone();
-            if let Some(object) = config.as_object_mut() {
-                object.shift_remove("apiKeyEnv");
-                object.insert("apiKey".into(), json!(key));
-            }
-            let parts = self.builder.build_custom_parts(&self.id, &config).map_err(plain_error)?;
-            match send_once(parts.adapter.as_ref(), model).await {
-                Ok(()) => return Ok(Some(key_id.clone())),
-                Err(error) => last = error,
-            }
+        let context = SendContext {
+            model: model.to_owned(),
+            session_id: None,
+            bound_hint: None,
+            cancel: CancellationToken::new(),
+            implicit_plan_usage: None,
+        };
+        // Node builds the pool only for eligible saved keys (`keyIds`, empty for an input that is
+        // keyless or reads its key from the environment); otherwise the primary sends alone.
+        if key_ids.is_empty() {
+            return engines.send("default", false).await.map_err(|failed| failed.error);
         }
-        Err(last)
+        self.rotation.pool_send(&self.id, &context, &engines).await.map_err(pool_failure)
     }
 }
 
@@ -571,6 +677,8 @@ impl CustomProbeHost for CustomHost {
             builder: self.builder.clone(),
             id: id.to_owned(),
             config: full,
+            broker: self.broker.clone(),
+            rotation: self.rotation.clone(),
         };
         Ok(Arc::new(endpoint))
     }
@@ -656,13 +764,15 @@ impl CustomAdmin {
     }
 
     /// A failed save puts the saved roster back and drops the keys it added.
-    async fn revert_extra_keys(&self, id: &str, plan: &ExtraPlan) {
+    /// Node does not catch here: a failure replaces the error that started the revert.
+    async fn revert_extra_keys(&self, id: &str, plan: &ExtraPlan) -> Result<(), Failure> {
         if plan.changed() {
-            let _ = self.host.accounts.set_custom_key_ids(id, plan.saved.clone()).await;
+            self.host.accounts.set_custom_key_ids(id, plan.saved.clone()).await.map_err(acct)?;
         }
         for (key_id, _) in &plan.added {
-            let _ = self.host.keys.forget_custom(id, key_id).await;
+            self.host.keys.forget_custom(id, key_id).await.map_err(vault_failure)?;
         }
+        Ok(())
     }
 
     /// The config write of a save: the entry over the document this transaction sees.
@@ -699,12 +809,13 @@ impl CustomAdmin {
         let entry = match self.write_entry(id, input, &plan).await {
             Ok(entry) => entry,
             Err(error) => {
-                self.revert_extra_keys(id, &plan).await;
+                self.revert_extra_keys(id, &plan).await?;
                 if !typed.is_empty() {
-                    let _ = match previous.filter(|key| !key.is_empty()) {
+                    match previous.filter(|key| !key.is_empty()) {
                         Some(key) => host.keys.save(id, &key).await,
                         None => host.keys.forget(id).await,
-                    };
+                    }
+                    .map_err(vault_failure)?;
                 }
                 return Err(error);
             }
@@ -712,7 +823,12 @@ impl CustomAdmin {
         // A removed key is dropped once the save holds; a keychain refusal then leaves an
         // unused secret behind, never a failed save that did commit.
         for key_id in &plan.removed {
-            let _ = host.keys.forget_custom(id, key_id).await;
+            if let Err(error) = host.keys.forget_custom(id, key_id).await {
+                (host.log)(&format!(
+                    "[provider-admin] could not delete additional API key {key_id} of {id}: {}\n",
+                    error.0
+                ));
+            }
         }
         Ok(host.row(id, &entry).await)
     }
@@ -749,12 +865,13 @@ impl CustomAdmin {
         Ok(entry)
     }
 
-    async fn save_key_inner(&self, id: &str, secret: &str) -> Result<Value, Failure> {
+    async fn save_key_inner(&self, id: &str, secret: &Value) -> Result<Value, Failure> {
         ProviderAdmin::require_local()?;
         let id = js_trim(id).to_owned();
-        if utf16_len(secret) > API_KEY_MAX {
-            return Err(Failure::type_error("custom provider apiKey is invalid"));
-        }
+        let secret = match secret.as_str() {
+            Some(secret) if utf16_len(secret) <= API_KEY_MAX => secret,
+            _ => return Err(Failure::type_error("custom provider apiKey is invalid")),
+        };
         let key = js_trim(secret);
         if key.is_empty() {
             return Err(Failure::error("API key is required"));
@@ -774,10 +891,11 @@ impl CustomAdmin {
                     // dropped, and the previous one is only put back for a provider that exists.
                     let agent = host.config.agent();
                     let exists = is_custom_entry(agent.get("providers").and_then(|p| p.get(&id)));
-                    let _ = match previous.filter(|key| exists && !key.is_empty()) {
+                    match previous.filter(|key| exists && !key.is_empty()) {
                         Some(previous) => host.keys.save(&id, &previous).await,
                         None => host.keys.forget(&id).await,
-                    };
+                    }
+                    .map_err(vault_failure)?;
                     Err(error)
                 }
             }
@@ -785,7 +903,7 @@ impl CustomAdmin {
         .await
     }
 
-    async fn update_model_inner(&self, id: &str, model_id: &str, patch: Value) -> Result<Value, Failure> {
+    async fn update_model_inner(&self, id: &str, model_id: &str, patch: Option<Value>) -> Result<Value, Failure> {
         ProviderAdmin::require_local()?;
         let id = js_trim(id).to_owned();
         let model = js_trim(model_id).to_owned();
@@ -801,10 +919,11 @@ impl CustomAdmin {
                 let current = normalize(&entry).map_err(Failure::error)?;
                 let mut overrides =
                     current.get("modelOverrides").and_then(Value::as_object).cloned().unwrap_or_default();
-                if patch.is_null() {
+                if patch.as_ref().is_some_and(Value::is_null) {
                     overrides.shift_remove(&model);
                 } else {
-                    let patch = plain_patch(&patch, &MODEL_PATCH_KEYS, "model patch")?;
+                    // An absent patch is `plainPatch(undefined)`.
+                    let patch = plain_patch(patch.as_ref().unwrap_or(&Value::Null), &MODEL_PATCH_KEYS, "model patch")?;
                     let mut rest = patch.clone();
                     let reasoning = rest.shift_remove("reasoning");
                     let mut next = apply_tri_state(overrides.get(&model), &rest);
@@ -909,7 +1028,7 @@ impl CustomProviders for CustomAdmin {
         self.refreshed(self.save_inner(input).await)
     }
 
-    async fn save_key(&self, id: &str, secret: &str) -> Result<Value, Failure> {
+    async fn save_key(&self, id: &str, secret: &Value) -> Result<Value, Failure> {
         self.refreshed(self.save_key_inner(id, secret).await)
     }
 
@@ -917,7 +1036,7 @@ impl CustomProviders for CustomAdmin {
         self.refreshed(self.remove_inner(id).await)
     }
 
-    async fn update_model(&self, id: &str, model_id: &str, patch: Value) -> Result<Value, Failure> {
+    async fn update_model(&self, id: &str, model_id: &str, patch: Option<Value>) -> Result<Value, Failure> {
         self.refreshed(self.update_model_inner(id, model_id, patch).await)
     }
 

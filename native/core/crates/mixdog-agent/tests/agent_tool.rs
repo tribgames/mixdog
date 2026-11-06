@@ -200,8 +200,9 @@ impl SendFlow for Fakes {
     }
 }
 
+#[async_trait]
 impl SpawnFlow for Fakes {
-    fn start_deferred_spawn_job(&self, args: &Value, caller_cwd: &str, _caller: &Caller, _notify: &Caller, options: SpawnOptions) -> Result<Job, String> {
+    async fn start_deferred_spawn_job(&self, args: &Value, caller_cwd: &str, _caller: &Caller, _notify: &Caller, options: SpawnOptions) -> Result<Job, String> {
         let n = {
             let mut jobs = self.0.jobs.lock().unwrap();
             *jobs += 1;
@@ -315,7 +316,7 @@ impl Views for Fakes {
             })
             .collect()
     }
-    fn list_jobs(&self, _scope: &Scope) -> Vec<JobRow> {
+    async fn list_jobs(&self, _scope: &Scope) -> Vec<JobRow> {
         self.0
             .list("jobs")
             .iter()

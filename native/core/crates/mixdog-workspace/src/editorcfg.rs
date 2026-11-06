@@ -332,19 +332,7 @@ fn setting(scopes: &[Map<String, Value>], key: &str) -> Option<Value> {
     scopes.iter().rev().find_map(|s| setting_in_scope(s, key))
 }
 
-/// JavaScript `Number(value)`.
-fn js_number(value: &Value) -> f64 {
-    match value {
-        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
-        Value::String(s) => {
-            let t = s.trim();
-            if t.is_empty() { 0.0 } else { t.parse().unwrap_or(f64::NAN) }
-        }
-        Value::Bool(b) => f64::from(u8::from(*b)),
-        Value::Null => 0.0,
-        _ => f64::NAN,
-    }
-}
+use mixdog_js::to_number as js_number;
 
 fn finite(value: Option<Value>, fallback: f64, min: f64, max: f64) -> f64 {
     let n = value.as_ref().map_or(f64::NAN, js_number);
@@ -355,9 +343,7 @@ fn boolean(value: Option<Value>, fallback: bool) -> bool {
     value.and_then(|v| v.as_bool()).unwrap_or(fallback)
 }
 
-fn number_json(n: f64) -> Value {
-    if n.fract() == 0.0 { json!(n as i64) } else { json!(n) }
-}
+use mixdog_js::json_number as number_json;
 
 fn editor_settings(scopes: Vec<Value>, language: &str) -> Value {
     let merged: Vec<Map<String, Value>> = scopes.iter().filter_map(Value::as_object).map(|o| language_settings(o, language)).collect();

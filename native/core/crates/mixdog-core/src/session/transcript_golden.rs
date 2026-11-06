@@ -64,8 +64,8 @@ fn redact(value: &Value, patterns: &[Regex], marker: &str) -> Value {
 fn comparable(row: &Value) -> Value {
     let mut row = normal(row);
     if let Some(map) = row.as_object_mut() {
-        map.remove("id");
-        map.remove("finalAssistantId");
+        map.shift_remove("id");
+        map.shift_remove("finalAssistantId");
     }
     row
 }
@@ -175,6 +175,40 @@ fn rust_rows(messages: &[Value], data: &std::path::Path) -> Vec<Value> {
 fn hidden_tool(row: &Value) -> bool {
     row["kind"] == "tool"
         && is_hidden_tool_item(row["name"].as_str().unwrap_or(""), row["result"].as_str().unwrap_or(""))
+}
+
+/// Stored routine and task-report notices restore to Node's rows, the `routine` payload and the
+/// attachment fields included (`record-routine-notice.mjs`).
+#[test]
+fn routine_notices_equal_nodes() {
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::ItemRecord;
+
+    use super::transcript_rows::Restored;
+    use super::transcript_rows::restore;
+
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/migration/routine-notice/cases.json");
+    let fixture: Value = serde_json::from_slice(&std::fs::read(path).expect("cases.json")).expect("json");
+    for case in fixture["cases"].as_array().expect("cases") {
+        let name = case["name"].as_str().unwrap_or("?");
+        let message = &case["message"];
+        let mut record: ItemRecord = serde_json::from_value(serde_json::json!({
+            "iid": "n", "form": "message", "model": true, "visible": true,
+            "refs": [], "body": { "inline": {} },
+        }))
+        .expect("record shape");
+        record.body = Slot::Inline(message.clone());
+        let strip = |mut row: Value| {
+            row.as_object_mut().expect("row").remove("id");
+            row
+        };
+        let got: Vec<Value> = restore(&record, message)
+            .into_iter()
+            .filter_map(|r| if let Restored::Row { row, .. } = r { Some(strip(Value::Object(row))) } else { None })
+            .collect();
+        let want: Vec<Value> = case["rows"].as_array().expect("rows").iter().cloned().map(strip).collect();
+        assert_eq!(got, want, "{name}");
+    }
 }
 
 /// Per message, whether the shared classifier says Node's restore shows a row for it

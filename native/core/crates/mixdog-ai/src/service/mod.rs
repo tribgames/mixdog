@@ -4,6 +4,8 @@
 
 pub mod admin_models;
 pub mod admin_route;
+pub mod effort_configuration;
+pub mod model_listing;
 pub mod model_proxy;
 pub mod model_proxy_inline;
 pub mod network_proxy;

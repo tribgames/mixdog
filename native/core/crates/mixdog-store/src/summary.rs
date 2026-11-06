@@ -62,24 +62,13 @@ fn clean(v: Option<&Value>) -> String {
 /// `positiveNumber(value, fallback)`.
 fn positive(v: Option<&Value>, fallback: f64) -> f64 {
     let n = match v {
-        Some(Value::Number(n)) => n.as_f64().unwrap_or(f64::NAN),
-        Some(Value::String(s)) => {
-            let t = mixdog_js::js_trim(s);
-            if t.is_empty() { 0.0 } else { t.parse().unwrap_or(f64::NAN) }
-        }
-        Some(Value::Bool(b)) => f64::from(u8::from(*b)),
+        Some(v @ (Value::Number(_) | Value::String(_) | Value::Bool(_))) => mixdog_js::to_number(v),
         _ => f64::NAN,
     };
     if n.is_finite() && n > 0.0 { n } else { fallback }
 }
 
-fn num(n: f64) -> Value {
-    if n.fract() == 0.0 && n.abs() < 9.007_199_254_740_992e15 {
-        json!(n as i64)
-    } else {
-        json!(n)
-    }
-}
+use mixdog_js::json_number as num;
 
 pub(crate) fn is_stored_session_id(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')

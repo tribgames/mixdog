@@ -79,9 +79,28 @@ pub struct WorkerTurns {
 pub struct Claim {
     pub submission_id: String,
     owner: Option<(Arc<Owner>, u64)>,
-    turns: WorkerTurns,
+    turns: Option<WorkerTurns>,
     session_id: String,
     job: Option<Arc<JobHandle>>,
+    /// A claim whose release is not the owner's (a host's own bookkeeping, or a test's).
+    custom: Option<Box<dyn Fn(FinalStatus) + Send + Sync>>,
+}
+
+/// What a dispatch asks of the one owner of a worker's turn status: the claim of the turn it
+/// submits and the observation of turns queued behind a running one.
+pub trait TurnOwner: Send + Sync {
+    fn claim(&self, session_id: &str, job: Option<Arc<JobHandle>>) -> Claim;
+    fn observe(&self, session_id: &str) -> bool;
+}
+
+impl TurnOwner for WorkerTurns {
+    fn claim(&self, session_id: &str, job: Option<Arc<JobHandle>>) -> Claim {
+        WorkerTurns::claim(self, session_id, job)
+    }
+
+    fn observe(&self, session_id: &str) -> bool {
+        WorkerTurns::observe(self, session_id)
+    }
 }
 
 /// A settled turn's row status (`settledTurnStatus`, minus the watchdog's stall verdict): only a
@@ -207,7 +226,7 @@ impl WorkerTurns {
             };
             (owner, started_before)
         });
-        Claim { submission_id, owner, turns: self.clone(), session_id: session_id.to_owned(), job }
+        Claim { submission_id, owner, turns: Some(self.clone()), session_id: session_id.to_owned(), job, custom: None }
     }
 
     /// A deleted session runs no further turn.
@@ -227,8 +246,17 @@ impl WorkerTurns {
 }
 
 impl Claim {
+    /// A claim that releases through release.
+    pub fn custom(submission_id: String, release: Box<dyn Fn(FinalStatus) + Send + Sync>) -> Self {
+        Self { submission_id, owner: None, turns: None, session_id: String::new(), job: None, custom: Some(release) }
+    }
+
     pub fn release(&self, status: FinalStatus) {
-        let Some((owner, started_before)) = &self.owner else { return };
+        if let Some(release) = &self.custom {
+            release(status);
+            return;
+        }
+        let (Some((owner, started_before)), Some(turns)) = (&self.owner, &self.turns) else { return };
         let settle = {
             let mut state = owner.state();
             if state.claims.remove(&self.submission_id).is_none() {
@@ -237,7 +265,7 @@ impl Claim {
             state.current.is_none() && state.started == *started_before
         };
         if settle {
-            self.turns.settle_row(&self.session_id, status, self.job.as_deref());
+            turns.settle_row(&self.session_id, status, self.job.as_deref());
         }
     }
 }

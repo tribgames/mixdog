@@ -202,8 +202,8 @@ writeJson(join(outDir, 'extra-impossible.json'), { impossible });
 // Refresh the set manifest (record-tools.mjs wrote the first version).
 writeSetManifest(outDir, {
   set: 'tools',
-  recorder: 'benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs',
-  command: 'node benchmarks/rust-core/recorders/record-tools.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-tools-extra.mjs --tree <tree>',
+  recorder: 'benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs + record-media-text.mjs',
+  command: 'node benchmarks/rust-core/recorders/record-tools.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-tools-extra.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-media-text.mjs --tree <tree>',
   extra: { extraCases: recorded, extraImpossible: impossible.map((i) => i.tool) },
 });
 // A removal failure fails the run (non-zero exit); the postmaster is already confirmed down above.

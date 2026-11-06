@@ -1649,9 +1649,91 @@ async fn a_rebuild_marks_unreadable_logs_damaged_and_indexes_the_rest() {
     drop(store);
 }
 
+/// Through the writer's codec, so a long entry moves to a blob.
 fn model_switch(iid: &str, ordinal: u64, model: &str, at: i64) -> Encoded {
-    rec(json!({"k":"model_switch","anchor":{"iid":iid,"ordinal":ordinal},
-        "entry":{"provider":"openai","modelId":model,"at":at}}))
+    let record = json!({"k":"model_switch","anchor":{"iid":iid,"ordinal":ordinal},
+        "entry":{"inline":{"provider":"openai","modelId":model,"at":at}}});
+    crate::encode::encode_record(serde_json::from_value(record).unwrap()).unwrap()
+}
+
+/// The model ids of the boundaries on every divider of the lineage's display history.
+async fn divider_switches(store: &SqliteStore, levels: Vec<LineageLevel>) -> Vec<(String, Vec<String>)> {
+    let mut out = Vec::new();
+    for level in 0..levels.len() {
+        for d in store.dividers(levels.clone(), None, level, 0, u64::MAX).await.unwrap() {
+            out.push((d.cid, d.model_switches.into_iter().map(|m| m.model_id).collect()));
+        }
+    }
+    out
+}
+
+/// 1.4.5 anchors a switch on whatever message `modelSwitchAnchorIndex` picks, a compaction's
+/// summary or context ack included, and bounds no model id. A boundary on a replacement
+/// entry is the divider's: by entry position, then oldest level first, then record order;
+/// it lives while the compaction does. A 300 KiB model id goes to a blob and reads back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_switches_anchor_on_a_compaction_entry_and_hold_any_model_id() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (w, _) = env.commit(w, vec![user("a", "one"), user("b", "two")]).await;
+    // The compaction at 3 replaces the context with a summary and an ack and keeps b.
+    let compacted = rec(json!({"k":"compacted","cid":"k1","summary_iid":"sum","replacement":{"inline":[
+        {"iid":"sum","body":{"role":"user","content":"summary"}},
+        {"iid":"ack","body":{"role":"assistant","content":"."}},
+        {"iid":"b","body":{"role":"user","content":"two"}}]}}));
+    let (w, _) = env.commit(w, vec![compacted]).await;
+    let long = "m".repeat(1000);
+    let huge = "h".repeat(300 << 10);
+    let big = model_switch("ack", 3, &huge, 80);
+    assert_eq!(big.blobs().len(), 1, "a 300 KiB entry is a blob");
+    let (w, _) = env.commit(
+        w,
+        vec![
+            model_switch("ack", 3, "m1", 40),
+            model_switch("sum", 3, "m2", 50),
+            model_switch("zz", 3, "never", 60),
+            model_switch("ack", 3, &long, 70),
+            big,
+        ],
+    )
+    .await;
+    let base = || lineage(&[("s1", None)]);
+    // The anchor ordinal of a replacement entry is its frame's; a plain row has none.
+    let entry = |levels: Vec<LineageLevel>, iid: &str| {
+        let (store, iid) = (env.store.clone(), iid.to_owned());
+        async move { store.compaction_entry(levels, None, iid).await.unwrap() }
+    };
+    assert_eq!(
+        (entry(base(), "sum").await, entry(base(), "ack").await, entry(base(), "a").await, entry(base(), "zz").await),
+        (Some(3), Some(3), None, None)
+    );
+    let all = |first: &[&str]| first.iter().map(|m| m.to_string()).chain([long.clone(), huge.clone()]).collect::<Vec<_>>();
+    assert_eq!(divider_switches(&env.store, base()).await, [("k1".to_owned(), all(&["m2", "m1"]))]);
+    // A replacement entry has no history row: no row carries these boundaries.
+    let (rows, _) = env.store.history_page(base(), None, None, 50).await.unwrap();
+    assert!(rows.iter().all(|r| r.model_switches.is_empty()));
+    // A fork at 9 sees the base's up to its fork point, then its own; the base's later one
+    // (9) is not the fork's.
+    let (w, _) = env.commit(w, vec![model_switch("sum", 3, "m5", 90)]).await;
+    let child = env.create("c0", Some(("s1", 9))).await;
+    let (child, _) = env.commit(child, vec![model_switch("sum", 3, "m4", 100)]).await;
+    let fork = || lineage(&[("c0", None), ("s1", Some(9))]);
+    assert_eq!(divider_switches(&env.store, fork()).await, [("k1".to_owned(), all(&["m2", "m4", "m1"]))]);
+    assert_eq!(entry(fork(), "sum").await, Some(3), "a fork finds its base's summary");
+    assert_eq!(divider_switches(&env.store, base()).await, [("k1".to_owned(), all(&["m2", "m5", "m1"]))]);
+    // A rebuild from the logs reads the same, the blob entry included.
+    let expected = (divider_switches(&env.store, base()).await, divider_switches(&env.store, fork()).await);
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    let blobs = crate::schema::blob::BLOB_DIR;
+    copy_tree(&env.data.join(blobs), &other.path().join(blobs));
+    let rebuilt = open_index(other.path()).unwrap();
+    assert_eq!((divider_switches(&rebuilt, base()).await, divider_switches(&rebuilt, fork()).await), expected);
+    // A rewind before the compaction removes its divider and its boundaries.
+    let (w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":3,"reason":"edit"}))]).await;
+    assert!(divider_switches(&env.store, base()).await.is_empty());
+    assert_eq!(entry(base(), "sum").await, None, "a rewound compaction holds no entry");
+    drop((w, child));
 }
 
 /// Each page row with the model ids of its boundaries.

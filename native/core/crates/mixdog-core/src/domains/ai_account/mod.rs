@@ -17,6 +17,8 @@ mod custom_config_tests;
 #[cfg(test)]
 mod custom_probe_tests;
 #[cfg(test)]
+mod custom_send_tests;
+#[cfg(test)]
 mod tests;
 pub mod usage;
 

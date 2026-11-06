@@ -50,6 +50,13 @@ fn invalid(message: &str) -> MediaError {
     MediaError::Invalid(message.to_owned())
 }
 
+/// An asset's original on disk: the index entry with its path, and whether it may be read.
+pub enum Located {
+    Readable(Value),
+    /// A FIFO, device or socket: reading it would hang or never end.
+    Special(Value),
+}
+
 pub struct MediaStore {
     dir: PathBuf,
     lock: Mutex<()>,
@@ -292,14 +299,23 @@ impl MediaStore {
     /// The asset's original as a file. `None` when unknown or its bytes are gone.
     #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     pub fn resolve_file(&self, id: &str) -> Result<Option<Value>, MediaError> {
+        Ok(match self.locate_file(id)? {
+            Some(Located::Readable(entry)) => Some(entry),
+            Some(Located::Special(_)) | None => None,
+        })
+    }
+
+    /// [`resolve_file`](Self::resolve_file) that says why a file that exists is not served: a FIFO,
+    /// device or socket behind an asset name would hang the reader, so it is reported, never opened.
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+    pub fn locate_file(&self, id: &str) -> Result<Option<Located>, MediaError> {
         let Some(mut entry) = self.get_asset(id)? else { return Ok(None) };
-        // A FIFO, device or socket behind an asset name would hang the reader.
-        let readable = |p: &PathBuf| fs::metadata(p).is_ok_and(|m| !mixdog_js::device_paths::is_special_file(&m));
-        let Some(path) = self.stored_asset_path(str_field(&entry, "file")).filter(readable) else { return Ok(None) };
+        let Some(path) = self.stored_asset_path(str_field(&entry, "file")) else { return Ok(None) };
+        let Ok(meta) = fs::metadata(&path) else { return Ok(None) };
         entry["variant"] = json!("original");
         entry["path"] = json!(path.to_string_lossy());
         entry["available"] = json!(true);
-        Ok(Some(entry))
+        Ok(Some(if mixdog_js::device_paths::is_special_file(&meta) { Located::Special(entry) } else { Located::Readable(entry) }))
     }
 
     /// Base64 for the inline path; larger files belong on the file route.
@@ -451,7 +467,7 @@ impl MediaStore {
                 .into_iter()
                 .map(|mut e| {
                     if str_field(&e, "boardId") == id {
-                        e.as_object_mut().map(|o| o.remove("boardId"));
+                        e.as_object_mut().map(|o| o.shift_remove("boardId"));
                     }
                     e
                 })
@@ -482,7 +498,7 @@ impl MediaStore {
                     }
                     moved.push(str_field(&e, "id").to_owned());
                     if target.is_empty() {
-                        e.as_object_mut().map(|o| o.remove("boardId"));
+                        e.as_object_mut().map(|o| o.shift_remove("boardId"));
                     } else {
                         e["boardId"] = json!(target);
                     }
@@ -562,7 +578,7 @@ impl MediaStore {
         let _guard = self.lock.lock().unwrap();
         let mut all = self.read_defaults();
         let mut pins = all.get(PINNED).and_then(Value::as_object).cloned().unwrap_or_default();
-        pins.remove(&key);
+        pins.shift_remove(&key);
         if !lane.is_empty() {
             pins.insert(key.clone(), json!({"lane": lane, "model": text_of(p.get("model")), "account": text_of(p.get("account"))}));
         }
@@ -601,6 +617,27 @@ mod tests {
         assert_eq!(s.delete_asset(str_field(&a, "id")).unwrap()["removed"], true);
         assert!(!path.exists());
         assert_eq!(s.delete_asset("nope").unwrap()["removed"], false);
+    }
+
+    #[test]
+    fn a_file_is_readable_gone_or_special_and_only_the_readable_one_resolves() {
+        let (_d, s) = store();
+        let a = save(&s, "image");
+        let id = str_field(&a, "id");
+        assert!(matches!(s.locate_file(id).unwrap(), Some(Located::Readable(_))));
+        assert!(s.resolve_file(id).unwrap().is_some());
+        assert!(s.locate_file("missing").unwrap().is_none());
+        let path = s.asset_path(id).unwrap().unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(s.locate_file(id).unwrap().is_none() && s.resolve_file(id).unwrap().is_none());
+        // A FIFO behind the asset's name: located, so the caller can say why, and never resolved.
+        #[cfg(unix)]
+        {
+            let c = std::ffi::CString::new(path.to_string_lossy().as_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+            assert!(matches!(s.locate_file(id).unwrap(), Some(Located::Special(_))));
+            assert!(s.resolve_file(id).unwrap().is_none());
+        }
     }
 
     #[test]

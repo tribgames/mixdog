@@ -36,16 +36,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "tool": "diff-1"
@@ -101,14 +119,105 @@
         "status",
         "refresh",
         "resolveTag:scout:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"scout\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"scout\",\"mcpScopeId\":null},\"prompt\":\"do it\",\"tag\":\"scout\"}",
-        "bindTag:scout:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:scout:sess_w1:{\"tag\":\"scout\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "scout"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "scout",
+              "mcpScopeId": null
+            },
+            "prompt": "do it",
+            "tag": "scout"
+          }
+        ],
+        [
+          "bindTag",
+          "scout",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "scout",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:do it@C:\\work",
-        "review:[\"diff-1\"]",
+        [
+          "ask",
+          "do it",
+          "/work"
+        ],
+        [
+          "reviewComplete",
+          [
+            "diff-1"
+          ]
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -201,16 +310,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-7",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -257,14 +384,99 @@
         "status",
         "refresh",
         "resolveTag:worker-7:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"worker-7\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"worker-7\",\"mcpScopeId\":null},\"prompt\":\"do it\",\"tag\":\"worker-7\"}",
-        "bindTag:worker-7:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:worker-7:sess_w1:{\"tag\":\"worker-7\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "worker-7"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "worker-7",
+              "mcpScopeId": null
+            },
+            "prompt": "do it",
+            "tag": "worker-7"
+          }
+        ],
+        [
+          "bindTag",
+          "worker-7",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "worker-7",
+          "sess_w1",
+          {
+            "tag": "worker-7",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "worker-7",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:do it@C:\\work",
-        "review:[]",
+        [
+          "ask",
+          "do it",
+          "/work"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -348,16 +560,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -405,14 +635,101 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\\\\sub\\\\dir\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"taskType\":\"review\",\"cacheKeyOverride\":\"ck\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work/sub/dir",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "taskType": "review",
+              "cacheKeyOverride": "ck",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\work\\sub\\dir",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/work/sub/dir"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -494,16 +811,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -551,14 +886,100 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"taskType\":\"quick\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "taskType": "quick",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -640,16 +1061,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": "/lead/worktree",
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -697,14 +1136,99 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\lead\\\\worktree\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/lead/worktree",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\lead\\worktree",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/lead/worktree"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -785,16 +1309,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": "/moved",
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -842,14 +1384,99 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:p@/moved",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/moved"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -930,16 +1557,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -987,14 +1632,100 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"permission\":\"read\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "permission": "read",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -1031,152 +1762,6 @@
           "provider": "openai",
           "model": "gpt-5",
           "effort": "medium",
-          "fast": false,
-          "content": "ok",
-          "handoffOnly": true
-        }
-      }
-    }
-  },
-  {
-    "name": "a_context_share_is_sized_from_the_model_window",
-    "scenario": {
-      "args": {
-        "agent": "ctx",
-        "prompt": "p",
-        "tag": "t"
-      },
-      "callerCwd": "/work",
-      "context": {
-        "callerSessionId": "lead",
-        "ownerSessionId": "lead",
-        "clientHostPid": 4242,
-        "cwd": "/work"
-      },
-      "respawned": false,
-      "config": {
-        "default": "main-preset",
-        "presets": [
-          {
-            "id": "main-preset",
-            "name": "MAIN",
-            "provider": "anthropic",
-            "model": "opus",
-            "effort": "high"
-          }
-        ],
-        "agents": {
-          "worker": {
-            "provider": "openai",
-            "model": "gpt-5",
-            "effort": "medium"
-          },
-          "ctx": {
-            "provider": "openai",
-            "model": "gpt-5",
-            "contextPercent": 40
-          }
-        }
-      },
-      "tags": {},
-      "nextTag": "worker-1",
-      "lock": null,
-      "effectiveCwd": null,
-      "createThrows": null,
-      "cancel": null,
-      "window": {
-        "contextWindow": 200000,
-        "maxContextWindow": 1000000
-      },
-      "steps": [
-        {
-          "return": {
-            "content": "ok"
-          }
-        }
-      ],
-      "canonical": true
-    },
-    "host": {
-      "agent": {
-        "name": "ctx",
-        "defined": true,
-        "disabled": false,
-        "kind": null,
-        "contact": false,
-        "permission": null,
-        "candidates": [
-          {
-            "provider": "openai",
-            "model": "gpt-5",
-            "contextPercent": 40
-          }
-        ]
-      },
-      "delegation": {
-        "chain": [
-          "lead"
-        ],
-        "acting": "lead"
-      }
-    },
-    "result": {
-      "startError": null,
-      "pending": {
-        "tag": "t",
-        "agent": "ctx",
-        "preset": "agent-ctx",
-        "provider": "openai",
-        "model": "gpt-5",
-        "clientHostPid": 4242
-      },
-      "calls": [
-        "status",
-        "refresh",
-        "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"ctx\",\"presetName\":\"AGENT CTX\",\"preset\":{\"id\":\"agent-ctx\",\"name\":\"AGENT CTX\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"ctx\"},\"fast\":false,\"contextPercent\":40,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"ctx\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null,\"contextPercent\":40},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"ctx\",\"preset\":\"agent-ctx\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":null,\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"ctx\",\"preset\":\"agent-ctx\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":null,\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
-        "status",
-        "claim",
-        "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
-        "release:idle",
-        "emit:stop:idle",
-        "unload:agent-turn-complete",
-        "status"
-      ],
-      "notices": [
-        {
-          "session": "lead",
-          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
-        }
-      ],
-      "final": {
-        "status": "completed",
-        "error": null,
-        "terminalReason": "run-resolved",
-        "meta": {
-          "tag": "t",
-          "sessionId": "sess_w1",
-          "agent": "ctx",
-          "preset": "agent-ctx",
-          "provider": "openai",
-          "model": "gpt-5",
-          "fast": false,
-          "clientHostPid": 4242
-        },
-        "label": "t",
-        "notified": true,
-        "result": {
-          "tag": "t",
-          "sessionId": "sess_w1",
-          "agent": "ctx",
-          "preset": "agent-ctx",
-          "provider": "openai",
-          "model": "gpt-5",
-          "effort": null,
           "fast": false,
           "content": "ok",
           "handoffOnly": true
@@ -1221,16 +1806,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -1277,14 +1880,100 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"ctx\",\"presetName\":\"AGENT CTX\",\"preset\":{\"id\":\"agent-ctx\",\"name\":\"AGENT CTX\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"ctx\"},\"fast\":false,\"contextPercent\":40,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"ctx\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null,\"contextPercent\":40},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"ctx\",\"preset\":\"agent-ctx\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":null,\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"ctx\",\"preset\":\"agent-ctx\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":null,\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "ctx",
+              "presetName": "AGENT CTX",
+              "preset": {
+                "id": "agent-ctx",
+                "name": "AGENT CTX",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "ctx"
+                },
+                "fast": false,
+                "contextPercent": 40,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "ctx",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null,
+              "contextPercent": 40
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "ctx",
+            "preset": "agent-ctx",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "ctx",
+            "preset": "agent-ctx",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "ctx"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -1368,16 +2057,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -1425,14 +2132,96 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"__direct__\",\"preset\":{\"id\":\"__direct__\",\"name\":\"__DIRECT__\",\"type\":\"agent\",\"provider\":\"xai\",\"model\":\"grok\",\"effort\":\"low\",\"fast\":true,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"xai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"__direct__\",\"provider\":\"xai\",\"model\":\"grok\",\"effort\":\"low\",\"fast\":true,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"__direct__\",\"provider\":\"xai\",\"model\":\"grok\",\"effort\":\"low\",\"fast\":true,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "__direct__",
+              "preset": {
+                "id": "__direct__",
+                "name": "__DIRECT__",
+                "type": "agent",
+                "provider": "xai",
+                "model": "grok",
+                "effort": "low",
+                "fast": true,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "xai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "__direct__",
+            "provider": "xai",
+            "model": "grok",
+            "effort": "low",
+            "fast": true,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "__direct__",
+            "provider": "xai",
+            "model": "grok",
+            "effort": "low",
+            "fast": true,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -1477,6 +2266,1956 @@
     }
   },
   {
+    "name": "a_delegated_spawn_is_owned_by_its_owner",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t",
+        "cwd": "elsewhere"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "boss",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": "/boss/worktree",
+      "lockOwner": "boss",
+      "owner": "boss",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/boss/worktree",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "boss",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/boss/worktree"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_lock_held_by_another_session_does_not_pin_the_worker",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t",
+        "cwd": "elsewhere"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "boss",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": "/other/worktree",
+      "lockOwner": "someone-else",
+      "owner": "boss",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work/elsewhere",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "boss",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work/elsewhere"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "an_in_process_spawn_builds_the_session_itself",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "do it",
+        "tag": "scout"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "tool": "diff-1"
+        },
+        {
+          "return": {
+            "content": "done"
+          }
+        }
+      ],
+      "canonical": false
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "scout",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:scout:false",
+        [
+          "ensureProvider",
+          "openai"
+        ],
+        [
+          "prepareSession",
+          {
+            "agent": "worker",
+            "presetName": "AGENT WORKER",
+            "preset": {
+              "id": "agent-worker",
+              "name": "AGENT WORKER",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-5",
+              "fallbackSource": {
+                "agent": "worker"
+              },
+              "effort": "medium",
+              "fast": false,
+              "tools": "full"
+            },
+            "runtimeSpec": {
+              "runtime": "openai",
+              "options": {
+                "lane": "agent",
+                "agentId": "scout"
+              }
+            },
+            "owner": "agent",
+            "cwd": "/work",
+            "sourceType": "cli",
+            "sourceName": "worker",
+            "parentSessionId": "lead",
+            "ownerSessionId": "lead",
+            "visibility": "agent-only",
+            "clientHostPid": 4242,
+            "agentTag": "scout",
+            "mcpScopeId": null
+          }
+        ],
+        [
+          "bindTag",
+          "scout",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "scout",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "do it",
+          "/work"
+        ],
+        [
+          "reviewComplete",
+          [
+            "diff-1"
+          ]
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\ndone\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "scout",
+        "notified": true,
+        "result": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "done"
+        }
+      }
+    }
+  },
+  {
+    "name": "an_in_process_spawn_may_move_the_workers_directory",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": "/moved",
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": false
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "ensureProvider",
+          "openai"
+        ],
+        [
+          "prepareSession",
+          {
+            "agent": "worker",
+            "presetName": "AGENT WORKER",
+            "preset": {
+              "id": "agent-worker",
+              "name": "AGENT WORKER",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-5",
+              "fallbackSource": {
+                "agent": "worker"
+              },
+              "effort": "medium",
+              "fast": false,
+              "tools": "full"
+            },
+            "runtimeSpec": {
+              "runtime": "openai",
+              "options": {
+                "lane": "agent",
+                "agentId": "t"
+              }
+            },
+            "owner": "agent",
+            "cwd": "/work",
+            "sourceType": "cli",
+            "sourceName": "worker",
+            "parentSessionId": "lead",
+            "ownerSessionId": "lead",
+            "visibility": "agent-only",
+            "clientHostPid": 4242,
+            "agentTag": "t",
+            "mcpScopeId": null
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/moved"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok"
+        }
+      }
+    }
+  },
+  {
+    "name": "an_in_process_spawn_fails_when_the_provider_cannot_start",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": "provider unavailable",
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [],
+      "canonical": false
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "ensureProvider",
+          "openai"
+        ],
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>provider unavailable</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "provider unavailable",
+        "terminalReason": "run-rejected",
+        "meta": {
+          "tag": "t",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_context_share_is_sized_from_the_model_window",
+    "scenario": {
+      "args": {
+        "agent": "ctxw",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": {
+        "contextWindow": 200000,
+        "maxContextWindow": 1000000
+      },
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "ctxw",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "ctxw",
+        "preset": "agent-ctxw",
+        "provider": "openai-oauth",
+        "model": "gpt-5",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "ctxw",
+              "presetName": "AGENT CTXW",
+              "preset": {
+                "id": "agent-ctxw",
+                "name": "AGENT CTXW",
+                "type": "agent",
+                "provider": "openai-oauth",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "ctxw"
+                },
+                "fast": false,
+                "contextPercent": 40,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai-oauth",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "ctxw",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null,
+              "contextPercent": 40,
+              "selectedContextWindow": 400000
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "ctxw",
+            "preset": "agent-ctxw",
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "ctxw",
+            "preset": "agent-ctxw",
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "ctxw"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "ctxw",
+          "preset": "agent-ctxw",
+          "provider": "openai-oauth",
+          "model": "gpt-5",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "ctxw",
+          "preset": "agent-ctxw",
+          "provider": "openai-oauth",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_token_choice_is_sized_from_the_model_window",
+    "scenario": {
+      "args": {
+        "agent": "ctxwtok",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": {
+        "contextWindow": 200000,
+        "maxContextWindow": 1000000
+      },
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "ctxwtok",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "ctxwtok",
+        "preset": "agent-ctxwtok",
+        "provider": "openai-oauth",
+        "model": "gpt-5",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "ctxwtok",
+              "presetName": "AGENT CTXWTOK",
+              "preset": {
+                "id": "agent-ctxwtok",
+                "name": "AGENT CTXWTOK",
+                "type": "agent",
+                "provider": "openai-oauth",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "ctxwtok"
+                },
+                "fast": false,
+                "contextTokens": 300000,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai-oauth",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "ctxwtok",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null,
+              "contextPercent": 30,
+              "selectedContextWindow": 300000,
+              "contextTokens": 300000
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "ctxwtok",
+            "preset": "agent-ctxwtok",
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "ctxwtok",
+            "preset": "agent-ctxwtok",
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "ctxwtok"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "ctxwtok",
+          "preset": "agent-ctxwtok",
+          "provider": "openai-oauth",
+          "model": "gpt-5",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "ctxwtok",
+          "preset": "agent-ctxwtok",
+          "provider": "openai-oauth",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "forwarded_files_ride_along_the_first_turn",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "look",
+        "tag": "t",
+        "attachmentParts": [
+          {
+            "type": "file",
+            "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mimeType": "application/pdf",
+            "filename": "doc.pdf",
+            "sizeBytes": 12,
+            "path": "/secret/doc.pdf",
+            "data": "inline"
+          },
+          {
+            "type": "image",
+            "attachmentRef": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "type": "text",
+            "attachmentRef": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "filename": "notes.txt",
+            "sizeBytes": -1,
+            "mimeType": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "file",
+            "attachmentRef": "not-a-reference"
+          },
+          {
+            "type": "video",
+            "attachmentRef": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          null
+        ],
+        "context": {
+          "room": 1
+        }
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "look",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          [
+            {
+              "type": "text",
+              "text": "look"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sizeBytes": 12,
+              "mimeType": "application/pdf",
+              "filename": "doc.pdf"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "sizeBytes": 0,
+              "mimeType": "image/png",
+              "filename": "attachment"
+            },
+            {
+              "type": "text",
+              "textKind": "file",
+              "attachmentRef": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "sizeBytes": 0,
+              "mimeType": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "filename": "notes.txt"
+            }
+          ],
+          "/work"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
     "name": "the_agent_is_required",
     "scenario": {
       "args": {
@@ -1512,16 +4251,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [],
       "canonical": true
     },
@@ -1609,16 +4366,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [],
       "canonical": true
     },
@@ -1717,6 +4492,21 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         },
         "disabledAgents": [
@@ -1726,10 +4516,13 @@
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [],
       "canonical": true
     },
@@ -1834,6 +4627,21 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
@@ -1842,10 +4650,13 @@
       },
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [],
       "canonical": true
     },
@@ -1951,6 +4762,21 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
@@ -1959,10 +4785,13 @@
       },
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [],
       "canonical": true
     },
@@ -2069,16 +4898,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -2126,14 +4973,99 @@
         "status",
         "refresh",
         "resolveTag:t:true",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -2213,16 +5145,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [],
       "canonical": true
     },
@@ -2292,139 +5242,6 @@
     }
   },
   {
-    "name": "a_contact_agent_may_not_hand_work_to_itself",
-    "scenario": {
-      "args": {
-        "agent": "robot",
-        "prompt": "p",
-        "tag": "t"
-      },
-      "callerCwd": "/work",
-      "context": {
-        "callerSessionId": "lead",
-        "ownerSessionId": "lead",
-        "clientHostPid": 4242,
-        "cwd": "/work"
-      },
-      "respawned": false,
-      "config": {
-        "default": "main-preset",
-        "presets": [
-          {
-            "id": "main-preset",
-            "name": "MAIN",
-            "provider": "anthropic",
-            "model": "opus",
-            "effort": "high"
-          }
-        ],
-        "agents": {
-          "worker": {
-            "provider": "openai",
-            "model": "gpt-5",
-            "effort": "medium"
-          },
-          "ctx": {
-            "provider": "openai",
-            "model": "gpt-5",
-            "contextPercent": 40
-          }
-        }
-      },
-      "tags": {},
-      "nextTag": "worker-1",
-      "lock": null,
-      "effectiveCwd": null,
-      "createThrows": null,
-      "cancel": null,
-      "window": null,
-      "steps": [],
-      "canonical": true
-    },
-    "host": {
-      "agent": {
-        "name": "robot",
-        "defined": true,
-        "disabled": false,
-        "kind": "bot",
-        "contact": true,
-        "permission": null,
-        "candidates": []
-      },
-      "delegation": {
-        "chain": [
-          "lead"
-        ],
-        "acting": "lead"
-      }
-    },
-    "result": {
-      "startError": null,
-      "pending": {
-        "tag": "t",
-        "agent": "robot",
-        "preset": "main-preset",
-        "provider": "anthropic",
-        "model": "opus",
-        "effort": "high",
-        "clientHostPid": 4242
-      },
-      "calls": [
-        "status",
-        "refresh",
-        "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"robot\",\"presetName\":\"main-preset\",\"preset\":{\"id\":\"main-preset\",\"name\":\"MAIN\",\"provider\":\"anthropic\",\"model\":\"opus\",\"effort\":\"high\",\"fallbackSource\":{\"agent\":\"robot\"}},\"runtimeSpec\":{\"runtime\":\"anthropic\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"robot\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"robot\",\"preset\":\"main-preset\",\"provider\":\"anthropic\",\"model\":\"opus\",\"effort\":\"high\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"robot\",\"preset\":\"main-preset\",\"provider\":\"anthropic\",\"model\":\"opus\",\"effort\":\"high\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
-        "status",
-        "claim",
-        "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
-        "release:idle",
-        "emit:stop:idle",
-        "unload:agent-turn-complete",
-        "status"
-      ],
-      "notices": [
-        {
-          "session": "lead",
-          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n</task-notification>"
-        }
-      ],
-      "final": {
-        "status": "completed",
-        "error": null,
-        "terminalReason": "run-resolved",
-        "meta": {
-          "tag": "t",
-          "sessionId": "sess_w1",
-          "agent": "robot",
-          "preset": "main-preset",
-          "provider": "anthropic",
-          "model": "opus",
-          "effort": "high",
-          "fast": false,
-          "clientHostPid": 4242
-        },
-        "label": "t",
-        "notified": true,
-        "result": {
-          "tag": "t",
-          "sessionId": "sess_w1",
-          "agent": "robot",
-          "preset": "main-preset",
-          "provider": "anthropic",
-          "model": "opus",
-          "effort": "high",
-          "fast": false,
-          "content": "",
-          "handoffOnly": true
-        }
-      }
-    }
-  },
-  {
     "name": "a_contact_agent_already_in_the_chain_fails",
     "scenario": {
       "args": {
@@ -2461,16 +5278,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [],
       "canonical": true
     },
@@ -2570,10 +5405,13 @@
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -2619,14 +5457,98 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"robot\",\"presetName\":\"AGENT ROBOT\",\"preset\":{\"id\":\"agent-robot\",\"name\":\"AGENT ROBOT\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"robot\"},\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"robot\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"robot\",\"preset\":\"agent-robot\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":null,\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"robot\",\"preset\":\"agent-robot\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":null,\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "robot",
+              "presetName": "AGENT ROBOT",
+              "preset": {
+                "id": "agent-robot",
+                "name": "AGENT ROBOT",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "robot"
+                },
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "robot",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "robot",
+            "preset": "agent-robot",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "robot",
+            "preset": "agent-robot",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "robot"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -2706,16 +5628,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": "boom",
       "cancel": null,
-      "window": null,
       "steps": [],
       "canonical": true
     },
@@ -2757,7 +5697,47 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
         "status"
       ],
       "notices": [
@@ -2822,16 +5802,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": "before",
-      "window": null,
       "steps": [
         {
           "return": {
@@ -2941,16 +5939,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": "during-prep",
-      "window": null,
       "steps": [
         {
           "return": {
@@ -2998,9 +6014,82 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "close:sess_w1:agent-task-cancel",
         "forget:t:sess_w1",
@@ -3071,16 +6160,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -3129,14 +6236,100 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"respawned\":true,\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "respawned": true,
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete",
@@ -3218,16 +6411,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "return": {
@@ -3276,14 +6487,99 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete",
@@ -3365,16 +6661,34 @@
             "provider": "openai",
             "model": "gpt-5",
             "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
           }
         }
       },
       "tags": {},
       "nextTag": "worker-1",
       "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
       "effectiveCwd": null,
       "createThrows": null,
       "cancel": null,
-      "window": null,
       "steps": [
         {
           "throw": {
@@ -3422,14 +6736,99 @@
         "status",
         "refresh",
         "resolveTag:t:false",
-        "createChild:{\"spec\":{\"agent\":\"worker\",\"presetName\":\"AGENT WORKER\",\"preset\":{\"id\":\"agent-worker\",\"name\":\"AGENT WORKER\",\"type\":\"agent\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"fallbackSource\":{\"agent\":\"worker\"},\"effort\":\"medium\",\"fast\":false,\"tools\":\"full\"},\"runtimeSpec\":{\"runtime\":\"openai\",\"options\":{\"lane\":\"agent\",\"agentId\":\"t\"}},\"owner\":\"agent\",\"cwd\":\"C:\\\\work\",\"sourceType\":\"cli\",\"sourceName\":\"worker\",\"parentSessionId\":\"lead\",\"ownerSessionId\":\"lead\",\"visibility\":\"agent-only\",\"clientHostPid\":4242,\"agentTag\":\"t\",\"mcpScopeId\":null},\"prompt\":\"p\",\"tag\":\"t\"}",
-        "bindTag:t:sess_w1:{\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"idle\",\"stage\":\"idle\"}",
-        "upsert:t:sess_w1:{\"tag\":\"t\",\"sessionId\":\"sess_w1\",\"agent\":\"worker\",\"preset\":\"agent-worker\",\"provider\":\"openai\",\"model\":\"gpt-5\",\"effort\":\"medium\",\"fast\":false,\"status\":\"running\",\"stage\":\"running\",\"task_id\":\"job\",\"startedAt\":\"2026-03-01T10:00:00.000Z\",\"turnStartedAt\":\"2026-03-01T10:00:00.000Z\"}",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
         "status",
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
-        "ask:p@C:\\work",
-        "review:[]",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete",

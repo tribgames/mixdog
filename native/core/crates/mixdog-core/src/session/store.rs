@@ -320,6 +320,7 @@ impl StoreThreads {
         }
         item.body = self.resolve(lane, &item.body)?;
         item.prompt = item.prompt.map(|prompt| self.resolve(lane, &prompt)).transpose()?;
+        super::transcript::fold_model_switches(&mut item, &row.model_switches);
         Ok(item)
     }
 }
@@ -631,6 +632,52 @@ impl ThreadStore for StoreThreads {
             rows.reverse();
             return Ok(rows);
         }
+    }
+
+    /// Pages newest first until the row is found: a switch anchors near the history's end.
+    fn history_row(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<(u64, ItemRecord)>, CoreError> {
+        self.wait(self.projector.flush());
+        let dir = self.dir(id.as_str());
+        'read: loop {
+            let opened = log::open_log(lane, &dir, &self.blobs, &self.index)
+                .map_err(|e| Self::open_error(id, e))?;
+            let lineage = self.lineage(lane, &opened.fold)?;
+            let mut cursor = None;
+            loop {
+                let (page, next) = match self.index.history_page_on_lane(lane, &lineage, opened.fold.base_cut, cursor, WINDOW_ROWS) {
+                    Ok(page) => page,
+                    Err(DbError::CursorStale) => continue 'read,
+                    Err(e) => return Err(internal("history", &e)),
+                };
+                if let Some(row) = page.iter().find(|row| row.iid == iid) {
+                    return Ok(Some((row.ordinal, self.history_item(lane, id, row)?)));
+                }
+                match next {
+                    Some(next) => cursor = Some(next),
+                    None => return Ok(None),
+                }
+            }
+        }
+    }
+
+    fn compaction_entry(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<u64>, CoreError> {
+        self.wait(self.projector.flush());
+        let opened = log::open_log(lane, &self.dir(id.as_str()), &self.blobs, &self.index)
+            .map_err(|e| Self::open_error(id, e))?;
+        let lineage = self.lineage(lane, &opened.fold)?;
+        self.index
+            .compaction_entry_on_lane(lane, &lineage, opened.fold.base_cut, iid)
+            .map_err(|e| internal("history", &e))
     }
 
     fn session_meta(

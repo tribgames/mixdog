@@ -133,7 +133,7 @@ fn refused(reason: Reason, message: &str) -> WsError {
     WsError::new(reason, message)
 }
 
-fn lane_failure(error: CoreError) -> WsError {
+pub(crate) fn lane_failure(error: CoreError) -> WsError {
     match error {
         CoreError::Cancelled { .. } => WsError::new(Reason::Cancelled, "The request was cancelled."),
         _ => WsError::new(Reason::Overloaded, "The host is busy."),

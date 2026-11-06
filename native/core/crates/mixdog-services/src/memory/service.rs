@@ -248,7 +248,7 @@ impl MemoryService {
         let cwd = args.get("cwd").filter(|cwd| truthy(cwd)).cloned().or_else(|| current_cwd.clone().map(Value::String));
         match cwd {
             Some(cwd) => base_args.insert("cwd".into(), cwd),
-            None => base_args.remove("cwd"),
+            None => base_args.shift_remove("cwd"),
         };
         if let Some(session) = &session {
             base_args.insert("currentSessionId".into(), Value::String(session.id.clone()));

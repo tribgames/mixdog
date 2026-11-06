@@ -51,7 +51,7 @@ pub(super) struct Ctx<'a> {
 }
 
 fn take_str(row: &mut Row, key: &str) -> Option<String> {
-    match row.remove(key) {
+    match row.shift_remove(key) {
         Some(Value::String(text)) => Some(text),
         Some(other) => {
             row.insert(key.to_owned(), other);
@@ -62,7 +62,7 @@ fn take_str(row: &mut Row, key: &str) -> Option<String> {
 }
 
 fn take_bool(row: &mut Row, key: &str) -> Option<bool> {
-    match row.remove(key) {
+    match row.shift_remove(key) {
         Some(Value::Bool(b)) => Some(b),
         Some(other) => {
             row.insert(key.to_owned(), other);
@@ -74,13 +74,13 @@ fn take_bool(row: &mut Row, key: &str) -> Option<bool> {
 
 fn take_int(row: &mut Row, key: &str) -> Option<i64> {
     let value = row.get(key)?.as_f64().filter(|f| f.is_finite() && f.fract() == 0.0)?;
-    row.remove(key);
+    row.shift_remove(key);
     Some(value as i64)
 }
 
 /// Moves `key` out of the row as `T`; a value of another shape stays in the row.
 fn take_as<T: DeserializeOwned>(row: &mut Row, key: &str) -> Option<T> {
-    let value = row.remove(key)?;
+    let value = row.shift_remove(key)?;
     match serde_json::from_value::<T>(value.clone()) {
         Ok(typed) => Some(typed),
         Err(_) => {
@@ -114,8 +114,8 @@ fn meta_of(row: &mut Row, ctx: &Ctx<'_>) -> ItemMeta {
 }
 
 fn finish(mut meta: ItemMeta, mut row: Row) -> ItemMeta {
-    row.remove("kind");
-    row.remove("id");
+    row.shift_remove("kind");
+    row.shift_remove("id");
     meta.ext = row;
     meta
 }
@@ -171,17 +171,11 @@ fn user_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
                 .pointer("/meta/heldRequest")
                 .and_then(|held| serde_json::from_value::<HeldRequest>(held.clone()).ok());
         }
-        if matches!(details.source, Some(MessageSource::ScheduleResult)) {
-            // The stored routine payload the notice line was made from.
-            if let Some(routine) = message.pointer("/meta/routine") {
-                row.insert("routine".into(), routine.clone());
-            }
-        }
     }
     let device = take_str(&mut row, "device");
     let checkpoint_id = take_str(&mut row, "checkpointId");
-    let applied_skills = row.remove("appliedSkills").and_then(|skills| serde_json::from_value::<Vec<String>>(skills).ok());
-    row.remove("expanded");
+    let applied_skills = row.shift_remove("appliedSkills").and_then(|skills| serde_json::from_value::<Vec<String>>(skills).ok());
+    row.shift_remove("expanded");
     meta = finish(meta, row);
     ThreadItem::UserMessage {
         id: item_id(&id),
@@ -217,7 +211,7 @@ fn blob_text(row: &mut Row, key: &str) -> Option<MaybeBlob<String>> {
 fn tool_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
     let row_id = id_of(&mut row);
     let name = take_str(&mut row, "name").unwrap_or_default();
-    let input = row.remove("args").unwrap_or(Value::Null);
+    let input = row.shift_remove("args").unwrap_or(Value::Null);
     let call_id = take_str(&mut row, "callId");
     let id = call_id.as_deref().map_or(row_id, call_item_id);
     let result = blob_text(&mut row, "result");
@@ -236,7 +230,7 @@ fn tool_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
         completed_count,
         aggregate: None,
     };
-    row.remove("expanded");
+    row.shift_remove("expanded");
     let mut meta = meta_of(&mut row, ctx);
     meta.status = if is_error == Some(true) {
         Some(ItemStatus::Failed)
@@ -274,8 +268,8 @@ fn turn_end_item(row: &Row, ctx: &Ctx<'_>) -> Option<ThreadItem> {
     let elapsed = row.get("elapsedMs").and_then(Value::as_f64).filter(|f| f.is_finite() && f.fract() == 0.0 && *f >= 0.0)?;
     let mut row = row.clone();
     let id = id_of(&mut row);
-    row.remove("status");
-    row.remove("elapsedMs");
+    row.shift_remove("status");
+    row.shift_remove("elapsedMs");
     let verb = take_str(&mut row, "verb");
     let checkpoint_id = take_str(&mut row, "checkpointId");
     let final_assistant_id = take_str(&mut row, "finalAssistantId").map(|id| item_id(&id));
@@ -312,7 +306,7 @@ fn status_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
     let detail = take_str(&mut row, "detail");
     let mut meta = meta_of(&mut row, ctx);
     if kind == "statusdone" && text_field_of(&row, "status") == "compacted" {
-        row.remove("status");
+        row.shift_remove("status");
         meta.label = label;
         meta.detail = detail;
         return ThreadItem::ContextCompaction {
@@ -389,16 +383,16 @@ fn room_targets(room: &Value) -> Vec<(String, String)> {
 fn room_item(id: &str, message: &Value, ctx: &Ctx<'_>) -> Option<ThreadItem> {
     let stored = message.pointer("/meta/room")?;
     let mut room = stored.as_object()?.clone();
-    let images = room.remove("images");
+    let images = room.shift_remove("images");
     let targets = room_targets(stored);
-    room.remove("to");
-    room.remove("toName");
+    room.shift_remove("to");
+    room.shift_remove("toName");
     if !targets.is_empty() {
         room.insert("to".into(), json!(targets.iter().map(|t| &t.0).collect::<Vec<_>>()));
         room.insert("toName".into(), json!(targets.iter().map(|t| &t.1).collect::<Vec<_>>()));
     }
-    room.remove("id");
-    room.remove("text");
+    room.shift_remove("id");
+    room.shift_remove("text");
     let transcript = metadata(message).fields;
     let at = transcript.get("at").and_then(Value::as_f64).filter(|f| f.is_finite());
     if let Some(at) = at {

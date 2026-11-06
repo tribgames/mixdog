@@ -1,0 +1,1338 @@
+{
+  "routes": [
+    {
+      "candidates": [
+        {
+          "effort": "high",
+          "fast": true,
+          "key": "default\nopenai\ngpt-5.2",
+          "model": "gpt-5.2",
+          "modelParameters": {
+            "verbosity": "low"
+          },
+          "provider": "openai",
+          "source": "default-web-search-route",
+          "toolType": null
+        }
+      ],
+      "main": {
+        "effort": "high",
+        "fast": true,
+        "model": "gpt-5.2",
+        "modelParameters": {
+          "verbosity": "low"
+        },
+        "provider": "openai"
+      },
+      "name": "default follows a capable main model"
+    },
+    {
+      "candidates": [
+        {
+          "effort": "medium",
+          "fast": false,
+          "key": "default\nopenai\ngpt-5.2",
+          "model": "gpt-5.2",
+          "modelParameters": {},
+          "provider": "openai",
+          "source": "default-web-search-route",
+          "toolType": null
+        }
+      ],
+      "main": {
+        "effectiveEffort": "medium",
+        "effort": "low",
+        "model": "gpt-5.2",
+        "provider": "openai"
+      },
+      "name": "default takes the effective effort first"
+    },
+    {
+      "candidates": [],
+      "main": {
+        "model": "gpt-5.2-codex",
+        "provider": "openai-oauth"
+      },
+      "name": "default refuses a codex main model",
+      "noCandidate": "default web search route requires the current main model to support native web search (openai-oauth/gpt-5.2-codex)"
+    },
+    {
+      "candidates": [],
+      "main": null,
+      "name": "default without a main route",
+      "noCandidate": "default web search route requires the current main model to support native web search (unknown/unknown)"
+    },
+    {
+      "candidates": [],
+      "main": {
+        "model": "x",
+        "provider": "mixdog-local"
+      },
+      "name": "default main on a provider with no web search",
+      "noCandidate": "default web search route requires the current main model to support native web search (mixdog-local/x)"
+    },
+    {
+      "cached": {
+        "openai": {
+          "gpt-4-0613": {
+            "id": "gpt-4-0613",
+            "supportsWebSearch": true
+          }
+        }
+      },
+      "candidates": [
+        {
+          "effort": null,
+          "fast": false,
+          "key": "default\nopenai\ngpt-4-0613",
+          "model": "gpt-4-0613",
+          "modelParameters": {},
+          "provider": "openai",
+          "source": "default-web-search-route",
+          "toolType": null
+        }
+      ],
+      "main": {
+        "model": "gpt-4-0613",
+        "provider": "openai"
+      },
+      "name": "a cached row declaring web search lifts the id rule"
+    },
+    {
+      "candidates": [
+        {
+          "effort": null,
+          "fast": false,
+          "key": "default\nopenai\ngpt-4-0613",
+          "model": "gpt-4-0613",
+          "modelParameters": {},
+          "provider": "openai",
+          "source": "default-web-search-route",
+          "toolType": null
+        }
+      ],
+      "listed": {
+        "openai": [
+          {
+            "id": "gpt-4-0613",
+            "supportedTools": [
+              "web_search"
+            ]
+          }
+        ]
+      },
+      "main": {
+        "model": "gpt-4-0613",
+        "provider": "openai"
+      },
+      "name": "a listed row is used when the provider caches none"
+    },
+    {
+      "cached": {
+        "openai": {
+          "gpt-4-0613": {
+            "id": "gpt-4-0613"
+          }
+        }
+      },
+      "candidates": [
+        {
+          "effort": null,
+          "fast": false,
+          "key": "default\nopenai\ngpt-4-0613",
+          "model": "gpt-4-0613",
+          "modelParameters": {},
+          "provider": "openai",
+          "source": "default-web-search-route",
+          "toolType": null
+        }
+      ],
+      "global": {
+        "openai/gpt-4-0613": {
+          "id": "gpt-4-0613",
+          "supportsWebSearch": true
+        }
+      },
+      "main": {
+        "model": "gpt-4-0613",
+        "provider": "openai"
+      },
+      "name": "a row declaring no web search leaves the global catalog the word"
+    },
+    {
+      "cached": {
+        "openai": {
+          "gpt-4-0613": {
+            "id": "gpt-4-0613"
+          }
+        }
+      },
+      "candidates": [],
+      "main": {
+        "model": "gpt-4-0613",
+        "provider": "openai"
+      },
+      "name": "a row declaring no web search for a retired id",
+      "noCandidate": "default web search route requires the current main model to support native web search (openai/gpt-4-0613)"
+    },
+    {
+      "candidates": [
+        {
+          "effort": null,
+          "fast": false,
+          "key": "default\nopenai\ngpt-5.2",
+          "model": "gpt-5.2",
+          "modelParameters": {},
+          "provider": "openai",
+          "source": "default-web-search-route",
+          "toolType": "web_search_preview"
+        },
+        {
+          "effort": "low",
+          "fast": false,
+          "key": "gemini\ngemini-2.5-flash",
+          "model": "gemini-2.5-flash",
+          "modelParameters": {},
+          "provider": "gemini",
+          "source": "web-search-route",
+          "toolType": "google_search"
+        },
+        {
+          "effort": null,
+          "fast": true,
+          "key": "anthropic\nclaude-sonnet-4-5",
+          "model": "claude-sonnet-4-5",
+          "modelParameters": {
+            "thinking": "on"
+          },
+          "provider": "anthropic",
+          "source": "web-search-route",
+          "toolType": null
+        },
+        {
+          "effort": null,
+          "fast": false,
+          "key": "xai\ngrok-4",
+          "model": "grok-4",
+          "modelParameters": {},
+          "provider": "xai",
+          "source": "web-search-route",
+          "toolType": "web_search"
+        }
+      ],
+      "main": {
+        "model": "gpt-5.2",
+        "provider": "openai"
+      },
+      "name": "a chain keeps its order, tuning and tool types",
+      "webSearchRoute": {
+        "fallbacks": [
+          {
+            "effort": "low",
+            "model": "gemini-2.5-flash",
+            "provider": "gemini",
+            "toolType": "google_search"
+          },
+          {
+            "fast": true,
+            "model": "claude-sonnet-4-5",
+            "modelParameters": {
+              "thinking": "on"
+            },
+            "provider": "anthropic"
+          },
+          {
+            "model": "grok-4",
+            "provider": "xai",
+            "toolType": "web_search"
+          }
+        ],
+        "model": "default",
+        "provider": "default",
+        "toolType": "web_search_preview"
+      }
+    },
+    {
+      "candidates": [
+        {
+          "effort": null,
+          "fast": false,
+          "key": "openai-oauth\ngpt-5.2",
+          "model": "gpt-5.2",
+          "modelParameters": {},
+          "provider": "openai-oauth",
+          "source": "web-search-route",
+          "toolType": null
+        }
+      ],
+      "main": {
+        "model": "gpt-5.2",
+        "provider": "openai"
+      },
+      "name": "a chain skips a provider with no hosted search",
+      "webSearchRoute": {
+        "fallbacks": [
+          {
+            "model": "gpt-5.2",
+            "provider": "openai-oauth"
+          }
+        ],
+        "model": "x",
+        "provider": "mixdog-local"
+      }
+    },
+    {
+      "candidates": [
+        {
+          "effort": null,
+          "fast": false,
+          "key": "openai\ngpt-5.2-mini",
+          "model": "gpt-5.2-mini",
+          "modelParameters": {},
+          "provider": "openai",
+          "source": "web-search-route",
+          "toolType": null
+        }
+      ],
+      "main": null,
+      "name": "a chain of one explicit route",
+      "webSearchRoute": {
+        "model": "gpt-5.2-mini",
+        "provider": "openai-api"
+      }
+    },
+    {
+      "error": "duplicate route provider \"openai\"",
+      "main": {
+        "model": "gpt-5.2",
+        "provider": "openai"
+      },
+      "name": "a chain with two names for one provider is refused",
+      "webSearchRoute": {
+        "fallbacks": [
+          {
+            "model": "b",
+            "provider": "openai-api"
+          }
+        ],
+        "model": "a",
+        "provider": "openai"
+      }
+    }
+  ],
+  "sends": [
+    {
+      "args": {
+        "contextSize": "medium",
+        "maxResults": 3,
+        "prompt": "find x",
+        "query": "q",
+        "site": "a.com OR b.com"
+      },
+      "calls": [
+        {
+          "messages": [
+            {
+              "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits.",
+              "role": "system"
+            },
+            {
+              "content": "find x",
+              "role": "user"
+            }
+          ],
+          "model": "zz-gpt",
+          "opts": {
+            "effort": "high",
+            "fast": true,
+            "modelParameters": {
+              "verbosity": "low"
+            },
+            "nativeInclude": [
+              "web_search_call.action.sources"
+            ],
+            "nativeTools": [
+              {
+                "filters": {
+                  "allowed_domains": [
+                    "a.com",
+                    "b.com"
+                  ]
+                },
+                "search_context_size": "medium",
+                "type": "web_search"
+              }
+            ],
+            "role": "web-search",
+            "sessionId": "lead-1:native-web-search:loyw3v28",
+            "sourceName": "web_search",
+            "sourceType": "native-web-search",
+            "toolChoice": "required"
+          },
+          "provider": "openai",
+          "signal": false,
+          "tools": null
+        }
+      ],
+      "deltas": [
+        {
+          "agentRole": "web-search",
+          "contextCacheWriteTokens": 0,
+          "contextCachedReadTokens": 40,
+          "contextInputTokens": 120,
+          "contextMeasuredTokens": null,
+          "contextOutputTokens": 30,
+          "contextPromptTokens": 120,
+          "deltaCacheWrite": 0,
+          "deltaCachedRead": 40,
+          "deltaInput": 120,
+          "deltaOutput": 30,
+          "deltaPrompt": 120,
+          "deltaToolCalls": 0,
+          "iterationIndex": 0,
+          "model": "zz-gpt",
+          "promptKnown": true,
+          "reasoningTokens": 7,
+          "reasoningTokensComplete": true,
+          "requestMs": 0,
+          "requestedModel": "zz-gpt",
+          "sessionId": "lead-1:native-web-search:loyw3v28",
+          "source": "native_web_search",
+          "ts": 1700000000250
+        }
+      ],
+      "name": "openai with usage, a model, citations and search calls",
+      "replies": [
+        {
+          "result": {
+            "citations": [
+              {
+                "title": "A",
+                "url": "https://a.com/1"
+              }
+            ],
+            "content": "  the answer  ",
+            "usage": {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 40,
+              "inputTokens": 120,
+              "outputTokens": 30,
+              "promptTokens": 120,
+              "raw": {
+                "output_tokens_details": {
+                  "reasoning_tokens": 7
+                }
+              }
+            },
+            "webSearchCalls": [
+              {
+                "action": {
+                  "query": "x",
+                  "sources": [
+                    {
+                      "url": "https://b.com/2"
+                    }
+                  ]
+                },
+                "type": "web_search_call"
+              }
+            ]
+          }
+        }
+      ],
+      "result": {
+        "citations": [
+          {
+            "provider": "native-web-search",
+            "snippet": "",
+            "source": "native-web-search",
+            "title": "A",
+            "url": "https://a.com/1"
+          },
+          {
+            "provider": "native-web-search",
+            "snippet": "",
+            "source": "native-web-search",
+            "title": "x",
+            "url": "https://b.com/2"
+          }
+        ],
+        "content": "the answer",
+        "model": "zz-gpt",
+        "provider": "openai",
+        "usage": {
+          "cacheWriteTokens": 0,
+          "cachedTokens": 40,
+          "inputTokens": 120,
+          "outputTokens": 30,
+          "promptTokens": 120,
+          "raw": {
+            "output_tokens_details": {
+              "reasoning_tokens": 7
+            }
+          }
+        },
+        "webSearchCalls": [
+          {
+            "action": {
+              "query": "x",
+              "sources": [
+                {
+                  "url": "https://b.com/2"
+                }
+              ]
+            },
+            "type": "web_search_call"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "account": "",
+          "attempts": 1,
+          "cacheRead": 40,
+          "cacheWrite": 0,
+          "costSource": "unpriced",
+          "costUsd": null,
+          "day": "2023-11-15",
+          "durationMs": 250,
+          "elapsedMs": 0,
+          "id": "<req>",
+          "input": 80,
+          "kind": "api",
+          "model": "zz-gpt",
+          "origin": "live",
+          "output": 30,
+          "provider": "openai",
+          "rates": "{\"requestedModel\":\"zz-gpt\",\"pricingModel\":\"zz-gpt\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+          "requestedModel": "",
+          "requestedProvider": "",
+          "responseId": "",
+          "sessionId": "lead-1:native-web-search:loyw3v28",
+          "sourceType": "native-web-search",
+          "status": "completed",
+          "ts": 1700000000250,
+          "ttftMs": null
+        }
+      ],
+      "session": "lead-1",
+      "startedAt": 1700000000000,
+      "webSearchRoute": {
+        "effort": "high",
+        "fast": true,
+        "model": "zz-gpt",
+        "modelParameters": {
+          "verbosity": "low"
+        },
+        "provider": "openai"
+      }
+    },
+    {
+      "args": {
+        "prompt": "p",
+        "query": "q"
+      },
+      "calls": [
+        {
+          "messages": [
+            {
+              "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits.",
+              "role": "system"
+            },
+            {
+              "content": "p",
+              "role": "user"
+            }
+          ],
+          "model": "zz-gemini",
+          "opts": {
+            "fast": false,
+            "modelParameters": {},
+            "nativeInclude": [],
+            "nativeTools": [
+              {
+                "type": "google_search"
+              }
+            ],
+            "role": "web-search",
+            "sessionId": "web_search:native-web-search:loyw3v28",
+            "sourceName": "web_search",
+            "sourceType": "native-web-search",
+            "toolChoice": "auto"
+          },
+          "provider": "gemini",
+          "signal": false,
+          "tools": null
+        }
+      ],
+      "deltas": [],
+      "name": "gemini asks automatically and defaults the session id",
+      "replies": [
+        {
+          "result": {
+            "content": "g",
+            "usage": {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 0,
+              "inputTokens": 10,
+              "outputTokens": 2,
+              "promptTokens": 10
+            }
+          }
+        }
+      ],
+      "result": {
+        "citations": [],
+        "content": "g",
+        "model": "zz-gemini",
+        "provider": "gemini",
+        "usage": {
+          "cacheWriteTokens": 0,
+          "cachedTokens": 0,
+          "inputTokens": 10,
+          "outputTokens": 2,
+          "promptTokens": 10
+        },
+        "webSearchCalls": []
+      },
+      "rows": [
+        {
+          "account": "",
+          "attempts": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costSource": "unpriced",
+          "costUsd": null,
+          "day": "2023-11-15",
+          "durationMs": 250,
+          "elapsedMs": 0,
+          "id": "<req>",
+          "input": 10,
+          "kind": "api",
+          "model": "zz-gemini",
+          "origin": "live",
+          "output": 2,
+          "provider": "gemini",
+          "rates": "{\"requestedModel\":\"zz-gemini\",\"pricingModel\":\"zz-gemini\",\"pricingProvider\":\"gemini\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+          "requestedModel": "",
+          "requestedProvider": "",
+          "responseId": "",
+          "sessionId": "web_search:native-web-search:loyw3v28",
+          "sourceType": "native-web-search",
+          "status": "completed",
+          "ts": 1700000000250,
+          "ttftMs": null
+        }
+      ],
+      "session": null,
+      "startedAt": 1700000000000,
+      "webSearchRoute": {
+        "model": "zz-gemini",
+        "provider": "gemini"
+      }
+    },
+    {
+      "args": {
+        "maxResults": 20,
+        "prompt": "p",
+        "query": "q",
+        "site": "x.org"
+      },
+      "calls": [
+        {
+          "messages": [
+            {
+              "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits.",
+              "role": "system"
+            },
+            {
+              "content": "p",
+              "role": "user"
+            }
+          ],
+          "model": "zz-claude",
+          "opts": {
+            "effort": "low",
+            "fast": false,
+            "modelParameters": {},
+            "nativeInclude": [],
+            "nativeTools": [
+              {
+                "allowed_domains": [
+                  "x.org"
+                ],
+                "max_uses": 10,
+                "name": "web_search",
+                "type": "web_search_20250305"
+              }
+            ],
+            "role": "web-search",
+            "sessionId": "lead-2:native-web-search:loyw3v28",
+            "sourceName": "web_search",
+            "sourceType": "native-web-search",
+            "toolChoice": "required"
+          },
+          "provider": "anthropic",
+          "signal": false,
+          "tools": null
+        }
+      ],
+      "deltas": [
+        {
+          "agentRole": "web-search",
+          "contextCacheWriteTokens": 12,
+          "contextCachedReadTokens": 30,
+          "contextInputTokens": 50,
+          "contextMeasuredTokens": null,
+          "contextOutputTokens": 9,
+          "contextPromptTokens": 92,
+          "deltaCacheWrite": 12,
+          "deltaCachedRead": 30,
+          "deltaInput": 50,
+          "deltaOutput": 9,
+          "deltaPrompt": 92,
+          "deltaToolCalls": 0,
+          "iterationIndex": 0,
+          "model": "zz-claude",
+          "promptKnown": true,
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false,
+          "requestMs": 0,
+          "requestedModel": "zz-claude",
+          "sessionId": "lead-2:native-web-search:loyw3v28",
+          "source": "native_web_search",
+          "ts": 1700000000250
+        }
+      ],
+      "name": "anthropic bills its prompt as input plus cache",
+      "replies": [
+        {
+          "result": {
+            "content": "a",
+            "usage": {
+              "cacheWriteTokens": 12,
+              "cachedTokens": 30,
+              "inputTokens": 50,
+              "outputTokens": 9,
+              "promptTokens": 92
+            }
+          }
+        }
+      ],
+      "result": {
+        "citations": [],
+        "content": "a",
+        "model": "zz-claude",
+        "provider": "anthropic",
+        "usage": {
+          "cacheWriteTokens": 12,
+          "cachedTokens": 30,
+          "inputTokens": 50,
+          "outputTokens": 9,
+          "promptTokens": 92
+        },
+        "webSearchCalls": []
+      },
+      "rows": [
+        {
+          "account": "",
+          "attempts": 1,
+          "cacheRead": 30,
+          "cacheWrite": 12,
+          "costSource": "unpriced",
+          "costUsd": null,
+          "day": "2023-11-15",
+          "durationMs": 250,
+          "elapsedMs": 0,
+          "id": "<req>",
+          "input": 50,
+          "kind": "api",
+          "model": "zz-claude",
+          "origin": "live",
+          "output": 9,
+          "provider": "anthropic",
+          "rates": "{\"requestedModel\":\"zz-claude\",\"pricingModel\":\"zz-claude\",\"pricingProvider\":\"anthropic\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+          "requestedModel": "",
+          "requestedProvider": "",
+          "responseId": "",
+          "sessionId": "lead-2:native-web-search:loyw3v28",
+          "sourceType": "native-web-search",
+          "status": "completed",
+          "ts": 1700000000250,
+          "ttftMs": null
+        }
+      ],
+      "session": "lead-2",
+      "startedAt": 1700000000000,
+      "webSearchRoute": {
+        "effort": "low",
+        "model": "zz-claude",
+        "provider": "anthropic"
+      }
+    },
+    {
+      "args": {
+        "prompt": "p",
+        "query": "q",
+        "site": "y.com"
+      },
+      "calls": [
+        {
+          "messages": [
+            {
+              "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits.",
+              "role": "system"
+            },
+            {
+              "content": "p",
+              "role": "user"
+            }
+          ],
+          "model": "zz-grok",
+          "opts": {
+            "fast": false,
+            "modelParameters": {},
+            "nativeInclude": [],
+            "nativeTools": [
+              {
+                "filters": {
+                  "allowed_domains": [
+                    "y.com"
+                  ]
+                },
+                "type": "web_search"
+              }
+            ],
+            "role": "web-search",
+            "sessionId": "lead-3:native-web-search:loyw3v28",
+            "sourceName": "web_search",
+            "sourceType": "native-web-search",
+            "toolChoice": "required"
+          },
+          "provider": "xai",
+          "signal": false,
+          "tools": null
+        }
+      ],
+      "deltas": [],
+      "name": "xai with a tool type and no usage",
+      "replies": [
+        {
+          "result": {
+            "content": "x"
+          }
+        }
+      ],
+      "result": {
+        "citations": [],
+        "content": "x",
+        "model": "zz-grok",
+        "provider": "xai",
+        "usage": null,
+        "webSearchCalls": []
+      },
+      "rows": [
+        {
+          "account": "",
+          "attempts": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costSource": "unpriced",
+          "costUsd": null,
+          "day": "2023-11-15",
+          "durationMs": 250,
+          "elapsedMs": 0,
+          "id": "<req>",
+          "input": 0,
+          "kind": "api",
+          "model": "zz-grok",
+          "origin": "live",
+          "output": 0,
+          "provider": "xai",
+          "rates": "{\"requestedModel\":\"zz-grok\",\"pricingModel\":\"zz-grok\",\"pricingProvider\":\"xai\",\"pricingSource\":null,\"inputTokensKnown\":false,\"unpricedReason\":\"unmeasured-input\"}",
+          "requestedModel": "",
+          "requestedProvider": "",
+          "responseId": "",
+          "sessionId": "lead-3:native-web-search:loyw3v28",
+          "sourceType": "native-web-search",
+          "status": "completed",
+          "ts": 1700000000250,
+          "ttftMs": null
+        }
+      ],
+      "session": "lead-3",
+      "startedAt": 1700000000000,
+      "webSearchRoute": {
+        "model": "zz-grok",
+        "provider": "xai",
+        "toolType": "web_search"
+      }
+    },
+    {
+      "args": {
+        "prompt": "p",
+        "query": "q"
+      },
+      "calls": [
+        {
+          "messages": [
+            {
+              "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits.",
+              "role": "system"
+            },
+            {
+              "content": "p",
+              "role": "user"
+            }
+          ],
+          "model": "zz-gpt",
+          "opts": {
+            "fast": false,
+            "modelParameters": {},
+            "nativeInclude": [
+              "web_search_call.action.sources"
+            ],
+            "nativeTools": [
+              {
+                "search_context_size": "low",
+                "type": "web_search"
+              }
+            ],
+            "role": "web-search",
+            "sessionId": "lead-4:native-web-search:loyw3v28",
+            "sourceName": "web_search",
+            "sourceType": "native-web-search",
+            "toolChoice": "required"
+          },
+          "provider": "openai",
+          "signal": false,
+          "tools": null
+        },
+        {
+          "messages": [
+            {
+              "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits.",
+              "role": "system"
+            },
+            {
+              "content": "p",
+              "role": "user"
+            }
+          ],
+          "model": "zz-gemini",
+          "opts": {
+            "fast": false,
+            "modelParameters": {},
+            "nativeInclude": [],
+            "nativeTools": [
+              {
+                "type": "google_search"
+              }
+            ],
+            "role": "web-search",
+            "sessionId": "lead-4:native-web-search:loyw3v96",
+            "sourceName": "web_search",
+            "sourceType": "native-web-search",
+            "toolChoice": "auto"
+          },
+          "provider": "gemini",
+          "signal": false,
+          "tools": null
+        }
+      ],
+      "deltas": [
+        {
+          "agentRole": "web-search",
+          "contextCacheWriteTokens": 0,
+          "contextCachedReadTokens": 0,
+          "contextInputTokens": 5,
+          "contextMeasuredTokens": null,
+          "contextOutputTokens": 1,
+          "contextPromptTokens": 5,
+          "deltaCacheWrite": 0,
+          "deltaCachedRead": 0,
+          "deltaInput": 5,
+          "deltaOutput": 1,
+          "deltaPrompt": 5,
+          "deltaToolCalls": 0,
+          "iterationIndex": 0,
+          "model": "zz-gemini",
+          "promptKnown": true,
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false,
+          "requestMs": 0,
+          "requestedModel": "zz-gemini",
+          "sessionId": "lead-4:native-web-search:loyw3v96",
+          "source": "native_web_search",
+          "ts": 1700000000500
+        }
+      ],
+      "name": "a capacity refusal moves to the next provider",
+      "replies": [
+        {
+          "throw": {
+            "message": "limited",
+            "props": {
+              "status": 429
+            }
+          }
+        },
+        {
+          "result": {
+            "content": "second",
+            "usage": {
+              "cacheWriteTokens": 0,
+              "cachedTokens": 0,
+              "inputTokens": 5,
+              "outputTokens": 1,
+              "promptTokens": 5
+            }
+          }
+        }
+      ],
+      "result": {
+        "citations": [],
+        "content": "second",
+        "model": "zz-gemini",
+        "provider": "gemini",
+        "usage": {
+          "cacheWriteTokens": 0,
+          "cachedTokens": 0,
+          "inputTokens": 5,
+          "outputTokens": 1,
+          "promptTokens": 5
+        },
+        "webSearchCalls": []
+      },
+      "rows": [
+        {
+          "account": "",
+          "attempts": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costSource": "none",
+          "costUsd": 0,
+          "day": "2023-11-15",
+          "durationMs": 0,
+          "elapsedMs": 250,
+          "id": "<req>",
+          "input": 0,
+          "kind": "api",
+          "model": "zz-gpt",
+          "origin": "live",
+          "output": 0,
+          "provider": "openai",
+          "rates": "{\"requestedModel\":\"zz-gpt\",\"pricingModel\":\"zz-gpt\",\"pricingProvider\":\"openai\",\"pricingSource\":\"provider\"}",
+          "requestedModel": "",
+          "requestedProvider": "",
+          "responseId": "",
+          "sessionId": "lead-4:native-web-search:loyw3v28",
+          "sourceType": "native-web-search",
+          "status": "failed",
+          "ts": 1700000000250,
+          "ttftMs": null
+        },
+        {
+          "account": "",
+          "attempts": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costSource": "unpriced",
+          "costUsd": null,
+          "day": "2023-11-15",
+          "durationMs": 250,
+          "elapsedMs": 0,
+          "id": "<req>",
+          "input": 5,
+          "kind": "api",
+          "model": "zz-gemini",
+          "origin": "live",
+          "output": 1,
+          "provider": "gemini",
+          "rates": "{\"requestedModel\":\"zz-gemini\",\"pricingModel\":\"zz-gemini\",\"pricingProvider\":\"gemini\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+          "requestedModel": "",
+          "requestedProvider": "",
+          "responseId": "",
+          "sessionId": "lead-4:native-web-search:loyw3v96",
+          "sourceType": "native-web-search",
+          "status": "completed",
+          "ts": 1700000000500,
+          "ttftMs": null
+        }
+      ],
+      "session": "lead-4",
+      "startedAt": 1700000000000,
+      "webSearchRoute": {
+        "fallbacks": [
+          {
+            "model": "zz-gemini",
+            "provider": "gemini"
+          }
+        ],
+        "model": "zz-gpt",
+        "provider": "openai"
+      }
+    },
+    {
+      "args": {
+        "prompt": "p",
+        "query": "q"
+      },
+      "calls": [
+        {
+          "messages": [
+            {
+              "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits.",
+              "role": "system"
+            },
+            {
+              "content": "p",
+              "role": "user"
+            }
+          ],
+          "model": "zz-gpt",
+          "opts": {
+            "fast": false,
+            "modelParameters": {},
+            "nativeInclude": [
+              "web_search_call.action.sources"
+            ],
+            "nativeTools": [
+              {
+                "search_context_size": "low",
+                "type": "web_search"
+              }
+            ],
+            "role": "web-search",
+            "sessionId": "lead-5:native-web-search:loyw3v28",
+            "sourceName": "web_search",
+            "sourceType": "native-web-search",
+            "toolChoice": "required"
+          },
+          "provider": "openai",
+          "signal": false,
+          "tools": null
+        },
+        {
+          "messages": [
+            {
+              "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits.",
+              "role": "system"
+            },
+            {
+              "content": "p",
+              "role": "user"
+            }
+          ],
+          "model": "zz-claude",
+          "opts": {
+            "fast": false,
+            "modelParameters": {},
+            "nativeInclude": [],
+            "nativeTools": [
+              {
+                "max_uses": 5,
+                "name": "web_search",
+                "type": "web_search_20250305"
+              }
+            ],
+            "role": "web-search",
+            "sessionId": "lead-5:native-web-search:loyw3v96",
+            "sourceName": "web_search",
+            "sourceType": "native-web-search",
+            "toolChoice": "required"
+          },
+          "provider": "anthropic",
+          "signal": false,
+          "tools": null
+        }
+      ],
+      "deltas": [],
+      "error": "native web search failed: openai/zz-gpt/web_search: limited | anthropic/zz-claude/web_search: busy",
+      "name": "every provider refusing joins the reasons",
+      "replies": [
+        {
+          "throw": {
+            "message": "limited",
+            "props": {
+              "status": 429
+            }
+          }
+        },
+        {
+          "throw": {
+            "message": "busy",
+            "props": {
+              "status": 503
+            }
+          }
+        }
+      ],
+      "rows": [
+        {
+          "account": "",
+          "attempts": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costSource": "none",
+          "costUsd": 0,
+          "day": "2023-11-15",
+          "durationMs": 0,
+          "elapsedMs": 250,
+          "id": "<req>",
+          "input": 0,
+          "kind": "api",
+          "model": "zz-gpt",
+          "origin": "live",
+          "output": 0,
+          "provider": "openai",
+          "rates": "{\"requestedModel\":\"zz-gpt\",\"pricingModel\":\"zz-gpt\",\"pricingProvider\":\"openai\",\"pricingSource\":\"provider\"}",
+          "requestedModel": "",
+          "requestedProvider": "",
+          "responseId": "",
+          "sessionId": "lead-5:native-web-search:loyw3v28",
+          "sourceType": "native-web-search",
+          "status": "failed",
+          "ts": 1700000000250,
+          "ttftMs": null
+        },
+        {
+          "account": "",
+          "attempts": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costSource": "none",
+          "costUsd": 0,
+          "day": "2023-11-15",
+          "durationMs": 0,
+          "elapsedMs": 250,
+          "id": "<req>",
+          "input": 0,
+          "kind": "api",
+          "model": "zz-claude",
+          "origin": "live",
+          "output": 0,
+          "provider": "anthropic",
+          "rates": "{\"requestedModel\":\"zz-claude\",\"pricingModel\":\"zz-claude\",\"pricingProvider\":\"anthropic\",\"pricingSource\":\"provider\"}",
+          "requestedModel": "",
+          "requestedProvider": "",
+          "responseId": "",
+          "sessionId": "lead-5:native-web-search:loyw3v96",
+          "sourceType": "native-web-search",
+          "status": "failed",
+          "ts": 1700000000500,
+          "ttftMs": null
+        }
+      ],
+      "session": "lead-5",
+      "startedAt": 1700000000000,
+      "webSearchRoute": {
+        "fallbacks": [
+          {
+            "model": "zz-claude",
+            "provider": "anthropic"
+          }
+        ],
+        "model": "zz-gpt",
+        "provider": "openai"
+      }
+    },
+    {
+      "args": {
+        "prompt": "p",
+        "query": "q"
+      },
+      "calls": [
+        {
+          "messages": [
+            {
+              "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits.",
+              "role": "system"
+            },
+            {
+              "content": "p",
+              "role": "user"
+            }
+          ],
+          "model": "zz-gpt",
+          "opts": {
+            "fast": false,
+            "modelParameters": {},
+            "nativeInclude": [
+              "web_search_call.action.sources"
+            ],
+            "nativeTools": [
+              {
+                "search_context_size": "low",
+                "type": "web_search"
+              }
+            ],
+            "role": "web-search",
+            "sessionId": "lead-6:native-web-search:loyw3v28",
+            "sourceName": "web_search",
+            "sourceType": "native-web-search",
+            "toolChoice": "required"
+          },
+          "provider": "openai",
+          "signal": false,
+          "tools": null
+        }
+      ],
+      "deltas": [],
+      "error": "denied",
+      "name": "a denied credential stops the chain",
+      "replies": [
+        {
+          "throw": {
+            "message": "denied",
+            "props": {
+              "status": 403
+            }
+          }
+        }
+      ],
+      "rows": [
+        {
+          "account": "",
+          "attempts": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costSource": "none",
+          "costUsd": 0,
+          "day": "2023-11-15",
+          "durationMs": 0,
+          "elapsedMs": 250,
+          "id": "<req>",
+          "input": 0,
+          "kind": "api",
+          "model": "zz-gpt",
+          "origin": "live",
+          "output": 0,
+          "provider": "openai",
+          "rates": "{\"requestedModel\":\"zz-gpt\",\"pricingModel\":\"zz-gpt\",\"pricingProvider\":\"openai\",\"pricingSource\":\"provider\"}",
+          "requestedModel": "",
+          "requestedProvider": "",
+          "responseId": "",
+          "sessionId": "lead-6:native-web-search:loyw3v28",
+          "sourceType": "native-web-search",
+          "status": "failed",
+          "ts": 1700000000250,
+          "ttftMs": null
+        }
+      ],
+      "session": "lead-6",
+      "startedAt": 1700000000000,
+      "webSearchRoute": {
+        "fallbacks": [
+          {
+            "model": "zz-gemini",
+            "provider": "gemini"
+          }
+        ],
+        "model": "zz-gpt",
+        "provider": "openai"
+      }
+    }
+  ],
+  "startedAt": 1700000000000
+}

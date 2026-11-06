@@ -107,7 +107,7 @@
   },
   {
    "name": "model_switch",
-   "payload": "{\"k\":\"model_switch\",\"anchor\":{\"iid\":\"msg_a1\",\"ordinal\":7},\"op\":{\"id\":\"0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d\",\"method\":\"route/set\",\"digest\":\"sha256:8a84e406c08ac9594f47222406598f7598e15c55f8044b04813e28c9dee70976\"},\"entry\":{\"provider\":\"openai\",\"modelId\":\"gpt-5.1\",\"at\":1793306570700}}"
+   "payload": "{\"k\":\"model_switch\",\"anchor\":{\"iid\":\"msg_a1\",\"ordinal\":7},\"op\":{\"id\":\"0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d\",\"method\":\"route/set\",\"digest\":\"sha256:8a84e406c08ac9594f47222406598f7598e15c55f8044b04813e28c9dee70976\"},\"entry\":{\"inline\":{\"provider\":\"openai\",\"modelId\":\"gpt-5.1\",\"at\":1793306570700}}}"
   },
   {
    "name": "checkpoint",

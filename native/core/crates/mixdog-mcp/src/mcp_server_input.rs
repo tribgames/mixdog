@@ -141,9 +141,7 @@ fn positive_number(value: &Value, label: &str) -> Result<f64, String> {
     if n.is_finite() && n > 0.0 { Ok(n) } else { Err(format!("{label} must be a positive number")) }
 }
 
-fn number_value(n: f64) -> Value {
-    if n.fract() == 0.0 && n.abs() < 9.0e15 { json!(n as i64) } else { json!(n) }
-}
+use mixdog_js::json_number as number_value;
 
 fn present(value: &Value) -> bool {
     !value.is_null() && value != &json!("")

@@ -25,6 +25,12 @@ pub trait SecretVault: Send + Sync {
     async fn get(&self, account: &str) -> Result<Option<String>, VaultError>;
     async fn set(&self, account: &str, value: &str) -> Result<(), VaultError>;
     async fn delete(&self, account: &str) -> Result<(), VaultError>;
+
+    /// `isFallbackSecret`: whether the account's secret lives in the private fallback file
+    /// (a host with no keychain provider) rather than the keychain. Setup views label it.
+    async fn is_fallback(&self, _account: &str) -> bool {
+        false
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]

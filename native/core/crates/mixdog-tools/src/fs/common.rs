@@ -23,6 +23,7 @@ use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
+use mixdog_rt::LaneToken;
 
 /// Model-facing byte cap of one tool result.
 pub(crate) const OUTPUT_MAX_BYTES: usize = 50 * 1024;
@@ -178,6 +179,49 @@ pub(crate) async fn guarded<F: Future>(
 pub(crate) async fn lock_write_paths(ctx: &ToolContext, paths: &[&AbsPath]) -> Result<PathLocks, ToolError> {
     let raw: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
     lock_paths(&raw, &ctx.cancel).await.ok_or_else(cancelled)
+}
+
+/// Node `realpathNearestExisting` joined back to the missing tail: the target with its nearest
+/// existing ancestor resolved through symlinks and junctions. `None` when nothing on the path
+/// exists or cannot be resolved.
+#[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (real_target_on_lane)")]
+fn real_target(full: &Path) -> Option<PathBuf> {
+    let mut probe = full;
+    while !probe.exists() {
+        probe = probe.parent().filter(|p| *p != probe)?;
+    }
+    let real = std::fs::canonicalize(probe).ok()?;
+    // `canonicalize` answers with the `\\?\` form on Windows; Node's `realpathSync` does not, and
+    // the lock key must read the same as the keys other tools take.
+    let text = real.to_string_lossy();
+    let real = match text.strip_prefix(r"\\?\") {
+        Some(plain) if !plain.starts_with("UNC\\") => PathBuf::from(plain),
+        _ => real,
+    };
+    Some(real.join(full.strip_prefix(probe).ok()?))
+}
+
+/// [`real_target`] as a job on the interactive lane.
+async fn real_target_on_lane(ctx: &ToolContext, full: &Path) -> Result<Option<PathBuf>, ToolError> {
+    let target = full.to_path_buf();
+    let job = ctx.io.interactive.submit(&ctx.cancel, move |_| real_target(&target)).map_err(|_| cancelled())?;
+    job.await.map_err(|_| cancelled())
+}
+
+/// The locks `edit` takes: the target and where it really lives, so two routes to one file (a
+/// symlink and its referent) serialize. Once held, the real location is resolved again; a target
+/// that moved while the locks were awaited is refused, as in Node's `withEditTargetLock`.
+pub(crate) async fn lock_edit_target(ctx: &ToolContext, target: &AbsPath) -> Result<PathLocks, ToolError> {
+    let unresolved = || invalid("file_path", "unresolvable", "Error: cannot resolve edit target for locking");
+    let real = real_target_on_lane(ctx, target.as_path()).await?.ok_or_else(unresolved)?;
+    let locks = lock_paths(&[target.as_path(), real.as_path()], &ctx.cancel).await.ok_or_else(cancelled)?;
+    if real_target_on_lane(ctx, target.as_path()).await?.as_deref() != Some(real.as_path()) {
+        return Err(fail(
+            ToolErrorCode::Stale { expected: real.display().to_string(), actual: "moved".to_owned() },
+            "Error: edit target changed while acquiring its lock",
+        ));
+    }
+    Ok(locks)
 }
 
 /// How a bounded pull ended.
@@ -349,13 +393,17 @@ pub(crate) fn encode_text(text: &str, codec: Codec) -> Vec<u8> {
             out.extend_from_slice(text.as_bytes());
         }
         Encoding::Utf16Le => {
-            out.extend_from_slice(&[0xFF, 0xFE]);
+            if codec.bom {
+                out.extend_from_slice(&[0xFF, 0xFE]);
+            }
             for u in text.encode_utf16() {
                 out.extend_from_slice(&u.to_le_bytes());
             }
         }
         Encoding::Utf16Be => {
-            out.extend_from_slice(&[0xFE, 0xFF]);
+            if codec.bom {
+                out.extend_from_slice(&[0xFE, 0xFF]);
+            }
             for u in text.encode_utf16() {
                 out.extend_from_slice(&u.to_be_bytes());
             }

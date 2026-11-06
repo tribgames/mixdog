@@ -88,8 +88,10 @@ const SUBSET = ['default', 'presets', 'modelSettings'];
 const subset = (config) => plain(Object.fromEntries(SUBSET.filter((k) => config?.[k] !== undefined).map((k) => [k, config[k]])));
 
 const cases = [];
-for (let i = 0; i < 260; i += 1) {
-  const kind = pick(['setRoute', 'setRoute', 'setRoute', 'setFast', 'setEffort']);
+// The last 60 cases are `continueSessionInModel` (set-route.mjs): the quota escape hatch that
+// adopts a selection and switches the addressed session in place.
+for (let i = 0; i < 320; i += 1) {
+  const kind = i >= 260 ? 'continue' : pick(['setRoute', 'setRoute', 'setRoute', 'setFast', 'setEffort']);
   const config = randomConfig();
   // The file may hold a Lead route this runtime has not read yet; only a conditional fill
   // re-reads the file before it writes (any other save applies to the document in memory).
@@ -104,7 +106,7 @@ for (let i = 0; i < 260; i += 1) {
   const options = {};
   let setFastValue = null;
   let effortValue = null;
-  if (kind === 'setRoute') {
+  if (kind === 'setRoute' || kind === 'continue') {
     for (const key of ['provider', 'model']) {
       const v = pick(key === 'provider' ? [undefined, ...KNOWN, ' openai '] : [undefined, ...MODELS, 'quick', 'workflow-lead']);
       if (v !== undefined) request[key] = v;
@@ -125,6 +127,17 @@ for (let i = 0; i < 260; i += 1) {
     setFastValue = pick([true, false, 'ultrafast']);
   } else {
     effortValue = pick(['low', 'HIGH', 'auto', '', 'bogus', 'medium']);
+  }
+  // The session a continue addresses, and the id it is asked for (a wrong or empty id is refused).
+  let continueSessionId = null;
+  let continueSession = null;
+  let continueSessionBefore = null;
+  if (kind === 'continue') {
+    for (const key of Object.keys(options)) delete options[key];
+    continueSessionId = pick(['t', 't', 't', 't', 'other', '']);
+    continueSession = { id: 't', provider: pick(KNOWN), model: pick(MODELS), messages: [{ role: 'assistant', content: 'a' }] };
+    // The route the session ran on, before the switch rewrites it.
+    continueSessionBefore = { provider: continueSession.provider, model: continueSession.model };
   }
   if (options.onlyIfEmpty && chance(0.5)) {
     fileOverride = { ...config, default: 'workflow-lead', presets: [{ id: 'workflow-lead', name: 'WORKFLOW LEAD', type: 'agent', provider: 'anthropic', model: 'claude-opus-4-1' }] };
@@ -169,7 +182,7 @@ for (let i = 0; i < 260; i += 1) {
     getConfigHasSecrets: () => false,
     getRoute: () => state.route,
     setRouteState: (r) => { state.route = r; log.routeStates.push(plain(r)); },
-    getSession: () => null,
+    getSession: () => continueSession,
     getSessionGeneration: () => 0,
     setSession: () => {},
     cfgMod: { loadConfig: () => state.config },
@@ -204,13 +217,19 @@ for (let i = 0; i < 260; i += 1) {
   let result;
   try {
     if (kind === 'setRoute') result = { value: plain(await api.setRoute(structuredClone(request), structuredClone(options))) };
-    else if (kind === 'setFast') result = { value: await api.setFast(setFastValue) };
+    else if (kind === 'continue') {
+      const got = plain(await api.continueSessionInModel(continueSessionId, structuredClone(request)));
+      // The boundary's `at` is the clock's.
+      if (got?.modelSwitch) got.modelSwitch.at = 0;
+      result = { value: got };
+    } else if (kind === 'setFast') result = { value: await api.setFast(setFastValue) };
     else result = { value: plain(await api.setEffort(effortValue)) };
   } catch (error) {
     result = { error: String(error?.message ?? error) };
   }
   cases.push({
     kind, config, fileOverride, live, meta, fastTable, ultraTable, knows, request, options, setFastValue, effortValue,
+    continueSessionId, continueSession: continueSessionBefore,
     ...result,
     after: { route: plain(state.route), config: subset(state.config), file: subset(state.file) },
     log,

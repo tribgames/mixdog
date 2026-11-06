@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_protocol::ThreadId;
 use mixdog_tools::orch::service::ServiceCall;
@@ -59,9 +60,10 @@ pub trait SetupCallers: Send + Sync {
     /// The agent a human's session acts as (`caller.agent`; the agent-id half of
     /// `resolveSessionMode`), empty when it acts as none. Added as a method rather than a
     /// `CallerScope` field because `CallerScope` is built in other owners' code; WP-SESSION's
-    /// composition fills it.
-    async fn acting_agent(&self, _thread: &ThreadId) -> String {
-        String::new()
+    /// composition fills it. A thread that fails to open is Node's missing caller record: the
+    /// call is refused as a background run.
+    async fn acting_agent(&self, _thread: &ThreadId) -> Result<String, CoreError> {
+        Ok(String::new())
     }
     /// `mixyDisplayName()`: the representative agent's name in messages.
     async fn mixy_name(&self) -> String {
@@ -272,7 +274,13 @@ impl SetupService {
     /// `assertHeartbeatSetupAction` and `assertInteractiveCaller`.
     async fn authorize(&self, thread: &ThreadId, action: &str, args: &Value) -> Result<(), PortError> {
         if !READ_ONLY.contains(&action) {
-            let scope = self.callers.scope(thread).await;
+            // `getCallerSession(sessionId)` (executor.mjs `execute`): Node does not throw for a
+            // session that cannot be opened, it gets no record, and `scheduleCallerScope(null)`
+            // is a headless run, so every mutating action is refused as one.
+            let (scope, acting) = match self.callers.acting_agent(thread).await {
+                Ok(acting) => (self.callers.scope(thread).await, acting),
+                Err(_) => (CallerScope::Headless, String::new()),
+            };
             // `assertAgentEditorAccess`: agent definitions change only from Mixy, the human's
             // own session or one acting as her.
             if AGENT_DEFINITION.contains(&action)
@@ -280,7 +288,6 @@ impl SetupService {
                 && !matches!(scope, CallerScope::RoomMember | CallerScope::Headless)
                 && !matches!(scope, CallerScope::Agent { unattended: true, .. })
             {
-                let acting = self.callers.acting_agent(thread).await;
                 let acting = mixdog_js::js_trim(&acting);
                 if !(scope == CallerScope::Human && (acting.is_empty() || acting == MIXY_AGENT_ID)) {
                     let name = self.callers.mixy_name().await;

@@ -2,6 +2,7 @@
 //! `slice` by UTF-16 units, `Number(...)` coercion, ECMAScript regular expressions with V8's
 //! error text. Ported from V8 / the Node product; each piece is tested against Node's output.
 
+mod array_sort;
 pub mod device_paths;
 mod json;
 mod json_parse;
@@ -14,20 +15,25 @@ mod text;
 pub mod time;
 pub mod token_estimate;
 
+pub use array_sort::js_sort_by;
 pub use json::ordered_keys as js_object_keys;
 pub use json::quote as json_quote;
 pub use json::quoted_cut_utf16_len as json_cut_utf16_len;
 pub use json::stringify as json_stringify;
 pub use json::stringify_indent as json_stringify_indent;
 pub use json::stringify_indent_parsed as json_stringify_indent_parsed;
+pub use json::stringify_sorted as json_stringify_sorted;
+pub use json::stringify_sorted_outside_arrays as json_stringify_sorted_outside_arrays;
 pub use json_parse::JsonSyntaxError;
 pub use json_parse::parse as json_parse;
 pub use json_parse::parsed_text as json_parsed_text;
 pub use locale_compare::locale_compare;
 pub use locale_compare::locale_compare_en_base;
+pub use number::json_number;
 pub use number::number_to_string;
 pub use number::string_to_number;
 pub use number::to_number;
+pub use number::to_number_of;
 pub use number::value_to_string;
 pub use regex::Caps;
 pub use regex::JsRegex;

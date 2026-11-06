@@ -204,14 +204,21 @@ mod win {
                 return Err(ComputerError::InvalidInput { reason: format!("unknown display {}", display.0) });
             }
             let (tx, rx) = async_mpsc::channel(1);
-            std::thread::spawn(move || capture_loop(tx));
-            Ok(Box::new(ScreenSource { rx }))
+            let (stop, stopped) = mpsc::channel();
+            std::thread::spawn(move || capture_loop(tx, stopped));
+            Ok(Box::new(ScreenSource { rx, _stop: stop }))
         }
+    }
+
+    /// The pause between two frames. It ends at once, with `false`, when the source is dropped
+    /// (its end of `stopped` goes away); `true` means the interval passed.
+    fn next_frame_due(stopped: &mpsc::Receiver<()>) -> bool {
+        matches!(stopped.recv_timeout(FRAME_INTERVAL), Err(mpsc::RecvTimeoutError::Timeout))
     }
 
     /// Captures the virtual screen from the thread attached to the current input desktop,
     /// until the source is dropped.
-    fn capture_loop(tx: async_mpsc::Sender<Result<VideoFrame, MediaError>>) {
+    fn capture_loop(tx: async_mpsc::Sender<Result<VideoFrame, MediaError>>, stopped: mpsc::Receiver<()>) {
         let started = Instant::now();
         let mut attached: Option<(OwnedDesktop, String)> = None;
         let mut seq = 0u64;
@@ -235,15 +242,16 @@ mod win {
                 }
                 Err(error) => tx.blocking_send(Err(MediaError::Unavailable { reason: error.to_string() })),
             };
-            if sent.is_err() {
+            if sent.is_err() || !next_frame_due(&stopped) {
                 return;
             }
-            std::thread::sleep(FRAME_INTERVAL);
         }
     }
 
     struct ScreenSource {
         rx: async_mpsc::Receiver<Result<VideoFrame, MediaError>>,
+        /// Dropped with the source, which wakes the capture thread out of its pause.
+        _stop: mpsc::Sender<()>,
     }
 
     #[async_trait]
@@ -254,6 +262,23 @@ mod win {
 
         async fn next_frame(&mut self) -> Result<Option<VideoFrame>, MediaError> {
             self.rx.recv().await.transpose()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn the_pause_between_frames_ends_at_once_when_the_source_is_dropped() {
+            let (stop, stopped) = mpsc::channel::<()>();
+            let started = Instant::now();
+            assert!(next_frame_due(&stopped));
+            assert!(started.elapsed() >= FRAME_INTERVAL);
+            drop(stop);
+            let started = Instant::now();
+            assert!(!next_frame_due(&stopped));
+            assert!(started.elapsed() < FRAME_INTERVAL);
         }
     }
 }

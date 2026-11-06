@@ -76,13 +76,15 @@ pub struct RunConfig {
     /// Mid-conversation effort: the route's inputs and the adapter that sets
     /// BuildInputs.effort from the projection of each request.
     pub effort: Option<crate::effort::EffortWiring>,
-    /// Auto effort per tool-result step (needs ffort and a step judge).
+    /// Auto effort per tool-result step (needs an effort projection and a step judge).
     pub step_auto_effort: Option<crate::step_effort::StepAutoEffort>,
     /// The route's model takes no media input: each request is degraded and
     /// checked (`input-capabilities.mjs`).
     pub text_only: Option<crate::text_only::TextOnlyInput>,
     /// Resolves stored text-attachment references to their text in each request.
     pub attachments: Option<std::sync::Arc<dyn crate::attachments::AttachmentText>>,
+    /// The admitted slot of an agent job: handed back around each provider request.
+    pub slot: Option<std::sync::Arc<dyn crate::env::Yielder>>,
 }
 
 impl RunConfig {
@@ -108,6 +110,7 @@ impl RunConfig {
             step_auto_effort: None,
             text_only: None,
             attachments: None,
+            slot: None,
         }
     }
 }
@@ -167,6 +170,11 @@ pub enum AgentError {
     ContextOverflow(Box<ContextOverflow>),
     /// The compaction pipeline itself failed (not "the latest turn cannot fit").
     CompactFailed(Box<CompactFailure>),
+    /// The model hop itself failed (a provider that is not there, a session closed during the
+    /// hop); the text is the error as Node throws it.
+    RouteFailed(String),
+    /// The slot could not be taken back after a provider request: the cancel's own text.
+    Admission(String),
 }
 
 #[derive(Debug)]
@@ -212,6 +220,7 @@ impl std::fmt::Display for AgentError {
         match self {
             Self::Aborted => f.write_str("agent loop aborted"),
             Self::Provider(error) => f.write_str(&error.message),
+            Self::RouteFailed(message) | Self::Admission(message) => f.write_str(message),
             Self::ContextOverflow(o) => write!(
                 f,
                 "agent context overflow ({}, stage={}): latest turn cannot fit target context budget={} reserve={} contextWindow={} messageTokensEst={}{}",
@@ -269,6 +278,8 @@ pub struct RunOutput {
     /// saves it with `RunPort::save_provider_state` (an empty state clears it).
     /// A failed run saves none: Node persists state from a delivered result only.
     pub provider_state: Option<ProviderState>,
+    /// `routeUsageSegments`: the turn's usage per model when the route switched mid-turn.
+    pub usage_segments: Vec<crate::env::UsageSegment>,
 }
 
 pub struct Run {
@@ -598,6 +609,12 @@ impl Run {
         let last_turn_usage = response.usage.clone();
         let usage = self.last_usage.unwrap_or_else(|| last_turn_usage.clone());
         let first_turn_usage = self.first_turn_usage.clone().unwrap_or_else(|| last_turn_usage.clone());
+        let usage_segments = self
+            .env
+            .route
+            .as_ref()
+            .map(|route| route.usage_segments(&usage, (&self.provider.id().to_string(), &self.model)))
+            .unwrap_or_default();
         let mut termination = classify_termination(&response, self.config.hidden_agent);
         // A reaction-only turn is a successful completion, never an empty
         // finish; so is an empty end after a kept answer only todo bookkeeping
@@ -623,6 +640,7 @@ impl Run {
             transcript: self.messages,
             carry: self.carry,
             provider_state: self.provider_state_changed.then_some(self.provider_state).flatten(),
+            usage_segments,
             response,
         }
     }

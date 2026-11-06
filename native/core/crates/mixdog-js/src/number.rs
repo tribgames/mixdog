@@ -155,6 +155,24 @@ pub fn to_number(value: &Value) -> f64 {
     }
 }
 
+/// `Number(value)` of a value that may be absent (`undefined`, so NaN).
+pub fn to_number_of(value: Option<&Value>) -> f64 {
+    value.map_or(f64::NAN, to_number)
+}
+
+/// The JSON value a JavaScript number round-trips to through `JSON.stringify`/`JSON.parse`: an
+/// integral value inside the safe range is an integer (`-0` is 0), a non-finite one is null, and
+/// anything else is the number V8 prints, so serialising it gives V8's digits.
+pub fn json_number(number: f64) -> Value {
+    if !number.is_finite() {
+        return Value::Null;
+    }
+    if number.fract() == 0.0 && number.abs() < 9_007_199_254_740_992.0 {
+        return Value::from(number as i64);
+    }
+    serde_json::from_str(&number_to_string(number)).unwrap_or(Value::Null)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +204,34 @@ mod tests {
             let number = f64::from_bits(u64::from_str_radix(&hex, 16).expect("bits"));
             assert_eq!(number_to_string(number), expected, "{hex}");
         }
+    }
+
+    #[test]
+    fn json_number_is_what_json_stringify_round_trips_to() {
+        let rows: Vec<(String, String)> = serde_json::from_str(STRING_ROWS).expect("fixture");
+        for (hex, _) in rows {
+            let number = f64::from_bits(u64::from_str_radix(&hex, 16).expect("bits"));
+            let value = json_number(number);
+            if number.is_finite() {
+                assert_eq!(value.as_f64(), Some(if number == 0.0 { 0.0 } else { number }), "{hex}");
+            } else {
+                assert!(value.is_null(), "{hex}");
+            }
+        }
+        // `JSON.stringify` in Node: 1e15 -> 1000000000000000, 2**60 -> 1152921504606847000,
+        // 0.1 + 0.2 -> 0.30000000000000004, -0 -> 0, NaN -> null.
+        for (number, text) in [
+            (1e15, "1000000000000000"),
+            (9e15, "9000000000000000"),
+            (1152921504606846976.0, "1152921504606847000"),
+            (0.1 + 0.2, "0.30000000000000004"),
+            (-0.0, "0"),
+            (f64::NAN, "null"),
+            (f64::INFINITY, "null"),
+        ] {
+            assert_eq!(json_number(number).to_string(), text, "{number}");
+        }
+        assert!(json_number(1.0).is_i64());
     }
 
     #[test]

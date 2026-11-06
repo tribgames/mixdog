@@ -33,6 +33,7 @@ pub(super) struct Log {
     statusline: u32,
     pub(super) follows: Vec<FollowOptions>,
     tunes: u32,
+    switches: u32,
 }
 
 struct Facts {
@@ -105,6 +106,8 @@ impl RouteWriter for Writer {
 
 struct Session {
     log: Arc<Mutex<Log>>,
+    case: Value,
+    writer: Arc<Writer>,
 }
 
 #[async_trait]
@@ -121,6 +124,18 @@ impl SessionFollow for Session {
     async fn tune(&self, _: &ThreadId) -> Result<(), PortError> {
         self.log.lock().unwrap().tunes += 1;
         Ok(())
+    }
+
+    // The conversation the recording addressed runs `continueSession`; a switch to another model
+    // records a boundary (its clock reading is the recording's 0).
+    async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
+        self.log.lock().unwrap().switches += 1;
+        let route = self.writer.route(thread);
+        let held = &self.case["continueSession"];
+        if route.get("provider") == Some(&held["provider"]) && route.get("model") == Some(&held["model"]) {
+            return Ok(None);
+        }
+        Ok(Some(json!({ "provider": route.get("provider"), "modelId": route.get("model"), "at": 0 })))
     }
 }
 
@@ -148,7 +163,7 @@ pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<L
         config,
         facts: Arc::new(Facts { case: case.clone(), log: log.clone() }),
         writer: writer.clone(),
-        session: Arc::new(Session { log: log.clone() }),
+        session: Arc::new(Session { log: log.clone(), case: case.clone(), writer: writer.clone() }),
     };
     (service, writer, log, dir)
 }
@@ -179,6 +194,10 @@ async fn the_adoption_effects_match_node() {
                 };
                 service.set_fast(&thread, value).await.map(Value::Bool)
             }
+            "continue" => {
+                let id = case["continueSessionId"].as_str().unwrap();
+                service.continue_session_in_model(&thread, id, &obj(&case["request"])).await
+            }
             _ => service.set_effort(&thread, &case["effortValue"], false).await,
         };
         let got = match got {
@@ -202,7 +221,12 @@ async fn the_adoption_effects_match_node() {
         // The session half: an adopted unaddressed selection follows once; a tuning tunes once.
         let adopted = got["value"].is_object() && !options(case).validate_only && case["kind"] == "setRoute" && !log.refreshes.is_empty();
         assert_eq!(log.follows.len(), usize::from(adopted), "{label} follows");
-        assert_eq!(log.tunes, u32::from(case["kind"] != "setRoute" && got.get("value").is_some()), "{label} tunes");
+        let tuning = case["kind"] == "setFast" || case["kind"] == "setEffort";
+        assert_eq!(log.tunes, u32::from(tuning && got.get("value").is_some()), "{label} tunes");
+        // A continue switches the conversation whenever its selection was adopted (the refresh
+        // ran), and its return value says whether a boundary was recorded.
+        let continued = case["kind"] == "continue" && !log.refreshes.is_empty();
+        assert_eq!(log.switches, u32::from(continued), "{label} switches");
     }
 }
 

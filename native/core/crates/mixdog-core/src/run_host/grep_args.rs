@@ -69,14 +69,7 @@ static LIST_SPLIT: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r#"[\s,;]+(?=["']?[A-Za-z]:[\\/])"#, ""));
 static QUOTED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"^(["'])(.*)\1$"#, ""));
 
-/// A JS number as JSON: whole values are integers, as `JSON.stringify` prints them.
-fn num(n: f64) -> JsonValue {
-    if n.is_finite() && n.fract() == 0.0 && n.abs() < 9e15 {
-        JsonValue::from(n as i64)
-    } else {
-        serde_json::Number::from_f64(n).map_or(JsonValue::Null, JsonValue::Number)
-    }
-}
+use mixdog_js::json_number as num;
 
 fn describe_type(v: &JsonValue) -> &'static str {
     match v {
@@ -333,7 +326,7 @@ fn guard_grep(a: &mut Args) -> Option<String> {
     }
     for k in ["-A", "-B", "-C", "context"] {
         if a.get(k).and_then(|v| v.as_str()) == Some("") {
-            a.remove(k);
+            a.shift_remove(k);
             continue;
         }
         if let Some(err) = check_int_in_range(a, k, 0.0, GREP_CONTEXT_MAX, true) {
@@ -363,7 +356,7 @@ fn apply_context_policy(a: &mut Args) {
         let n = to_number(&value);
         let shaped = if n.is_finite() && n > GREP_CONTEXT_MAX { num(GREP_CONTEXT_MAX) } else { value };
         for k in keys {
-            a.remove(*k);
+            a.shift_remove(*k);
         }
         a.insert(canonical.to_owned(), shaped);
     }
@@ -391,7 +384,7 @@ fn normalize_string_lists(a: &mut Args) {
             continue;
         }
         if flat.is_empty() {
-            a.remove(key);
+            a.shift_remove(key);
         } else {
             a.insert(key.to_owned(), JsonValue::Array(flat));
         }
@@ -407,11 +400,11 @@ fn validate(args: &mut JsonValue) -> Option<String> {
     a.retain(|_, v| !v.is_null());
     for key in ["path", "root"] {
         if a.get(key).and_then(|v| v.as_str()).is_some_and(|s| js_trim(s).is_empty()) {
-            a.remove(key);
+            a.shift_remove(key);
         }
     }
     if !a.contains_key("head_limit")
-        && let Some(limit) = a.remove("limit")
+        && let Some(limit) = a.shift_remove("limit")
     {
         a.insert("head_limit".to_owned(), limit);
     }
@@ -426,7 +419,7 @@ fn validate(args: &mut JsonValue) -> Option<String> {
         };
         if let Some(canonical) = canonical {
             a.insert("output_mode".to_owned(), JsonValue::String(canonical.to_owned()));
-            a.remove("mode");
+            a.shift_remove("mode");
         }
     }
     normalize_string_lists(a);
@@ -438,7 +431,7 @@ fn validate(args: &mut JsonValue) -> Option<String> {
 fn normalize(a: &mut Args) {
     let empty = |a: &Args, k: &str| a.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
     if a.get("head_limit").is_none_or(JsonValue::is_null)
-        && let Some(limit) = a.remove("limit")
+        && let Some(limit) = a.shift_remove("limit")
     {
         a.insert("head_limit".to_owned(), limit);
     }
@@ -471,7 +464,7 @@ fn normalize(a: &mut Args) {
 pub(crate) fn prepare_grep_args(raw: &JsonValue) -> Result<JsonValue, String> {
     let mut args = raw.clone();
     if let JsonValue::Object(a) = &mut args {
-        a.remove("_clampNotices");
+        a.shift_remove("_clampNotices");
     }
     if let Some(error) = validate(&mut args) {
         return Err(error);

@@ -62,14 +62,7 @@ fn count(value: &Value) -> Option<u64> {
     value.as_f64().filter(|n| n.is_finite() && *n > 0.0).map(|n| n.floor() as u64)
 }
 
-/// An integral number as a JSON integer, as `JSON.stringify` writes it.
-fn number(n: f64) -> Value {
-    if n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 {
-        json!(n as i64)
-    } else {
-        json!(n)
-    }
-}
+use mixdog_js::json_number as number;
 
 // ---------------------------------------------------------------------------
 // Gemini API
@@ -204,6 +197,9 @@ impl GeminiRow {
         record.display_name = Some(self.display.clone());
         record.context_window = count(&self.context_window);
         record.max_output_tokens = count(&self.output_tokens);
+        record.picker.tier = Some("version".to_owned());
+        record.picker.latest = self.latest;
+        record.picker.description = Some(self.description.clone());
         record.raw = Some(self.json());
         record
     }
@@ -334,6 +330,7 @@ pub fn vertex_records() -> Vec<ModelRecord> {
             row.insert("provider".into(), json!("vertex-ai"));
             let mut record = ModelRecord::new(id);
             record.display_name = Some(name.to_owned());
+            record.name = Some(name.to_owned());
             record.context_window = context_window;
             // The picker offers effort only from a declared ladder.
             if let Some(levels) = documented_levels(id) {
@@ -589,6 +586,7 @@ fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<A
             let mut record = ModelRecord::new(id);
             record.wire = Some(ids);
             record.display_name = Some(display.clone());
+            record.name = Some(display.clone());
             record.context_window = Some(family.context_window as u64);
             record.max_output_tokens = (family.max_output > 0.0).then_some(family.max_output as u64);
             record.supports_reasoning = Some(family.reasoning);

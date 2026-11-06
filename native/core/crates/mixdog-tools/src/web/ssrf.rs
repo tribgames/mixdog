@@ -9,6 +9,8 @@ use std::net::SocketAddr;
 
 use super::error::FetchKind;
 use super::gai;
+use super::lanes;
+use super::lanes::WebLanes;
 use super::gai::LookupError;
 use super::gai::LookupKind;
 use reqwest::dns::Addrs;
@@ -166,15 +168,16 @@ pub(super) fn lookup_failure(host: &str, error: LookupError) -> FetchError {
 
 /// Resolver handed to the HTTP client: every returned address must satisfy the
 /// policy, so a DNS answer cannot smuggle a private address behind a public one.
-pub struct PolicyResolver(pub AddressPolicy);
+pub struct PolicyResolver(pub AddressPolicy, pub WebLanes);
 
 impl Resolve for PolicyResolver {
     fn resolve(&self, name: Name) -> Resolving {
         let policy = self.0;
+        let dns = self.1.dns;
         Box::pin(async move {
             let host = name.as_str().to_string();
             let name = host.clone();
-            let looked_up = tokio::task::spawn_blocking(move || gai::lookup(&name)).await;
+            let looked_up = lanes::run(dns, move |_| gai::lookup(&name)).await;
             let found: Vec<SocketAddr> = match looked_up {
                 Ok(Ok(ips)) => ips.into_iter().map(|ip| SocketAddr::new(ip, 0)).collect(),
                 Ok(Err(error)) => {

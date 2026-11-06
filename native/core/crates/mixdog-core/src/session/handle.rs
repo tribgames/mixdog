@@ -59,6 +59,8 @@ pub struct SessionHandle {
     pub(crate) lineage: Lineage,
     pub(crate) deps: Arc<SessionDeps>,
     pub(crate) directory: Weak<DirInner>,
+    /// One `thread/reactions/set` at a time: each reads the message, then amends it.
+    pub(crate) reactions: tokio::sync::Mutex<()>,
 }
 
 fn window_of(window: &ResumeWindow) -> Window {
@@ -187,6 +189,91 @@ impl SessionHandle {
         job.await.map(Reply::Value).map_err(|_| CoreError::ConnectionClosed)
     }
 
+    /// `thread/reactions/set {agentId, emoji, messagesBack?, othersKeep?}`: a bot's reaction
+    /// (`emoji` null removes it) on the user message `messagesBack` user messages before the
+    /// newest in the conversation (`reactInSession`), stored on that message and shown at once.
+    /// Answers `{changed, messageId, reactions}`; no such message, or an emoji another bot already
+    /// left in a room, is a domain error carrying Node's text. Internal callers only.
+    async fn reactions_set(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let params = &req.params;
+        let invalid = |path: &str, expected: &str| CoreError::InvalidParams { path: path.into(), expected: expected.into() };
+        let agent_id = params.get("agentId").and_then(Value::as_str).ok_or_else(|| invalid("agentId", "a bot id"))?;
+        let emoji = match params.get("emoji") {
+            None | Some(Value::Null) => "",
+            Some(Value::String(emoji)) => emoji,
+            Some(_) => return Err(invalid("emoji", "an emoji or null")),
+        };
+        let messages_back = match params.get("messagesBack") {
+            None | Some(Value::Null) => 0,
+            Some(back) => back.as_u64().ok_or_else(|| invalid("messagesBack", "a count"))?,
+        };
+        let others_keep = params.get("othersKeep").and_then(Value::as_bool).unwrap_or(false);
+        let _one_at_a_time = self.reactions.lock().await;
+        let context = super::run::ModelContext {
+            store: self.deps.store.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        };
+        let (ids, messages): (Vec<_>, Vec<_>) = context.read().await?.into_iter().unzip();
+        let change = super::message_reactions::Change {
+            agent_id,
+            emoji,
+            messages_back,
+            others_keep,
+            at: self.deps.clock.now_ms(),
+        };
+        let done = super::message_reactions::react_to_message(&messages, &change).map_err(|message| CoreError::DomainError {
+            domain: "session".into(),
+            code: None,
+            message: Some(message.into()),
+            detail: None,
+        })?;
+        let mut reply = json!({ "changed": done.changed, "messageId": done.message_id, "reactions": done.reactions });
+        let Some(message) = done.message else {
+            return Ok(Reply::Value(reply));
+        };
+        let iid = ids[done.index].as_str().to_owned();
+        let (store, thread) = (self.deps.store.clone(), self.id.clone());
+        let found = self.deps.lanes.io.submit(&req.ctx.cancel, {
+            let iid = iid.clone();
+            move |lane| store.history_row(lane, &thread, &iid)
+        })?;
+        let dropped = || CoreError::Internal { incident_id: "session-reaction-job-dropped".into() };
+        let (_, mut row) = found.await.map_err(|_| dropped())??.ok_or_else(|| CoreError::ItemNotFound {
+            thread_id: self.id.clone(),
+            item_id: ids[done.index].clone(),
+        })?;
+        row.body = mixdog_store::schema::blob::Slot::Inline(message.clone());
+        let transcript = self.deps.transcript.clone();
+        let shown = self.deps.lanes.cpu.submit(&req.ctx.cancel, {
+            let row = row.clone();
+            move |lane| transcript.items(lane, &row)
+        })?;
+        // Only the lines that carry reactions are re-shown; a row's other items are unchanged.
+        let items: Vec<mixdog_protocol::ThreadItem> = shown
+            .await
+            .map_err(|_| dropped())?
+            .into_iter()
+            .filter_map(|shown| match shown {
+                super::seams::Shown::Item(
+                    item @ (mixdog_protocol::ThreadItem::UserMessage { .. } | mixdog_protocol::ThreadItem::RoomRow { .. }),
+                ) => Some(item),
+                _ => None,
+            })
+            .collect();
+        let apply = json!({
+            "iid": iid,
+            "refs": row.refs,
+            "body": message,
+            "turn": row.turn.as_ref().map(|turn| turn.as_str()),
+            "items": items,
+        });
+        self.to_actor(CoreRequest { method: mixdog_core_api::ids::Method("thread/reactions/apply"), params: apply, op: None, ctx: req.ctx }).await?;
+        reply["changed"] = Value::Bool(true);
+        Ok(Reply::Value(reply))
+    }
+
     /// `thread/fork`: a new thread whose history continues this one's acked lineage.
     async fn fork(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let params: ThreadForkParams =
@@ -273,9 +360,21 @@ impl ThreadHandle for SessionHandle {
             "thread/resume" => self.resume(&req),
             "thread/read" => self.read(&req).await,
             "thread/fork" => self.fork(req).await,
+            "thread/reactions/set" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.reactions_set(req).await,
             // The acked header, for the core's own ports; never a connection's read.
             "thread/header/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
                 Ok(Reply::Value(json!({ "header": *self.cell.header.load_full() })))
+            }
+            // The model conversation as acked (`session.messages`), for the core's own ports.
+            "thread/messages/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
+                let context = super::run::ModelContext {
+                    store: self.deps.store.clone(),
+                    lanes: self.deps.lanes,
+                    thread: self.id.clone(),
+                    input: mixdog_core_api::ids::ItemId::from(String::new()),
+                };
+                let messages: Vec<serde_json::Value> = context.read().await?.into_iter().map(|(_, message)| message).collect();
+                Ok(Reply::Value(json!({ "messages": messages })))
             }
             _ => self.to_actor(req).await,
         }

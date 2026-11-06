@@ -345,7 +345,7 @@ mod tests {
         async fn update(
             &self,
             _: &ThreadId,
-            _: &mut (dyn FnMut(&super::super::todo::TodoList) -> Result<super::super::todo::TodoList, String> + Send),
+            _: &mut super::super::todo::TodoEdit<'_>,
         ) -> Result<(), String> {
             Ok(())
         }

@@ -72,6 +72,7 @@ async fn every_recorded_case_gives_node_rows_and_request() {
         assert_eq!(records.len(), expected.len(), "{name}");
         for (record, row) in records.iter().zip(expected) {
             assert_eq!(record.raw.as_ref(), Some(row), "{name}: {}", row["id"]);
+            crate::providers::listing_row::testing::assert_row_facts(record, row, &format!("{name}: {}", row["id"]));
             assert_eq!(record.id, row["id"].as_str().unwrap());
             assert_eq!(record.display_name.as_deref(), row["display"].as_str());
             assert_eq!(record.context_window, row["contextWindow"].as_u64());

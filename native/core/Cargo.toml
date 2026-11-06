@@ -72,6 +72,9 @@ mixdog-app-protocol = { path = "crates/mixdog-app-protocol" }
 mixdog-core-api = { path = "crates/mixdog-core-api" }
 mixdog-rt = { path = "crates/mixdog-rt" }
 mixdog-js = { path = "crates/mixdog-js" }
+# The patch engine Node runs, linked as a library (WP-TOOLS-FS apply_patch). Default features off:
+# the Windows version resource belongs to the standalone helper executable, not to the core.
+mixdog-patch = { path = "../mixdog-patch", default-features = false }
 mixdog-statefile = { path = "crates/mixdog-statefile" }
 mixdog-store = { path = "crates/mixdog-store" }
 mixdog-ledger = { path = "crates/mixdog-ledger" }
@@ -106,6 +109,7 @@ deadpool-postgres = "0.14" # not in Codex (it uses sqlx); memory store pool
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-30"] } # not in Codex; embedding inference, ONNX Runtime 1.30 loaded at run time
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] } # not in Codex; memory + session_search over Postgres
 unicode-normalization = "0.1" # NFKC for the embedding tokenizer normalizer and import folding
+unicode-segmentation = "1" # grapheme clusters for the Goal title clip (Intl.Segmenter)
 chrono-tz = "0.10" # not in Codex (schedule timezones)
 iana-time-zone = "0.1.65" # the OS zone for mixdog_js::time (JS Date local time)
 clap = "4"

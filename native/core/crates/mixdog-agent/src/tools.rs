@@ -173,40 +173,8 @@ pub struct ToolEnv {
 // ---------------------------------------------------------------------------
 
 /// Key-sorted JSON, independent of the map type the build selects.
-fn canonical(value: &JsonValue, out: &mut String) {
-    match value {
-        JsonValue::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
-            out.push('{');
-            for (i, key) in keys.into_iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                out.push_str(&JsonValue::String(key.clone()).to_string());
-                out.push(':');
-                canonical(&map[key], out);
-            }
-            out.push('}');
-        }
-        JsonValue::Array(items) => {
-            out.push('[');
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                canonical(item, out);
-            }
-            out.push(']');
-        }
-        other => out.push_str(&other.to_string()),
-    }
-}
-
 pub(crate) fn call_signature(name: &str, args: &JsonValue) -> String {
-    let mut out = format!("{name}:");
-    canonical(args, &mut out);
-    out
+    format!("{name}:{}", mixdog_js::json_stringify_sorted(args))
 }
 
 const FAILURE_PATH_KEYS: [&str; 9] = [
@@ -286,7 +254,7 @@ fn canonical_failure(value: &JsonValue, key: &str, cwd: &std::path::Path, out: &
             }
             out.push('}');
         }
-        other => out.push_str(&other.to_string()),
+        other => out.push_str(&mixdog_js::json_stringify(other)),
     }
 }
 

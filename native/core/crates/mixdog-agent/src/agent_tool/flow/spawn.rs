@@ -10,6 +10,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::admin_route::resolve_route_context_state;
 use mixdog_ai::service::admin_route::truthy;
@@ -427,10 +428,11 @@ fn meta_json(meta: &JobMeta) -> Vec<(String, Value)> {
     out
 }
 
+#[async_trait]
 impl SpawnFlow for Arc<SpawnFlowImpl> {
-    fn start_deferred_spawn_job(&self, args: &Value, caller_cwd: &str, caller: &Caller, notify: &Caller, options: SpawnOptions) -> Result<Job, String> {
+    async fn start_deferred_spawn_job(&self, args: &Value, caller_cwd: &str, caller: &Caller, notify: &Caller, options: SpawnOptions) -> Result<Job, String> {
         let job = SpawnFlowImpl::start_deferred_spawn_job(self, args, caller_cwd, &caller.into(), &notify.into(), options)?;
-        let card = self.views.card(job.task_id(), &Scope::default(), false);
+        let card = self.views.card(job.task_id(), &Scope::default(), false).await;
         card.ok_or_else(|| "agent job did not start".to_owned())
     }
 }

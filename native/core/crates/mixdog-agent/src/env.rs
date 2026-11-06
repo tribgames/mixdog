@@ -343,9 +343,57 @@ pub struct RouteSwitch {
     pub text_only: Option<crate::text_only::TextOnlyInput>,
 }
 
+/// The agent lane's slot, as the loop uses it (`runYielded`): a provider request is I/O, so the
+/// slot goes back to the pool while it is in flight and is taken again before the loop goes on.
+#[async_trait]
+pub trait Yielder: Send + Sync {
+    /// Runs `task` with the slot handed back. `task` answers whether the request succeeded: a
+    /// failed one leaves the slot suspended until the next successful call or the release, so the
+    /// failure reaches the caller even when every slot is busy. `Err` is the cancelled
+    /// re-acquisition's reason.
+    async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, cancel: Option<&crate::cancel::Cancel>) -> Result<(), String>;
+}
+
+/// What the loop does with a failure no retry covers (Node `advanceAgentRoute`'s three ends).
+pub enum RouteDecision {
+    /// The request goes to the next model.
+    Switch(RouteSwitch),
+    /// The error surfaces. After a chain that ran out it carries every model tried
+    /// (`annotateEndedChain`): its message has the "every model failed" text appended.
+    Surface(Box<ChainSurface>),
+    /// The hop itself failed and its error replaces the provider's, as a throw does in Node
+    /// (a provider that is not there, a session closed during the hop).
+    Fail(String),
+}
+
+/// The error to surface and, after a hop, what the chain tried.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ChainSurface {
+    pub error: ProviderError,
+    /// `routeFallbackAttempts`; empty when the error is unchanged.
+    pub attempts: Vec<JsonValue>,
+    /// `routeFallbackStoppedBefore`: the next route when the chain stopped before it.
+    pub stopped_before: Option<JsonValue>,
+}
+
+/// One model's own share of the turn, priced at its own rates.
+#[derive(Clone, PartialEq, Debug)]
+pub struct UsageSegment {
+    pub provider: String,
+    pub model: String,
+    pub usage: Usage,
+}
+
 #[async_trait]
 pub trait RouteFallback: Send + Sync {
-    async fn advance(&self, error: &ProviderError) -> Option<RouteSwitch>;
+    /// `advanceAgentRoute`: after a provider error survived every retry, the next model of the
+    /// session's chain, the error to surface, or the failure of the hop itself. `last_usage` is
+    /// the turn's running usage total, booked against the model being left.
+    async fn advance(&self, error: ProviderError, last_usage: Option<&Usage>) -> RouteDecision;
+
+    /// `routeUsageSegments` at the end of the turn: the turn's usage split per model when the
+    /// route switched mid-turn (empty when it did not). `current` is the model the turn ended on.
+    fn usage_segments(&self, total: &Usage, current: (&str, &str)) -> Vec<UsageSegment>;
 }
 
 /// A tool call as the policy sees it.

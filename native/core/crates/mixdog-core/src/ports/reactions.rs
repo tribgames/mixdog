@@ -2,11 +2,12 @@
 //! the user: its home thread (the message is in that thread) or its seat in a group room (the
 //! message is the user's row in the room's log, where members do not repeat each other's emoji).
 //! The reaction is stored on the message by the thread that holds it (`thread/reactions/set`,
-//! which the session actor must serve; until it does the call answers `invalidParams`).
+//! which the session serves, `session/message_reactions.rs`).
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
@@ -42,6 +43,17 @@ fn seat_of(session_id: &str) -> Option<ReactSeat> {
         .map(|member| member.agent_id)
         .or_else(|| agent_id_of_home_session(session_id))
         .map(|agent_id| ReactSeat { agent_id })
+}
+
+/// The session's refusal (no such message, an emoji another bot already left) reaches the model as
+/// Node's own error text.
+fn refusal(error: CoreError) -> PortError {
+    match error {
+        CoreError::DomainError { message: Some(message), .. } => {
+            PortError::Failed { capability: "session".into(), message: message.to_string() }
+        }
+        other => port_error(other),
+    }
 }
 
 /// `noteReactionTarget`: a set (never a removal) records the message the session's reply says it
@@ -87,7 +99,7 @@ impl Reactions for SessionReactions {
         let reply = handle
             .request(CoreRequest { method: Method("thread/reactions/set"), params, op: None, ctx })
             .await
-            .map_err(port_error)?;
+            .map_err(refusal)?;
         match reply {
             Reply::Value(value) => {
                 note_hit(&self.targets, call.as_str(), emoji.is_some(), room.is_some(), &value);

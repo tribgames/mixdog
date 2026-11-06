@@ -144,7 +144,7 @@ impl ProviderReadiness {
             }
             // Superseded: the latest config wins, with the providers this request turned on.
             for name in forced {
-                let mut entry = match latest.remove(&name) {
+                let mut entry = match latest.shift_remove(&name) {
                     Some(Value::Object(entry)) => entry,
                     _ => Map::new(),
                 };

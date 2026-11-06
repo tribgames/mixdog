@@ -7,6 +7,7 @@
 //! and nothing here stops a turn for either. Progress is reported (`agent_tool::progress`).
 
 pub mod early;
+pub mod handoff;
 pub mod job_starter;
 pub mod notify;
 pub mod preset;

@@ -484,6 +484,11 @@ fn every_record_kind_fits_a_frame_at_its_type_bounds() {
     let slot = json!({ "inline": body });
     let big = u64::MAX;
     let neg = i64::MIN;
+    // The largest inline model-switch entry: its strings are unbounded, its slot is not.
+    let entry = |n: usize| json!({"provider": "p", "modelId": "m".repeat(n), "at": neg});
+    let overhead = encoded_len(&entry(0));
+    assert_eq!(encoded_len(&entry(INLINE_MAX - overhead)), INLINE_MAX);
+    let switch = json!({ "inline": entry(INLINE_MAX - overhead) });
     let at = -2.2250738585072014e-308_f64;
     let records = [
         json!({"k": "session", "v": u32::MAX, "id": id, "log_id": text(LOG_ID_MAX),
@@ -511,8 +516,7 @@ fn every_record_kind_fits_a_frame_at_its_type_bounds() {
                "op": op, "body": slot}),
         json!({"k": "queue", "qid": id, "action": "enqueue", "reason": "cancelled", "op": op, "entry": slot}),
         json!({"k": "op", "op": op, "state": "externalPending", "at": neg, "detail": slot}),
-        json!({"k": "model_switch", "anchor": {"iid": id, "ordinal": big}, "op": op,
-               "entry": {"provider": name, "modelId": name, "at": neg}}),
+        json!({"k": "model_switch", "anchor": {"iid": id, "ordinal": big}, "op": op, "entry": switch}),
     ];
     let mut largest = 0;
     for value in records {

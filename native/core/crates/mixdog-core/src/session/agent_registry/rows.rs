@@ -232,7 +232,7 @@ pub fn apply_upsert(prev: Option<&Row>, normalized: Row, now_iso: &str) -> Row {
         }
     }
     if normalized.get("released") != Some(&Value::Bool(true)) {
-        merged.remove("released");
+        merged.shift_remove("released");
     }
     let created = [normalized.get("createdAt"), prev.get("createdAt")].into_iter().flatten().find(|v| truthy(Some(v))).cloned();
     merged.insert("createdAt".into(), created.unwrap_or_else(|| Value::String(now_iso.into())));

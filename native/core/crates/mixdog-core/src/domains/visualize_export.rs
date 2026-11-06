@@ -7,14 +7,18 @@
 //! (`file-downloads.ts:913-931`) accepts only a file inside a `mixdog-visualize-export-*` folder,
 //! names it `sanitizedFileName(basename)` and types it by the format. The transfer opens the file
 //! at once, so the one-device export id and its 10-minute redeem window of the two-step Node flow
-//! have nothing left to guard; the staged file is removed when the transfer ends.
+//! have nothing left to guard; the export's folder is removed when the transfer ends.
 
+#[allow(clippy::disallowed_types, reason = "the open file a transfer source hands over")]
 use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_rt::InLane;
+use mixdog_rt::InteractiveIo;
+use mixdog_rt::LaneTokens;
 use mixdog_workspace::error::Reason;
 use mixdog_workspace::error::WsError;
 use mixdog_workspace::error::WsResult;
@@ -25,7 +29,9 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use super::blob::lane_failure;
 use super::blob::sanitized_file_name;
+use super::support::on_lane;
 
 /// What the host rendered: the export file's path.
 pub struct RenderedExport {
@@ -41,11 +47,12 @@ pub trait ExportRenderer: Send + Sync {
 
 pub struct ExportSource {
     renderer: Arc<dyn ExportRenderer>,
+    interactive: InteractiveIo,
 }
 
 impl ExportSource {
-    pub fn new(renderer: Arc<dyn ExportRenderer>) -> Arc<Self> {
-        Arc::new(Self { renderer })
+    pub fn new(renderer: Arc<dyn ExportRenderer>, tokens: &LaneTokens) -> Arc<Self> {
+        Arc::new(Self { renderer, interactive: tokens.interactive_io })
     }
 }
 
@@ -64,7 +71,8 @@ fn missing(error: std::io::Error) -> WsError {
 
 /// `registerExport` and `openRegularFile` on the rendered file: its canonical path, inside an
 /// export folder, a regular file, opened.
-fn open_export(path: &Path) -> WsResult<(File, PathBuf)> {
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs on the interactive-io lane job (lane proof argument)")]
+fn open_export(_lane: &InLane<InteractiveIo>, path: &Path) -> WsResult<(File, PathBuf)> {
     let canonical = std::fs::canonicalize(path).map_err(missing)?;
     let folder = canonical.parent().and_then(Path::file_name).and_then(|n| n.to_str()).unwrap_or_default();
     if !export_folder(folder) {
@@ -96,14 +104,19 @@ impl TransferSource for ExportSource {
         if rendered.path.as_os_str().is_empty() {
             return Err(WsError::new(Reason::Io, "The export did not produce a file."));
         }
-        let (file, canonical) = open_export(&rendered.path)?;
+        let path = rendered.path;
+        let (file, canonical) =
+            on_lane(self.interactive, cancel, move |lane| open_export(lane, &path)).await.map_err(lane_failure)??;
         let base = canonical.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let mime_type = if format == "png" { "image/png" } else { "application/pdf" };
-        Ok(SourceFile { file, name: sanitized_file_name(&base), mime_type: mime_type.into(), cleanup: Some(canonical) })
+        // `dropExport`: the export's own temp folder goes when the transfer ends.
+        let folder = canonical.parent().map(Path::to_path_buf);
+        Ok(SourceFile { file, name: sanitized_file_name(&base), mime_type: mime_type.into(), cleanup: folder })
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests {
     use std::io::Read;
     use std::sync::Mutex;
@@ -140,15 +153,15 @@ mod tests {
             name: "-.chart v2.png",
             seen: Mutex::default(),
         });
-        let export = ExportSource::new(renderer.clone());
+        let export = ExportSource::new(renderer.clone(), &mixdog_rt::testing::tokens());
         let cancel = CancellationToken::new();
         let opened = export
             .open(&source(json!({ "sessionId": "sess_1", "tabId": "t1", "format": "png", "pane": 1, "extra": true })), &cancel)
             .await
             .unwrap();
         assert_eq!((opened.name.as_str(), opened.mime_type.as_str()), ("chart v2.png", "image/png"));
-        let staged = opened.cleanup.clone().expect("the staged file is removed when the transfer ends");
-        assert_eq!(staged, std::fs::canonicalize(tmp.path().join("mixdog-visualize-export-a1B2").join("-.chart v2.png")).unwrap());
+        let staged = opened.cleanup.clone().expect("the export folder is removed when the transfer ends");
+        assert_eq!(staged, std::fs::canonicalize(tmp.path().join("mixdog-visualize-export-a1B2")).unwrap());
         let mut bytes = Vec::new();
         let mut file = opened.file;
         file.read_to_end(&mut bytes).unwrap();
@@ -176,7 +189,7 @@ mod tests {
     async fn only_a_file_in_an_export_folder_is_offered() {
         let tmp = tempfile::tempdir().unwrap();
         let renderer = Arc::new(Renderer { folder: tmp.path().join("elsewhere"), name: "x.png", seen: Mutex::default() });
-        let export = ExportSource::new(renderer);
+        let export = ExportSource::new(renderer, &mixdog_rt::testing::tokens());
         let refused = export
             .open(&source(json!({ "sessionId": "sess_1", "tabId": "t1", "format": "png" })), &CancellationToken::new())
             .await;

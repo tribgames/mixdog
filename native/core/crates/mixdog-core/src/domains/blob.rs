@@ -44,6 +44,7 @@ mod attachment;
 pub use attachment::AttachmentSource;
 pub use attachment::NamedAttachment;
 pub use attachment::SessionAttachments;
+pub(crate) use attachment::lane_failure;
 pub(crate) use attachment::sanitized_file_name;
 
 use super::support::decode;

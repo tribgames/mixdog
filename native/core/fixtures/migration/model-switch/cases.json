@@ -446,6 +446,242 @@
           "text": "hi there"
         }
       ]
+    },
+    {
+      "after": [
+        {
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=ab",
+          "meta": {
+            "modelSwitches": [
+              {
+                "at": 200,
+                "modelId": "gpt-next",
+                "provider": "openai"
+              }
+            ],
+            "source": "compact-summary"
+          },
+          "role": "user"
+        }
+      ],
+      "anchor": 0,
+      "boundaries": [
+        {
+          "at": 200,
+          "modelId": "gpt-next",
+          "provider": "openai"
+        }
+      ],
+      "messages": [
+        {
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=ab",
+          "meta": {
+            "source": "compact-summary"
+          },
+          "role": "user"
+        }
+      ],
+      "name": "summary anchor: only the summary",
+      "rows": [
+        {
+          "at": 200,
+          "id": "hist_ms_0_1",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "gpt-next",
+          "provider": "openai",
+          "status": "model-switched"
+        }
+      ]
+    },
+    {
+      "after": [
+        {
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=ab",
+          "meta": {
+            "source": "compact-summary"
+          },
+          "role": "user"
+        },
+        {
+          "content": ".",
+          "meta": {
+            "modelSwitches": [
+              {
+                "at": 200,
+                "modelId": "gpt-next",
+                "provider": "openai"
+              }
+            ],
+            "source": "context-ack"
+          },
+          "role": "assistant"
+        }
+      ],
+      "anchor": 1,
+      "boundaries": [
+        {
+          "at": 200,
+          "modelId": "gpt-next",
+          "provider": "openai"
+        }
+      ],
+      "messages": [
+        {
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=ab",
+          "meta": {
+            "source": "compact-summary"
+          },
+          "role": "user"
+        },
+        {
+          "content": ".",
+          "meta": {
+            "source": "context-ack"
+          },
+          "role": "assistant"
+        }
+      ],
+      "name": "summary anchor: summary then its context ack",
+      "rows": [
+        {
+          "at": 200,
+          "id": "hist_ms_1_1",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "gpt-next",
+          "provider": "openai",
+          "status": "model-switched"
+        }
+      ]
+    },
+    {
+      "after": [
+        {
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=ab",
+          "meta": {
+            "source": "compact-summary"
+          },
+          "role": "user"
+        },
+        {
+          "content": "and then",
+          "meta": {
+            "modelSwitches": [
+              {
+                "at": 200,
+                "modelId": "gpt-next",
+                "provider": "openai"
+              }
+            ]
+          },
+          "role": "user"
+        }
+      ],
+      "anchor": 1,
+      "boundaries": [
+        {
+          "at": 200,
+          "modelId": "gpt-next",
+          "provider": "openai"
+        }
+      ],
+      "messages": [
+        {
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=ab",
+          "meta": {
+            "source": "compact-summary"
+          },
+          "role": "user"
+        },
+        {
+          "content": "and then",
+          "role": "user"
+        }
+      ],
+      "name": "summary anchor: summary then a trailing prompt",
+      "rows": [
+        {
+          "id": "hist_ms_1_1",
+          "kind": "user",
+          "text": "and then"
+        },
+        {
+          "at": 200,
+          "id": "hist_ms_1_2",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "gpt-next",
+          "provider": "openai",
+          "status": "model-switched"
+        }
+      ]
+    },
+    {
+      "after": [
+        {
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=ab",
+          "meta": {
+            "modelSwitches": [
+              {
+                "at": 200,
+                "modelId": "gpt-next",
+                "provider": "openai"
+              },
+              {
+                "at": 300,
+                "modelId": "claude-next",
+                "provider": "anthropic"
+              }
+            ],
+            "source": "compact-summary"
+          },
+          "role": "user"
+        }
+      ],
+      "anchor": 0,
+      "boundaries": [
+        {
+          "at": 200,
+          "modelId": "gpt-next",
+          "provider": "openai"
+        },
+        {
+          "at": 300,
+          "modelId": "claude-next",
+          "provider": "anthropic"
+        }
+      ],
+      "messages": [
+        {
+          "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=ab",
+          "meta": {
+            "source": "compact-summary"
+          },
+          "role": "user"
+        }
+      ],
+      "name": "summary anchor: a second switch",
+      "rows": [
+        {
+          "at": 200,
+          "id": "hist_ms_0_1",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "gpt-next",
+          "provider": "openai",
+          "status": "model-switched"
+        },
+        {
+          "at": 300,
+          "id": "hist_ms_0_2",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "claude-next",
+          "provider": "anthropic",
+          "status": "model-switched"
+        }
+      ]
     }
   ],
   "note": "model-switch boundary fold + restored rows"

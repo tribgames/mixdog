@@ -163,13 +163,8 @@ fn truncated(text: &str) -> String {
 fn typed_status(sources: &[&Value]) -> Option<u16> {
     for source in sources {
         for key in ["httpStatus", "http_status", "status", "statusCode", "status_code", "code"] {
-            let n = match source.get(key) {
-                Some(Value::Number(n)) => n.as_f64(),
-                Some(Value::String(s)) => s.trim().parse::<f64>().ok(),
-                _ => None,
-            };
-            if let Some(n) = n
-                && (100.0..=599.0).contains(&n)
+            let n = mixdog_js::to_number_of(source.get(key));
+            if (100.0..=599.0).contains(&n)
             {
                 return Some(n.floor() as u16);
             }

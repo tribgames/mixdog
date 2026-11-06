@@ -119,7 +119,7 @@ fn strip_ids(parts: &mut [Value]) {
     for part in parts {
         for key in ["functionCall", "functionResponse"] {
             if let Some(map) = part.get_mut(key).and_then(Value::as_object_mut) {
-                map.remove("id");
+                map.shift_remove("id");
             }
         }
     }

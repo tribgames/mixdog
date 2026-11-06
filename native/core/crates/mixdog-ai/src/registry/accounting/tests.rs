@@ -1,5 +1,5 @@
 //! The rows of every send outcome against the rows Node writes
-//! (`fixtures/usage-accounting/record.mjs`): completed, cancelled and failed
+//! (`benchmarks/rust-core/recorders/record-usage-accounting.mjs`): completed, cancelled and failed
 //! sends, abandoned attempts included.
 
 use std::sync::Mutex;
@@ -12,7 +12,7 @@ use serde_json::Map;
 
 use super::*;
 
-const GOLDEN: &str = include_str!("../../../fixtures/usage-accounting/golden.json");
+const GOLDEN: &str = include_str!("../../../../../fixtures/usage-accounting/golden.json");
 
 /// Prices nothing, as an empty catalog does: the unpriced snapshot Node gives a
 /// model it does not know.

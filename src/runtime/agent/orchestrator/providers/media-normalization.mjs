@@ -158,7 +158,7 @@ function memoized(memo, key, compute) {
 
 // Extracted text, or null when the container cannot be read (the caller then
 // uses the plain description).
-function officeTextForFile(file) {
+export function officeTextForFile(file) {
   const compute = () =>
     tryExtractOoxmlTextFromBuffer(Buffer.from(file.data, 'base64'), file.filename, {
       maxOutputBytes: OFFICE_TEXT_MAX_BYTES,
@@ -219,7 +219,7 @@ export function _pdfExtractionCount() {
 // A PDF the parser rejects is a property of the bytes: fixed text. A system
 // error or an allocation failure is not the bytes' fault and must never become
 // text.
-async function extractPdfText(data) {
+export async function extractPdfText(data) {
   pdfExtractionCount += 1;
   // Loading pdf.js says nothing about the PDF: a failure here propagates (the
   // send fails and retries later with the real text) and nothing is cached.

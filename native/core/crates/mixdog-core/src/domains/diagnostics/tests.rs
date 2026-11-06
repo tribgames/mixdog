@@ -156,7 +156,7 @@ async fn rig(golden: &Value, case: &Value) -> Rig {
 
 /// `<DATA>` for the data folder, no `checkedAt`, `/` separators as the golden normalizes them.
 fn normal(mut result: Value, data: &std::path::Path) -> Value {
-    result.as_object_mut().unwrap().remove("checkedAt");
+    result.as_object_mut().unwrap().shift_remove("checkedAt");
     let text = result
         .to_string()
         .replace(&data.to_string_lossy().replace('\\', "\\\\"), "<DATA>")

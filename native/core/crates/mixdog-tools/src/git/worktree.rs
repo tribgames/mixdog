@@ -328,9 +328,9 @@ fn compact_workspace(workspace: &Object) -> JsonValue {
 /// A workspace operation's result: its own fields, the workspace compacted.
 fn transition_result(fields: Object, result: JsonValue) -> String {
     let mut rest = object(result);
-    let workspace = rest.remove("workspace");
-    rest.remove("revision");
-    rest.remove("pending");
+    let workspace = rest.shift_remove("workspace");
+    rest.shift_remove("revision");
+    rest.shift_remove("pending");
     let mut out = fields;
     merge(&mut out, rest);
     if let Some(JsonValue::Object(workspace)) = workspace.filter(|w| truthy(Some(w))) {

@@ -3,8 +3,6 @@
 //! JavaScript value semantics the 1.4.5 id rule and the corpus digests depend on.
 
 use std::borrow::Cow;
-use std::cmp::Ordering;
-
 use serde_json::Map;
 use serde_json::Value;
 use sha2::Digest as _;
@@ -146,110 +144,12 @@ pub fn utf16_len(text: &str) -> usize {
     text.encode_utf16().count()
 }
 
-/// `Number.prototype.toString()` of a finite double.
-pub fn js_number(value: f64) -> String {
-    if value == 0.0 {
-        return "0".into();
-    }
-    if value.is_nan() {
-        return "NaN".into();
-    }
-    if value.is_infinite() {
-        return if value > 0.0 { "Infinity" } else { "-Infinity" }.into();
-    }
-    // Shortest round-trip digits and the decimal exponent, as ECMAScript's algorithm.
-    let sci = format!("{:e}", value.abs());
-    let (mantissa, exp) = sci.split_once('e').expect("LowerExp has an exponent");
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
-    let k = digits.len() as i32;
-    let n: i32 = exp.parse::<i32>().expect("exponent") + 1;
-    let sign = if value < 0.0 { "-" } else { "" };
-    let body = if k <= n && n <= 21 {
-        format!("{digits}{}", "0".repeat((n - k) as usize))
-    } else if 0 < n && n <= 21 {
-        format!("{}.{}", &digits[..n as usize], &digits[n as usize..])
-    } else if -6 < n && n <= 0 {
-        format!("0.{}{digits}", "0".repeat((-n) as usize))
-    } else {
-        let e = n - 1;
-        let e = if e >= 0 {
-            format!("+{e}")
-        } else {
-            e.to_string()
-        };
-        if k == 1 {
-            format!("{digits}e{e}")
-        } else {
-            format!("{}.{}e{e}", &digits[..1], &digits[1..])
-        }
-    };
-    format!("{sign}{body}")
-}
-
-fn number_text(number: &serde_json::Number) -> String {
-    if let Some(n) = number.as_i64() {
-        return js_number(n as f64);
-    }
-    if let Some(n) = number.as_u64() {
-        return js_number(n as f64);
-    }
-    js_number(number.as_f64().unwrap_or(f64::NAN))
-}
-
-/// `JSON.stringify` of a string.
-fn js_string(text: &str) -> String {
-    serde_json::to_string(text).expect("a string always encodes")
-}
-
+pub use mixdog_js::json_stringify_sorted as js_stable;
+pub use mixdog_js::number_to_string as js_number;
 /// `String(value)` for the values the 1.4.5 id seed joins (`Array.prototype.join`
 /// writes `null`/`undefined` as the empty string, which callers handle).
-pub fn js_to_string(value: &Value) -> String {
-    match value {
-        Value::Null => "null".into(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => number_text(n),
-        Value::String(s) => s.clone(),
-        Value::Array(items) => items
-            .iter()
-            .map(|v| match v {
-                Value::Null => String::new(),
-                other => js_to_string(other),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        Value::Object(_) => "[object Object]".into(),
-    }
-}
-
+pub use mixdog_js::value_to_string as js_to_string;
 pub use mixdog_protocol::message_class::js::truthy as js_truthy;
-
-fn utf16_order(a: &str, b: &str) -> Ordering {
-    a.encode_utf16().cmp(b.encode_utf16())
-}
-
-/// The corpus tool's `stable(v)` (`migration-corpus/tools/corpus-lib.cjs`): JSON with
-/// object keys sorted by code unit, numbers and strings as `JSON.stringify` writes them.
-pub fn js_stable(value: &Value) -> String {
-    match value {
-        Value::Null => "null".into(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => number_text(n),
-        Value::String(s) => js_string(s),
-        Value::Array(items) => format!(
-            "[{}]",
-            items.iter().map(js_stable).collect::<Vec<_>>().join(",")
-        ),
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort_by(|a, b| utf16_order(a, b));
-            let parts: Vec<String> = keys
-                .into_iter()
-                .map(|k| format!("{}:{}", js_string(k), js_stable(&map[k])))
-                .collect();
-            format!("{{{}}}", parts.join(","))
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

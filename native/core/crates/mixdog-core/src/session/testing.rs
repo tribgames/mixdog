@@ -305,9 +305,65 @@ impl ThreadStore for MemStore {
         }
         Ok(rows.into_iter().map(|(_, row)| row).collect())
     }
+
+    fn history_row(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<(u64, ItemRecord)>, CoreError> {
+        Ok(self.live_row(id, iid))
+    }
+
+    /// The newest compaction a rewind left live with the entry inline, as the real reader.
+    fn compaction_entry(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<u64>, CoreError> {
+        let mut frames: Vec<u64> = Vec::new();
+        for (ordinal, record) in self.records(id) {
+            match record {
+                Record::Compacted(c) => {
+                    if matches!(&c.replacement, Slot::Inline(entries) if entries.iter().any(|e| e.iid == iid)) {
+                        frames.push(ordinal);
+                    }
+                }
+                Record::Rewind(rewind) => frames.retain(|o| *o < rewind.to_ordinal),
+                _ => {}
+            }
+        }
+        Ok(frames.last().copied())
+    }
 }
 
 impl MemStore {
+    /// The live item `iid` with its ordinal, its boundaries folded in as the real reader does.
+    fn live_row(&self, id: &ThreadId, iid: &str) -> Option<(u64, ItemRecord)> {
+        let mut rows: Vec<(u64, ItemRecord)> = Vec::new();
+        let mut switches = Vec::new();
+        for (ordinal, record) in self.records(id) {
+            match record {
+                Record::Item(item) => rows.push((ordinal, item)),
+                Record::Rewind(rewind) => rows.retain(|(o, _)| *o < rewind.to_ordinal),
+                Record::ModelSwitch(switch) => switches.push(switch),
+                _ => {}
+            }
+        }
+        let (ordinal, mut row) = rows.into_iter().find(|(_, row)| row.iid.as_str() == iid)?;
+        let entries: Vec<_> = switches
+            .into_iter()
+            .filter(|s| s.anchor.ordinal == ordinal && s.anchor.iid.as_str() == iid)
+            .filter_map(|s| match s.entry {
+                Slot::Inline(entry) => Some(entry),
+                Slot::Blob(_) => None,
+            })
+            .collect();
+        super::transcript::fold_model_switches(&mut row, &entries);
+        Some((ordinal, row))
+    }
+
     /// Seeds a log with records as if a writer had committed them.
     pub fn seed(&self, id: &ThreadId, records: Vec<Record>) {
         let log = self.log(id);
@@ -618,7 +674,7 @@ impl super::EffortPrewarm for Prewarms {
 impl Rig {
     pub fn new() -> Self {
         let store = Arc::new(MemStore::default());
-        let idle: Script = Arc::new(|_run| Box::pin(async { RunOutcome::Completed }));
+        let idle: Script = Arc::new(|_run| Box::pin(async { RunOutcome::Completed(Default::default()) }));
         let data = tempfile::tempdir().expect("temp data dir");
         Self {
             prompts: Arc::new(FilePromptHistory::new(data.path())),

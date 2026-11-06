@@ -15,7 +15,23 @@ use crate::number::number_to_string;
 /// `JSON.stringify(value)`.
 pub fn stringify(value: &Value) -> String {
     let mut out = String::new();
-    write(value, None, 0, false, &mut out);
+    write(value, None, 0, Keys::Object, false, &mut out);
+    out
+}
+
+/// `JSON.stringify` of a value whose every object lists its keys sorted by UTF-16 code unit (the
+/// `stableStringify` the cache keys and digests are built on); integer-like keys are not first.
+pub fn stringify_sorted(value: &Value) -> String {
+    let mut out = String::new();
+    write(value, None, 0, Keys::Sorted, false, &mut out);
+    out
+}
+
+/// openai-ws-delta.mjs `_stableStringify`: object keys sorted by UTF-16 code unit, but an array
+/// is written as `JSON.stringify` writes it (order and key order of what is inside it kept).
+pub fn stringify_sorted_outside_arrays(value: &Value) -> String {
+    let mut out = String::new();
+    write(value, None, 0, Keys::SortedOutsideArrays, false, &mut out);
     out
 }
 
@@ -23,7 +39,7 @@ pub fn stringify(value: &Value) -> String {
 pub fn stringify_indent(value: &Value, indent: usize) -> String {
     let mut out = String::new();
     let indent = indent.min(10);
-    write(value, (indent > 0).then_some(indent), 0, false, &mut out);
+    write(value, (indent > 0).then_some(indent), 0, Keys::Object, false, &mut out);
     out
 }
 
@@ -33,7 +49,7 @@ pub fn stringify_indent(value: &Value, indent: usize) -> String {
 pub fn stringify_indent_parsed(value: &Value, indent: usize) -> String {
     let mut out = String::new();
     let indent = indent.min(10);
-    write(value, (indent > 0).then_some(indent), 0, true, &mut out);
+    write(value, (indent > 0).then_some(indent), 0, Keys::Object, true, &mut out);
     out
 }
 
@@ -124,7 +140,18 @@ fn newline(indent: Option<usize>, depth: usize, out: &mut String) {
     }
 }
 
-fn write(value: &Value, indent: Option<usize>, depth: usize, parsed: bool, out: &mut String) {
+/// The order an object's keys are written in.
+#[derive(Clone, Copy)]
+enum Keys {
+    /// As a JavaScript object enumerates them ([`ordered_keys`]).
+    Object,
+    /// By UTF-16 code unit.
+    Sorted,
+    /// By UTF-16 code unit in objects; an array and all inside it is written as in [`Keys::Object`].
+    SortedOutsideArrays,
+}
+
+fn write(value: &Value, indent: Option<usize>, depth: usize, keys: Keys, parsed: bool, out: &mut String) {
     match value {
         Value::Null => out.push_str("null"),
         Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
@@ -140,12 +167,13 @@ fn write(value: &Value, indent: Option<usize>, depth: usize, parsed: bool, out: 
                 return;
             }
             out.push('[');
+            let keys = if matches!(keys, Keys::SortedOutsideArrays) { Keys::Object } else { keys };
             for (at, item) in items.iter().enumerate() {
                 if at > 0 {
                     out.push(',');
                 }
                 newline(indent, depth + 1, out);
-                write(item, indent, depth + 1, parsed, out);
+                write(item, indent, depth + 1, keys, parsed, out);
             }
             newline(indent, depth, out);
             out.push(']');
@@ -156,7 +184,15 @@ fn write(value: &Value, indent: Option<usize>, depth: usize, parsed: bool, out: 
                 return;
             }
             out.push('{');
-            for (at, key) in ordered_keys(map).into_iter().enumerate() {
+            let listed = match keys {
+                Keys::Object => ordered_keys(map),
+                Keys::Sorted | Keys::SortedOutsideArrays => {
+                    let mut sorted: Vec<&String> = map.keys().collect();
+                    sorted.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+                    sorted
+                }
+            };
+            for (at, key) in listed.into_iter().enumerate() {
                 if at > 0 {
                     out.push(',');
                 }
@@ -166,7 +202,7 @@ fn write(value: &Value, indent: Option<usize>, depth: usize, parsed: bool, out: 
                 if indent.is_some() {
                     out.push(' ');
                 }
-                write(&map[key], indent, depth + 1, parsed, out);
+                write(&map[key], indent, depth + 1, keys, parsed, out);
             }
             newline(indent, depth, out);
             out.push('}');
@@ -191,6 +227,28 @@ mod tests {
             assert_eq!(stringify(&value), compact, "{input}");
             assert_eq!(stringify_indent(&value, 2), pretty, "{input} (indent 2)");
         }
+    }
+
+    #[test]
+    fn sorting_outside_arrays_leaves_arrays_as_written() {
+        // Node: _stableStringify (openai-ws-delta.mjs) and stableTraceStringify (trace-utils.mjs)
+        // on {b:[{z:1,a:2}],a:{y:[{q:1,b:2}],x:1},'10':1,'2':2}.
+        let value: Value = serde_json::from_str(r#"{"b":[{"z":1,"a":2}],"a":{"y":[{"q":1,"b":2}],"x":1},"10":1,"2":2}"#).unwrap();
+        assert_eq!(
+            stringify_sorted_outside_arrays(&value),
+            r#"{"10":1,"2":2,"a":{"x":1,"y":[{"q":1,"b":2}]},"b":[{"z":1,"a":2}]}"#
+        );
+        assert_eq!(
+            stringify_sorted(&value),
+            r#"{"10":1,"2":2,"a":{"x":1,"y":[{"b":2,"q":1}]},"b":[{"a":2,"z":1}]}"#
+        );
+    }
+
+    #[test]
+    fn sorted_keys_follow_utf16_order_at_every_level() {
+        // Node: sorted by `<` on strings, i.e. UTF-16 units: U+1F600 (D83D DE00) before U+FF5E.
+        let value: Value = serde_json::from_str("{\"\u{ff5e}\":1,\"\u{1f600}\":2,\"b\":[{\"z\":null,\"10\":1.0,\"2\":1e21}],\"a\":0.5}").expect("json");
+        assert_eq!(stringify_sorted(&value), "{\"a\":0.5,\"b\":[{\"10\":1,\"2\":1e+21,\"z\":null}],\"\u{1f600}\":2,\"\u{ff5e}\":1}");
     }
 
     #[test]

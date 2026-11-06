@@ -1,5 +1,5 @@
 //! The hosted web search over the real routes and sender against what Node does
-//! (`fixtures/hosted-search/record.mjs`): the candidates the config and Main
+//! (`benchmarks/rust-core/recorders/record-hosted-search.mjs`): the candidates the config and Main
 //! route give, and for each send the request the provider gets, the answer, the
 //! spend the asking turn hears and the ledger rows written. The provider is
 //! scripted; nothing leaves the process.
@@ -45,7 +45,7 @@ use super::hosted_sender::ProviderSearchSender;
 use super::hosted_sender::SenderDeps;
 use super::hosted_usage::NativeSearchUsageSinks;
 
-const GOLDEN: &str = include_str!("../../fixtures/hosted-search/golden.json");
+const GOLDEN: &str = include_str!("../../../../fixtures/hosted-search/golden.json");
 
 /// Prices nothing, as an empty catalog does.
 struct Unpriced;

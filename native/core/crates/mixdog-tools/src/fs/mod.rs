@@ -6,6 +6,13 @@ mod edit_plan;
 mod hints;
 mod list;
 mod patch;
+mod patch_guard;
+mod patch_hunk;
+mod patch_native;
+mod patch_parse;
+mod patch_redirect;
+mod patch_unified;
+mod patch_window;
 mod read;
 mod search;
 #[cfg(test)]

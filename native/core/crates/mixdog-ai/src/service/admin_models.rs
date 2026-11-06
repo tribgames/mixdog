@@ -239,13 +239,22 @@ fn compare_recency(a: &Value, b: &Value) -> Ordering {
 
 /// `sortProviderModels(models, primaryProvider)`.
 pub fn sort_provider_models(models: &mut [Value], primary: &str) {
-    models.sort_by(|a, b| {
+    // The recency order is not a strict weak order (its rules can disagree), so the result is
+    // the one V8's sort gives, comparison for comparison.
+    let mut sorted = models.to_vec();
+    mixdog_js::js_sort_by(&mut sorted, |a, b| {
         let rank = |m: &Value| usize::from(m.get("provider").and_then(Value::as_str) != Some(primary));
-        rank(a).cmp(&rank(b)).then_with(|| {
+        let order = rank(a).cmp(&rank(b)).then_with(|| {
             let (pa, pb) = (text(a.get("provider")), text(b.get("provider")));
             if a.get("provider") != b.get("provider") { locale_compare(&pa, &pb) } else { compare_recency(a, b) }
-        })
+        });
+        match order {
+            Ordering::Less => -1.0,
+            Ordering::Equal => 0.0,
+            Ordering::Greater => 1.0,
+        }
     });
+    models.clone_from_slice(&sorted);
 }
 
 /// `isSelectableLlmModel(model)`.
