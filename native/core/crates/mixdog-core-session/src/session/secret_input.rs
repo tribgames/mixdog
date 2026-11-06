@@ -7,9 +7,13 @@
 //! op digest of a short code would let it be guessed), persisted or sent back; the answer says
 //! only that it was taken.
 
+mod computer;
 mod fill;
 mod gates;
 mod redact;
+mod replies;
+mod saved_login;
+mod saved_login_host;
 #[cfg(test)]
 mod tests;
 
@@ -21,11 +25,14 @@ use std::sync::MutexGuard;
 use std::sync::PoisonError;
 use std::time::Duration;
 
+use tokio::time::Instant;
+
 use async_trait::async_trait;
 use mixdog_app_protocol::rpc::RequestId;
 use mixdog_app_protocol::v2::approval::ApprovalProvideSecretParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
+use mixdog_core_api::HostClaim;
 use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ConnectionId;
@@ -37,6 +44,8 @@ use mixdog_core_base::support::wrong_method;
 use serde_json::Value;
 use serde_json::json;
 
+pub use computer::ComputerSecretHosts;
+pub use computer::HostComputerCommands;
 pub use fill::ComputerCommands;
 pub use fill::FillGates;
 pub use fill::SecretFill;
@@ -47,6 +56,25 @@ pub use gates::TakeoverHold;
 pub use gates::TakeoverHolds;
 pub(crate) use gates::takeover_hold;
 pub use redact::SessionSecrets;
+pub use replies::Redact;
+pub use replies::RedactingComputerBackend;
+pub use replies::RedactingHostCommands;
+pub use saved_login::FillContext;
+pub use saved_login::FullRedactor;
+pub use saved_login::PixelGuard;
+pub use saved_login::SavedLoginField;
+pub use saved_login::SavedLoginRegistry;
+pub use saved_login::SavedLoginTurn;
+pub use saved_login::SavedLoginValue;
+pub use saved_login::SavedLoginVault;
+pub use saved_login::SavedLoginWorker;
+pub use saved_login::SavedLogins;
+pub use saved_login::WindowPids;
+pub use saved_login::fill_saved_login;
+pub use saved_login_host::HelperWindowPids;
+pub use saved_login_host::HostSavedLoginWorker;
+pub use saved_login_host::HostSavedLogins;
+pub use saved_login::pixels_allowed;
 
 /// A thrown `TypeError`/`Error`: its message is the whole answer.
 fn thrown(message: &str) -> CoreError {
@@ -101,6 +129,9 @@ impl Drop for Timer {
 struct Held<T> {
     value: T,
     generation: u64,
+    /// Fixed when the entry is held: the timer sleeps until it, and an entry the timer has not yet
+    /// removed (the task is late) is still refused once it is overdue.
+    deadline: Instant,
     _timer: Timer,
 }
 
@@ -108,7 +139,8 @@ struct Held<T> {
 /// request the exact window and field ref the agent named (never a focused field).
 #[derive(Clone)]
 enum Target {
-    Browser,
+    /// The page is the host's; the claim is the desktop that bound it, which alone may receive the value.
+    Browser { claim: HostClaim },
     Computer { window_id: String, reference: String },
 }
 
@@ -116,6 +148,13 @@ enum Target {
 struct Bound {
     session: String,
     target: Target,
+}
+
+/// A browser request's binding: its session and the desktop claim that holds the page.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct BrowserBinding {
+    pub session: String,
+    pub claim: HostClaim,
 }
 
 /// A Computer Use request's binding.
@@ -193,11 +232,11 @@ impl SecretSlots {
         Self { inner: Arc::new(Inner { timeout, binding_timeout, state: Mutex::new(State::default()) }) }
     }
 
-    fn timer(&self, which: Which, id: &str, generation: u64, ttl: Duration) -> Timer {
+    fn timer(&self, which: Which, id: &str, generation: u64, deadline: Instant) -> Timer {
         let inner = Arc::downgrade(&self.inner);
         let id = id.to_owned();
         Timer(tokio::spawn(async move {
-            tokio::time::sleep(ttl).await;
+            tokio::time::sleep_until(deadline).await;
             if let Some(inner) = inner.upgrade() {
                 inner.expire(which, &id, generation);
             }
@@ -208,25 +247,27 @@ impl SecretSlots {
         let mut state = self.inner.state();
         state.generation += 1;
         let generation = state.generation;
-        let timer = self.timer(Which::Slot, id, generation, self.inner.timeout);
-        state.slots.insert(id.to_owned(), Held { value, generation, _timer: timer });
+        let deadline = Instant::now() + self.inner.timeout;
+        let timer = self.timer(Which::Slot, id, generation, deadline);
+        state.slots.insert(id.to_owned(), Held { value, generation, deadline, _timer: timer });
     }
 
     fn hold_binding(&self, id: &str, bound: Bound) {
         let mut state = self.inner.state();
         state.generation += 1;
         let generation = state.generation;
-        let timer = self.timer(Which::Binding, id, generation, self.inner.binding_timeout);
-        state.bindings.insert(id.to_owned(), Held { value: bound, generation, _timer: timer });
+        let deadline = Instant::now() + self.inner.binding_timeout;
+        let timer = self.timer(Which::Binding, id, generation, deadline);
+        state.bindings.insert(id.to_owned(), Held { value: bound, generation, deadline, _timer: timer });
     }
 
     /// `bind`: the request is for `session`'s browser page, which the host holds; false (nothing
     /// bound) unless `request_id` is a runtime-minted one.
-    pub fn bind(&self, request_id: &str, session: &str) -> bool {
+    pub fn bind(&self, request_id: &str, session: &str, claim: HostClaim) -> bool {
         if !is_request_id(request_id) {
             return false;
         }
-        self.hold_binding(request_id, Bound { session: session.to_owned(), target: Target::Browser });
+        self.hold_binding(request_id, Bound { session: session.to_owned(), target: Target::Browser { claim } });
         true
     }
 
@@ -246,10 +287,12 @@ impl SecretSlots {
 
     /// `binding`: the session a browser request is bound to, left in place (the fill drops it
     /// with `discard`).
-    pub fn browser_binding(&self, request_id: &str) -> Option<String> {
+    pub fn browser_binding(&self, request_id: &str) -> Option<BrowserBinding> {
         let state = self.inner.state();
         match state.bindings.get(request_id) {
-            Some(Held { value: Bound { session, target: Target::Browser }, .. }) => Some(session.clone()),
+            Some(Held { value: Bound { session, target: Target::Browser { claim } }, deadline, .. }) if Instant::now() < *deadline => {
+                Some(BrowserBinding { session: session.clone(), claim: claim.clone() })
+            }
             _ => None,
         }
     }
@@ -258,7 +301,7 @@ impl SecretSlots {
     pub fn computer_binding(&self, request_id: &str) -> Option<ComputerBinding> {
         let state = self.inner.state();
         match state.bindings.get(request_id) {
-            Some(Held { value: Bound { session, target: Target::Computer { window_id, reference } }, .. }) => {
+            Some(Held { value: Bound { session, target: Target::Computer { window_id, reference } }, deadline, .. }) if Instant::now() < *deadline => {
                 Some(ComputerBinding { session: session.clone(), window_id: window_id.clone(), reference: reference.clone() })
             }
             _ => None,
@@ -278,12 +321,20 @@ impl SecretSlots {
 
     /// `has`: a value was handed for the request (it is not taken).
     pub fn has(&self, request_id: &str) -> bool {
-        self.inner.state().slots.contains_key(request_id)
+        self.inner.state().slots.get(request_id).is_some_and(|held| Instant::now() < held.deadline)
     }
 
     /// `take`: one-shot; the slot is empty afterwards, and an absent one reads as `""`.
     pub fn take(&self, request_id: &str) -> String {
-        drop_entry(&mut self.inner.state().slots, request_id).unwrap_or_default()
+        let mut state = self.inner.state();
+        match state.slots.entry(request_id.to_owned()) {
+            // An overdue value is gone, as if its timer had run: it is not handed out.
+            Entry::Occupied(entry) => {
+                let held = entry.remove();
+                if Instant::now() < held.deadline { held.value } else { String::new() }
+            }
+            Entry::Vacant(_) => String::new(),
+        }
     }
 
     /// `discard`: the value, username and save slots of the request and its binding, unused.

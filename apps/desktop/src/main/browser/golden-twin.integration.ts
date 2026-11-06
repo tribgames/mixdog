@@ -162,7 +162,7 @@ async function run(): Promise<void> {
       show: false,
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true },
     });
-    host = createBrowserHost(parent, { remoteSession: true, requestApproval: async () => true });
+    host = createBrowserHost(parent, { hostId: 'test-host', remoteSession: true, requestApproval: async () => true });
     await parent.loadURL('data:text/html;charset=utf-8,<!doctype html><title>shell</title>');
     const bridgeSession = 'golden-bridge';
     // The same session id on both passes (releasing it between them), so each

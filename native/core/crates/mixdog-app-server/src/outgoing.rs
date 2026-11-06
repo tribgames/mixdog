@@ -66,6 +66,8 @@ pub struct Outgoing {
     /// `initialize` on, without `host/claim`; the latest serves.
     model_proxies: Mutex<Vec<Arc<Connection>>>,
     next_host_request: AtomicU64,
+    /// The number of the next host/claim.
+    next_claim: AtomicU64,
 }
 
 impl mixdog_core_api::DesktopPresence for Outgoing {
@@ -76,6 +78,7 @@ impl mixdog_core_api::DesktopPresence for Outgoing {
 
 struct Claim {
     host: HostId,
+    generation: u64,
     conn: Arc<Connection>,
     serves: Vec<HostCapability>,
 }
@@ -106,6 +109,7 @@ impl Outgoing {
             hosts: Mutex::new(Vec::new()),
             model_proxies: Mutex::new(Vec::new()),
             next_host_request: AtomicU64::new(1),
+            next_claim: AtomicU64::new(1),
         })
     }
 
@@ -215,6 +219,7 @@ impl Outgoing {
         hosts.retain(|claim| claim.host != host && claim.conn.id != conn.id);
         hosts.push(Claim {
             host,
+            generation: self.next_claim.fetch_add(1, Ordering::Relaxed),
             conn: Arc::clone(conn),
             serves,
         });
@@ -241,8 +246,44 @@ impl Outgoing {
             .map(|claim| Arc::clone(&claim.conn))
             .ok_or_else(|| desktop_host_unavailable("noClaimant"))
     }
-}
 
+    /// One request to `claimant`, answered or failed as its connection ends.
+    async fn ask(&self, claimant: Arc<Connection>, method: Method, params: Value) -> Result<Value, HostError> {
+        let id = self.next_host_id();
+        let reply = claimant
+            .register_host_request(id.clone())
+            .ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
+        let _forget = ForgetOnDrop {
+            conn: Arc::clone(&claimant),
+            id: id.clone(),
+        };
+        claimant
+            .sink
+            .send_control(request_frame(id, method.as_str(), params))
+            .map_err(|_| HostError::from(desktop_host_unavailable("claimantClosed")))?;
+        match reply.await {
+            Ok(reply) => reply,
+            Err(_) => Err(desktop_host_unavailable("claimantClosed").into()),
+        }
+    }
+
+    /// The claim now serving `capability`, with its connection.
+    fn current_claim(&self, capability: HostCapability) -> Result<(mixdog_core_api::HostClaim, Arc<Connection>), CoreError> {
+        lock(&self.hosts)
+            .iter()
+            .rev()
+            .find(|claim| claim.serves.contains(&capability))
+            .map(|claim| {
+                let identity = mixdog_core_api::HostClaim {
+                    host: claim.host.clone(),
+                    connection: claim.conn.id,
+                    generation: claim.generation,
+                };
+                (identity, Arc::clone(&claim.conn))
+            })
+            .ok_or_else(|| desktop_host_unavailable("noClaimant"))
+    }
+}
 fn desktop_host_unavailable(detail: &str) -> CoreError {
     CoreError::CapabilityUnavailable {
         capability: "desktopHost".into(),
@@ -320,6 +361,24 @@ impl Drop for CancelOnDrop {
 }
 
 #[async_trait]
+impl mixdog_core_api::ClaimedHostChannel for Outgoing {
+    async fn request_claimed(&self, capability: HostCapability, method: Method, params: Value) -> Result<(mixdog_core_api::HostClaim, Value), HostError> {
+        let (claim, claimant) = self.current_claim(capability)?;
+        let answer = self.ask(claimant, method, params).await?;
+        Ok((claim, answer))
+    }
+
+    async fn request_to(&self, claim: &mixdog_core_api::HostClaim, capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError> {
+        // Checked as the request is sent: the claim must still be the one serving the capability.
+        let (current, claimant) = self.current_claim(capability)?;
+        if &current != claim {
+            return Err(desktop_host_unavailable("claimantChanged").into());
+        }
+        self.ask(claimant, method, params).await
+    }
+}
+
+#[async_trait]
 impl HostChannel for Outgoing {
     async fn request(
         &self,
@@ -328,22 +387,7 @@ impl HostChannel for Outgoing {
         params: Value,
     ) -> Result<Value, HostError> {
         let claimant = self.claimant(capability)?;
-        let id = self.next_host_id();
-        let reply = claimant
-            .register_host_request(id.clone())
-            .ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
-        let _forget = ForgetOnDrop {
-            conn: Arc::clone(&claimant),
-            id: id.clone(),
-        };
-        claimant
-            .sink
-            .send_control(request_frame(id, method.as_str(), params))
-            .map_err(|_| HostError::from(desktop_host_unavailable("claimantClosed")))?;
-        match reply.await {
-            Ok(reply) => reply,
-            Err(_) => Err(desktop_host_unavailable("claimantClosed").into()),
-        }
+        self.ask(claimant, method, params).await
     }
 
     fn notify(

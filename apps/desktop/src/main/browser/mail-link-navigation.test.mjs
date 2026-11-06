@@ -42,7 +42,7 @@ async function withBridge(t) {
     },
     finishTurn: () => 0,
     beginTurn: () => {},
-    secretInput: async () => ({ text: 'blocked' }),
+    secretFill: { precheck: () => ({ text: 'blocked' }), fill: async () => ({ text: 'blocked' }) },
     handoffPage: async () => ({}),
     visibleGuests: () => [],
     lifecycle: { attachDebuggerEagerly() {}, reclaimIdleBackgroundPages() {}, destroyAllBackgroundPages() {} },

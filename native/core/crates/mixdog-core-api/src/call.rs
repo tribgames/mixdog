@@ -63,13 +63,23 @@ impl CallContext {
 }
 
 /// One request to a thread, the thread directory, or a domain service.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct CoreRequest {
     pub method: Method,
     pub params: Value,
     /// Required by methods marked `mutation` in the method table (the server checks presence).
     pub op: Option<OpId>,
     pub ctx: CallContext,
+}
+
+/// Methods whose params carry a secret value: a {:?} of the request hides them.
+const SECRET_PARAMS: [&str; 1] = ["approval/provideSecret"];
+
+impl std::fmt::Debug for CoreRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let params: &dyn std::fmt::Debug = if SECRET_PARAMS.contains(&self.method.as_str()) { &"<redacted>" } else { &self.params };
+        f.debug_struct("CoreRequest").field("method", &self.method).field("params", params).field("op", &self.op).field("ctx", &self.ctx).finish()
+    }
 }
 
 /// The reply of a request.

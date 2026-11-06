@@ -1384,7 +1384,6 @@ const hostRole = createLocalHostRole({
   },
   visualize: () => ({
     execute: (command) => visualize.execute(command),
-    exportForDevice: (command) => visualize.exportForDevice(command),
     snapshot: () => visualize.hostSnapshot(),
   }),
   onVisualizePublishFailed: (error) => reportVisualizePublishFailure('host', error),
@@ -2500,12 +2499,20 @@ function installLocalWindowFeatures(
   // agent bridge (the runtime's `browser` tool) is opt-in and only serves
   // while the Browser Use setting is on, mirroring Computer Use.
   const windowBrowserHost = createBrowserHost(window, {
+    hostId: readOrCreateHostId(desktopUserData),
     // Only this PC's own window has a browser host (server windows refuse the
     // browser pane and agent bridge), so its sessions always work locally.
     remoteSession: false,
     onGuest,
     onDiagnostic: (event, data) => diagnostics?.write(event, data),
     autoSignIn: () => browserAutoSignIn,
+    // The core runs a Computer Use saved-login fill; its worker steps go through the computer host.
+    savedLoginWorker: {
+      run: async (command) => {
+        if (!computerHost) throw new Error('saved_login_unavailable: Computer Use is not running; no input was sent');
+        return (await computerHost.executeSerialized(command as unknown as Parameters<ComputerHost['executeSerialized']>[0])) as { saved_login_response?: unknown };
+      },
+    },
     hidDevices: () => browserHidDevices,
     permissionPolicy: {
       policy: () => browserPermissionPolicy,

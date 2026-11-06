@@ -8,9 +8,16 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::ClaimedHostChannel;
+use mixdog_core_api::CoreError;
+use mixdog_core_api::HostCapability;
+use mixdog_core_api::HostClaim;
+use mixdog_core_api::HostError;
+use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_js::JsRegex;
 use mixdog_protocol::JsonValue;
+use mixdog_tools::desktop::host::HOST_COMMAND_FAILED;
 use mixdog_tools::desktop::host::HostCommandError;
 use mixdog_tools::desktop::host::HostCommands;
 use serde_json::Value;
@@ -84,12 +91,13 @@ pub struct SecretFill {
     sessions: SessionSecrets,
     gates: Arc<dyn FillGates>,
     computer: Arc<dyn ComputerCommands>,
+    channel: Arc<dyn ClaimedHostChannel>,
 }
 
 impl SecretFill {
     /// `slots` is the registry `approval/provideSecret` fills.
-    pub fn new(slots: Arc<SecretSlots>, gates: Arc<dyn FillGates>, computer: Arc<dyn ComputerCommands>) -> Self {
-        Self { slots, sessions: SessionSecrets::new(), gates, computer }
+    pub fn new(slots: Arc<SecretSlots>, gates: Arc<dyn FillGates>, computer: Arc<dyn ComputerCommands>, channel: Arc<dyn ClaimedHostChannel>) -> Self {
+        Self { slots, sessions: SessionSecrets::new(), gates, computer, channel }
     }
 
     /// `redact` of the window process's registry: `text` with every value filled for the session
@@ -118,27 +126,58 @@ impl SecretFill {
         outcome
     }
 
-    /// Bind a browser request to `thread`'s page once the host bound it (`secret_bind` answered
-    /// an origin and a field form); the host holds the page, document and elements.
-    pub fn bind_browser(&self, thread: &ThreadId, request_id: &str) -> bool {
-        self.slots.bind(request_id, thread.as_str())
+    /// Bind a browser request to `thread`'s page, held by the desktop `claim`, once that desktop
+    /// bound it (`secret_bind` answered an origin and a field form).
+    pub fn bind_browser(&self, thread: &ThreadId, request_id: &str, claim: HostClaim) -> bool {
+        self.slots.bind(request_id, thread.as_str(), claim)
+    }
+
+    /// `secret_bind` as the handoff tool sends it, served by the desktop that holds the page: the
+    /// request is bound to the session and to that desktop's claim when the desktop bound the
+    /// page (an origin and a field form came back).
+    async fn bind_through(&self, thread: &ThreadId, input: JsonValue) -> Result<JsonValue, HostCommandError> {
+        let request_id = request_id_of(&input).to_owned();
+        let (claim, facts) = self.channel.request_claimed(HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_bind", input)).await.map_err(command_error)?;
+        let named = |key: &str| facts.get(key).and_then(Value::as_str).is_some_and(|text| !text.is_empty());
+        if named("origin") && named("form") {
+            self.bind_browser(thread, &request_id, claim);
+        }
+        Ok(facts)
     }
 
     /// `fillSecretInput`: one secret the user typed into the card, filled into the page the
-    /// request was bound to (`secret_bind`), never the selected tab or the focused field. The
-    /// session's own takeover lock is checked before the value is taken; every refusal drops the
-    /// request's slots and binding unused. The host holds the page binding (its main-frame
-    /// document, origin and elements) and answers `page_changed` / `no_field` / `entered`; a
-    /// sign-in the user chose to save is stored by the host for its origin after it was entered.
-    pub async fn fill_browser(&self, host: &dyn HostCommands, thread: &ThreadId, request_id: &str) -> SecretOutcome {
+    /// request was bound to (`secret_bind`), never the selected tab or the focused field, in the
+    /// order Node checks it: the value was provided (`expired`), the binding is this session's
+    /// and its takeover lock is free (`blocked`), the bound desktop still holds the claim and its
+    /// page, document, origin and field are the bound ones (`page_changed`, `no_field`), and only
+    /// then the value is taken and sent, to that desktop alone. Every refusal drops the request's
+    /// slots and binding unused, and registers nothing for redaction: only a value that is sent
+    /// is remembered. The sign-in the user chose to save is stored by the desktop after it was
+    /// entered.
+    pub async fn fill_browser(&self, thread: &ThreadId, request_id: &str) -> SecretOutcome {
         let session = thread.as_str();
         let binding = self.slots.browser_binding(request_id);
         if !self.slots.has(request_id) {
             return self.refuse(request_id, SecretOutcome::Expired);
         }
-        if binding.as_deref() != Some(session) || !self.gates.browser_free(thread) {
+        let Some(binding) = binding.filter(|b| b.session == session && self.gates.browser_free(thread)) else {
             return self.refuse(request_id, SecretOutcome::Blocked);
+        };
+        // Phase one: the bound desktop checks the page, with no value on the wire. It answers
+        // `ready` and its own host id, or the outcome that refuses the fill.
+        let check = self
+            .channel
+            .request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_precheck", json!({ "request_id": request_id })))
+            .await;
+        let answer = check.ok();
+        let text = answer.as_ref().and_then(|a| a.get("text")).and_then(Value::as_str).unwrap_or_default();
+        let from_bound_host = answer.as_ref().and_then(|a| a.get("hostId")).and_then(Value::as_str) == Some(binding.claim.host.as_str());
+        if text != "ready" || !from_bound_host {
+            let refusal = SecretOutcome::from_text(text).filter(|o| *o != SecretOutcome::Entered).unwrap_or(SecretOutcome::Blocked);
+            return self.refuse(request_id, refusal);
         }
+        // Phase two: the value is taken and sent, to the desktop that answered and only while it
+        // still holds the claim.
         let value = self.slots.take(request_id);
         // The deadline can pass between the check and the take (a Node turn cannot interleave).
         if value.is_empty() {
@@ -149,12 +188,11 @@ impl SecretFill {
         self.slots.discard(request_id);
         self.sessions.remember(session, &value);
         let input = json!({ "request_id": request_id, "value": value, "username": username, "save": save });
-        match host.browser(thread, "secret_input", input).await {
+        match self.channel.request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_fill", input)).await {
             Ok(answer) => answer.get("text").and_then(Value::as_str).and_then(SecretOutcome::from_text).unwrap_or(SecretOutcome::Blocked),
             Err(_) => SecretOutcome::Blocked,
         }
     }
-
     /// `bindComputerSecret` (`secret_bind`): bind the request to the exact window and field ref
     /// the agent named. `bound`, or `no_field` when that target is missing or not a plain token.
     pub fn computer_bind(&self, thread: &ThreadId, request_id: &str, window_id: &str, reference: &str) -> String {
@@ -258,10 +296,26 @@ impl SecretFill {
     }
 }
 
+/// The `host/browser/command` method the desktop serves.
+const BROWSER_COMMAND: Method = Method("host/browser/command");
+
+fn command_params(thread: &ThreadId, action: &str, input: JsonValue) -> JsonValue {
+    json!({ "threadId": thread, "action": action, "input": input })
+}
+
+/// A host failure as the browser tools read it (`ChannelHostCommands`).
+fn command_error(error: HostError) -> HostCommandError {
+    match error {
+        HostError::Rpc { code, message, data } => HostCommandError::Rpc { code, message, timing: data.and_then(|data| data.get("timing").cloned()) },
+        HostError::Core(CoreError::CapabilityUnavailable { .. }) => HostCommandError::NoHost,
+        HostError::Core(_) => HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: String::new(), timing: None },
+    }
+}
+
 /// The browser host commands of the handoff tool, with the secret request's two runtime-only
-/// actions served here: `secret_bind` binds the request to the session once the host bound its
-/// page, and `secret_input` fills it (the agent's `browser` tool never sees these; its schema
-/// has no such action). Every other command goes to the host as it is.
+/// actions served here: `secret_bind` binds the request to the session and the desktop that
+/// bound its page, and `secret_input` fills it (the agent's `browser` tool never sees these; its
+/// schema has no such action). Every other command goes to the host as it is.
 pub struct SecretHostCommands {
     inner: Arc<dyn HostCommands>,
     fill: Arc<SecretFill>,
@@ -282,19 +336,10 @@ impl HostCommands for SecretHostCommands {
     async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
         match action {
             "secret_input" => {
-                let outcome = self.fill.fill_browser(self.inner.as_ref(), thread, request_id_of(&input)).await;
+                let outcome = self.fill.fill_browser(thread, request_id_of(&input)).await;
                 Ok(json!({ "text": outcome.text() }))
             }
-            "secret_bind" => {
-                let request_id = request_id_of(&input).to_owned();
-                let facts = self.inner.browser(thread, action, input).await?;
-                let named = |key: &str| facts.get(key).and_then(Value::as_str).is_some_and(|text| !text.is_empty());
-                // The host bound the page exactly when it answered an origin and a field form.
-                if named("origin") && named("form") {
-                    self.fill.bind_browser(thread, &request_id);
-                }
-                Ok(facts)
-            }
+            "secret_bind" => self.fill.bind_through(thread, input).await,
             _ => self.inner.browser(thread, action, input).await,
         }
     }

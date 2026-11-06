@@ -341,6 +341,7 @@ impl SessionActor {
         &mut self,
         snapshot: Vec<mixdog_core_api::ids::ItemId>,
         compaction: super::super::run::Compaction,
+        header: Option<HeaderChange>,
         tx: oneshot::Sender<Result<super::super::turn_ops::CompactionCommit, CoreError>>,
     ) {
         use super::super::turn_ops::CompactionCommit;
@@ -356,7 +357,7 @@ impl SessionActor {
         let (jobs, begun) = (self.jobs_tx.clone(), self.runs_begun);
         tokio::spawn(async move {
             let rows = context.read().await;
-            let _ = jobs.send(JobDone::CompactionRows(Box::new(CommitRows { snapshot, compaction, begun, rows, tx })));
+            let _ = jobs.send(JobDone::CompactionRows(Box::new(CommitRows { snapshot, compaction, header, begun, rows, tx })));
         });
     }
 
@@ -371,7 +372,7 @@ impl SessionActor {
     /// leaves the conversation as it is (`Moved`).
     pub(super) fn compaction_rows(&mut self, done: CommitRows) {
         use super::super::turn_ops::CompactionCommit;
-        let CommitRows { snapshot, mut compaction, begun, rows, tx } = done;
+        let CommitRows { snapshot, mut compaction, header, begun, rows, tx } = done;
         let rows = match rows {
             Ok(rows) => rows,
             Err(error) => return drop(tx.send(Err(error))),
@@ -383,7 +384,7 @@ impl SessionActor {
         compaction.replacement.extend(rows.into_iter().skip(snapshot.len()));
         let (ack, durable) = oneshot::channel();
         // No turn: the divider is shown live with no turn id, as a card outside a turn is.
-        self.on_producer(ProducerMsg::Compacted { turn: TurnId::from(""), compaction, ack });
+        self.on_producer(ProducerMsg::Compacted { turn: TurnId::from(""), compaction, header, ack });
         tokio::spawn(async move {
             let answer = match durable.await {
                 Ok(Ok(())) => Ok(CompactionCommit::Applied),

@@ -503,21 +503,57 @@ async fn a_manual_compactions_result_is_committed_only_to_the_context_it_was_pla
 
     // A context that moved (the planned rows are not its start): nothing is applied.
     let moved = vec![ItemId::from("not-a-row".to_owned())];
-    assert_eq!(directory.commit_compaction(&handle.id, moved, compaction()).await.expect("answered"), CompactionCommit::Moved);
+    assert_eq!(directory.commit_compaction(&handle.id, moved, compaction(), None).await.expect("answered"), CompactionCommit::Moved);
     assert_eq!(directory.model_context(&handle.id).read().await.expect("context").len(), planned.len());
 
     // A turn that runs refuses it.
     let gate = held(&rig);
     turn(&handle, "second", "op-2").await;
     eventually(|| (!idle(&handle)).then_some(())).await;
-    assert_eq!(directory.commit_compaction(&handle.id, snapshot.clone(), compaction()).await.expect("answered"), CompactionCommit::Moved);
+    assert_eq!(directory.commit_compaction(&handle.id, snapshot.clone(), compaction(), None).await.expect("answered"), CompactionCommit::Moved);
     gate.notify_one();
     eventually(|| idle(&handle).then_some(())).await;
 
     // The turn that finished meanwhile appended its rows: they follow the compacted ones.
-    assert_eq!(directory.commit_compaction(&handle.id, snapshot, compaction()).await.expect("answered"), CompactionCommit::Applied);
+    assert_eq!(directory.commit_compaction(&handle.id, snapshot, compaction(), None).await.expect("answered"), CompactionCommit::Applied);
     let after = directory.model_context(&handle.id).read().await.expect("context");
     assert_eq!(after.first().map(|(iid, _)| iid.as_str()), Some("sum1"));
     assert!(after.len() >= 2, "the second turn's rows follow the summary: {after:?}");
     assert!(after.iter().skip(1).all(|(iid, _)| iid.as_str() != "sum1"));
+}
+
+/// A commit that carries the header writes it with the compaction, in the record that counts it:
+/// the caller's `compaction.compactCount` stands (it is not counted twice), and a commit that
+/// carries none counts one more.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_manual_compaction_commit_writes_the_header_it_carries_without_counting_twice() {
+    use super::run::Compaction;
+    use mixdog_core_api::ids::ItemId;
+    use mixdog_store::schema::record::HeaderChange;
+
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "first", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    let compaction = |id: &str| Compaction { replacement: vec![(ItemId::from(id.to_owned()), json!({ "role": "user", "content": "summary" }))], at: 5, dropped_count: 1, dropped: None };
+    let snapshot_of = |rows: Vec<(ItemId, Value)>| rows.into_iter().map(|(iid, _)| iid).collect::<Vec<_>>();
+
+    let snapshot = snapshot_of(directory.model_context(&handle.id).read().await.expect("context"));
+    let mut set = serde_json::Map::new();
+    set.insert("compaction".into(), json!({ "compactCount": 7, "lastStage": "manual" }));
+    set.insert("lastContextTokens".into(), json!(0));
+    let carried = HeaderChange { set, unset: Vec::new() };
+    let applied = directory.commit_compaction(&handle.id, snapshot, compaction("sum1"), Some(carried)).await.expect("answered");
+    assert_eq!(applied, super::turn_ops::CompactionCommit::Applied);
+    eventually(|| (handle.live_header().header().get("compaction")?.get("compactCount") == Some(&json!(7))).then_some(())).await;
+    let header = handle.live_header().header();
+    assert_eq!(header["compaction"]["lastStage"], json!("manual"));
+    assert_eq!(header["lastContextTokens"], json!(0));
+
+    // Nothing carried: one more is counted over the state the header holds.
+    let snapshot = snapshot_of(directory.model_context(&handle.id).read().await.expect("context"));
+    let applied = directory.commit_compaction(&handle.id, snapshot, compaction("sum2"), None).await.expect("answered");
+    assert_eq!(applied, super::turn_ops::CompactionCommit::Applied);
+    eventually(|| (handle.live_header().header().get("compaction")?.get("compactCount") == Some(&json!(8))).then_some(())).await;
 }

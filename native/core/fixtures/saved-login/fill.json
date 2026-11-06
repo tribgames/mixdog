@@ -1,0 +1,1262 @@
+{
+  "cases": [
+    {
+      "after": {
+        "guards": [
+          {
+            "pid": "4242",
+            "session": "saved-login-session",
+            "turn": 7,
+            "windowId": "hwnd:0x1"
+          }
+        ],
+        "otherSession": "a [saved login] b [saved login] c jane.doe@example.com d",
+        "redacted": "a [saved login] b [saved login] c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "a password is looked up for the checked origin, registered and typed once",
+      "outcome": {
+        "ok": true,
+        "value": {
+          "ok": true,
+          "result": {
+            "action": "fill_saved_login",
+            "effect": "confirmed",
+            "path": "uia_setvalue",
+            "saved_login": {
+              "account": "j•••e@example.com",
+              "field": "password",
+              "origin": "https://login.example.com"
+            },
+            "text": "filled the saved password of j•••e@example.com into the focused field on https://login.example.com; the site receives it and it stays out of your results, though a page that redisplays it can expose it; pixels of this browser are withheld until this turn ends"
+          }
+        }
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        },
+        {
+          "action": "saved_login_type",
+          "expected": {
+            "document_id": "42.1.4.5.1.20",
+            "field": "password",
+            "origin": "https://login.example.com",
+            "pid": "4242",
+            "runtime_id": "42.1.4.5.1.77",
+            "start_time": "133700000000000001",
+            "value_length": 0,
+            "window_id": "hwnd:0x1"
+          },
+          "field": "password",
+          "text": "Pa55-\"word\"\\x"
+        }
+      ],
+      "runnableCalls": 3,
+      "spec": {
+        "name": "a password is looked up for the checked origin, registered and typed once"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "username",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "username",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "a username is typed and hidden from nothing",
+      "outcome": {
+        "ok": true,
+        "value": {
+          "ok": true,
+          "result": {
+            "action": "fill_saved_login",
+            "effect": "confirmed",
+            "path": "uia_setvalue",
+            "saved_login": {
+              "account": "j•••e@example.com",
+              "field": "username",
+              "origin": "https://login.example.com"
+            },
+            "text": "filled the saved username of j•••e@example.com into the focused field on https://login.example.com; a username is an identifier and is not hidden from you"
+          }
+        }
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "username",
+          "text": null
+        },
+        {
+          "action": "saved_login_type",
+          "expected": {
+            "document_id": "42.1.4.5.1.20",
+            "field": "password",
+            "origin": "https://login.example.com",
+            "pid": "4242",
+            "runtime_id": "42.1.4.5.1.77",
+            "start_time": "133700000000000001",
+            "value_length": 0,
+            "window_id": "hwnd:0x1"
+          },
+          "field": "username",
+          "text": "jane.doe@example.com"
+        }
+      ],
+      "runnableCalls": 3,
+      "spec": {
+        "field": "username",
+        "name": "a username is typed and hidden from nothing"
+      }
+    },
+    {
+      "after": {
+        "guards": [
+          {
+            "pid": "4242",
+            "session": "saved-login-session",
+            "turn": 7,
+            "windowId": "hwnd:0x1"
+          }
+        ],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "a password with a line break registers its spellings",
+      "outcome": {
+        "ok": true,
+        "value": {
+          "ok": true,
+          "result": {
+            "action": "fill_saved_login",
+            "effect": "confirmed",
+            "path": "uia_setvalue",
+            "saved_login": {
+              "account": "j•••e@example.com",
+              "field": "password",
+              "origin": "https://login.example.com"
+            },
+            "text": "filled the saved password of j•••e@example.com into the focused field on https://login.example.com; the site receives it and it stays out of your results, though a page that redisplays it can expose it; pixels of this browser are withheld until this turn ends"
+          }
+        }
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        },
+        {
+          "action": "saved_login_type",
+          "expected": {
+            "document_id": "42.1.4.5.1.20",
+            "field": "password",
+            "origin": "https://login.example.com",
+            "pid": "4242",
+            "runtime_id": "42.1.4.5.1.77",
+            "start_time": "133700000000000001",
+            "value_length": 0,
+            "window_id": "hwnd:0x1"
+          },
+          "field": "password",
+          "text": "ab\r\ncd"
+        }
+      ],
+      "runnableCalls": 3,
+      "spec": {
+        "name": "a password with a line break registers its spellings",
+        "values": {
+          "password": "ab\r\ncd",
+          "username": "u"
+        }
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "Auto login off sends nothing",
+      "outcome": {
+        "error": "saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent",
+        "ok": false
+      },
+      "requests": [],
+      "runnableCalls": 0,
+      "spec": {
+        "enabled": false,
+        "name": "Auto login off sends nothing"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "a platform other than Windows sends nothing",
+      "outcome": {
+        "error": "saved_login_unavailable: saved logins are filled on Windows only for now; no input was sent",
+        "ok": false
+      },
+      "requests": [],
+      "runnableCalls": 0,
+      "spec": {
+        "name": "a platform other than Windows sends nothing",
+        "platform": "linux"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "otp",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "a field other than username or password is invalid",
+      "outcome": {
+        "error": "invalid_input: field must be username or password; one-time codes, passkeys, security keys and app approvals are the user's step (handoff_user takeover)",
+        "ok": false
+      },
+      "requests": [],
+      "runnableCalls": 0,
+      "spec": {
+        "field": "otp",
+        "name": "a field other than username or password is invalid"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "  ",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "a missing saved account is invalid",
+      "outcome": {
+        "error": "invalid_input: saved_account must name a saved login",
+        "ok": false
+      },
+      "requests": [],
+      "runnableCalls": 0,
+      "spec": {
+        "command": {
+          "saved_account": "  "
+        },
+        "name": "a missing saved account is invalid"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": " "
+      },
+      "lookups": [],
+      "name": "a missing window id is refused",
+      "outcome": {
+        "error": "fill_saved_login requires an exact window_id before dispatch",
+        "ok": false
+      },
+      "requests": [],
+      "runnableCalls": 0,
+      "spec": {
+        "command": {
+          "window_id": " "
+        },
+        "name": "a missing window id is refused"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 0,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "a request without a turn is refused",
+      "outcome": {
+        "error": "saved_login_unavailable: the request names no runtime and agent turn to scope its protection to; no input was sent",
+        "ok": false
+      },
+      "requests": [],
+      "runnableCalls": 0,
+      "spec": {
+        "command": {
+          "turn_id": 0
+        },
+        "name": "a request without a turn is refused"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "a request without a runtime is refused",
+      "outcome": {
+        "error": "saved_login_unavailable: the request names no runtime and agent turn to scope its protection to; no input was sent",
+        "ok": false
+      },
+      "requests": [],
+      "runnableCalls": 0,
+      "spec": {
+        "command": {
+          "runtime_id": ""
+        },
+        "name": "a request without a runtime is refused"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "a fill the bridge did not admit is refused",
+      "outcome": {
+        "error": "saved_login_unavailable: the fill was not admitted by the bridge for its runtime and turn; no input was sent",
+        "ok": false
+      },
+      "requests": [],
+      "runnableCalls": 0,
+      "spec": {
+        "admit": false,
+        "name": "a fill the bridge did not admit is refused"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "a refused check with its error",
+      "outcome": {
+        "error": "window is not Chrome",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 0,
+      "spec": {
+        "check": {
+          "error": "window is not Chrome",
+          "ok": false
+        },
+        "name": "a refused check with its error"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "a refused check without an error",
+      "outcome": {
+        "error": "saved_login_refused: the browser window could not be checked; no input was sent",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 0,
+      "spec": {
+        "check": {
+          "ok": false
+        },
+        "name": "a refused check without an error"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "a check that gives no target answers as this action",
+      "outcome": {
+        "ok": true,
+        "value": {
+          "ok": true,
+          "result": {
+            "action": "fill_saved_login",
+            "code": "activation_refused",
+            "text": "no foreground"
+          }
+        }
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 0,
+      "spec": {
+        "check": {
+          "ok": true,
+          "result": {
+            "code": "activation_refused",
+            "saved_login_target": null,
+            "text": "no foreground"
+          }
+        },
+        "name": "a check that gives no target answers as this action"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "a vault miss is unavailable and sends nothing",
+      "outcome": {
+        "error": "saved_login_unavailable: no saved login for j•••e. choose among k•••m; no input was sent",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 1,
+      "spec": {
+        "name": "a vault miss is unavailable and sends nothing",
+        "vaultThrow": "no saved login for j•••e. choose among k•••m"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "an origin the vault does not match exactly is refused",
+      "outcome": {
+        "error": "saved_login_refused: the page origin could not be matched exactly to the saved login; no input was sent",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 1,
+      "spec": {
+        "name": "an origin the vault does not match exactly is refused",
+        "vaultOrigin": "https://other.example.com"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "the dispatch refused before the vault stops the fill",
+      "outcome": {
+        "error": "runnable refused",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 1,
+      "spec": {
+        "name": "the dispatch refused before the vault stops the fill",
+        "runnableFailsAt": 1
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "the dispatch refused after the vault stops the fill before the password is registered",
+      "outcome": {
+        "error": "runnable refused",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 2,
+      "spec": {
+        "name": "the dispatch refused after the vault stops the fill before the password is registered",
+        "runnableFailsAt": 2
+      }
+    },
+    {
+      "after": {
+        "guards": [
+          {
+            "pid": "4242",
+            "session": "saved-login-session",
+            "turn": 7,
+            "windowId": "hwnd:0x1"
+          }
+        ],
+        "otherSession": "a [saved login] b [saved login] c jane.doe@example.com d",
+        "redacted": "a [saved login] b [saved login] c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "the dispatch refused right before the write is not sent but the password stays registered",
+      "outcome": {
+        "error": "runnable refused",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 3,
+      "spec": {
+        "name": "the dispatch refused right before the write is not sent but the password stays registered",
+        "runnableFailsAt": 3
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "Auto login turned off during the vault lookup is unavailable",
+      "outcome": {
+        "error": "saved_login_unavailable: saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent; no input was sent",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 1,
+      "spec": {
+        "enabledAfter": 1,
+        "name": "Auto login turned off during the vault lookup is unavailable"
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "Auto login turned off after the vault lookup stops the fill before the password is registered",
+      "outcome": {
+        "error": "saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 2,
+      "spec": {
+        "enabledAfter": 2,
+        "name": "Auto login turned off after the vault lookup stops the fill before the password is registered"
+      }
+    },
+    {
+      "after": {
+        "guards": [
+          {
+            "pid": "4242",
+            "session": "saved-login-session",
+            "turn": 7,
+            "windowId": "hwnd:0x1"
+          }
+        ],
+        "otherSession": "a [saved login] b [saved login] c jane.doe@example.com d",
+        "redacted": "a [saved login] b [saved login] c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "Auto login turned off right before the write is not sent but the password stays registered",
+      "outcome": {
+        "error": "saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 3,
+      "spec": {
+        "enabledAfter": 3,
+        "name": "Auto login turned off right before the write is not sent but the password stays registered"
+      }
+    },
+    {
+      "after": {
+        "guards": [
+          {
+            "pid": "4242",
+            "session": "saved-login-session",
+            "turn": 7,
+            "windowId": "hwnd:0x1"
+          }
+        ],
+        "otherSession": "a [saved login] b [saved login] c jane.doe@example.com d",
+        "redacted": "a [saved login] b [saved login] c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "a worker that fails after the value was sent is unconfirmed and redacted",
+      "outcome": {
+        "error": "saved_login_unconfirmed: the saved password was sent but no clear answer came back (uia broke near [saved login]); it may have been written and is not retried",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        },
+        {
+          "action": "saved_login_type",
+          "expected": {
+            "document_id": "42.1.4.5.1.20",
+            "field": "password",
+            "origin": "https://login.example.com",
+            "pid": "4242",
+            "runtime_id": "42.1.4.5.1.77",
+            "start_time": "133700000000000001",
+            "value_length": 0,
+            "window_id": "hwnd:0x1"
+          },
+          "field": "password",
+          "text": "Pa55-\"word\"\\x"
+        }
+      ],
+      "runnableCalls": 3,
+      "spec": {
+        "name": "a worker that fails after the value was sent is unconfirmed and redacted",
+        "typed": {
+          "throw": "uia broke near Pa55-\"word\"\\x."
+        }
+      }
+    },
+    {
+      "after": {
+        "guards": [
+          {
+            "pid": "4242",
+            "session": "saved-login-session",
+            "turn": 7,
+            "windowId": "hwnd:0x1"
+          }
+        ],
+        "otherSession": "a [saved login] b [saved login] c jane.doe@example.com d",
+        "redacted": "a [saved login] b [saved login] c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "a worker error naming the password is redacted",
+      "outcome": {
+        "error": "field held [saved login]",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        },
+        {
+          "action": "saved_login_type",
+          "expected": {
+            "document_id": "42.1.4.5.1.20",
+            "field": "password",
+            "origin": "https://login.example.com",
+            "pid": "4242",
+            "runtime_id": "42.1.4.5.1.77",
+            "start_time": "133700000000000001",
+            "value_length": 0,
+            "window_id": "hwnd:0x1"
+          },
+          "field": "password",
+          "text": "Pa55-\"word\"\\x"
+        }
+      ],
+      "runnableCalls": 3,
+      "spec": {
+        "name": "a worker error naming the password is redacted",
+        "typed": {
+          "error": "field held Pa55-\"word\"\\x",
+          "ok": false
+        }
+      }
+    },
+    {
+      "after": {
+        "guards": [
+          {
+            "pid": "4242",
+            "session": "saved-login-session",
+            "turn": 7,
+            "windowId": "hwnd:0x1"
+          }
+        ],
+        "otherSession": "a [saved login] b [saved login] c jane.doe@example.com d",
+        "redacted": "a [saved login] b [saved login] c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "a worker error without text is unconfirmed",
+      "outcome": {
+        "error": "saved_login_unconfirmed: the worker gave no answer; the value may have been written and is not retried",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        },
+        {
+          "action": "saved_login_type",
+          "expected": {
+            "document_id": "42.1.4.5.1.20",
+            "field": "password",
+            "origin": "https://login.example.com",
+            "pid": "4242",
+            "runtime_id": "42.1.4.5.1.77",
+            "start_time": "133700000000000001",
+            "value_length": 0,
+            "window_id": "hwnd:0x1"
+          },
+          "field": "password",
+          "text": "Pa55-\"word\"\\x"
+        }
+      ],
+      "runnableCalls": 3,
+      "spec": {
+        "name": "a worker error without text is unconfirmed",
+        "typed": {
+          "ok": false
+        }
+      }
+    },
+    {
+      "after": {
+        "guards": [
+          {
+            "pid": "4242",
+            "session": "saved-login-session",
+            "turn": 7,
+            "windowId": "hwnd:0x1"
+          }
+        ],
+        "otherSession": "a [saved login] b [saved login] c jane.doe@example.com d",
+        "redacted": "a [saved login] b [saved login] c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [
+        {
+          "account": "j•••e@example.com",
+          "field": "password",
+          "url": "https://login.example.com"
+        }
+      ],
+      "name": "a worker answer with a code is returned as this action",
+      "outcome": {
+        "ok": true,
+        "value": {
+          "ok": true,
+          "result": {
+            "action": "fill_saved_login",
+            "code": "field_changed",
+            "text": "moved"
+          }
+        }
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        },
+        {
+          "action": "saved_login_type",
+          "expected": {
+            "document_id": "42.1.4.5.1.20",
+            "field": "password",
+            "origin": "https://login.example.com",
+            "pid": "4242",
+            "runtime_id": "42.1.4.5.1.77",
+            "start_time": "133700000000000001",
+            "value_length": 0,
+            "window_id": "hwnd:0x1"
+          },
+          "field": "password",
+          "text": "Pa55-\"word\"\\x"
+        }
+      ],
+      "runnableCalls": 3,
+      "spec": {
+        "name": "a worker answer with a code is returned as this action",
+        "typed": {
+          "ok": true,
+          "result": {
+            "code": "field_changed",
+            "saved_login_target": {
+              "document_id": "42.1.4.5.1.20",
+              "field": "password",
+              "origin": "https://login.example.com",
+              "pid": "4242",
+              "runtime_id": "42.1.4.5.1.77",
+              "start_time": "133700000000000001",
+              "value_length": 0,
+              "window_id": "hwnd:0x1"
+            },
+            "text": "moved"
+          }
+        }
+      }
+    },
+    {
+      "after": {
+        "guards": [],
+        "otherSession": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+        "redacted": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d"
+      },
+      "command": {
+        "action": "fill_saved_login",
+        "delivery": "foreground",
+        "field": "password",
+        "runtime_id": "00000000-0000-4000-8000-000000000001",
+        "saved_account": "j•••e@example.com",
+        "session_id": "saved-login-session",
+        "turn_id": 7,
+        "window_id": "hwnd:0x1"
+      },
+      "lookups": [],
+      "name": "a check that throws before anything was sent",
+      "outcome": {
+        "error": "worker crashed",
+        "ok": false
+      },
+      "requests": [
+        {
+          "action": "saved_login_check",
+          "expected": null,
+          "field": "password",
+          "text": null
+        }
+      ],
+      "runnableCalls": 0,
+      "spec": {
+        "check": {
+          "throw": "worker crashed"
+        },
+        "name": "a check that throws before anything was sent"
+      }
+    }
+  ],
+  "password": "Pa55-\"word\"\\x",
+  "sampleText": "a Pa55-\"word\"\\x b Pa55-\\\"word\\\"\\\\x c jane.doe@example.com d",
+  "session": "saved-login-session"
+}

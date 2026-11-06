@@ -24,19 +24,22 @@ pub enum CompactionCommit {
 
 impl super::SessionDirectory {
     /// Commits `compaction`, planned on the model context whose item ids are `snapshot`, to
-    /// `thread`. Opens the thread as `loadSession` does.
+    /// `thread`. Opens the thread as `loadSession` does. `header` is what the commit sets in the
+    /// thread's header with the compaction, in the one record that counts it (so it states the
+    /// new `compaction.compactCount` itself); `None` counts one more.
     pub async fn commit_compaction(
         &self,
         thread: &ThreadId,
         snapshot: Vec<mixdog_core_api::ids::ItemId>,
         compaction: super::run::Compaction,
+        header: Option<mixdog_store::schema::record::HeaderChange>,
     ) -> Result<CompactionCommit, CoreError> {
         let ctx = mixdog_core_api::call::CallContext::internal("compaction");
         let handle = self.open_handle(thread, &ctx).await?;
         let (tx, rx) = tokio::sync::oneshot::channel();
         handle
             .inbox
-            .send(super::actor::Inbox::CommitCompaction { snapshot, compaction, tx })
+            .send(super::actor::Inbox::CommitCompaction { snapshot, compaction, header, tx })
             .await
             .map_err(|_| CoreError::Internal { incident_id: "compaction-closed".into() })?;
         rx.await.map_err(|_| CoreError::Internal { incident_id: "compaction-dropped".into() })?
