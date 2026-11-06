@@ -204,9 +204,11 @@ impl StoreThreads {
         }
     }
 
-    /// An index write from inside a lane job. Lane threads are not runtime threads; an inline
-    /// lane (tests) runs on a runtime worker, which must hand off its tasks first.
-    fn wait<F: std::future::Future>(&self, future: F) -> F::Output {
+    /// An index write from inside a lane job (`_lane` is the proof). Lane threads are not runtime
+    /// threads; an inline lane (tests) runs on a runtime worker, which must hand off its tasks
+    /// first.
+    #[allow(clippy::disallowed_methods, reason = "runs inside a lane job (lane proof argument)")]
+    fn wait<L, F: std::future::Future>(&self, _lane: &InLane<L>, future: F) -> F::Output {
         if tokio::runtime::Handle::try_current().is_ok() {
             tokio::task::block_in_place(|| self.runtime.block_on(future))
         } else {
@@ -350,6 +352,7 @@ impl StoreThreads {
     /// level and deeper levels show none.
     fn window_dividers(
         &self,
+        lane: &InLane<InteractiveIo>,
         lineage: &[LineageLevel],
         cut: Option<u64>,
         rows: &[HistoryRow],
@@ -365,7 +368,7 @@ impl StoreThreads {
         for level in (0..=deepest).rev() {
             let from = if level == deepest { from } else { 0 };
             let found = self
-                .wait(self.index.dividers(lineage.to_vec(), cut, level, from, u64::MAX))
+                .wait(lane, self.index.dividers(lineage.to_vec(), cut, level, from, u64::MAX))
                 .map_err(|e| internal("dividers", &e))?;
             for divider in found {
                 let before = shown
@@ -526,6 +529,7 @@ fn unexpected(what: &str) -> CoreError {
 }
 
 impl ThreadStore for StoreThreads {
+    #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
     fn read_head(
         &self,
         lane: &InLane<InteractiveIo>,
@@ -545,7 +549,7 @@ impl ThreadStore for StoreThreads {
     ) -> Result<WindowRead, CoreError> {
         // The window comes from the index: it must hold every barrier acked so far (a thread
         // unloaded and reopened in this process).
-        self.wait(self.projector.flush());
+        self.wait(lane, self.projector.flush());
         let opened = head
             .0
             .downcast_ref::<log::OpenedLog>()
@@ -560,7 +564,7 @@ impl ThreadStore for StoreThreads {
         for row in rows.iter().rev() {
             window.push((row.ordinal, self.history_item(lane, id, row)?));
         }
-        let dividers = self.window_dividers(&lineage, fold.base_cut, &rows, cursor.is_some())?;
+        let dividers = self.window_dividers(lane, &lineage, fold.base_cut, &rows, cursor.is_some())?;
         let prompts = self
             .index
             .prompts_on_lane(lane, &lineage, fold.base_cut)
@@ -649,7 +653,7 @@ impl ThreadStore for StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<Vec<ItemRecord>, CoreError> {
-        self.wait(self.projector.flush());
+        self.wait(lane, self.projector.flush());
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         let prompts = self
@@ -667,7 +671,7 @@ impl ThreadStore for StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<Vec<ItemRecord>, CoreError> {
-        self.wait(self.projector.flush());
+        self.wait(lane, self.projector.flush());
         'read: loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
@@ -699,7 +703,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
         iid: &str,
     ) -> Result<Option<(u64, ItemRecord)>, CoreError> {
-        self.wait(self.projector.flush());
+        self.wait(lane, self.projector.flush());
         'read: loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
@@ -727,7 +731,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
         iid: &str,
     ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
-        self.wait(self.projector.flush());
+        self.wait(lane, self.projector.flush());
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         self.index
@@ -767,7 +771,7 @@ impl ThreadStore for StoreThreads {
     ) -> Result<ContextRead, CoreError> {
         let Some(read) = read else {
             // The read must see every row acked so far.
-            self.wait(self.projector.flush());
+            self.wait(lane, self.projector.flush());
             return Ok(ContextRead(Box::new(self.context_start(lane, id)?)));
         };
         let mut state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
@@ -833,7 +837,7 @@ impl ThreadStore for StoreThreads {
         at: AppendPosition,
     ) -> Result<Box<dyn SessionLog>, BarrierError> {
         let opened = *at.0.downcast::<log::OpenedLog>().expect("StoreThreads position");
-        self.wait(self.index.mark_dirty(id.as_str()))
+        self.wait(lane, self.index.mark_dirty(id.as_str()))
             .map_err(|e| BarrierError::Failed {
                 io_kind: format!("index:{e}").into(),
             })?;
@@ -885,7 +889,7 @@ impl ThreadStore for StoreThreads {
                 offset: 0,
             },
         );
-        self.wait(self.index.upsert(CatalogHead::of(&fold), DirtyMark::Set))
+        self.wait(lane, self.index.upsert(CatalogHead::of(&fold), DirtyMark::Set))
             .map_err(|e| BarrierError::Failed {
                 io_kind: format!("index:{e}").into(),
             })?;

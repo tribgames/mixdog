@@ -194,6 +194,23 @@ async fn explicit_selection_adds_what_node_adds_to_the_transcript() {
     }
 }
 
+/// `selection`, when given (even empty), is read instead of the prompt (`prepareExplicitSkills`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trusted_selection_replaces_the_prompt_even_when_empty() {
+    let golden = golden();
+    let (selector, tool) = selector(&golden, None, false);
+    let selector = selector.with_selection(Some("$alpha".to_owned()));
+    let mut transcript = Vec::new();
+    selector.select(&Content::Text("no mention here".to_owned()), &mut transcript).await;
+    assert_eq!(*tool.calls.lock().unwrap(), ["alpha"]);
+
+    let (selector, tool) = self::selector(&golden, None, false);
+    let selector = selector.with_selection(Some(String::new()));
+    let mut transcript = Vec::new();
+    selector.select(&Content::Text("$alpha".to_owned()), &mut transcript).await;
+    assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_session_that_cannot_call_skill_selects_nothing() {
     let golden = golden();

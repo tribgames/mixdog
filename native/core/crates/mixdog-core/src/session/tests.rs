@@ -204,6 +204,7 @@ async fn a_turn_publishes_its_rows_in_order_after_they_are_durable() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "test setup writes and reads the history file")]
 async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
     let rig = Rig::new();
     rig.set_script(echo());
@@ -438,6 +439,7 @@ async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
 /// tool waits for the baseline, and the turn settles only after the seal, so its edit is the
 /// sealed turn's change record under the input row's checkpoint.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: a git workspace and the run's file edit")]
 async fn a_turn_that_edits_a_file_seals_its_review_before_it_settles() {
     use mixdog_core_api::turn_review::ChangesRead;
     let rig = Rig::new();
@@ -949,6 +951,7 @@ async fn a_cold_open_is_single_flight_and_reopens_the_same_state() {
 }
 
 /// The real thread store (log writer, codec, index) over the data dir `data`.
+#[allow(clippy::disallowed_methods, reason = "test setup makes the sessions folder")]
 async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
     use mixdog_core_api::domain::mock::MockOwnership;
     use mixdog_store::blobs::BlobStore;
@@ -983,6 +986,7 @@ async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
 /// review's in its place), the app feed hears `thread/deleted`, and the search copy and the
 /// worktree go after.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "the test checks the purged folder")]
 async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
     let data = tempfile::tempdir().expect("data dir");
     let store = real_store(data.path()).await;
@@ -1074,12 +1078,24 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
         let reply = other.request(request("thread/delete", json!({ "threadId": target, "opId": "op-bad" }), "op-bad")).await.expect("delete");
         assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{target}");
     }
+    // A thread that cannot be opened (deleted, or never there) is answered by the directory:
+    // nothing to delete, `false`, never `threadNotFound`.
+    for target in [id.as_str(), "sess_missing"] {
+        assert!(matches!(
+            directory.open(&ThreadId::from(target), &CallContext::internal("test")).await,
+            Err(CoreError::ThreadNotFound { .. })
+        ));
+        let params = json!({ "threadId": target, "opId": "op-gone" });
+        let reply = mixdog_core_api::ThreadDirectory::request(&directory, request("thread/delete", params, "op-gone")).await.expect("delete");
+        assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{target}: {reply:?}");
+    }
     assert_eq!(lock(&rig.deletes.0).len(), expected.len());
 }
 
 /// A deleted base keeps its files while a fork reads them: the fork still opens with the
 /// base's history.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "the test checks the kept folder")]
 async fn a_deleted_base_stays_readable_by_its_fork() {
     let data = tempfile::tempdir().expect("data dir");
     let store = real_store(data.path()).await;
@@ -1195,13 +1211,10 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     );
 }
 
-async fn handle_of_new(directory: &SessionDirectory) -> Arc<SessionHandle> {
-    start_thread(directory).await
-}
-
 /// A prompt larger than a frame's inline budget goes through the runtime codec into a
 /// blob of its own, and a reopen gives it back (prompt history and the rewind text).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "the test reads the written log")]
 async fn a_large_prompt_round_trips_through_the_real_store() {
     let data = tempfile::tempdir().expect("data dir");
     let store = real_store(data.path()).await;
@@ -1553,6 +1566,184 @@ async fn a_goal_continues_across_a_turn_until_it_stops() {
     assert!(statuses.contains(&json!("active")), "{statuses:?}");
 }
 
+/// The Goal runtime with a held `turn_settled`.
+struct HeldSettle {
+    goals: crate::goal::GoalRuntime,
+    release: Arc<tokio::sync::Notify>,
+    settled: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[async_trait::async_trait]
+impl crate::goal::hooks::GoalTurnHooks for HeldSettle {
+    async fn turn_started(&self, thread: &ThreadId) -> crate::goal::GoalResult<Option<crate::goal::js::Goal>> {
+        crate::goal::hooks::GoalTurnHooks::turn_started(&self.goals, thread).await
+    }
+    async fn turn_settled(&self, thread: &ThreadId, detail: Value) -> crate::goal::GoalResult<Option<crate::goal::js::Goal>> {
+        self.release.notified().await;
+        let goal = crate::goal::hooks::GoalTurnHooks::turn_settled(&self.goals, thread, detail).await;
+        self.settled.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        goal
+    }
+    async fn archive_completed_on_user_input(&self, thread: &ThreadId) -> crate::goal::GoalResult<Option<crate::goal::js::Goal>> {
+        crate::goal::hooks::GoalTurnHooks::archive_completed_on_user_input(&self.goals, thread).await
+    }
+    async fn reactivate_usage_limited(
+        &self,
+        thread: &ThreadId,
+        goal_id: &str,
+        admission: crate::goal::Admission,
+    ) -> crate::goal::GoalResult<Option<crate::goal::js::Goal>> {
+        crate::goal::hooks::GoalTurnHooks::reactivate_usage_limited(&self.goals, thread, goal_id, admission).await
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::goal::hooks::GoalContinuationHooks for HeldSettle {
+    async fn continuation(&self, thread: &ThreadId, input: crate::goal::ContinuationInput) -> crate::goal::GoalResult<crate::goal::Continuation> {
+        crate::goal::hooks::GoalContinuationHooks::continuation(&self.goals, thread, input).await
+    }
+    fn reset_continuation_rules(&self, thread: &ThreadId) -> crate::goal::GoalResult<()> {
+        crate::goal::hooks::GoalContinuationHooks::reset_continuation_rules(&self.goals, thread)
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::goal::hooks::GoalViewHooks for HeldSettle {
+    async fn goal_status(&self, thread: &ThreadId) -> crate::goal::GoalResult<Option<crate::goal::js::Goal>> {
+        crate::goal::hooks::GoalViewHooks::goal_status(&self.goals, thread).await
+    }
+    async fn goal_control(&self, thread: &ThreadId, request: Value) -> crate::goal::GoalResult<Value> {
+        crate::goal::hooks::GoalViewHooks::goal_control(&self.goals, thread, request).await
+    }
+    fn on_goal_change(&self, listener: Box<dyn Fn(&crate::goal::GoalEvent) + Send + Sync>) -> crate::goal::Subscription {
+        crate::goal::hooks::GoalViewHooks::on_goal_change(&self.goals, listener)
+    }
+}
+
+/// A turn queued behind a running one starts only once the running turn's settlement
+/// (`turn_settled`) has returned, as Node's queue drains after `runTurn` awaits it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_queued_turn_starts_after_the_settlement_returns() {
+    use std::sync::atomic::Ordering;
+
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let release: Arc<tokio::sync::Notify> = Arc::default();
+    let settled: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.goals = Arc::new(HeldSettle { goals: rig.goals.clone(), release: release.clone(), settled: settled.clone() });
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    eventually(|| idle(&handle).then_some(())).await;
+    // The first turn ended; its settlement is held. A new prompt waits behind it.
+    let queued = turn(&handle, "two", "op-2").await;
+    assert_eq!(queued["kind"], "queued", "{queued}");
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(idle(&handle), "no turn starts before the settlement");
+    assert_eq!(settled.load(Ordering::SeqCst), 0);
+    release.notify_one();
+    eventually(|| (settled.load(Ordering::SeqCst) == 1).then_some(())).await;
+    eventually(|| rows(&handle).iter().any(|(role, text)| *role == "user" && text == "two").then_some(())).await;
+    release.notify_one();
+    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+}
+
+/// Each run fails on exhausted provider quota; its failed turn end carries the quota stop.
+fn quota_failure() -> Script {
+    Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let end = json!({
+                "type": "turnEnd", "id": format!("end-{}", run.turn), "status": "failed", "elapsedMs": 5,
+                "quota": { "provider": "anthropic", "model": "m", "resetAt": 5000 },
+                "meta": { "turnId": run.turn, "ext": { "attemptId": run.turn } },
+            });
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from(format!("end-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: false,
+                    visible: true,
+                    body: json!({ "shownItem": end }),
+                    prompt: None,
+                })
+                .await
+                .expect("commit");
+            let provider = mixdog_protocol::ProviderErrorDetail {
+                provider: "anthropic".into(),
+                status: Some(429),
+                kind: "quota_exhausted".into(),
+                delivery: None,
+            };
+            RunOutcome::Failed(mixdog_protocol::TurnError { message: "quota".into(), data: json!({}), provider_error: Some(provider) })
+        })
+    })
+}
+
+/// `beginQuotaSettlement` / `finishQuotaSettlement`: an automatic Goal turn that fails on quota
+/// queues its resume and, once its Goal settled `usage_limited`, records that Goal for the
+/// resume. A user prompt inside the settling window (after the failed turn end, before the
+/// Goal settlement) cancels the resume and keeps the suspension from being recorded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecorded() {
+    use std::sync::atomic::Ordering;
+
+    use crate::goal::hooks::GoalViewHooks;
+
+    let rig = Rig::new();
+    let release: Arc<tokio::sync::Notify> = Arc::default();
+    let settled: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.goals = Arc::new(HeldSettle { goals: rig.goals.clone(), release: release.clone(), settled: settled.clone() });
+    let directory = SessionDirectory::new(Arc::new(deps));
+    // A new active Goal continues at once: its automatic turn fails on quota, and the
+    // settlement is held.
+    let failed_turn = |rig: &Rig, handle: Arc<SessionHandle>| {
+        let goals = rig.goals.clone();
+        async move {
+            goals.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship it" })).await.expect("create");
+            let goal = goals.goal_status(&handle.id).await.expect("status").expect("a goal");
+            let attempt = eventually(|| {
+                handle.cell.view.load_full().items.iter().find_map(|item| match item.as_ref() {
+                    ThreadItem::TurnEnd { meta, .. } => meta.ext.get("attemptId").and_then(Value::as_str).map(str::to_owned),
+                    _ => None,
+                })
+            })
+            .await;
+            (goal["id"].as_str().expect("goal id").to_owned(), format!("attempt:{attempt}"))
+        }
+    };
+    rig.set_script(quota_failure());
+
+    // Settled undisturbed: the resume waits and the suspended Goal is recorded.
+    let first = start_thread(&directory).await;
+    let (goal_id, key) = failed_turn(&rig, first.clone()).await;
+    eventually(|| rig.quota.entry(first.id.as_str()).filter(|entry| entry.turn_key == key)).await;
+    assert_eq!(settled.load(Ordering::SeqCst), 0);
+    release.notify_one();
+    eventually(|| (rig.quota.suspended_goal(first.id.as_str(), &key) == goal_id).then_some(())).await;
+
+    // A prompt while the failed turn settles: the resume goes, and the settlement records nothing.
+    let second = start_thread(&directory).await;
+    let (_, key) = failed_turn(&rig, second.clone()).await;
+    let id = second.id.as_str();
+    eventually(|| rig.quota.entry(id).filter(|entry| entry.turn_key == key)).await;
+    rig.set_script(echo());
+    let queued = turn(&second, "next", "op-next").await;
+    assert_eq!(queued["kind"], "queued", "the failed turn is still settling: {queued}");
+    eventually(|| rig.quota.entry(id).is_none().then_some(())).await;
+    release.notify_one();
+    eventually(|| (settled.load(Ordering::SeqCst) == 2).then_some(())).await;
+    eventually(|| rows(&second).iter().any(|(role, text)| *role == "user" && text == "next").then_some(())).await;
+    release.notify_one();
+    eventually(|| (settled.load(Ordering::SeqCst) == 3).then_some(())).await;
+    // The settlement's store call runs after the cancel's, on the session's quota lane.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(rig.quota.suspended_goal(id, &key), "", "the cancel inside the window wins");
+    assert!(rig.quota.entry(id).is_none());
+}
+
 /// `thread/clear` resets the environment in the same header change that drops the provider
 /// state (`resetSessionBp3Environment`): the `env` block becomes the environment tail alone and
 /// the next ask adds the `# Session` block again.
@@ -1614,14 +1805,20 @@ async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary
         })
     }));
     turn(&handle, "compact", "op-2").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 3).then_some(())).await;
-    let id = handle.id.clone();
-    let switch = |at: i64| json!({ "provider": "openai", "modelId": "gpt-next", "at": at });
-    assert!(super::record_model_switch(&directory, &id, &switch(300)).await.expect("record"));
-
+    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
     let ids = |handle: &SessionHandle| -> Vec<String> {
         handle.cell.view.load_full().items.iter().map(|item| item.id().as_str().to_owned()).collect()
     };
+    // Live: the divider shows where the compaction happened, and a switch on its summary
+    // shows right after it.
+    let live = ids(&handle);
+    assert!(live[3].starts_with("divider:") && !live[3].contains(":model:"), "{live:?}");
+    let id = handle.id.clone();
+    let switch = |at: i64| json!({ "provider": "openai", "modelId": "gpt-next", "at": at });
+    assert!(super::record_model_switch(&directory, &id, &switch(300)).await.expect("record"));
+    eventually(|| (ids(&handle).len() == 5).then_some(())).await;
+    assert_eq!(ids(&handle)[4], format!("{}:model:300", live[3]));
+
     let reopened = SessionDirectory::new(rig.deps_on(store));
     let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
     let shown = ids(&restored);

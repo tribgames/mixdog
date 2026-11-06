@@ -3,6 +3,8 @@
 //! `collectProviderModels` over scripted providers, and the same models as the catalog snapshot
 //! the Rust service reads. Every row, in order, must be Node's.
 
+#![allow(clippy::disallowed_methods, reason = "test setup: writes the catalog cache files on the test thread")]
+
 use std::sync::Arc;
 
 use async_trait::async_trait;

@@ -122,7 +122,7 @@ impl Tool for EditTool {
 
         let _locked = lock_edit_target(ctx, &abs).await?;
         let pre = match &self.state {
-            Some(_) => ctx.files.stat(ctx.io.interactive, abs.clone()).await.ok().and_then(|s| FileVersion::new(s.modified, s.len)),
+            Some(_) => ctx.files.stat(ctx.io.interactive, abs.clone()).await.ok().and_then(|s| FileVersion::of(&s)),
             None => None,
         };
         let existing = guarded(ctx, "edit", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await?;

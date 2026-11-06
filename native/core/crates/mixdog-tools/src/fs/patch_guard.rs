@@ -279,8 +279,8 @@ pub(super) struct Snapshot {
     content: Option<Vec<u8>>,
     omitted: Option<Omitted>,
     perms: Option<fs::Permissions>,
-    /// Modification time and size when it was captured.
-    stamp: Option<(Option<SystemTime>, u64)>,
+    /// The file's identity when captured.
+    version: Option<super::read_state::FileVersion>,
 }
 
 impl Snapshot {
@@ -291,8 +291,7 @@ impl Snapshot {
 
     /// The file's identity when captured.
     pub(super) fn version(&self) -> Option<super::read_state::FileVersion> {
-        let (modified, size) = self.stamp?;
-        super::read_state::FileVersion::new(modified, size)
+        self.version
     }
 
     /// The state the turn review keeps: absent, the bytes, or an explicit omitted marker.
@@ -320,7 +319,7 @@ pub(super) async fn capture(ctx: &ToolContext, paths: &[AbsPath], delete_only: &
         .iter()
         .map(|p| (p.clone(), if delete_only.contains(&key(p.as_path())) { SNAPSHOT_MAX_BYTES } else { EDIT_MAX_BYTES }))
         .collect();
-    on_lane(ctx, move || {
+    let captured = on_lane(ctx, move || {
         let mut budget = Budget { remaining: EDIT_BUDGET_BYTES, total: EDIT_BUDGET_BYTES };
         let mut out = Vec::new();
         for (abs, max) in jobs {
@@ -328,21 +327,29 @@ pub(super) async fn capture(ctx: &ToolContext, paths: &[AbsPath], delete_only: &
             match bounded_read(abs.as_path(), max, Some(&mut budget), false, true) {
                 Err(ReadFail::NotRegular) => return Err(format!("apply_patch: rollback snapshot target is not a regular file: {shown}")),
                 Err(ReadFail::Io(code)) => return Err(format!("apply_patch: rollback snapshot target unreadable: {shown} ({code})")),
-                Ok(Bounded::Absent) => out.push(Snapshot { path: abs, existed: false, content: None, omitted: None, perms: None, stamp: None }),
+                Ok(Bounded::Absent) => out.push(Snapshot { path: abs, existed: false, content: None, omitted: None, perms: None, version: None }),
                 Ok(Bounded::Omitted(o)) => {
-                    let stamp = Some((o.modified, o.stat_size));
-                    out.push(Snapshot { path: abs, existed: true, content: None, omitted: Some(o), perms: None, stamp });
+                    out.push(Snapshot { path: abs, existed: true, content: None, omitted: Some(o), perms: None, version: None });
                 }
                 Ok(Bounded::Present { content, perms }) => {
-                    let stamp = fs::metadata(abs.as_path()).ok().map(|m| (m.modified().ok(), m.len()));
-                    out.push(Snapshot { path: abs, existed: true, content: Some(content), omitted: None, perms: Some(perms), stamp });
+                    out.push(Snapshot { path: abs, existed: true, content: Some(content), omitted: None, perms: Some(perms), version: None });
                 }
                 Ok(Bounded::Classified) => {}
             }
         }
         Ok(out)
     })
-    .await
+    .await?;
+    // What each present file looked like, for the session's read state.
+    Ok(match captured {
+        Ok(mut snapshots) => {
+            for s in snapshots.iter_mut().filter(|s| s.existed) {
+                s.version = ctx.files.stat(ctx.io.interactive, s.path.clone()).await.ok().and_then(|st| super::read_state::FileVersion::of(&st));
+            }
+            Ok(snapshots)
+        }
+        err => err,
+    })
 }
 
 /// An omitted snapshot holds no bytes, so it can only be confirmed untouched.

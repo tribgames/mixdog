@@ -381,6 +381,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods, reason = "test setup writes and inspects the history files")]
     fn files_keep_todays_format_and_a_damaged_one_is_set_aside() {
         let dir = tempfile::tempdir().unwrap();
         let store = FilePromptHistory::new(dir.path());

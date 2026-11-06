@@ -30,6 +30,7 @@ impl NetworkProxyStore for Config {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "tests seed and read the config file on the test thread")]
 mod tests {
     use std::sync::Arc;
 

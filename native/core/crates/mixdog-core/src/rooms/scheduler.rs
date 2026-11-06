@@ -247,14 +247,14 @@ mod tests {
     use crate::rooms::exchange::TurnResult;
     use crate::rooms::records::RoomDoc;
 
-    struct Mem(tokio::sync::Mutex<RoomDoc>);
+    struct Mem(Mutex<RoomDoc>);
     #[async_trait]
     impl RoomStore for Mem {
         async fn load(&self) -> Result<RoomDoc, RoomError> {
-            Ok(self.0.lock().await.clone())
+            Ok(self.0.lock().unwrap().clone())
         }
         async fn save(&self, doc: &RoomDoc) -> Result<(), RoomError> {
-            *self.0.lock().await = doc.clone();
+            *self.0.lock().unwrap() = doc.clone();
             Ok(())
         }
     }

@@ -54,6 +54,7 @@ impl Pricer for CatalogPricer {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "a test seeds the catalog cache files on the test thread")]
 mod tests {
     use mixdog_ai::catalog::CatalogSnapshot;
     use mixdog_ai::catalog::ModelsDevSource;

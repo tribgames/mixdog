@@ -95,13 +95,22 @@ pub struct ExplicitSkillSelector {
     gate: Arc<dyn ToolGate>,
     env: ToolEnv,
     cancel: CancellationToken,
+    /// The turn's trusted selection input (`selection` of `prepareExplicitSkills`): when given, even empty,
+    /// it is read instead of the prompt.
+    selection: Option<String>,
 }
 
 impl ExplicitSkillSelector {
     /// `env` and `cancel` are the run's, `gate` is the run's tool gate and `skill_tool` is the
     /// session's `Skill` tool.
     pub fn new(names: Arc<dyn SkillNames>, skill_tool: Arc<dyn Tool>, gate: Arc<dyn ToolGate>, env: ToolEnv, cancel: CancellationToken) -> Self {
-        Self { names, skill_tool, gate, env, cancel }
+        Self { names, skill_tool, gate, env, cancel, selection: None }
+    }
+
+    #[must_use]
+    pub fn with_selection(mut self, selection: Option<String>) -> Self {
+        self.selection = selection;
+        self
     }
 
     fn context(&self, id: &str) -> ToolContext {
@@ -151,7 +160,7 @@ impl SkillSelector for ExplicitSkillSelector {
         if self.gate.pre_dispatch_deny(&GateCall::new("Skill", json!({}))).is_some() {
             return;
         }
-        let selection = selection_of(&prompt_of(content));
+        let selection = selection_of(&self.selection.clone().map_or_else(|| prompt_of(content), Prompt::Text));
         if selection.is_empty() {
             return;
         }

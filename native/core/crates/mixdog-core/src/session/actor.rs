@@ -117,7 +117,6 @@ use super::run::RunShown;
 use crate::goal::js::Goal;
 use super::run::ModelContext;
 use super::user_facts::RowFacts;
-use super::user_facts::user_facts;
 use super::run::RunPort;
 use super::run::DrainStage;
 use super::run::SteerInput;
@@ -188,6 +187,10 @@ pub(crate) enum Inbox {
     ForkPlan {
         tx: oneshot::Sender<Result<(Base, Header), CoreError>>,
     },
+    /// What `scheduleQuotaResume` reads of the session.
+    QuotaFacts { tx: oneshot::Sender<super::quota_lane::ResumeCheck> },
+    /// `cancelQuotaResume`: the explicit cancel of the pending resume.
+    QuotaCancelled { tx: oneshot::Sender<()> },
 }
 
 /// Results of lane jobs the actor submitted.
@@ -217,6 +220,29 @@ pub(crate) enum JobDone {
     GoalArchived(String),
     /// `goalControl`'s answer for the request that asked.
     GoalControlled { op: Option<OpId>, tx: Waiter, result: Result<Value, crate::goal::GoalError> },
+    /// A run's committed row with its facts read.
+    CommitFacts {
+        turn: TurnId,
+        item: ItemCommit,
+        facts: RowFacts,
+        ack: oneshot::Sender<Result<(), RunError>>,
+    },
+    /// A starting turn's input row with its facts read.
+    InputFacts(Box<InputStart>),
+    /// The quota-failed turn has nothing a resume could replay.
+    QuotaUnresumable(TurnId),
+}
+
+/// A turn whose input row's facts are being read (`start_run_with`).
+pub(crate) struct InputStart {
+    input: TurnInput,
+    body: Value,
+    facts: RowFacts,
+    op_ref: Option<OpRef>,
+    reply: Option<Effect>,
+    prompt: Option<String>,
+    wake: bool,
+    agent: Option<super::control::AgentStart>,
 }
 
 /// What the actor does first.
@@ -294,6 +320,12 @@ pub(crate) struct SessionActor {
     goal_scheduled: bool,
     /// The Goal the lane last saw and the deadline warning it last delivered.
     goal_watch: super::goal_lane::GoalWatch,
+    /// A turn ended and its settlement (`turn_settled`) is not back yet: no turn starts.
+    settling: bool,
+    /// A worker's settling turn: its outcome, told once the settlement is back.
+    agent_done: Option<(oneshot::Sender<RunOutcome>, RunOutcome)>,
+    /// A turn's input row facts are being read: it starts next, no other turn does.
+    starting: bool,
     /// The last Goal runtime call: each waits for the one before.
     goal_tail: Option<tokio::task::JoinHandle<()>>,
     /// Answered once the deleted thread's turn ended.
@@ -311,6 +343,8 @@ pub(crate) struct SessionActor {
     jobs_rx: mpsc::UnboundedReceiver<JobDone>,
     /// The tool-policy surface every run's authorize requests carry.
     surface: watch::Sender<Arc<SessionSurface>>,
+    /// The quota-settlement guard and its store calls.
+    quota: super::quota_lane::QuotaLane,
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {
@@ -389,6 +423,9 @@ impl SessionActor {
             deleting: false,
             goal_suppressed: String::new(),
             goal_scheduled: false,
+            settling: false,
+            agent_done: None,
+            starting: false,
             goal_tail: None,
             delete_closed: None,
             delete_mark: None,
@@ -400,6 +437,7 @@ impl SessionActor {
             ch,
             jobs_tx,
             jobs_rx,
+            quota: super::quota_lane::QuotaLane::new(&deps.quota),
             deps,
         }
     }
@@ -466,7 +504,7 @@ impl SessionActor {
             return;
         }
         if idle {
-            let refusal = if self.run.is_some() {
+            let refusal = if self.turn_busy() {
                 Some("busy")
             } else if !self.projected.queue.is_empty() {
                 Some("queued")
@@ -524,6 +562,8 @@ impl SessionActor {
         let cell = &self.cell;
         if !cell.ever_subscribed.load(SeqCst)
             || self.deleting
+            || self.settling
+            || self.starting
             || cell.subscribers.load(SeqCst) != 0
             || self.run.is_some()
             || !self.projected.queue.is_empty()
@@ -686,13 +726,31 @@ impl SessionActor {
             JobDone::GoalSeen(Some(goal)) => {
                 self.publish_goal(goal);
             }
-            JobDone::GoalSettled(Some(goal)) => {
-                // `onGoalTurnSettled`: an active Goal continues once the thread is idle.
-                if self.publish_goal(goal).is_some_and(|goal| goal_lane_status(&goal) == "active") {
+            JobDone::GoalSettled(goal) => {
+                // The turn is settled: queued work runs first, then an active Goal continues
+                // once the thread is idle (`onGoalTurnSettled`).
+                self.settling = false;
+                if let Some((done, outcome)) = self.agent_done.take() {
+                    let _ = done.send(outcome);
+                }
+                self.finish_quota_settlement(goal.clone().flatten().as_ref());
+                let active = goal.and_then(|goal| self.publish_goal(goal)).is_some_and(|goal| goal_lane_status(&goal) == "active");
+                if self.deleting {
+                    return;
+                }
+                self.start_next_queued();
+                if active {
                     self.schedule_goal_continuation();
                 }
+                self.try_unload();
             }
-            JobDone::GoalSeen(None) | JobDone::GoalSettled(None) => {}
+            JobDone::GoalSeen(None) => {}
+            JobDone::CommitFacts { turn, item, facts, ack } => self.commit_with_facts(turn, item, facts, ack),
+            JobDone::InputFacts(start) => self.start_run_read(*start),
+            JobDone::QuotaUnresumable(turn) => {
+                let item = super::transcript::notice_item(&new_id(), turn.as_str(), super::quota_lane::UNRESUMABLE, "warn");
+                self.show_live(turn, item, None);
+            }
             JobDone::GoalDecision(decision) => self.goal_decision(decision),
             JobDone::GoalControlled { op, tx, result } => self.goal_controlled(op, tx, result),
             JobDone::GoalArchived(id) => {
@@ -810,8 +868,30 @@ impl SessionActor {
             let entry = super::goal_lane::warning_entry(&text, goal, self.deps.clock.now_ms());
             self.enqueue_goal_entry(entry);
         } else {
-            super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id);
+            self.mark_goal_reminder("deadline-soon");
         }
+    }
+
+    /// `markGoalReminder(reason)` (`goal-facade-api.mjs`): the session's pending Goal reminder
+    /// (`markPendingGoalReminder`: one more revision, the next turn's tail carries it), then the
+    /// next continuation carries the full rules again.
+    fn mark_goal_reminder(&mut self, reason: &str) {
+        // `Math.max(0, Number(x) || 0)`.
+        let number = |value: Option<&Value>| value.and_then(Value::as_f64).filter(|n| !n.is_nan()).unwrap_or(0.0).max(0.0);
+        let header = &self.projected.header;
+        let pending = number(header.get("pendingGoalReminder").and_then(|pending| pending.get("revision")));
+        let revision = mixdog_js::json_number(pending.max(number(header.get("goalReminderRevision"))) + 1.0);
+        let reason = match mixdog_js::js_trim(reason) {
+            "" => "compaction",
+            reason => reason,
+        };
+        let mut set = serde_json::Map::new();
+        set.insert("goalReminderRevision".into(), revision.clone());
+        set.insert("pendingGoalReminder".into(), json!({ "version": 1, "type": "goal_state", "revision": revision, "reason": reason }));
+        set.insert("updatedAt".into(), json!(self.deps.clock.now_ms()));
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+        self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
+        super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id);
     }
 
     /// `deliverGoalCloseout`: the Goal reached its duration; the running turn closes it out.
@@ -823,7 +903,7 @@ impl SessionActor {
         let busy = self.run.is_some();
         let queue: Vec<&Value> = self.projected.queue.iter().map(|q| &q.entry).collect();
         match super::goal_lane::closeout(goal, busy, &queue, self.deps.clock.now_ms()) {
-            super::goal_lane::Closeout::Remind => super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id),
+            super::goal_lane::Closeout::Remind => self.mark_goal_reminder("deadline-reached"),
             super::goal_lane::Closeout::Enqueue(entry) => {
                 self.enqueue_goal_entry(entry);
                 self.start_next_queued();
@@ -846,7 +926,7 @@ impl SessionActor {
             }
         };
         match value.get("action").and_then(Value::as_str) {
-            Some("edit") => super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id),
+            Some("edit") => self.mark_goal_reminder("objective-updated"),
             Some("pause" | "stop") => {
                 self.cancel_goal_entries(None);
                 if let Some(run) = &self.run {
@@ -877,7 +957,7 @@ impl SessionActor {
     /// Idle with nothing queued: queued user work runs first, and a queued Goal entry already
     /// carries the next continuation.
     fn goal_idle(&self) -> bool {
-        self.run.is_none() && self.projected.queue.is_empty() && !self.deleting && !self.cell.closed.load(SeqCst)
+        !self.turn_busy() && self.projected.queue.is_empty() && !self.deleting && !self.cell.closed.load(SeqCst)
     }
 
     /// The continuation decision: an active Goal's prompt is queued as the next turn.
@@ -900,7 +980,7 @@ impl SessionActor {
         let removed = self.cancel_goal_entries(None);
         let reached = self.projected.sections.goal.as_ref().and_then(|g| g.get("status")).and_then(Value::as_str) == Some("duration_reached");
         if removed > 0 && reached {
-            super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id);
+            self.mark_goal_reminder("deadline-reached");
         }
         let archived = super::goal_lane::archived_goal_id(self.projected.sections.goal.as_ref());
         if !archived.is_empty() {
@@ -1417,11 +1497,12 @@ impl SessionActor {
             },
         };
         // A worker's turn hears the final result first (`onTerminalResult`), then its outcome.
+        // The outcome follows once the turn settled, as `askSession` returns after `runTurn`.
         if let Some((terminal, done)) = slot.agent {
             if let (Some(terminal), RunOutcome::Completed(result)) = (terminal, &outcome) {
                 terminal(result);
             }
-            let _ = done.send(outcome.clone());
+            self.agent_done = Some((done, outcome.clone()));
         }
         for listener in self.cell.turn_listeners() {
             listener.turn_settled(settled.clone());
@@ -1441,8 +1522,13 @@ impl SessionActor {
             RunOutcome::Interrupted => ("cancelled", None),
             RunOutcome::Failed(error) => ("failed", Some(error)),
         };
+        if error.is_some() {
+            self.begin_quota_settlement(&turn);
+        }
         let detail = super::goal_lane::settle_detail(status, error, slot.automatic, slot.tool_calls);
         let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
+        // The next turn waits for the settlement, as Node's queue drains after `runTurn` returns.
+        self.settling = true;
         self.goal_call(Box::pin(async move { JobDone::GoalSettled(goals.turn_settled(&thread, detail).await.ok()) }));
         if !slot.start_failed {
             let (phase, detail) = match outcome {
@@ -1485,10 +1571,70 @@ impl SessionActor {
         }
         if self.deleting {
             self.delete_turn_ended();
+        }
+        // The queue moves on, and the thread may unload, once the settlement is back
+        // (`JobDone::GoalSettled`).
+    }
+
+    /// What `hasResumeInput` and `scheduleQuotaResume` read of the session now; the transcript
+    /// is the shown one (rows show once durable).
+    fn resume_check(&self) -> super::quota_lane::ResumeCheck {
+        let route = |key: &str| self.projected.header.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+        super::quota_lane::ResumeCheck {
+            session_id: self.id.as_str().to_owned(),
+            items: super::quota_lane::transcript_rows(self.acked.window.iter().map(|row| row.item.as_ref())),
+            context: ModelContext {
+                store: self.deps.store.clone(),
+                lanes: self.deps.lanes,
+                thread: self.id.clone(),
+                input: mixdog_core_api::ids::ItemId::from(String::new()),
+            },
+            goal_id: self.projected.sections.goal.as_ref().and_then(|goal| goal.get("id")).and_then(Value::as_str).unwrap_or_default().to_owned(),
+            quota: self.deps.quota.goals.clone(),
+            route_provider: route("provider"),
+            route_model: route("model"),
+        }
+    }
+
+    /// `beginQuotaSettlement` at the close of a turn that failed on quota (`turn.failed &&
+    /// turn.quota`: its failed turn end, the latest, carries the quota stop): the settlement
+    /// window opens, and with a known reset and the setting on the resume is queued, or the
+    /// session hears that nothing can be resumed.
+    fn begin_quota_settlement(&mut self, turn: &TurnId) {
+        let ours = self.acked.window.iter().rev().find_map(|row| match row.item.as_ref() {
+            ThreadItem::TurnEnd { status, quota, meta, .. } => {
+                Some(*status == mixdog_protocol::TurnEndStatus::Failed && quota.is_some() && meta.turn_id.as_ref() == Some(turn))
+            }
+            _ => None,
+        });
+        if ours != Some(true) {
             return;
         }
-        self.start_next_queued();
-        self.try_unload();
+        // `goalBefore`: the Goal as the turn left it, before its settlement.
+        self.quota.before = Some(self.projected.sections.goal.as_ref().and_then(|goal| goal.as_object().cloned()));
+        let check = self.resume_check();
+        let (settlement, auto_resume) = (self.quota.settlement.clone(), (self.deps.quota.auto_resume)());
+        let (jobs, turn) = (self.jobs_tx.clone(), turn.clone());
+        self.quota.call(async move {
+            let context = check.resume_context(auto_resume).await;
+            let begun = settlement.begin(&check.session_id, &check.items, &context).await;
+            if matches!(begun, Ok(crate::quota_settlement::Begin::NotResumable)) {
+                let _ = jobs.send(JobDone::QuotaUnresumable(turn));
+            }
+        });
+    }
+
+    /// `finishQuotaSettlement` once the Goal settled: the Goal the failure suspended is
+    /// recorded, unless a superseding cancel landed since the turn closed.
+    fn finish_quota_settlement(&mut self, settled: Option<&Goal>) {
+        let Some(before) = self.quota.before.take() else {
+            return;
+        };
+        let goal_id = if self.deleting { String::new() } else { crate::goal::quota::suspended_goal_id(before.as_ref(), settled) };
+        let settlement = self.quota.settlement.clone();
+        self.quota.call(async move {
+            let _ = settlement.finish_goal(&goal_id).await;
+        });
     }
 
     /// Today's `terminalSave.then(() => ingestSessionTurn(session))`: once the completed turn's
@@ -1523,7 +1669,7 @@ impl SessionActor {
     /// suppressed while one was in flight; `ask-queue.mjs:87-101` runs each notification as its
     /// own turn). Without wakes, completions wait for the next turn to take them.
     fn start_next_queued(&mut self) {
-        if self.run.is_some() || self.deleting {
+        if self.turn_busy() || self.deleting {
             return;
         }
         // The wake's remaining completions run first, each its own turn (`ask-queue.mjs` `tail`).
@@ -1605,6 +1751,47 @@ impl SessionActor {
 
     // ───────────── producers ─────────────
 
+    /// A row's facts (`user_facts`) read the prompt-attachment store: an interactive-io lane job
+    /// whose answer comes back as `done(body, facts)`. False when the lane refused the job (the
+    /// job and what it carried are dropped).
+    fn with_facts(&self, body: Value, done: impl FnOnce(Value, RowFacts) -> JobDone + Send + 'static) -> bool {
+        let (store, jobs) = (self.deps.attachments.clone(), self.jobs_tx.clone());
+        self.deps
+            .lanes
+            .io
+            .submit(&CancellationToken::new(), move |lane| {
+                let mut body = body;
+                let facts = store.facts(lane, &mut body);
+                let _ = jobs.send(done(body, facts));
+            })
+            .is_ok()
+    }
+
+    /// A run's committed row, its facts read.
+    fn commit_with_facts(&mut self, turn: TurnId, item: ItemCommit, facts: RowFacts, ack: oneshot::Sender<Result<(), RunError>>) {
+        if !self.active(&turn) {
+            let _ = ack.send(Err(RunError::NotApplied));
+            return;
+        }
+        let display = self.row_display(item.role.as_deref(), &item.body);
+        if item.role.as_deref() == Some("tool")
+            && let Some(run) = self.run.as_mut()
+        {
+            run.tool_calls += 1;
+        }
+        match self.item_record(&turn, item, facts, None) {
+            Ok(record) => self.accept_record(record, Class::Normal, display, Vec::new(), vec![Effect::ItemAck(ack)]),
+            Err(_) => {
+                let _ = ack.send(Err(RunError::NotApplied));
+            }
+        }
+    }
+
+    /// A turn runs, is starting (its input row's facts being read) or is settling.
+    fn turn_busy(&self) -> bool {
+        self.run.is_some() || self.starting || self.settling
+    }
+
     fn active(&self, turn: &TurnId) -> bool {
         self.run.as_ref().is_some_and(|run| &run.turn == turn)
     }
@@ -1635,29 +1822,14 @@ impl SessionActor {
                     self.run_shown(turn, shown);
                 }
             }
-            ProducerMsg::Commit { turn, item, ack } => {
+            ProducerMsg::Commit { turn, mut item, ack } => {
                 if !self.active(&turn) {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
                 }
-                let display = self.row_display(item.role.as_deref(), &item.body);
-                if item.role.as_deref() == Some("tool")
-                    && let Some(run) = self.run.as_mut()
-                {
-                    run.tool_calls += 1;
-                }
-                match self.item_record(&turn, item, None) {
-                    Ok(record) => self.accept_record(
-                        record,
-                        Class::Normal,
-                        display,
-                        Vec::new(),
-                        vec![Effect::ItemAck(ack)],
-                    ),
-                    Err(_) => {
-                        let _ = ack.send(Err(RunError::NotApplied));
-                    }
-                }
+                // The row's facts read the prompt-attachment store first (an io-lane job).
+                let body = std::mem::take(&mut item.body);
+                self.with_facts(body, move |body, facts| JobDone::CommitFacts { turn, item: ItemCommit { body, ..item }, facts, ack });
             }
             ProducerMsg::ProviderState { turn, state, ack } => {
                 if !self.active(&turn) {
@@ -1706,8 +1878,15 @@ impl SessionActor {
                     Vec::new(),
                     Vec::new(),
                 );
+                let cid = new_id();
+                // The divider shows live where the compaction happened (`compactionDivider`).
+                let divider = super::transcript::divider_item(&cid, Some(compaction.at));
+                let note = Note::new(
+                    "item/completed",
+                    &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item: divider.clone() },
+                );
                 let record = Record::Compacted(CompactedRecord {
-                    cid: id(&new_id()),
+                    cid: id(&cid),
                     summary_iid: None,
                     op: None,
                     at: Some(compaction.at),
@@ -1730,8 +1909,8 @@ impl SessionActor {
                 self.accept_record(
                     record,
                     Class::Normal,
-                    Display::None,
-                    Vec::new(),
+                    Display::Items(vec![Shown::Item(divider)]),
+                    vec![note],
                     vec![Effect::ItemAck(ack)],
                 );
             }
@@ -1878,18 +2057,15 @@ impl SessionActor {
         }
     }
 
-    /// A row's facts from the classification migration writes.
-    fn user_facts(&self, body: &mut Value) -> RowFacts {
-        user_facts(body, self.deps.attachments.as_ref())
-    }
-
+    /// The row of a run's commit. `facts`: the classification migration writes too, read from the
+    /// body ([`Self::with_facts`]).
     fn item_record(
         &self,
         turn: &TurnId,
         mut item: ItemCommit,
+        facts: RowFacts,
         op: Option<OpRef>,
     ) -> Result<Record, CoreError> {
-        let facts = self.user_facts(&mut item.body);
         let (visible, prompt) = (item.visible && facts.visible, item.prompt.take().or(facts.prompt));
         Ok(Record::Item(ItemRecord {
             iid: text(item.iid.as_str(), "itemId")?,
@@ -2007,6 +2183,16 @@ impl SessionActor {
                 });
                 let _ = tx.send(plan);
             }
+            Inbox::QuotaFacts { tx } => {
+                let _ = tx.send(self.resume_check());
+            }
+            Inbox::QuotaCancelled { tx } => {
+                let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
+                self.quota.call(async move {
+                    let _ = settlement.cancel_resume(&id).await;
+                    let _ = tx.send(());
+                });
+            }
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {
@@ -2123,9 +2309,15 @@ impl SessionActor {
         let user_prompt = matches!(req.ctx.caller, Caller::Connection(_))
             .then(|| prompt_text(&params.input));
         if user_prompt.is_some() {
+            // `cancelQuotaResumeOnUserInput`: new user input supersedes the stopped turn.
+            let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
+            self.quota.call(async move {
+                let _ = settlement.cancel_on_user_input(&id).await;
+            });
             self.archive_goal_on_user_input();
         }
-        if self.run.is_none() {
+        // A turn starting or still settling holds the next one back: it is queued and starts after.
+        if !self.turn_busy() {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             return Ok(Plan {
@@ -2322,6 +2514,11 @@ impl SessionActor {
             let reset = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             records.push((reset, Class::Normal, Display::None, Vec::new()));
         }
+        // `supersedeQuotaResume`: a cleared session's wait goes.
+        let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
+        self.quota.call(async move {
+            let _ = settlement.supersede(&id).await;
+        });
         Ok(Plan {
             kind: PlanKind::Records(records, Vec::new()),
             value,
@@ -2484,21 +2681,23 @@ impl SessionActor {
         if matches!(req.ctx.caller, Caller::Connection(_)) {
             return Err(invalid("method", "an internal method"));
         }
-        let messages = req.params.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
-        let mut records = Vec::with_capacity(messages.len() + 1);
-        for mut body in messages {
+        // Each row as the handle read its facts: `{body, visible, prompt}`.
+        let rows = req.params.get("rows").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut records = Vec::with_capacity(rows.len() + 1);
+        for mut row in rows {
+            let body = row.get_mut("body").map(Value::take).unwrap_or(Value::Null);
             let role = body.get("role").and_then(Value::as_str).map(|role| text(role, "role")).transpose()?;
-            let facts = self.user_facts(&mut body);
+            let prompt = row.get("prompt").and_then(Value::as_str).map(|prompt| Slot::Inline(prompt.to_owned()));
             let row = ItemRecord {
                 iid: text(&new_id(), "itemId")?,
                 turn: None,
                 role,
                 form: Form::Message,
                 model: true,
-                visible: facts.visible,
+                visible: row.get("visible") != Some(&Value::Bool(false)),
                 archive: None,
                 op: None,
-                prompt: facts.prompt.map(Slot::Inline),
+                prompt,
                 refs: Vec::new().try_into().expect("empty list fits"),
                 body: Slot::Inline(body),
             };
@@ -2613,7 +2812,6 @@ impl SessionActor {
         prompt: Option<String>,
         wake: bool,
     ) {
-        let turn = TurnId::from(new_id());
         // A worker's turn (`SessionTurns`): its input row carries the handoff content and the
         // submission it answers, as `askSession` stamps them (`askTurns.started` submissionIds).
         let agent = if wake { None } else { self.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).take() };
@@ -2624,7 +2822,27 @@ impl SessionActor {
                 body["meta"]["transcript"]["submissionIds"] = json!([submission]);
             }
         }
-        let facts = self.user_facts(&mut body);
+        // The input row's facts read the prompt-attachment store first; no other turn starts
+        // meanwhile.
+        self.starting = true;
+        let read = self.with_facts(body, move |body, facts| {
+            JobDone::InputFacts(Box::new(InputStart { input, body, facts, op_ref, reply, prompt, wake, agent }))
+        });
+        if !read {
+            // The lane refused the read: the turn does not start (its waiter hears the drop).
+            self.starting = false;
+        }
+    }
+
+    /// [`Self::start_run_with`] once the input row's facts are read.
+    fn start_run_read(&mut self, start: InputStart) {
+        self.starting = false;
+        // A delete closed the thread meanwhile: the turn never starts.
+        if self.deleting {
+            return;
+        }
+        let InputStart { input, mut body, facts, op_ref, reply, prompt, wake, agent } = start;
+        let turn = TurnId::from(new_id());
         let mut op_ref = op_ref;
         let value = json!({ "kind": "started", "turnId": turn });
         if let Some(op) = &mut op_ref {

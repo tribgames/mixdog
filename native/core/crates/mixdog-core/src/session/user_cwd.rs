@@ -7,18 +7,29 @@ use std::path::PathBuf;
 
 use mixdog_js::is_js_space;
 use mixdog_js::js_trim;
+use mixdog_rt::CancellationToken;
+use mixdog_rt::InLane;
+use mixdog_rt::InteractiveIo;
+use mixdog_rt::LaneToken;
 use mixdog_store::fsio::Access;
 use mixdog_store::fsio::publish_file_with;
 
-/// The cwd files under the data dir (`resolvePluginData()`).
+/// The cwd files under the data dir (`resolvePluginData()`), read and written in
+/// interactive-io lane jobs.
 #[derive(Clone, Debug)]
 pub struct UserCwd {
     data_dir: PathBuf,
+    io: InteractiveIo,
 }
 
 impl UserCwd {
-    pub fn new(data_dir: impl Into<PathBuf>) -> Self {
-        Self { data_dir: data_dir.into() }
+    pub fn new(data_dir: impl Into<PathBuf>, io: InteractiveIo) -> Self {
+        Self { data_dir: data_dir.into(), io }
+    }
+
+    /// `job` as an interactive-io lane job; `None` when the lane refused or dropped it.
+    async fn on_lane<R: Send + 'static>(&self, job: impl FnOnce(&InLane<InteractiveIo>) -> R + Send + 'static) -> Option<R> {
+        self.io.submit(&CancellationToken::new(), job).ok()?.await.ok()
     }
 
     /// `explicitSessionCwd()`: the scope's cwd, then a live `MIXDOG_SESSION_CWD`, then
@@ -28,38 +39,46 @@ impl UserCwd {
         if let Some(scoped) = scoped.filter(|cwd| !cwd.is_empty()) {
             return Some(normalize_platform_cwd(scoped).unwrap_or_else(|| scoped.to_owned()));
         }
-        if let Ok(raw) = std::env::var("MIXDOG_SESSION_CWD")
-            && !raw.is_empty()
-            && let Some(dir) = existing_directory(&raw).await
-        {
-            return Some(dir);
-        }
-        let raw = read_text(&self.data_dir.join("user-cwd.txt")).await?;
-        // A crash can leave NUL bytes in place of the path: that is no path.
-        if holds_no_data(&raw) {
-            return None;
-        }
-        let txt = js_trim(&raw);
-        if txt.is_empty() {
-            return None;
-        }
-        normalize_platform_cwd(txt).filter(|cwd| !cwd.is_empty())
+        let env = std::env::var("MIXDOG_SESSION_CWD").ok().filter(|raw| !raw.is_empty());
+        let file = self.data_dir.join("user-cwd.txt");
+        self.on_lane(move |lane| {
+            if let Some(dir) = env.and_then(|raw| existing_directory(lane, &raw)) {
+                return Some(dir);
+            }
+            let raw = read_text(lane, &file)?;
+            // A crash can leave NUL bytes in place of the path: that is no path.
+            if holds_no_data(&raw) {
+                return None;
+            }
+            let txt = js_trim(&raw);
+            if txt.is_empty() {
+                return None;
+            }
+            normalize_platform_cwd(txt).filter(|cwd| !cwd.is_empty())
+        })
+        .await
+        .flatten()
     }
 
     /// `readLastSessionCwd(keyPid)`: this terminal's last `cwd set`, when it is still a
     /// directory.
     pub async fn last_cwd(&self, key_pid: Option<&str>) -> Option<String> {
-        let raw = read_text(&self.last_cwd_file(key_pid)).await?;
-        if holds_no_data(&raw) {
-            return None;
-        }
-        existing_directory(js_trim(&raw)).await
+        let file = self.last_cwd_file(key_pid);
+        self.on_lane(move |lane| {
+            let raw = read_text(lane, &file)?;
+            if holds_no_data(&raw) {
+                return None;
+            }
+            existing_directory(lane, js_trim(&raw))
+        })
+        .await
+        .flatten()
     }
 
     /// `writeLastSessionCwd(cwd, keyPid)`: best effort.
     pub async fn write_last_cwd(&self, cwd: &str, key_pid: Option<&str>) {
         let (path, bytes) = (self.last_cwd_file(key_pid), cwd.as_bytes().to_vec());
-        let _ = tokio::task::spawn_blocking(move || publish_file_with(&path, &bytes, Access::Inherit)).await;
+        let _ = self.on_lane(move |_lane| publish_file_with(&path, &bytes, Access::Inherit)).await;
     }
 
     /// `_lastSessionCwdFile(keyPid)`: keyed by the connection's lead pid, else
@@ -76,8 +95,9 @@ impl UserCwd {
     }
 }
 
-async fn read_text(path: &Path) -> Option<String> {
-    let bytes = tokio::fs::read(path).await.ok()?;
+#[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
+fn read_text(_lane: &InLane<InteractiveIo>, path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -87,9 +107,10 @@ fn holds_no_data(text: &str) -> bool {
 }
 
 /// `_existingDirectory(raw)`: the normalized path when it names a live directory.
-async fn existing_directory(raw: &str) -> Option<String> {
+#[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
+fn existing_directory(_lane: &InLane<InteractiveIo>, raw: &str) -> Option<String> {
     let normalized = normalize_platform_cwd(raw).filter(|cwd| !cwd.is_empty())?;
-    let meta = tokio::fs::metadata(&normalized).await.ok()?;
+    let meta = std::fs::metadata(&normalized).ok()?;
     meta.is_dir().then_some(normalized)
 }
 
@@ -144,10 +165,15 @@ fn node_resolve(p: &str) -> String {
 mod tests {
     use super::*;
 
-    #[tokio::test]
+    fn user_cwd(data: &Path) -> UserCwd {
+        UserCwd::new(data, mixdog_rt::testing::tokens().interactive_io)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "test setup writes the saved file")]
     async fn the_explicit_cwd_prefers_the_scope_then_the_saved_file() {
         let data = tempfile::tempdir().expect("data");
-        let cwd = UserCwd::new(data.path());
+        let cwd = user_cwd(data.path());
         assert_eq!(cwd.explicit_cwd(Some("/scoped")).await, normalize_platform_cwd("/scoped"));
         if std::env::var("MIXDOG_SESSION_CWD").is_ok() {
             return;
@@ -160,10 +186,11 @@ mod tests {
         assert_eq!(cwd.explicit_cwd(None).await, normalize_platform_cwd(&dir));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "test checks the written files")]
     async fn the_last_cwd_is_keyed_per_terminal_and_must_still_exist() {
         let data = tempfile::tempdir().expect("data");
-        let cwd = UserCwd::new(data.path());
+        let cwd = user_cwd(data.path());
         let dir = data.path().to_string_lossy().into_owned();
         cwd.write_last_cwd(&dir, Some("4242")).await;
         assert!(data.path().join("session-cwd-4242.txt").exists());

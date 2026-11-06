@@ -222,6 +222,8 @@ const CASES = {
   'huge-default': R('huge.txt'),
   'huge-window': R('huge.txt', { offset: 60000, limit: 3 }),
   'huge-tail': R('huge.txt', { offset: 109995, limit: 50 }),
+  // No window asked for: the argument guard supplies the default one, so a huge file streams.
+  'huge-limit-zero': R('huge.txt', { limit: 0 }),
   'huge-past-end': R('huge.txt', { offset: 120000, limit: 5 }),
   'huge-capped': R('huge.txt', { offset: 1000, limit: 100000 }),
   'huge-utf16': R('huge16.txt'),

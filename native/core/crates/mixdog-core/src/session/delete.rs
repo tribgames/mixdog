@@ -207,13 +207,20 @@ async fn remove(
     true
 }
 
-/// `void forgetSessionSearch(id); void releaseDeletedWorktree(id)`.
+/// `void forgetSessionSearch(id); void releaseDeletedWorktree(id)`, then
+/// `supersedeQuotaResume(id)`: the deleted session's resume and Goal note go (its actor, and
+/// with it its settlement, is gone).
 fn after_delete(deps: &super::SessionDeps, id: &str) {
     deps.deletion.forget_session_search(id);
     let deletion = deps.deletion.clone();
     let owned = id.to_owned();
     drop(mixdog_rt::spawn("session-delete-worktree", mixdog_rt::TaskClass::Work, async move {
         deletion.release_deleted_worktree(&owned).await;
+    }));
+    let quota = deps.quota.goals.clone();
+    let owned = id.to_owned();
+    drop(mixdog_rt::spawn("session-delete-quota", mixdog_rt::TaskClass::Work, async move {
+        let _ = quota.cancel(&owned).await;
     }));
 }
 
@@ -234,6 +241,23 @@ pub(crate) fn row_cwds(row: &serde_json::Value) -> Vec<String> {
 /// `SESSION_ID_PATTERN`: `/^[A-Za-z0-9_-]+$/`.
 pub fn is_session_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// `thread/delete {threadId, ifIdle?}`: `deleteSession` (`true` once the session is gone,
+/// `false` when nothing was deleted), or with `ifIdle` the desktop's `deleteSessionIfIdle`
+/// (`{deleted, reason?}`). Served by the thread's handle and, for a thread that cannot be opened
+/// (none, or deleted), by the directory: Node answers `false` there too.
+pub(crate) async fn serve(directory: &super::directory::DirInner, params: &serde_json::Value) -> Result<mixdog_core_api::Reply, CoreError> {
+    let params: mixdog_app_protocol::v2::thread::ThreadDeleteParams =
+        serde_json::from_value(params.clone()).map_err(|_| CoreError::InvalidParams {
+            path: "params".into(),
+            expected: "ThreadDeleteParams".into(),
+        })?;
+    let id = params.thread_id.as_str();
+    Ok(mixdog_core_api::Reply::Value(match &params.if_idle {
+        Some(expected) => delete_session_if_idle(directory, id, expected).await?,
+        None => serde_json::Value::Bool(delete_session(directory, id).await?),
+    }))
 }
 
 /// `deleteSession(id)`: false when nothing was deleted.

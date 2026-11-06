@@ -311,6 +311,31 @@ async fn a_user_prompt_dropping_the_closeout_marks_the_reminder() {
     eventually(|| idle(&handle).then_some(())).await;
 }
 
+/// `markGoalReminder(reason)` marks the session's pending Goal reminder
+/// (`markPendingGoalReminder`): one more revision each time, with the reason and `updatedAt`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_goal_reminder_marks_the_sessions_pending_reminder() {
+    let rig = Rig::new();
+    let spy = Spy::new(&rig);
+    let directory = directory(&rig, &spy);
+    let handle = start_thread(&directory).await;
+    let control = |params: Value, op: &'static str| {
+        let handle = handle.clone();
+        async move { handle.request(request("thread/goal/control", params, op)).await.expect("answered") }
+    };
+    handle.request(request("thread/goal/set", json!({ "threadId": handle.id, "opId": "g-1", "goal": "Ship the feature" }), "g-1")).await.expect("set");
+    let pending = |handle: &SessionHandle| handle.cell.header.load().get("pendingGoalReminder").cloned();
+    control(json!({ "threadId": handle.id, "opId": "g-2", "action": "edit", "args": { "objective": "Ship it" } }), "g-2").await;
+    let first = eventually(|| pending(&handle)).await;
+    assert_eq!(first, json!({ "version": 1, "type": "goal_state", "revision": 1, "reason": "objective-updated" }));
+    control(json!({ "threadId": handle.id, "opId": "g-3", "action": "edit", "args": { "objective": "Ship it now" } }), "g-3").await;
+    eventually(|| pending(&handle).filter(|p| p["revision"] == 2)).await;
+    let header = handle.cell.header.load();
+    assert_eq!(header.get("goalReminderRevision"), Some(&json!(2)));
+    assert!(header.get("updatedAt").and_then(Value::as_i64).is_some());
+    assert_eq!(spy.resets(), 2, "each mark resets the continuation rules");
+}
+
 /// The `/goal` route: `thread/goal/set` carries the request, `clear` and `control` map to
 /// `goalControl`'s actions; the answer is the runtime's, a refusal is its message, an `edit`
 /// marks the reminder and a `pause` cancels the running turn.

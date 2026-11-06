@@ -243,12 +243,10 @@ impl QuotaSettlement {
     /// the epoch it ended under and, with a known reset and the setting on, queues its resume.
     pub async fn begin(&self, session_id: &str, items: &[Value], context: &ResumeContext) -> Result<Begin, QuotaError> {
         let failure = latest_quota_failure(items).filter(|_| !session_id.is_empty());
-        let mut slot = self.slot();
-        *slot = None;
-        let Some(failure) = failure else { return Ok(Begin::Nothing) };
         let epoch = self.epoch();
-        *slot = Some(Settlement { session_id: session_id.to_owned(), turn_key: failure.turn_key.clone(), epoch });
-        drop(slot);
+        // The slot's guard ends before the first await: a session actor spawns this future.
+        *self.slot() = failure.as_ref().map(|failure| Settlement { session_id: session_id.to_owned(), turn_key: failure.turn_key.clone(), epoch });
+        let Some(failure) = failure else { return Ok(Begin::Nothing) };
         if failure.reset_at.is_none() || !context.auto_resume {
             return Ok(Begin::Nothing);
         }

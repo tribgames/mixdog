@@ -49,6 +49,8 @@ const READ_MAX_LINE_COLLECT_BYTES: usize = OUTPUT_MAX_BYTES;
 const READ_MAX_OUTPUT_BYTES: usize = OUTPUT_MAX_BYTES;
 /// A glob survey shares this many output bytes.
 const SURVEY_BUDGET: usize = 10 * 1024;
+/// A past-the-cap file is read this many bytes at a time.
+const HUGE_CHUNK: u64 = 1024 * 1024;
 const GLOB_SURVEY_LINES: u64 = 25;
 const GLOB_SURVEY_FILES: usize = 10;
 const MAX_RENDERED_LINE_CHARS: usize = 2_000;
@@ -322,6 +324,14 @@ fn survey_parts(results: &[Resolved], capped: bool) -> Vec<ToolPart> {
         text.push_str(&format!("\n{GLOB_CAP_NOTE}"));
     }
     vec![ToolPart::Text(rows_for_model(&text))]
+}
+
+/// len bytes of a file from offset.
+async fn read_range(ctx: &ToolContext, abs: &AbsPath, shown: &str, offset: u64, len: u64) -> Result<Vec<u8>, ToolError> {
+    match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset, max_len: Some(len) })).await? {
+        Ok(b) => Ok(b.bytes),
+        Err(err) => Err(fs_failure(&err, shown)),
+    }
 }
 
 async fn exists(ctx: &ToolContext, raw: &str) -> bool {
@@ -622,7 +632,7 @@ impl ReadTool {
             _ => {}
         }
         let key_path = fwd(abs.as_path());
-        let version = FileVersion::new(stat.modified, stat.len);
+        let version = FileVersion::of(&stat);
         let scope = self.state.as_ref().map(|_| scope_of(ctx));
         let cacheable = stat.len <= CACHEABLE_BYTES;
         // A file this session has just edited, and read before the edit, is not sent again.
@@ -649,27 +659,8 @@ impl ReadTool {
             }
         }
         if stat.len > MAX_FILE_BYTES {
-            // A UTF-16 body is decoded whole, so past the cap it is refused; any other file streams.
-            let head = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(2) })).await? {
-                Ok(b) => b.bytes,
-                Err(err) => return Err(fs_failure(&err, &shown)),
-            };
-            if utf16_bom(&head).is_some() {
-                let text = format!(
-                    "Error: UTF-16 file size {} bytes exceeds {MAX_FILE_BYTES} bytes; utf16 ranged reads are bounded — convert to UTF-8 or narrow the range.",
-                    stat.len
-                );
-                return Err(fail(ToolErrorCode::TooLarge { limit: MAX_FILE_BYTES, actual: stat.len }, text));
-            }
-            return Err(fail(
-                ToolErrorCode::TooLarge {
-                    limit: MAX_FILE_BYTES,
-                    actual: stat.len,
-                },
-                format!("Error: file size {} bytes exceeds {MAX_FILE_BYTES}-byte cap.", stat.len),
-            ));
-        }
-        let cache_key = version.map(|v| {
+            return self.read_huge(ctx, e, &abs, &shown, &stat, version, mode).await;
+        }        let cache_key = version.map(|v| {
             format!(
                 "read|{key_path}|{}|{}|{}|{}|{}|s|base:1|budget:{}",
                 v.mtime_ms,
@@ -729,7 +720,7 @@ impl ReadTool {
         };
         let text = match decode_for_read(&bytes) {
             ReadText::Binary => {
-                let out = binary_preview(&shown, &bytes);
+                let out = binary_preview(&shown, &bytes, bytes.len() as u64);
                 let meta = SnapshotMeta { ranges: Some(Vec::new()), ..SnapshotMeta::new("read_hex") };
                 cache(&out, &meta);
                 return Ok(Body { observed: observe(meta), ..Body::text(out) });
@@ -767,6 +758,78 @@ impl ReadTool {
             (out, meta)
         };
         cache(&numbered, &meta);
+        let out = if mode.raw() || matches!(mode, Mode::Child { .. }) { numbered } else { rows_for_model(&numbered) };
+        Ok(Body { observed: observe(meta), ..Body::text(out) })
+    }
+
+    /// A file past the 10 MiB buffered cap, read with its window: a UTF-16 body is refused (it is
+    /// decoded whole), a binary one previewed, any other streamed from disk a megabyte at a time.
+    async fn read_huge(
+        &self,
+        ctx: &ToolContext,
+        e: &Entry,
+        abs: &AbsPath,
+        shown: &str,
+        stat: &mixdog_core_api::domain::fs::FileStat,
+        version: Option<FileVersion>,
+        mode: Mode,
+    ) -> Result<Body, ToolError> {
+        let key_path = fwd(abs.as_path());
+        let head_len = stat.len.min(64 * 1024);
+        let head = read_range(ctx, abs, shown, 0, head_len).await?;
+        if utf16_bom(&head).is_some() {
+            let text = format!(
+                "Error: UTF-16 file size {} bytes exceeds {MAX_FILE_BYTES} bytes; utf16 ranged reads are bounded — convert to UTF-8 or narrow the range.",
+                stat.len
+            );
+            return Err(fail(ToolErrorCode::TooLarge { limit: MAX_FILE_BYTES, actual: stat.len }, text));
+        }
+        let tail = if stat.len > head_len && stat.len > 4096 { read_range(ctx, abs, shown, stat.len - 4096, 4096).await? } else { Vec::new() };
+        let observe = |meta: SnapshotMeta| version.map(|v| Observed { path: key_path.clone(), version: v, meta });
+        if head.contains(&0) || tail.contains(&0) {
+            let preview = &head[..head.len().min(BINARY_PREVIEW_BYTES)];
+            let meta = SnapshotMeta { ranges: Some(Vec::new()), ..SnapshotMeta::new("read_hex") };
+            return Ok(Body { observed: observe(meta), ..Body::text(binary_preview(shown, preview, stat.len)) });
+        }
+        let mut c = Collector::new(stat.len, e.offset, e.limit, mode.max_output());
+        let (mut pos, mut pending, mut pending_len) = (0_u64, Vec::<u8>::new(), 0_usize);
+        'file: while pos < stat.len && !c.done() {
+            let chunk = read_range(ctx, abs, shown, pos, HUGE_CHUNK).await?;
+            if chunk.is_empty() {
+                break;
+            }
+            pos += chunk.len() as u64;
+            for piece in chunk.split_inclusive(|b| *b == b'\n') {
+                let ended = piece.last() == Some(&b'\n');
+                let body = if ended { &piece[..piece.len() - 1] } else { piece };
+                if !c.skipping() {
+                    let room = READ_MAX_LINE_COLLECT_BYTES.saturating_sub(pending.len());
+                    pending.extend_from_slice(&body[..body.len().min(room)]);
+                }
+                pending_len += body.len();
+                if ended {
+                    // A line over the collect cap keeps its first 50 KiB and no CR strip.
+                    let keep = if pending_len > READ_MAX_LINE_COLLECT_BYTES { &pending[..] } else { pending.strip_suffix(b"\r").unwrap_or(&pending) };
+                    c.push(keep);
+                    pending.clear();
+                    pending_len = 0;
+                    if c.done() {
+                        break 'file;
+                    }
+                }
+            }
+        }
+        if pending_len > 0 && !c.done() {
+            let keep = if pending_len > READ_MAX_LINE_COLLECT_BYTES { &pending[..] } else { pending.strip_suffix(b"\r").unwrap_or(&pending) };
+            c.push(keep);
+        }
+        let (numbered, facts) = c.finish();
+        let ranges = if facts.first_emitted > 0 {
+            vec![LineRange { start: facts.first_emitted, end: Some(facts.last_emitted) }]
+        } else {
+            Vec::new()
+        };
+        let meta = SnapshotMeta { ranges: Some(ranges), ..SnapshotMeta::new("read") };
         let out = if mode.raw() || matches!(mode, Mode::Child { .. }) { numbered } else { rows_for_model(&numbered) };
         Ok(Body { observed: observe(meta), ..Body::text(out) })
     }
@@ -1084,8 +1147,8 @@ fn document_method(bytes: &[u8], raw: &str) -> Option<&'static str> {
     None
 }
 
-fn binary_preview(shown: &str, bytes: &[u8]) -> String {
-    let n = bytes.len();
+fn binary_preview(shown: &str, bytes: &[u8], size: u64) -> String {
+    let n = size;
     let hex = bytes
         .iter()
         .take(BINARY_PREVIEW_BYTES)
@@ -1170,60 +1233,118 @@ fn buffered_window(text: &str, offset: u64, limit: u64, shown: &str, max: usize)
     (format!("{out}{}{footer}", if out.is_empty() { "" } else { "\n" }), facts(total, shown_lines, capped))
 }
 
-/// The streamed read of a window (`createReadLineCollector`): rows until the limit or until the
-/// body budget, with a footer that knows no total.
-fn stream_window(text: &str, file_size: u64, offset: u64, limit: u64, max_output: usize) -> (String, WindowFacts) {
-    let body_bytes = (max_output - (max_output / 3).min(384)).max(1);
-    let mut lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
-    if let Some(first) = lines.first_mut() {
-        *first = first.strip_prefix('\u{feff}').unwrap_or(first);
+/// The line collector of a streamed window (`createReadLineCollector`): rows until the limit or
+/// until the body budget, with a footer that knows no total. Fed one line at a time, so a file
+/// need not be held whole.
+struct Collector {
+    offset: u64,
+    limit: u64,
+    body_bytes: usize,
+    max_output: usize,
+    file_size: u64,
+    line_idx: u64,
+    collected: Vec<String>,
+    bytes: usize,
+    first_emitted: u64,
+    last_emitted: u64,
+    truncated: bool,
+    stopped_at_limit: bool,
+}
+
+impl Collector {
+    fn new(file_size: u64, offset: u64, limit: u64, max_output: usize) -> Self {
+        Self {
+            offset,
+            limit,
+            body_bytes: (max_output - (max_output / 3).min(384)).max(1),
+            max_output,
+            file_size,
+            line_idx: 0,
+            collected: Vec::new(),
+            bytes: 0,
+            first_emitted: 0,
+            last_emitted: 0,
+            truncated: false,
+            stopped_at_limit: false,
+        }
     }
+
+    fn done(&self) -> bool {
+        self.truncated || self.stopped_at_limit
+    }
+
+    /// Whether the next line is before the window and need not be kept.
+    fn skipping(&self) -> bool {
+        !self.done() && self.line_idx < self.offset
+    }
+
+    /// One line, without its newline. A line is collected up to 50 KiB; the display clips it further.
+    fn push(&mut self, raw: &[u8]) {
+        if self.done() {
+            return;
+        }
+        if self.line_idx < self.offset {
+            self.line_idx += 1;
+            return;
+        }
+        let mut line = String::from_utf8_lossy(&raw[..raw.len().min(READ_MAX_LINE_COLLECT_BYTES)]).into_owned();
+        if self.line_idx == 0 {
+            if let Some(rest) = line.strip_prefix('\u{feff}') {
+                line = rest.to_owned();
+            }
+        }
+        let row = render_read_line(self.line_idx + 1, &line);
+        self.bytes += row.len() + 1;
+        if self.bytes > self.body_bytes {
+            self.truncated = true;
+            return;
+        }
+        self.collected.push(row);
+        if self.first_emitted == 0 {
+            self.first_emitted = self.line_idx + 1;
+        }
+        self.last_emitted = self.line_idx + 1;
+        self.line_idx += 1;
+        if self.collected.len() as u64 >= self.limit {
+            self.stopped_at_limit = true;
+        }
+    }
+
+    fn finish(self) -> (String, WindowFacts) {
+        let offset = self.offset;
+        let mut out = self.collected.join("\n");
+        if self.truncated {
+            let next = if self.last_emitted == 0 { offset } else { self.last_emitted } + 1;
+            let of_file = if self.file_size > 0 { format!("{} KB file", (self.file_size as f64 / 1024.0).round().max(1.0) as u64) } else { String::new() };
+            out.push_str(&format!("\n\n{}", cap_marker(&format_cap_size(self.max_output), &of_file, Some(next), "")));
+        } else if self.stopped_at_limit {
+            let shown = self.collected.len() as u64;
+            out.push_str(&format!(
+                "{}{}",
+                if out.is_empty() { "" } else { "\n" },
+                window_marker("lines", offset + 1, offset + shown, None, Some(offset + shown + 1), None)
+            ));
+        } else if out.is_empty() && offset >= self.line_idx {
+            out = format!("(no lines in range; file has {} lines)", self.line_idx);
+        }
+        (out, WindowFacts { line_count: 0, rendered: 0, byte_capped: false, first_emitted: self.first_emitted, last_emitted: self.last_emitted })
+    }
+}
+
+/// The streamed read of a window of text already in memory.
+fn stream_window(text: &str, file_size: u64, offset: u64, limit: u64, max_output: usize) -> (String, WindowFacts) {
+    let mut lines = text.split('\n').collect::<Vec<_>>();
     if lines.last() == Some(&"") {
         lines.pop();
     }
-    let total = lines.len() as u64;
-    let mut collected: Vec<String> = Vec::new();
-    let (mut bytes, mut first_emitted, mut last_emitted) = (0_usize, 0_u64, 0_u64);
-    let (mut truncated, mut stopped_at_limit) = (false, false);
-    for (idx, line) in lines.iter().enumerate().skip(offset as usize) {
-        // A line is collected up to 50 KiB; the display clips it further.
-        let line = if line.len() > READ_MAX_LINE_COLLECT_BYTES {
-            String::from_utf8_lossy(&line.as_bytes()[..READ_MAX_LINE_COLLECT_BYTES]).into_owned()
-        } else {
-            (*line).to_owned()
-        };
-        let row = render_read_line(idx as u64 + 1, &line);
-        bytes += row.len() + 1;
-        if bytes > body_bytes {
-            truncated = true;
-            break;
-        }
-        collected.push(row);
-        if first_emitted == 0 {
-            first_emitted = idx as u64 + 1;
-        }
-        last_emitted = idx as u64 + 1;
-        if collected.len() as u64 >= limit {
-            stopped_at_limit = true;
+    let mut c = Collector::new(file_size, offset, limit, max_output);
+    for line in lines {
+        c.push(line.strip_suffix('\r').unwrap_or(line).as_bytes());
+        if c.done() {
             break;
         }
     }
-    let mut out = collected.join("\n");
-    if truncated {
-        let next = if last_emitted == 0 { offset } else { last_emitted } + 1;
-        let of_file = if file_size > 0 { format!("{} KB file", (file_size as f64 / 1024.0).round().max(1.0) as u64) } else { String::new() };
-        out.push_str(&format!("\n\n{}", cap_marker(&format_cap_size(max_output), &of_file, Some(next), "")));
-    } else if stopped_at_limit {
-        let shown = collected.len() as u64;
-        out.push_str(&format!(
-            "{}{}",
-            if out.is_empty() { "" } else { "\n" },
-            window_marker("lines", offset + 1, offset + shown, None, Some(offset + shown + 1), None)
-        ));
-    } else if out.is_empty() && offset >= total {
-        out = format!("(no lines in range; file has {total} lines)");
-    }
-    (out, WindowFacts { line_count: 0, rendered: 0, byte_capped: false, first_emitted, last_emitted })
+    c.finish()
 }
 
 /// The hash of a file's decoded text, as the read state keeps it (`None` for a binary file).

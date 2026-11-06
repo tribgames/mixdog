@@ -158,6 +158,7 @@ pub(crate) fn io_failure(domain: &'static str, failure: &FsFailure) -> CoreError
 }
 
 /// `rmSync(path, { force: true })`: an absent file is fine, a directory is refused.
+#[allow(clippy::disallowed_methods, reason = "file-system body of the lane jobs that call it")]
 pub(crate) fn remove_file_forced(path: &Path) -> Result<(), FsFailure> {
     if path.is_dir() {
         return Err(FsFailure {
