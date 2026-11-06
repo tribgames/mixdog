@@ -33,6 +33,11 @@ use super::host::Tasks;
 use super::scope::Scope;
 use crate::env::Clock;
 
+/// A job's report renderer.
+type RenderFn = Arc<dyn Fn(&Value) -> String + Send + Sync>;
+/// A listener told a task id.
+type NameListener = Arc<dyn Fn(&str) + Send + Sync>;
+
 const TASK_TTL_MS: i64 = 30 * 60_000;
 const MAX_TASKS: usize = 300;
 const CANCEL_NOTIFY_GRACE: Duration = Duration::from_secs(10);
@@ -79,7 +84,7 @@ pub struct NewJob {
     /// boundary for the review (see [`JobBoard::on_command_settled`]).
     pub cwd: Option<String>,
     /// `renderResult`: reads a structured result as its body.
-    pub render: Option<Arc<dyn Fn(&Value) -> String + Send + Sync>>,
+    pub render: Option<RenderFn>,
 }
 
 pub struct Completion {
@@ -193,7 +198,7 @@ struct Record {
     appendix: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     cwd: Option<String>,
     terminal_reason: Option<String>,
-    render: Option<Arc<dyn Fn(&Value) -> String + Send + Sync>>,
+    render: Option<RenderFn>,
 }
 
 fn is_terminal(status: &str) -> bool {
@@ -316,8 +321,8 @@ struct State {
 struct Inner {
     clock: Arc<dyn Clock>,
     notifier: Option<Arc<dyn TaskNotifier>>,
-    on_change: Option<Arc<dyn Fn(&str) + Send + Sync>>,
-    command_settled: OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+    on_change: Option<NameListener>,
+    command_settled: OnceLock<NameListener>,
     error_text: OnceLock<Arc<dyn ErrorText>>,
     /// Woken after every row change, for [`JobBoard::wait_terminal`].
     changed: tokio::sync::Notify,
@@ -341,7 +346,7 @@ pub struct JobBoard {
 impl JobBoard {
     /// `on_change(owner_session_id)` runs when a row is added or finishes (the session
     /// activity signal).
-    pub fn new(clock: Arc<dyn Clock>, notifier: Option<Arc<dyn TaskNotifier>>, on_change: Option<Arc<dyn Fn(&str) + Send + Sync>>) -> Self {
+    pub fn new(clock: Arc<dyn Clock>, notifier: Option<Arc<dyn TaskNotifier>>, on_change: Option<NameListener>) -> Self {
         Self {
             inner: Arc::new(Inner {
                 clock,
@@ -357,7 +362,7 @@ impl JobBoard {
 
     /// `noteCommandToolSettled(cwd)`: runs when a job that worked in a directory finishes, in
     /// any way (its files may have changed after its turn sealed). Set once, before jobs run.
-    pub fn on_command_settled(&self, listener: Arc<dyn Fn(&str) + Send + Sync>) {
+    pub fn on_command_settled(&self, listener: NameListener) {
         let _ = self.inner.command_settled.set(listener);
     }
 

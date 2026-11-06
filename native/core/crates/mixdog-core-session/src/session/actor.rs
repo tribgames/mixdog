@@ -1519,6 +1519,10 @@ impl SessionActor {
         if **self.cell.approvals.load() != approvals {
             self.cell.approvals.store(Arc::new(approvals));
         }
+        let takeover = super::secret_input::takeover_hold(self.book.open_asks());
+        if **self.cell.takeover.load() != takeover {
+            self.cell.takeover.store(Arc::new(takeover));
+        }
     }
 
     // ───────────── durability ─────────────

@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use mixdog_app_server_transport::ConnectionHub;
 use mixdog_core_api::state::SectionChange;
 use mixdog_core_api::state::StatePublisher;
+use mixdog_js::js_trim;
 use mixdog_protocol::SectionName;
 use mixdog_remote::access::AccessSettings;
 use mixdog_remote::access::LegLink;
@@ -28,6 +29,7 @@ use mixdog_remote::bridge::Dialer;
 use mixdog_remote::bridge::Upstream;
 use mixdog_remote::bridge::local::Accept;
 use mixdog_remote::bridge::local::LocalDialer;
+use mixdog_remote::leg::validated_relay_url;
 use mixdog_remote::registry::DeviceRegistry;
 use mixdog_remote::section::RemoteSection;
 use mixdog_remote::section::RemoteSectionValue;
@@ -118,6 +120,20 @@ fn host_name() -> String {
     String::from_utf8_lossy(&buffer[..end]).into_owned()
 }
 
+/// Packaged default of the desktop pairing relay (`DEFAULT_RELAY_URL`, `remote-relay-device.ts`).
+const DEFAULT_RELAY_URL: &str = "wss://192-255-139-161.sslip.io";
+
+/// `resolveRelayUrl(env)` of `remote-relay-device.ts` over `MIXDOG_RELAY_URL`: `Ok(None)` when
+/// switched off (`0`, `false`, `off`), the validated URL otherwise; the error is the desktop's
+/// sentence (not the webhook tunnel's, which words them differently).
+pub fn resolve_relay_url(raw: Option<&str>) -> Result<Option<String>, String> {
+    let raw = js_trim(raw.unwrap_or_default());
+    if matches!(raw.to_lowercase().as_str(), "0" | "false" | "off") {
+        return Ok(None);
+    }
+    let raw = if raw.is_empty() { DEFAULT_RELAY_URL } else { raw };
+    validated_relay_url(raw).map(|url| Some(url.to_string())).map_err(|error| error.to_string())
+}
 pub struct RemoteInputs {
     /// The remote-access files directory (the data directory).
     pub dir: PathBuf,
@@ -140,7 +156,7 @@ pub struct BuiltRemote {
 
 /// §F steps 1 and 2. `Err` is the relay URL's sentence (`MIXDOG_RELAY_URL is invalid`, …).
 pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
-    let relay_url = mixdog_services::webhooks::relay::resolve_relay_url(inputs.relay_env.as_deref())?;
+    let relay_url = resolve_relay_url(inputs.relay_env.as_deref())?;
     let registry = Arc::new(DeviceRegistry::default());
     let section = Arc::new(RemoteSection::new(inputs.publisher, RemoteSectionValue::default()));
     let settings = Arc::new(AccessSettings::new(inputs.dir.clone(), Arc::new(host_name)));
@@ -212,5 +228,131 @@ mod tests {
         built.runtime.prepare().await.unwrap();
         built.runtime.start(false).await.unwrap();
         assert!(seen.0.lock().unwrap().iter().any(|(section, _)| *section == SectionName::Remote));
+    }
+
+    #[test]
+    fn the_relay_url_resolves_as_the_desktop_resolves_it() {
+        for case in crate::domain_seams::golden()["remote"]["relayUrl"].as_array().unwrap() {
+            let resolved = resolve_relay_url(case["env"].as_str());
+            match case["error"].as_str() {
+                Some(error) => assert_eq!(resolved, Err(error.to_owned()), "{}", case["env"]),
+                None => assert_eq!(resolved, Ok(case["url"].as_str().map(str::to_owned)), "{}", case["env"]),
+            }
+        }
+    }
+
+    /// Node's `os.hostname()` is the machine's `COMPUTERNAME` on Windows, as recorded there.
+    #[cfg(windows)]
+    #[test]
+    fn the_host_name_is_the_one_nodes_os_hostname_returns() {
+        let recorded = &crate::domain_seams::golden()["remote"]["hostName"];
+        assert_eq!(recorded["platform"], "win32");
+        assert_eq!(recorded["hostname"], recorded["computerName"]);
+        assert_eq!(host_name(), std::env::var("COMPUTERNAME").unwrap());
+    }
+
+    fn settings_view(view: &mixdog_remote::access::SettingsView) -> Value {
+        serde_json::json!({ "enabled": view.enabled, "name": view.name, "defaultName": view.default_name })
+    }
+
+    fn fixed_name_settings(dir: &std::path::Path) -> AccessSettings {
+        AccessSettings::new(dir, Arc::new(|| "HOST-FIXED".to_owned()))
+    }
+
+    /// Node's settings store over the recorded folders: the switch follows the activation files,
+    /// the name falls back to the default, and what is not the right type is ignored.
+    #[test]
+    fn the_access_settings_read_as_nodes_store_reads_them() {
+        for case in crate::domain_seams::golden()["remote"]["settings"]["reads"].as_array().unwrap() {
+            let dir = tempfile::tempdir().unwrap();
+            for (rel, text) in case["files"].as_object().unwrap() {
+                std::fs::write(dir.path().join(rel), text.as_str().unwrap()).unwrap();
+            }
+            let settings = fixed_name_settings(dir.path());
+            let name = &case["name"];
+            assert_eq!(settings_view(&settings.read()), case["view"], "{name}");
+            assert_eq!(settings.disabled(), case["disabled"].as_bool().unwrap(), "{name}");
+            assert_eq!(serde_json::to_value(settings.device_aliases()).unwrap(), case["aliases"], "{name}");
+            let mut listed: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+            listed.sort();
+            assert_eq!(serde_json::to_value(listed).unwrap(), case["after"], "{name}");
+        }
+    }
+
+    #[test]
+    fn the_access_settings_change_as_nodes_store_changes_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = fixed_name_settings(dir.path());
+        for step in crate::domain_seams::golden()["remote"]["settings"]["mutations"].as_array().unwrap() {
+            let args = step["args"].as_array().unwrap();
+            let shown = match step["op"].as_str().unwrap() {
+                "setEnabled" => settings_view(&settings.set_enabled(args[0].as_bool().unwrap()).unwrap()),
+                "setName" => settings_view(&settings.set_name(args[0].as_str().unwrap()).unwrap()),
+                _ => serde_json::to_value(settings.set_device_alias(args[0].as_str().unwrap(), args[1].as_str().unwrap()).unwrap()).unwrap(),
+            };
+            assert_eq!(shown, step["result"], "{} {}", step["op"], step["args"]);
+            let file: Value = serde_json::from_slice(&std::fs::read(dir.path().join("remote-access-settings.json")).unwrap()).unwrap();
+            assert_eq!(file, step["file"], "{} {}", step["op"], step["args"]);
+        }
+    }
+
+    /// Node's pair-code manager replayed through the composed effects: the frames sent to the
+    /// relay leg and the code the screen sees after each step.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_pair_code_effects_send_and_show_what_nodes_manager_does() {
+        use mixdog_remote::pair_code::PairCode;
+        use serde_json::json;
+        let golden = crate::domain_seams::golden();
+        let pair = &golden["remote"]["pairCode"];
+        let host = pair["hostName"].as_str().unwrap();
+        let sent: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let leg = sent.clone();
+        let mut effects = ComposedPairCodeEffects::new(
+            Box::new(|_| {}),
+            mixdog_rt::ticker().clone(),
+            Arc::new(|| {}),
+            Box::new(move |envelope| {
+                leg.lock().unwrap().push(envelope);
+                true
+            }),
+        );
+        let mut code = PairCode::new();
+        let mut last_lease = String::new();
+        for step in pair["steps"].as_array().unwrap() {
+            let at = step["at"].as_u64().unwrap();
+            sent.lock().unwrap().clear();
+            let envelope = step["envelope"].as_object().map(|envelope| {
+                let mut envelope = envelope.clone();
+                let lease = if envelope["lease"] == "$last" { last_lease.clone() } else { "someone-else".to_owned() };
+                envelope.insert("lease".into(), json!(lease));
+                Value::Object(envelope)
+            });
+            match step["op"].as_str().unwrap() {
+                "ensure" => code.want(&mut effects, host, at),
+                "issued" => code.on_issued(&mut effects, envelope.as_ref().unwrap(), at),
+                "used" => code.on_used(&mut effects, envelope.as_ref().unwrap()),
+                "release" => code.release(&mut effects),
+                _ => code.on_connected(&mut effects, host),
+            }
+            let frames: Vec<Value> = sent
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|frame| {
+                    let mut frame = frame.clone();
+                    if let Some(lease) = frame.get("lease").and_then(Value::as_str).map(str::to_owned) {
+                        assert_eq!((lease.len(), lease.bytes().all(|b| b.is_ascii_hexdigit())), (pair["defaultLease"]["length"].as_u64().unwrap() as usize, pair["defaultLease"]["hex"].as_bool().unwrap()));
+                        last_lease = lease;
+                        frame["lease"] = json!("$last");
+                    }
+                    frame
+                })
+                .collect();
+            assert_eq!(Value::Array(frames), step["sent"], "{} at {at}", step["op"]);
+            if step["op"] == "ensure" {
+                let shown = code.current().filter(|view| view.expires_at > at).map_or(Value::Null, |view| json!({ "code": view.code, "expiresAt": view.expires_at }));
+                assert_eq!(shown, step["result"], "ensure at {at}");
+            }
+        }
     }
 }

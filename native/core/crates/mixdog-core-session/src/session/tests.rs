@@ -1260,7 +1260,7 @@ async fn a_large_prompt_round_trips_through_the_real_store() {
 
     let second = SessionDirectory::new(rig.deps_on(store));
     let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-    assert_eq!(prompt_list(&reopened), [text.clone()]);
+    assert_eq!(prompt_list(&reopened), std::slice::from_ref(&text));
     let asked = reopened.cell.view.load_full().items[0].id().clone();
     let reply = reopened
         .request(request("thread/rewind", json!({ "threadId": id, "opId": "op-2", "itemId": asked }), "op-2"))
@@ -2326,7 +2326,7 @@ async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search
         "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } },
     });
     // Outside a turn a mark re-ingests nothing.
-    assert!(rig.sensitive.remember(handle.id.as_str(), &[fill.clone()]));
+    assert!(rig.sensitive.remember(handle.id.as_str(), std::slice::from_ref(&fill)));
     turn(&handle, "hold", "op-1").await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(lock(&rig.ingests.0).is_empty());
@@ -2644,7 +2644,12 @@ async fn a_hooks_transcript_path_is_the_sessions_export() {
     let sessions = data.path().join("sessions");
 
     assert_eq!(files.transcript_path(&id).await, json!(sessions.join(format!("{id}.json")).to_string_lossy()));
-    assert!(!sessions.join(format!("{id}.log.jsonl")).exists(), "nothing is exported before the first message");
+    let unexported = sessions.join(format!("{id}.log.jsonl"));
+    let found = mixdog_core_base::support::on_lane(tokens.maintenance_io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&unexported))
+        .await
+        .expect("read job")
+        .expect("readable");
+    assert!(found.is_none(), "nothing is exported before the first message");
     assert_eq!(files.transcript_path("../x").await, Value::Null);
 
     turn(&handle, "hello", "op-1").await;

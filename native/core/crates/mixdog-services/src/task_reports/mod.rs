@@ -3,8 +3,10 @@
 //! ends, and the answer is reported to the bot's home. `chain` reads a session's stored messages,
 //! `follow` waits for the final answer, and `rearm` re-attaches the watches a stopped daemon left.
 
+pub mod artifacts;
 pub mod background;
 pub mod chain;
+pub mod collect;
 pub mod follow;
 pub mod host;
 pub mod rearm;

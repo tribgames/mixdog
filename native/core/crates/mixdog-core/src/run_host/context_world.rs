@@ -360,7 +360,7 @@ mod tests {
             assert_eq!(answer, case["status"], "{name}");
             compared += 1;
         }
-        assert_eq!(compared, 14);
+        assert_eq!(compared, 15);
         let host = LiveContextStatus::new(Arc::new(world(&golden["cases"][1])));
         assert_eq!(host.context_status(Some(ThreadId::from("absent".to_owned())), None).await.expect("status"), Value::Null);
     }

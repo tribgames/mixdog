@@ -8,6 +8,7 @@
 //! only that it was taken.
 
 mod fill;
+mod gates;
 mod redact;
 #[cfg(test)]
 mod tests;
@@ -41,6 +42,10 @@ pub use fill::FillGates;
 pub use fill::SecretFill;
 pub use fill::SecretHostCommands;
 pub use fill::SecretOutcome;
+pub use gates::TakeoverGates;
+pub use gates::TakeoverHold;
+pub use gates::TakeoverHolds;
+pub(crate) use gates::takeover_hold;
 pub use redact::SessionSecrets;
 
 /// A thrown `TypeError`/`Error`: its message is the whole answer.

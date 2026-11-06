@@ -91,7 +91,8 @@ for (const [targetName, target] of Object.entries(TARGETS)) {
     cases.push({ target: targetName, conversation: name, fit: { known: fit.known, fits: fit.fits, used: fit.used, limit: fit.limit, percent: fit.percent, messages: fit.messages }, compactable: plan !== null });
   }
 }
-const out = { targets: TARGETS, conversations: CONVERSATIONS, cases };
-writeJson(join(stage, 'golden.json'), out);
+// The token estimate prices the serialized text (a tool's schema, a replay envelope), so the key
+// order the tools and conversations were built in is part of the input; `writeJson` keeps it.
+writeJson(join(stage, 'golden.json'), { targets: TARGETS, conversations: CONVERSATIONS, cases });
 writeSetManifest(stage, { set: 'inheritance-fit', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
 commitStage(stage, finalDir);

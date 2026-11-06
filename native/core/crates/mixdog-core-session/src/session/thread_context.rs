@@ -177,8 +177,8 @@ mod tests {
     /// Node's recorded statuses come back through the handler byte for byte.
     #[tokio::test]
     async fn answers_nodes_status() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/context-status/golden.json");
-        let golden: Value = serde_json::from_slice(&std::fs::read(path).expect("golden")).expect("golden json");
+        let text = include_str!("../../../../fixtures/context-status/golden.json");
+        let golden: Value = serde_json::from_str(text).expect("golden json");
         let cases: Vec<(String, Value)> =
             golden["cases"].as_array().expect("cases").iter().map(|c| (c["name"].as_str().expect("name").to_owned(), c["status"].clone())).collect();
         let service = ThreadContextService::new(Arc::new(Recorded(cases.clone())));
@@ -263,8 +263,8 @@ mod tests {
     /// a session that is not loaded is `null`.
     #[tokio::test]
     async fn live_gauge_equals_nodes_for_empty_transcripts() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/context-status/golden.json");
-        let golden: Value = serde_json::from_slice(&std::fs::read(path).expect("golden")).expect("golden json");
+        let text = include_str!("../../../../fixtures/context-status/golden.json");
+        let golden: Value = serde_json::from_str(text).expect("golden json");
         let host = LiveContextStatus::new(Arc::new(GoldenWorld(golden.clone())));
         let mut compared = 0;
         for case in golden["cases"].as_array().expect("cases") {
@@ -276,7 +276,7 @@ mod tests {
             assert_eq!(answer, case["status"], "{name}");
             compared += 1;
         }
-        assert!(compared >= 2, "empty-transcript cases compared: {compared}");
+        assert_eq!(compared, 2, "empty-transcript cases compared");
         assert_eq!(host.context_status(Some(ThreadId::from("nope".to_owned())), None).await.expect("status"), Value::Null);
     }
 }

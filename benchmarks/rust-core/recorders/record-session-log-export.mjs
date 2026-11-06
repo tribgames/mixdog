@@ -51,6 +51,7 @@ const logId = JSON.parse(log.split('\n')[0]).logId;
 (await import(at('src/runtime/agent/orchestrator/session/store/session-writer-claim.mjs'))).releaseHeldSessionWriters();
 rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 
+// The log's key order is the record's own, which `writeJson` keeps.
 writeJson(join(FIXTURES_ROOT, 'session-log-export', 'session_log.json'), { record, logId, log });
 writeSetManifest(join(FIXTURES_ROOT, 'session-log-export'), {
   set: 'session-log-export',

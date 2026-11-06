@@ -128,3 +128,56 @@ async fn the_post_tool_hooks_send_and_decide_what_node_does() {
         hub.close_all().await;
     }
 }
+
+/// The transcript a bound export names is the path the handlers receive, placed where Node's
+/// payload has it; an event with no handler never asks for the export.
+struct CountedExport(std::sync::atomic::AtomicUsize);
+
+#[async_trait]
+impl mixdog_mcp::hook_bus::TranscriptExport for CountedExport {
+    async fn transcript_path(&self, session_id: &str) -> Value {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        json!(format!("/exports/{session_id}.log.jsonl"))
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bound_transcript_export_names_the_path_the_handlers_receive() {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().join("work").to_string_lossy().into_owned();
+    let handlers = json!([{"type": "mcp_tool", "server": "mock", "tool": "fixture_0"}]);
+    let (file, text) = (dir.path().join("hooks.json"), json!({"hooks": {"PostToolBatch": [{"hooks": handlers}]}}).to_string());
+    mixdog_rt::LaneToken::submit(tokens.maintenance_io, &tokio_util::sync::CancellationToken::new(), move |lane| {
+        mixdog_statefile::append_file(lane, &file, text.as_bytes())
+    })
+    .unwrap()
+    .await
+    .unwrap()
+    .unwrap();
+    let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
+    let entry = json!({"command": MOCK, "env": {"MOCK_FIXTURES": json!([""]).to_string()}});
+    hub.apply(vec![McpServerConfig::from_entry("mock", &entry, &std::env::vars().collect()).unwrap()]);
+    hub.server("mock").unwrap().connect().await.unwrap();
+    let bus = HookBus::new(dir.path().to_path_buf(), tokens.maintenance_io, Arc::new(NoProcesses), Some(Arc::clone(&hub)), None, None);
+    let export = Arc::new(CountedExport(std::sync::atomic::AtomicUsize::new(0)));
+    assert!(bus.bind_transcripts(export.clone()).is_ok());
+    let post = SessionPostTool::new(bus, Arc::new(|_: &str| HookCommon { permission_mode: Some("plan".into()), ..HookCommon::default() }));
+
+    // An event no handler is configured for runs nothing, so nothing is exported.
+    let args = json!({});
+    post.failure(&PostCall { session_id: "sess_t", name: "edit", args: &args, cwd: &cwd, result: "failed" }).await;
+    assert_eq!(export.0.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+    post.batch("sess_t", &cwd, 2).await;
+    assert_eq!(export.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let seen = hub.server("mock").unwrap().call_tool_unlisted("t", "fixture_args", json!({}), &tokio_util::sync::CancellationToken::new(), None).await.unwrap();
+    let mixdog_core_api::domain::tool::ToolPart::Text(text) = &seen.parts[0] else { panic!("{:?}", seen.parts) };
+    let payload: Value = serde_json::from_str::<Value>(text).unwrap()[0].clone();
+    assert_eq!(
+        serde_json::to_string(&payload).unwrap(),
+        json!({"session_id": "sess_t", "cwd": cwd, "hook_event_name": "PostToolBatch", "transcript_path": "/exports/sess_t.log.jsonl", "permission_mode": "plan"}).to_string()
+    );
+    hub.close_all().await;
+}

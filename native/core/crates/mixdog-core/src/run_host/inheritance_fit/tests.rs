@@ -85,6 +85,7 @@ impl MeasuredThreads for Threads {
 }
 
 fn tools_of(target: &Value) -> Vec<ToolDefinition> {
+    // The golden keeps the key order Node built the schemas in, which the estimate prices.
     target["tools"]
         .as_array()
         .unwrap()
@@ -139,7 +140,7 @@ async fn every_recorded_fit_equals_nodes() {
         checked += 1;
     }
     assert!(checked >= 80, "{checked}");
-    assert!(differ.is_empty(), "{} differ:\n{}", differ.len(), differ.iter().take(10).cloned().collect::<Vec<_>>().join("\n"));
+    assert!(differ.is_empty(), "{} differ: {}", differ.len(), differ.iter().take(10).cloned().collect::<Vec<_>>().join(" ; "));
 }
 
 /// The tools are the opening session's, the media meter is the source's, and a conversation with

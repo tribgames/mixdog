@@ -20,7 +20,6 @@ use mixdog_core_domains::domains::instructions::InstructionsService;
 use mixdog_core_domains::domains::update::REGISTRY_URL;
 use mixdog_core_domains::domains::update::UpdateConfig;
 use mixdog_core_domains::domains::update::UpdateService;
-use mixdog_remote::leg::validated_relay_url;
 use mixdog_store::blobs::BlobStore;
 use mixdog_workspace::transfer::TransferSource;
 use serde_json::Value;
@@ -33,22 +32,11 @@ use super::adapters::RemotePower;
 use crate::update_installer::StagedConfig;
 use crate::update_installer::StagedInstaller;
 
-/// Packaged default of the desktop pairing relay (`DEFAULT_RELAY_URL`, `remote-relay-device.ts`).
-const DEFAULT_RELAY_URL: &str = "wss://192-255-139-161.sslip.io";
-
-/// `resolveRelayUrl(process.env)` of the desktop: `Ok(None)` when switched off (`0`, `false`,
-/// `off`), the validated URL otherwise; the error is the desktop's sentence.
+/// `resolveRelayUrl(process.env)` of the desktop over `MIXDOG_RELAY_URL`: the one rule of
+/// [`crate::domain_seams::remote::resolve_relay_url`], which the remote runtime resolves with too.
 fn relay_url(env: &super::EnvReader) -> RelayUrl {
     let env = env.clone();
-    Arc::new(move || {
-        let raw = env("MIXDOG_RELAY_URL").unwrap_or_default();
-        let raw = mixdog_js::js_trim(&raw);
-        if matches!(raw.to_lowercase().as_str(), "0" | "false" | "off") {
-            return Ok(None);
-        }
-        let raw = if raw.is_empty() { DEFAULT_RELAY_URL } else { raw };
-        validated_relay_url(raw).map(|url| Some(url.to_string())).map_err(|error| error.to_string())
-    })
+    Arc::new(move || crate::domain_seams::remote::resolve_relay_url(env("MIXDOG_RELAY_URL").as_deref()))
 }
 
 /// The `version` of `package.json` at the package root (`package.json` `version`).

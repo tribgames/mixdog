@@ -154,7 +154,14 @@ export function summarize(samples) {
   };
 }
 
-/** JSON with sorted object keys, so recordings diff cleanly. */
+/**
+ * JSON in the key order Node built the value in. Goldens are written with this: a Rust test that hashes,
+ * serializes, truncates to the first N keys or compares the text of a golden object (serde_json
+ * `preserve_order` reads the order back) must see the order Node produced, and a sorted file cannot show it.
+ */
+export const orderedStringify = (value, indent = 2) => `${JSON.stringify(value, null, indent)}\n`;
+
+/** JSON with sorted object keys: only for files whose bytes are compared for identity (the manifests). */
 export function stableStringify(value, indent = 2) {
   const sort = (v) => {
     if (Array.isArray(v)) return v.map(sort);
@@ -175,7 +182,10 @@ export function writeText(path, text) {
   writeFileSync(path, text);
 }
 
-export const writeJson = (path, value) => writeText(path, stableStringify(value));
+export const writeJson = (path, value) => writeText(path, orderedStringify(value));
+
+/** Manifests and their index: canonical (sorted) so hashing never depends on construction order. */
+export const writeCanonicalJson = (path, value) => writeText(path, stableStringify(value));
 
 /** Credential shapes that must never reach a checked-in fixture. */
 export const SECRET_PATTERNS = [
@@ -221,7 +231,7 @@ export function writeSetManifest(setDir, { set, recorder, command, extra = {}, i
       if (!f.endsWith('.bin')) scanForSecrets(data.toString('utf8'), f);
       return { path: relative(setDir, f).split(sep).join('/'), bytes: data.length, sha256: sha256(data) };
     });
-  writeJson(join(setDir, 'MANIFEST.json'), {
+  writeCanonicalJson(join(setDir, 'MANIFEST.json'), {
     set,
     recorder,
     command,

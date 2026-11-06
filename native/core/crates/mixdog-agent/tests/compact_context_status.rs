@@ -65,6 +65,7 @@ fn status_equals_node() {
     let mut compared = 0;
     for case in golden["cases"].as_array().expect("cases") {
         let name = case["name"].as_str().expect("name");
+        // The golden keeps Node's own key order, which the tool-schema signature hashes.
         let Some(header) = case["header"].as_object() else {
             assert!(case["status"].is_null(), "{name}: no session has no status");
             continue;
@@ -99,5 +100,5 @@ fn status_equals_node() {
         assert_eq!(context_status(&input), case["status"], "{name}");
         compared += 1;
     }
-    assert_eq!(compared, 13);
+    assert_eq!(compared, 14);
 }

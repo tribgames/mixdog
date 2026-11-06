@@ -32,6 +32,8 @@ use crate::orch::util::text;
 
 pub const SECRET_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const HANDOFF_OUTCOMES: [&str; 6] = ["entered", "user_skipped", "no_field", "page_changed", "blocked", "expired"];
+/// A takeover nobody finishes ends on its own after this long (`TAKEOVER_EXPIRY_MS`, `takeover-gate.ts`).
+pub const TAKEOVER_EXPIRY: Duration = Duration::from_secs(15 * 60);
 /// The settle reason of a takeover that expired.
 const TAKEOVER_EXPIRED_REASON: &str = "expired";
 const UNATTENDED_TAKEOVER: &str = "Nobody is present in this routine run, so it ends here and the user is told what needs them. Stop; do not retry or work around this step.";
@@ -222,6 +224,21 @@ pub fn takeover_outcome(resolution: &ApprovalResolution, page_url: &str) -> Stri
     }
 }
 
+/// The takeover card's request: it expires after [`TAKEOVER_EXPIRY`], resolved `timedOut`, which
+/// [`takeover_outcome`] answers as `expired`.
+fn takeover_ask(call_id: Option<mixdog_protocol::ToolCallId>, takeover: Value) -> ApprovalAsk {
+    ApprovalAsk {
+        kind: ApprovalKind::Tool,
+        call_id,
+        tool: Some("handoff_user".to_owned()),
+        action_kind: None,
+        reason: None,
+        payload: json!({"kind": "takeover", "takeover": takeover}),
+        remember: Vec::new(),
+        expires_after: Some(TAKEOVER_EXPIRY),
+    }
+}
+
 /// What the tool layer records about a human decision.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct GateRecord {
@@ -383,19 +400,7 @@ impl HandoffUserTool {
                 map.insert("fillId".into(), json!(fill_id));
             }
         }
-        let resolution = ctx
-            .approvals
-            .request(ApprovalAsk {
-                kind: ApprovalKind::Tool,
-                call_id: Some(ctx.call_id.clone()),
-                tool: Some("handoff_user".to_owned()),
-                action_kind: None,
-                reason: None,
-                payload: json!({"kind": "takeover", "takeover": takeover}),
-                remember: Vec::new(),
-                expires_after: None,
-            })
-            .await;
+        let resolution = ctx.approvals.request(takeover_ask(Some(ctx.call_id.clone()), takeover)).await;
         if matches!(resolution, ApprovalResolution::Cancelled { .. }) {
             return Err(cancelled());
         }
@@ -495,6 +500,16 @@ mod tests {
         assert_eq!(takeover_outcome(&decision(false, None, None), ""), "user_skipped");
         assert_eq!(takeover_outcome(&ApprovalResolution::TimedOut { at: 1 }, ""), "expired");
         assert_eq!(takeover_outcome(&decision(true, Some("expired"), None), ""), "expired");
+    }
+
+    #[test]
+    fn a_takeover_card_expires_after_fifteen_minutes_and_a_secret_card_keeps_its_own_limit() {
+        let card = takeover_ask(None, json!({"surface": "computer"}));
+        assert_eq!(card.expires_after, Some(Duration::from_secs(900)));
+        assert_eq!(card.payload, json!({"kind": "takeover", "takeover": {"surface": "computer"}}));
+        assert_eq!(SECRET_REQUEST_TIMEOUT, Duration::from_secs(120));
+        // The expiry ends the wait as Node's expiry settle does: reason `expired`.
+        assert_eq!(takeover_outcome(&ApprovalResolution::TimedOut { at: 900_000 }, "https://a.com/x"), "expired");
     }
 
     #[test]

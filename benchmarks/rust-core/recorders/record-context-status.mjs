@@ -78,6 +78,7 @@ const cases = [
   ['provider baseline plus growth', withBaseline(convo, { messages: [...convo, { role: 'user', content: 'and one more question please' }] })],
   ['post-compact snapshot', snapshotted],
   ['reasoning blocks', { ...base, messages: reasoning, reasoningUsage: { reasoningTokens: 17, reasoningTokensComplete: true } }],
+  ['empty conversation with tools', { ...base, id: 's_empty_tools', messages: [] }],
   ['window from the route only', { id: 's_route', messages: convo, tools: [] }],
   ['tool without a schema', { ...base, id: 's_bare', messages: convo, tools: [tools[0], { name: 'bare', description: 'No schema' }, tools[0]] }],
   [

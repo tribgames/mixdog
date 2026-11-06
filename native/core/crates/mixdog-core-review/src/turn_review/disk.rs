@@ -152,6 +152,20 @@ struct LaneFs<'a> {
     lane: &'a InLane<mixdog_rt::DurabilityIo>,
 }
 
+/// `rm(path, { recursive: true, force: true })`: a folder goes with what it holds, a file goes
+/// as itself (the baselines' blobs are files), and a path that is not there is not an error.
+fn rm_recursive(lane: &InLane<mixdog_rt::DurabilityIo>, path: &Path) -> std::io::Result<()> {
+    let removed = match mixdog_statefile::metadata(lane, path) {
+        Ok(meta) if meta.is_dir() => mixdog_statefile::remove_dir_all(lane, path),
+        Ok(_) => mixdog_statefile::remove_file(lane, path),
+        Err(e) => Err(e),
+    };
+    match removed {
+        Err(e) if missing(&e) => Ok(()),
+        other => other,
+    }
+}
+
 struct ReadOnlyFs;
 
 fn fs_read(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
@@ -224,11 +238,7 @@ impl BlockingFs for LaneFs<'_> {
     }
 
     fn remove_tree(&self, path: &Path) -> std::io::Result<()> {
-        match std::fs::remove_dir_all(path) {
-            Ok(()) => Ok(()),
-            Err(e) if missing(&e) => Ok(()),
-            Err(e) => Err(e),
-        }
+        rm_recursive(self.lane, path)
     }
 
     fn create_private_dir_all(&self, path: &Path) -> std::io::Result<()> {
@@ -430,9 +440,9 @@ impl ReviewDisk for LaneDisk {
     async fn remove_tree(&self, dir: &Path) -> std::io::Result<()> {
         let dir = dir.to_owned();
         // maxRetries: 5, retryDelay: 100.
-        self.durable(move |_| {
+        self.durable(move |lane| {
             for attempt in 0..6 {
-                match std::fs::remove_dir_all(&dir) {
+                match rm_recursive(lane, &dir) {
                     Ok(()) => return Ok(()),
                     Err(e) if missing(&e) => return Ok(()),
                     Err(e) if attempt == 5 => return Err(e),

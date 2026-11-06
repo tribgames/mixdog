@@ -196,6 +196,11 @@ impl ApprovalBook {
             .collect()
     }
 
+    /// What every request still held (pending or resolving, until its resolution is durable) asked.
+    pub fn open_asks(&self) -> impl Iterator<Item = &ApprovalAsk> {
+        self.open.values().map(|open| &open.request.ask)
+    }
+
     pub fn next_deadline(&self) -> Option<Instant> {
         self.deadlines.first().map(|(at, _)| *at)
     }

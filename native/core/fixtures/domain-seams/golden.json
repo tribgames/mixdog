@@ -1,4 +1,22 @@
 {
+  "clicks": {
+    "opened": [
+      "sess_click"
+    ],
+    "prefix": "turn-notification-",
+    "reported": [
+      {
+        "details": {},
+        "event": "requested",
+        "sessionId": "sess_click"
+      },
+      {
+        "details": {},
+        "event": "clicked",
+        "sessionId": "sess_click"
+      }
+    ]
+  },
   "developer": [
     {
       "enabled": [
@@ -521,169 +539,174 @@
     ]
   },
   "frozenNow": 1700000000000,
+  "git": [
+    {
+      "args": [
+        "init",
+        "<root>/source"
+      ],
+      "before": null,
+      "ok": "Initialized empty Git repository in <root>/source/.git/"
+    },
+    {
+      "args": [
+        "-C",
+        "<root>/source",
+        "config",
+        "user.name",
+        "n"
+      ],
+      "before": null,
+      "ok": ""
+    },
+    {
+      "args": [
+        "-C",
+        "<root>/source",
+        "config",
+        "core.autocrlf",
+        "false"
+      ],
+      "before": null,
+      "ok": ""
+    },
+    {
+      "args": [
+        "-C",
+        "<root>/source",
+        "rev-parse",
+        "--is-inside-work-tree"
+      ],
+      "before": null,
+      "ok": "true"
+    },
+    {
+      "args": [
+        "clone",
+        "<root>/none",
+        "<root>/dest"
+      ],
+      "before": null,
+      "error": "Cloning into '<root>/dest'...\nfatal: '<root>/none' does not appear to be a git repository\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists."
+    },
+    {
+      "args": [
+        "nosuchcommand"
+      ],
+      "before": null,
+      "error": "git: 'nosuchcommand' is not a git command. See 'git --help'."
+    },
+    {
+      "args": [
+        "-C",
+        "<root>/source",
+        "diff",
+        "--quiet"
+      ],
+      "before": null,
+      "ok": ""
+    },
+    {
+      "args": [
+        "-C",
+        "<root>/source",
+        "status",
+        "--porcelain"
+      ],
+      "before": {
+        "source/f.txt": "one\n"
+      },
+      "ok": "?? f.txt"
+    },
+    {
+      "args": [
+        "-C",
+        "<root>/source",
+        "add",
+        "f.txt"
+      ],
+      "before": null,
+      "ok": ""
+    },
+    {
+      "args": [
+        "-C",
+        "<root>/source",
+        "-c",
+        "user.name=a",
+        "-c",
+        "user.email=b@c",
+        "commit",
+        "-q",
+        "-m",
+        "m"
+      ],
+      "before": null,
+      "ok": ""
+    },
+    {
+      "args": [
+        "-C",
+        "<root>/source",
+        "status",
+        "--porcelain"
+      ],
+      "before": {
+        "source/f.txt": "two\n"
+      },
+      "ok": "M f.txt"
+    },
+    {
+      "args": [
+        "-C",
+        "<root>/source",
+        "diff",
+        "--quiet"
+      ],
+      "before": null,
+      "error": "git -C <root>/source diff --quiet failed"
+    }
+  ],
   "hooks": {
     "payloads": [
       {
-        "compact": {},
-        "payload": {},
+        "compactJson": "{}",
+        "payloadJson": "{}",
         "summary": ""
       },
       {
-        "compact": {
-          "elapsedMs": 12,
-          "error": "e",
-          "model": "m",
-          "prompt": "a   b\n c",
-          "provider": "p",
-          "reason": "r",
-          "session_id": "s1",
-          "tool_name": "bash"
-        },
-        "payload": {
-          "elapsedMs": 12,
-          "error": "e",
-          "model": "m",
-          "prompt": "a   b\n c",
-          "provider": "p",
-          "reason": "r",
-          "session_id": "s1",
-          "tool_name": "bash"
-        },
+        "compactJson": "{\"session_id\":\"s1\",\"tool_name\":\"bash\",\"provider\":\"p\",\"model\":\"m\",\"prompt\":\"a   b\\n c\",\"reason\":\"r\",\"error\":\"e\",\"elapsedMs\":12}",
+        "payloadJson": "{\"session_id\":\"s1\",\"tool_name\":\"bash\",\"provider\":\"p\",\"model\":\"m\",\"prompt\":\"a   b\\n c\",\"reason\":\"r\",\"error\":\"e\",\"elapsedMs\":12}",
         "summary": "session=s1 · name=bash · p/m · prompt=a b c · reason=r · error=e · 12ms"
       },
       {
-        "compact": {
-          "model": "only-model",
-          "name": "n",
-          "sessionId": "x"
-        },
-        "payload": {
-          "model": "only-model",
-          "name": "n",
-          "sessionId": "x"
-        },
+        "compactJson": "{\"sessionId\":\"x\",\"name\":\"n\",\"model\":\"only-model\"}",
+        "payloadJson": "{\"sessionId\":\"x\",\"name\":\"n\",\"model\":\"only-model\"}",
         "summary": "session=x · name=n · only-model"
       },
       {
-        "compact": {
-          "elapsedMs": 0,
-          "provider": "only-provider"
-        },
-        "payload": {
-          "elapsedMs": 0,
-          "provider": "only-provider"
-        },
+        "compactJson": "{\"provider\":\"only-provider\",\"elapsedMs\":0}",
+        "payloadJson": "{\"provider\":\"only-provider\",\"elapsedMs\":0}",
         "summary": "only-provider · 0ms"
       },
       {
-        "compact": {
-          "error": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
-          "prompt": "p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p ",
-          "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr..."
-        },
-        "payload": {
-          "error": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
-          "prompt": "p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p ",
-          "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
-        },
+        "compactJson": "{\"prompt\":\"p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p \",\"reason\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr...\",\"error\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"}",
+        "payloadJson": "{\"prompt\":\"p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p \",\"reason\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"error\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"}",
         "summary": "prompt=p p p p p p p p p p p p p p p p p p p p p p p p p p p p p p  · reason=rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr · error=éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
       },
       {
-        "compact": {
-          "elapsedMs": null,
-          "name": "",
-          "prompt": 0,
-          "sessionId": 0
-        },
-        "payload": {
-          "elapsedMs": null,
-          "name": "",
-          "prompt": 0,
-          "sessionId": 0
-        },
+        "compactJson": "{\"sessionId\":0,\"name\":\"\",\"prompt\":0,\"elapsedMs\":null}",
+        "payloadJson": "{\"sessionId\":0,\"name\":\"\",\"prompt\":0,\"elapsedMs\":null}",
         "summary": ""
       },
       {
-        "compact": {
-          "Token": "<redacted>",
-          "apiKey": "<redacted>",
-          "flag": true,
-          "n": 1.5,
-          "nested": {
-            "list": [
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8
-            ],
-            "ok": 1,
-            "password": "<redacted>"
-          },
-          "none": null,
-          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx..."
-        },
-        "payload": {
-          "Token": "t",
-          "apiKey": "k",
-          "flag": true,
-          "n": 1.5,
-          "nested": {
-            "list": [
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              {
-                "secret": "s"
-              }
-            ],
-            "ok": 1,
-            "password": "p"
-          },
-          "none": null,
-          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-        },
+        "compactJson": "{\"apiKey\":\"<redacted>\",\"Token\":\"<redacted>\",\"nested\":{\"password\":\"<redacted>\",\"ok\":1,\"list\":[1,2,3,4,5,6,7,8]},\"text\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...\",\"flag\":true,\"none\":null,\"n\":1.5}",
+        "payloadJson": "{\"apiKey\":\"k\",\"Token\":\"t\",\"nested\":{\"password\":\"p\",\"ok\":1,\"list\":[1,2,3,4,5,6,7,8,9,{\"secret\":\"s\"}]},\"text\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"flag\":true,\"none\":null,\"n\":1.5}",
         "summary": ""
       },
       {
-        "compact": {
-          "a1": 1,
-          "a10": 10,
-          "a11": 11,
-          "a12": 12,
-          "a2": 2,
-          "a3": 3,
-          "a4": 4,
-          "a5": 5,
-          "a6": 6,
-          "a7": 7,
-          "a8": 8,
-          "a9": 9
-        },
-        "payload": {
-          "a1": 1,
-          "a10": 10,
-          "a11": 11,
-          "a12": 12,
-          "a13": 13,
-          "a2": 2,
-          "a3": 3,
-          "a4": 4,
-          "a5": 5,
-          "a6": 6,
-          "a7": 7,
-          "a8": 8,
-          "a9": 9
-        },
+        "compactJson": "{\"a1\":1,\"a2\":2,\"a3\":3,\"a4\":4,\"a5\":5,\"a6\":6,\"a7\":7,\"a8\":8,\"a9\":9,\"a10\":10,\"a11\":11,\"a12\":12}",
+        "payloadJson": "{\"a1\":1,\"a2\":2,\"a3\":3,\"a4\":4,\"a5\":5,\"a6\":6,\"a7\":7,\"a8\":8,\"a9\":9,\"a10\":10,\"a11\":11,\"a12\":12,\"a13\":13}",
         "summary": ""
       }
     ],
@@ -1346,6 +1369,551 @@
     "now": 1700000000000,
     "pid": 4242,
     "uuid": "0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b"
+  },
+  "nodeRuntime": {
+    "engines": "^22.19.0 || >=24.0.0",
+    "packageJson": "{\n  \"name\": \"mixdog\",\n  \"version\": \"1.4.5\",\n  \"private\": false,\n  \"type\": \"module\",\n  \"description\": \"Open-source coding agent that matches Codex on Terminal-Bench 2.1 with 63% fewer tokens.\",\n  \"license\": \"Apache-2.0\",\n  \"repository\": {\n    \"type\": \"git\",\n    \"url\": \"git+https://github.com/tribgames/mixdog.git\"\n  },\n  \"bugs\": {\n    \"url\": \"https://github.com/tribgames/mixdog/issues\"\n  },\n  \"homepage\": \"https://mixdog.ai/\",\n  \"keywords\": [\n    \"ai\",\n    \"agent\",\n    \"coding-agent\",\n    \"llm\",\n    \"claude\",\n    \"codex\",\n    \"openai\",\n    \"token-efficiency\",\n    \"terminal-bench\",\n    \"desktop\",\n    \"cli\",\n    \"mcp\"\n  ],\n  \"bin\": {\n    \"mixdog\": \"src/cli.mjs\"\n  },\n  \"files\": [\n    \"README.md\",\n    \"NOTICE.md\",\n    \"LICENSES/\",\n    \"scripts/\",\n    \"!scripts/bench/\",\n    \"!scripts/recall-bench-*.txt\",\n    \"!scripts/*-test.mjs\",\n    \"!scripts/**/*.test.mjs\",\n    \"!scripts/tool-contracts/\",\n    \"!scripts/provider-toolcall/\",\n    \"!scripts/session-transport/\",\n    \"!scripts/shellhardening/\",\n    \"!scripts/*-smoke.mjs\",\n    \"!scripts/smoke-loop*.mjs\",\n    \"!scripts/*-bench.mjs\",\n    \"!scripts/*bench-*.mjs\",\n    \"!scripts/verify-embedding-runtime.mjs\",\n    \"!scripts/*.ps1\",\n    \"!scripts/*.jsx\",\n    \"src/\",\n    \"!src/tui/dev\",\n    \"!src/**/*.test.mjs\",\n    \"!src/**/*.test-hook.mjs\",\n    \"!src/**/*.test.jsx\"\n  ],\n  \"scripts\": {\n    \"postinstall\": \"node scripts/prune-embedding-runtime.mjs && node scripts/prepare-native-assets.mjs\",\n    \"prepack\": \"npm run build:shipped-history && npm run build:tui\",\n    \"build:shipped-history\": \"node scripts/build-shipped-history.mjs\",\n    \"check:shipped-history\": \"node scripts/build-shipped-history.mjs --check\",\n    \"check:model-recommendations\": \"node scripts/check-model-recommendations.mjs\",\n    \"prepublishOnly\": \"node -e \\\"if(!process.env.CI){console.error('local npm publish is disabled — run npm run release:patch');process.exit(1)}\\\"\",\n    \"start\": \"node src/cli.mjs\",\n    \"test\": \"node scripts/test.mjs\",\n    \"test:slow\": \"node scripts/test.mjs --lane slow\",\n    \"gate:local\": \"node scripts/gate-local.mjs\",\n    \"test:live\": \"npm run build:spawn:test && node scripts/test.mjs --lane live\",\n    \"smoke\": \"node scripts/smoke.mjs\",\n    \"smoke:all\": \"npm run smoke && npm run smoke:boot && npm run smoke:patch && npm run smoke:compact\",\n    \"smoke:boot\": \"node scripts/boot-smoke.mjs\",\n    \"smoke:compact\": \"node scripts/compact-smoke.mjs\",\n    \"smoke:loop\": \"node scripts/smoke-loop.mjs\",\n    \"smoke:loop:final\": \"node scripts/smoke-loop-report.mjs --require-complete --min-elapsed 5h --min-iterations 400 --max-gap 60s --max-smoke-ms 10000 --max-avg-smoke-ms 8500 --max-step-ms smoke.mjs=4000 --max-step-ms boot-smoke.mjs=8000 --max-rss-mb 140 --max-rss-growth-mb 50\",\n    \"smoke:loop:report\": \"node scripts/smoke-loop-report.mjs\",\n    \"build:spawn:test\": \"cargo build --locked --manifest-path native/mixdog-spawn/Cargo.toml\",\n    \"build:supervisor:test\": \"cargo build --locked --release --manifest-path native/mixdog-supervisor/Cargo.toml\",\n    \"test:tool-contracts\": \"npm run build:spawn:test && node scripts/test-direct.mjs --test-force-exit \\\"scripts/tool-contracts/*.test.mjs\\\"\",\n    \"smoke:patch\": \"node scripts/apply-patch-edit-smoke.mjs\",\n    \"test:shellhardening\": \"npm run build:spawn:test && node scripts/test-direct.mjs \\\"scripts/shellhardening/*.test.mjs\\\" scripts/suite-shell-direct-exe-test.mjs\",\n    \"test:providers\": \"node scripts/test-direct.mjs \\\"scripts/provider-toolcall/*.test.mjs\\\" scripts/provider-contract-test.mjs scripts/provider-stream-outcome-test.mjs scripts/cursor-provider-test.mjs src/runtime/agent/orchestrator/providers/openai-codex-identity.test.mjs src/runtime/agent/orchestrator/providers/openai-ws-delta-parity.test.mjs\",\n    \"test:embedding-runtime:warmup\": \"node scripts/verify-embedding-runtime.mjs --warmup\",\n    \"test:release-assets\": \"node --check scripts/verify-release-assets.mjs && node --check scripts/release-gate-test.mjs && node --check scripts/prepare-native-assets.mjs && node scripts/test-direct.mjs scripts/release-gate-test.mjs scripts/prepare-native-assets-test.mjs scripts/generate-voice-runtime-manifest.test.mjs\",\n    \"test:native-edit-wire\": \"node scripts/native-edit-wire-test.mjs\",\n    \"test:release-critical\": \"npm run test:release-assets && npm run smoke:patch && npm run test:providers\",\n    \"test:spec-advisory\": \"node scripts/run-advisory-spec.mjs && npm run test:spec-advisory --prefix apps/desktop\",\n    \"test:session-transport\": \"node scripts/test-direct.mjs \\\"scripts/session-transport/*.test.mjs\\\" scripts/daemon-bootstrap-test.mjs src/standalone/session-runtime-inline-host.test.mjs\",\n    \"test:office\": \"node scripts/test-direct.mjs scripts/run-office-live-tests.test.mjs src/runtime/office/office-runtime-contract.test.mjs src/runtime/office/office-runtime-com.test.mjs src/runtime/office/office-runtime-portable.slow.test.mjs src/runtime/office/xlsx-formula-audit.test.mjs src/runtime/office/xlsx-portable-snapshot.test.mjs src/runtime/office/office-runtime-pdf.slow.test.mjs src/runtime/office/office-runtime-design.test.mjs src/runtime/office/office-assurance.slow.test.mjs src/runtime/office/office-design-aesthetics.test.mjs src/runtime/office/portable-authoring.slow.test.mjs src/runtime/office/slide-quality.test.mjs src/runtime/office/authoring/pptx-brief.test.mjs src/runtime/office/authoring/pptx-receipt.test.mjs src/runtime/office/quality/render-air.test.mjs src/runtime/office/quality/pptx-deck-rubric.test.mjs && npm run test:office-approval --prefix apps/desktop\",\n    \"test:office:live\": \"node scripts/run-office-live-tests.mjs\",\n    \"test:office:compat\": \"node scripts/run-office-live-tests.mjs compat\",\n    \"test:office:live:all\": \"node scripts/run-office-live-tests.mjs all\",\n    \"test:office:render\": \"node scripts/test-direct.mjs src/runtime/office/pptx-skill-kit.slow.test.mjs\",\n    \"office:icons\": \"node scripts/office/build-pptx-icons.mjs\",\n    \"failures\": \"node scripts/tool-failures.mjs\",\n    \"trace:llm\": \"node scripts/llm-trace-summary.mjs\",\n    \"bench:office\": \"node src/runtime/office/bench/benchmark.mjs\",\n    \"bench:office:contract\": \"node src/runtime/office/bench/contract-benchmark.mjs\",\n    \"bench:office:assurance\": \"node src/runtime/office/bench/assurance-benchmark.mjs\",\n    \"bench:office:polish\": \"node src/runtime/office/bench/polish-benchmark.mjs\",\n    \"bench:office:deck\": \"node src/runtime/office/bench/deck-bench.mjs\",\n    \"bench:office:quality:live\": \"node src/runtime/office/bench/quality-live-benchmark.mjs\",\n    \"diag:sessions\": \"node scripts/session-diag.mjs\",\n    \"diag:tools\": \"node scripts/tool-efficiency-diag.mjs\",\n    \"diag:efficiency\": \"node scripts/session-efficiency-diag.mjs\",\n    \"diag:sweep\": \"node scripts/session-sweep.mjs\",\n    \"bench:session\": \"node scripts/session-bench.mjs\",\n    \"bench:task\": \"node scripts/task-bench.mjs\",\n    \"bench:corpus\": \"node scripts/routing-corpus.mjs\",\n    \"bench:run\": \"node scripts/bench-run.mjs\",\n    \"bench:recall\": \"node scripts/recall-bench.mjs\",\n    \"bench:recall:strict\": \"node scripts/recall-bench.mjs --strict\",\n    \"bench:tui-load\": \"node scripts/tui-runtime-load-bench.mjs\",\n    \"bench:output-style\": \"node scripts/output-style-bench.mjs\",\n    \"bench:session-context\": \"node scripts/session-context-bench.mjs\",\n    \"bench:session-transport\": \"node scripts/session-transport-bench.mjs\",\n    \"bench:tool-overhead\": \"node scripts/tool-overhead-microbench.mjs\",\n    \"bench:search-tools\": \"node scripts/tool-search-bench.mjs\",\n    \"bench:io-tools\": \"node scripts/tool-io-bench.mjs\",\n    \"bench:internal-comms\": \"node scripts/internal-comms-bench.mjs\",\n    \"audit:models\": \"node scripts/model-catalog-audit.mjs\",\n    \"patch:replay\": \"node scripts/patch-replay.mjs\",\n    \"build:tui\": \"node scripts/build-tui.mjs\",\n    \"build:local\": \"npm run build:fast --prefix apps/desktop\",\n    \"deploy:local\": \"npm run update:dev:fast --prefix apps/desktop\",\n    \"deploy:vps\": \"pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-remote.ps1\",\n    \"deploy:fast\": \"pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-remote.ps1 -FastDirect\",\n    \"release:patch\": \"gh workflow run deploy.yml --ref main -f bump=patch -f native=auto\",\n    \"release:minor\": \"gh workflow run deploy.yml --ref main -f bump=minor -f native=auto\",\n    \"release:major\": \"gh workflow run deploy.yml --ref main -f bump=major -f native=auto\",\n    \"tidy:engines:sync\": \"node scripts/tidy/sync-engines-manifest.mjs\",\n    \"graph:parity\": \"node scripts/graph-parity.mjs\"\n  },\n  \"engines\": {\n    \"node\": \"^22.19.0 || >=24.0.0\"\n  },\n  \"os\": [\n    \"darwin\",\n    \"linux\",\n    \"win32\"\n  ],\n  \"cpu\": [\n    \"x64\",\n    \"arm64\"\n  ],\n  \"dependencies\": {\n    \"@anthropic-ai/sdk\": \"^0.137.0\",\n    \"@formulajs/formulajs\": \"^4.6.1\",\n    \"@huggingface/transformers\": \"^4.3.1\",\n    \"@img/sharp-wasm32\": \"0.35.5\",\n    \"@modelcontextprotocol/sdk\": \"^1.32.1\",\n    \"@mozilla/readability\": \"^0.6.0\",\n    \"@napi-rs/canvas\": \"^1.0.8\",\n    \"@pdf-lib/fontkit\": \"^1.1.1\",\n    \"ajv\": \"^8.20.0\",\n    \"chalk\": \"^5.6.2\",\n    \"cli-highlight\": \"^2.1.11\",\n    \"diff\": \"^9.0.0\",\n    \"imapflow\": \"^2.5.7\",\n    \"ink\": \"https://github.com/tribgames/mixdog/releases/download/ink-runtime-v7.1.0-mixdog.1/ink-7.1.0.tgz\",\n    \"jsdom\": \"^27.0.0\",\n    \"jszip\": \"^3.10.1\",\n    \"marked\": \"^14.1.4\",\n    \"node-cron\": \"^4.5.0\",\n    \"nodemailer\": \"^10.1.7\",\n    \"onnxruntime-node\": \"1.30.0\",\n    \"openai\": \"^6.44.0\",\n    \"pdf-lib\": \"^1.17.1\",\n    \"pdfjs-dist\": \"^6.2.108\",\n    \"pg\": \"^8.22.0\",\n    \"pptxgenjs\": \"^4.0.1\",\n    \"puppeteer-core\": \"^25.2.0\",\n    \"react\": \"^19.2.7\",\n    \"saxes\": \"^6.0.0\",\n    \"sharp\": \"^0.35.5\",\n    \"string-width\": \"^8.2.1\",\n    \"strip-ansi\": \"^7.2.0\",\n    \"tesseract.js\": \"^7.0.0\",\n    \"tldts\": \"^7.4.18\",\n    \"undici\": \"^8.10.2\",\n    \"unpdf\": \"^1.8.0\",\n    \"wrap-ansi\": \"^10.0.0\",\n    \"ws\": \"^8.21.0\",\n    \"yaml\": \"^2.9.0\",\n    \"zod\": \"^4.6.7\"\n  },\n  \"overrides\": {\n    \"onnxruntime-node\": {\n      \".\": \"1.30.0\",\n      \"global-agent\": \"^4.1.3\"\n    },\n    \"sharp\": \"^0.35.5\",\n    \"pptxgenjs\": {\n      \"image-size\": \"2.0.3\"\n    }\n  },\n  \"devDependencies\": {\n    \"acorn\": \"^8.17.0\",\n    \"esbuild\": \"^0.28.1\",\n    \"eslint-scope\": \"^9.1.2\",\n    \"lucide-static\": \"^1.41.0\"\n  },\n  \"directories\": {\n    \"doc\": \"docs\"\n  },\n  \"author\": \"\"\n}\n",
+    "version": "22.20.0"
+  },
+  "remote": {
+    "hostName": {
+      "computerName": "DESKTOP-IBLP835",
+      "hostname": "DESKTOP-IBLP835",
+      "platform": "win32"
+    },
+    "pairCode": {
+      "defaultLease": {
+        "hex": true,
+        "length": 32
+      },
+      "hostName": "PC-FIXED",
+      "steps": [
+        {
+          "at": 0,
+          "op": "ensure",
+          "result": null,
+          "sent": [
+            {
+              "lease": "$last",
+              "name": "PC-FIXED",
+              "type": "pair-code-request"
+            }
+          ]
+        },
+        {
+          "at": 1000,
+          "op": "ensure",
+          "result": null,
+          "sent": []
+        },
+        {
+          "at": 2000,
+          "envelope": {
+            "code": "123456",
+            "expiresInMs": 600000,
+            "lease": "$last",
+            "ok": true
+          },
+          "op": "issued",
+          "result": null,
+          "sent": []
+        },
+        {
+          "at": 3000,
+          "op": "ensure",
+          "result": {
+            "code": "123456",
+            "expiresAt": 302000
+          },
+          "sent": []
+        },
+        {
+          "at": 4000,
+          "envelope": {
+            "lease": "$other"
+          },
+          "op": "used",
+          "result": null,
+          "sent": []
+        },
+        {
+          "at": 4001,
+          "op": "ensure",
+          "result": {
+            "code": "123456",
+            "expiresAt": 302000
+          },
+          "sent": []
+        },
+        {
+          "at": 5000,
+          "envelope": {
+            "lease": "$last"
+          },
+          "op": "used",
+          "result": null,
+          "sent": []
+        },
+        {
+          "at": 5001,
+          "op": "ensure",
+          "result": null,
+          "sent": [
+            {
+              "lease": "$last",
+              "name": "PC-FIXED",
+              "type": "pair-code-request"
+            }
+          ]
+        },
+        {
+          "at": 6000,
+          "envelope": {
+            "code": "654321",
+            "expiresInMs": 100000,
+            "lease": "$other",
+            "ok": true
+          },
+          "op": "issued",
+          "result": null,
+          "sent": []
+        },
+        {
+          "at": 6100,
+          "envelope": {
+            "code": "654321",
+            "expiresInMs": 100000,
+            "lease": "$last",
+            "ok": true
+          },
+          "op": "issued",
+          "result": null,
+          "sent": []
+        },
+        {
+          "at": 6500,
+          "op": "ensure",
+          "result": {
+            "code": "654321",
+            "expiresAt": 106100
+          },
+          "sent": []
+        },
+        {
+          "at": 106100,
+          "op": "ensure",
+          "result": null,
+          "sent": [
+            {
+              "lease": "$last",
+              "name": "PC-FIXED",
+              "type": "pair-code-request"
+            }
+          ]
+        },
+        {
+          "at": 107000,
+          "op": "release",
+          "result": null,
+          "sent": [
+            {
+              "type": "pair-code-clear"
+            }
+          ]
+        },
+        {
+          "at": 108000,
+          "op": "release",
+          "result": null,
+          "sent": []
+        },
+        {
+          "at": 109000,
+          "op": "ensure",
+          "result": null,
+          "sent": [
+            {
+              "lease": "$last",
+              "name": "PC-FIXED",
+              "type": "pair-code-request"
+            }
+          ]
+        },
+        {
+          "at": 109100,
+          "op": "connected",
+          "result": null,
+          "sent": [
+            {
+              "lease": "$last",
+              "name": "PC-FIXED",
+              "type": "pair-code-request"
+            }
+          ]
+        }
+      ]
+    },
+    "relayUrl": [
+      {
+        "env": null,
+        "url": "wss://192-255-139-161.sslip.io/"
+      },
+      {
+        "env": "",
+        "url": "wss://192-255-139-161.sslip.io/"
+      },
+      {
+        "env": "   ",
+        "url": "wss://192-255-139-161.sslip.io/"
+      },
+      {
+        "env": "0",
+        "url": null
+      },
+      {
+        "env": "false",
+        "url": null
+      },
+      {
+        "env": "OFF",
+        "url": null
+      },
+      {
+        "env": " Off ",
+        "url": null
+      },
+      {
+        "env": "wss://relay.example",
+        "url": "wss://relay.example/"
+      },
+      {
+        "env": " wss://relay.example/path?x=1 ",
+        "url": "wss://relay.example/path?x=1"
+      },
+      {
+        "env": "ws://127.0.0.1:9800",
+        "url": "ws://127.0.0.1:9800/"
+      },
+      {
+        "env": "ws://localhost",
+        "url": "ws://localhost/"
+      },
+      {
+        "env": "ws://[::1]:9",
+        "url": "ws://[::1]:9/"
+      },
+      {
+        "env": "ws://relay.example",
+        "error": "MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development."
+      },
+      {
+        "env": "https://relay.example",
+        "error": "MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development."
+      },
+      {
+        "env": "not a url",
+        "error": "MIXDOG_RELAY_URL is invalid."
+      },
+      {
+        "env": "wss://user:pw@relay.example",
+        "error": "MIXDOG_RELAY_URL must not contain credentials."
+      },
+      {
+        "env": "wss://u@relay.example",
+        "error": "MIXDOG_RELAY_URL must not contain credentials."
+      }
+    ],
+    "settings": {
+      "mutations": [
+        {
+          "args": [
+            true
+          ],
+          "file": {
+            "enabled": true
+          },
+          "op": "setEnabled",
+          "result": {
+            "defaultName": "HOST-FIXED",
+            "enabled": true,
+            "name": "HOST-FIXED"
+          }
+        },
+        {
+          "args": [
+            "  My Desk  "
+          ],
+          "file": {
+            "enabled": true,
+            "name": "My Desk"
+          },
+          "op": "setName",
+          "result": {
+            "defaultName": "HOST-FIXED",
+            "enabled": true,
+            "name": "My Desk"
+          }
+        },
+        {
+          "args": [
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ],
+          "file": {
+            "enabled": true,
+            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "op": "setName",
+          "result": {
+            "defaultName": "HOST-FIXED",
+            "enabled": true,
+            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        {
+          "args": [
+            ""
+          ],
+          "file": {
+            "enabled": true
+          },
+          "op": "setName",
+          "result": {
+            "defaultName": "HOST-FIXED",
+            "enabled": true,
+            "name": "HOST-FIXED"
+          }
+        },
+        {
+          "args": [
+            "c1",
+            "  Phone  "
+          ],
+          "file": {
+            "deviceAliases": {
+              "c1": "Phone"
+            },
+            "enabled": true
+          },
+          "op": "setDeviceAlias",
+          "result": {
+            "c1": "Phone"
+          }
+        },
+        {
+          "args": [
+            "c2",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          "file": {
+            "deviceAliases": {
+              "c1": "Phone",
+              "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "enabled": true
+          },
+          "op": "setDeviceAlias",
+          "result": {
+            "c1": "Phone",
+            "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "args": [
+            "c1",
+            ""
+          ],
+          "file": {
+            "deviceAliases": {
+              "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "enabled": true
+          },
+          "op": "setDeviceAlias",
+          "result": {
+            "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "args": [
+            false
+          ],
+          "file": {
+            "deviceAliases": {
+              "c2": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "enabled": false
+          },
+          "op": "setEnabled",
+          "result": {
+            "defaultName": "HOST-FIXED",
+            "enabled": false,
+            "name": "HOST-FIXED"
+          }
+        }
+      ],
+      "reads": [
+        {
+          "after": [],
+          "aliases": {},
+          "disabled": false,
+          "files": {},
+          "name": "fresh",
+          "view": {
+            "defaultName": "HOST-FIXED",
+            "enabled": false,
+            "name": "HOST-FIXED"
+          }
+        },
+        {
+          "after": [
+            "remote-activated.json"
+          ],
+          "aliases": {},
+          "disabled": false,
+          "files": {
+            "remote-activated.json": "{\"activatedAt\":1}"
+          },
+          "name": "activated",
+          "view": {
+            "defaultName": "HOST-FIXED",
+            "enabled": true,
+            "name": "HOST-FIXED"
+          }
+        },
+        {
+          "after": [
+            "relay-device.json",
+            "remote-activated.json"
+          ],
+          "aliases": {},
+          "disabled": false,
+          "files": {
+            "relay-device.json": "{}"
+          },
+          "name": "legacy-evidence",
+          "view": {
+            "defaultName": "HOST-FIXED",
+            "enabled": true,
+            "name": "HOST-FIXED"
+          }
+        },
+        {
+          "after": [
+            "remote-activated.json",
+            "remote-client-trust.json"
+          ],
+          "aliases": {},
+          "disabled": false,
+          "files": {
+            "remote-client-trust.json": "{}"
+          },
+          "name": "trust-evidence",
+          "view": {
+            "defaultName": "HOST-FIXED",
+            "enabled": true,
+            "name": "HOST-FIXED"
+          }
+        },
+        {
+          "after": [
+            "remote-access-settings.json",
+            "remote-activated.json"
+          ],
+          "aliases": {},
+          "disabled": true,
+          "files": {
+            "remote-access-settings.json": "{\"enabled\":false}",
+            "remote-activated.json": "{}"
+          },
+          "name": "switched-off",
+          "view": {
+            "defaultName": "HOST-FIXED",
+            "enabled": false,
+            "name": "HOST-FIXED"
+          }
+        },
+        {
+          "after": [
+            "remote-access-settings.json"
+          ],
+          "aliases": {},
+          "disabled": false,
+          "files": {
+            "remote-access-settings.json": "{\"name\":\"My PC\",\"enabled\":true}"
+          },
+          "name": "named",
+          "view": {
+            "defaultName": "HOST-FIXED",
+            "enabled": true,
+            "name": "My PC"
+          }
+        },
+        {
+          "after": [
+            "remote-access-settings.json"
+          ],
+          "aliases": {},
+          "disabled": false,
+          "files": {
+            "remote-access-settings.json": "{\"name\":\"\"}"
+          },
+          "name": "empty-name",
+          "view": {
+            "defaultName": "HOST-FIXED",
+            "enabled": false,
+            "name": "HOST-FIXED"
+          }
+        },
+        {
+          "after": [
+            "remote-access-settings.json"
+          ],
+          "aliases": {},
+          "disabled": false,
+          "files": {
+            "remote-access-settings.json": "{\"name\":\"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\"}"
+          },
+          "name": "long-name-kept",
+          "view": {
+            "defaultName": "HOST-FIXED",
+            "enabled": false,
+            "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+          }
+        },
+        {
+          "after": [
+            "remote-access-settings.json"
+          ],
+          "aliases": {},
+          "disabled": false,
+          "files": {
+            "remote-access-settings.json": "{broken"
+          },
+          "name": "damaged",
+          "view": {
+            "defaultName": "HOST-FIXED",
+            "enabled": false,
+            "name": "HOST-FIXED"
+          }
+        },
+        {
+          "after": [
+            "remote-access-settings.json"
+          ],
+          "aliases": {},
+          "disabled": false,
+          "files": {
+            "remote-access-settings.json": "{\"enabled\":\"yes\",\"name\":5}"
+          },
+          "name": "wrong-types",
+          "view": {
+            "defaultName": "HOST-FIXED",
+            "enabled": false,
+            "name": "HOST-FIXED"
+          }
+        }
+      ]
+    }
   },
   "sessionLog": [
     {

@@ -3,28 +3,28 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2111,
+      "bytes": 1787,
       "path": "session_log.json",
-      "sha256": "8961c163eab82492f168179562720fe81fd990a8f513a6190f43558af7d837d9"
+      "sha256": "6130aaa581a741f3d4ff45522b8b4410c8174f21eaa774d23915bc70a40af7c4"
     }
   ],
   "product": {
-    "appsSha256": "f2826db1c1bb80ddcf6f069b518eac42c9f5a60c729bef7422603f53b46857a3",
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
     "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9241,
+    "files": 43481,
     "refComparison": {
-      "closestCommit": "433c7dfbb0d6763b0200667fabbf7f76e3f4abc7",
+      "closestCommit": "62a9168072403ebb4ec3f7ca2732c9f2900ecbf3",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 3
+      "filesDifferingFromCommit": 43481
     },
-    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-log-export.mjs",
   "set": "session-log-export",
-  "totalBytes": 2111
+  "totalBytes": 1787
 }
