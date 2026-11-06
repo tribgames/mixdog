@@ -10,6 +10,7 @@ pub mod builder_env;
 pub mod accounting_scope;
 pub mod ladder_sources;
 pub mod hop_bindings;
+pub mod home_directory;
 #[cfg(test)]
 mod fixture_fs;
 #[cfg(test)]
@@ -19,6 +20,7 @@ mod process_services_tests;
 pub mod tool_exposure;
 pub mod tool_surface;
 pub mod rearm;
+pub mod manual_compaction;
 pub mod route_surface;
 pub mod session_tools;
 pub mod rules;

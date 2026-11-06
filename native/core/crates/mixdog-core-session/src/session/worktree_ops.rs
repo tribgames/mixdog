@@ -40,6 +40,13 @@ pub(super) struct Created {
     pub changes: Option<(&'static str, u64)>,
 }
 
+/// The session and the transaction id a worktree operation runs under.
+#[derive(Clone, Copy)]
+pub(super) struct TxScope<'a> {
+    pub session: &'a str,
+    pub tx_id: &'a str,
+}
+
 /// A branch resolved to its checkout.
 pub(super) struct Resolved {
     pub path: String,
@@ -167,13 +174,13 @@ impl Ops {
     pub async fn create_for_session(
         &self,
         project: &RepoFacts,
-        session: &str,
-        tx_id: &str,
+        scope: TxScope<'_>,
         name_hint: &str,
         carry: Option<&str>,
         confirm_large: bool,
         cancel: &CancellationToken,
     ) -> Result<Created, ScmFailure> {
+        let TxScope { session, tx_id } = scope;
         if mixdog_js::js_trim(tx_id).is_empty() {
             return Err(plain("txId must be a non-empty string."));
         }
@@ -266,11 +273,11 @@ impl Ops {
         project_path: &str,
         branch: &str,
         create: bool,
-        session: &str,
-        tx_id: &str,
+        scope: TxScope<'_>,
         confirm_large: bool,
         cancel: &CancellationToken,
     ) -> Result<Resolved, ScmFailure> {
+        let TxScope { session, tx_id } = scope;
         if mixdog_js::js_trim(branch).is_empty() {
             return Err(plain("branch must be a non-empty string."));
         }
@@ -281,10 +288,10 @@ impl Ops {
         }
         let records = self.records(cancel).await?;
         let transaction = records.iter().find(|r| !tx_id.is_empty() && r.extra.get("txId").and_then(Value::as_str) == Some(tx_id));
-        if let Some(t) = transaction {
-            if t.owner_session_id.as_deref() != Some(session) || t.branch.as_deref() != Some(branch) || !same_path(&t.repo_common_dir, &common) {
-                return Err(errors::revision_conflict(None));
-            }
+        if let Some(t) = transaction
+            && (t.owner_session_id.as_deref() != Some(session) || t.branch.as_deref() != Some(branch) || !same_path(&t.repo_common_dir, &common))
+        {
+            return Err(errors::revision_conflict(None));
         }
         if let Some(retry) = transaction.filter(|t| t.state == "ready") {
             if !self.exists(&retry.path, cancel).await? {

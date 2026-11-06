@@ -11,6 +11,7 @@ use mixdog_core_base::support::failed;
 use mixdog_core_base::support::io_failure;
 use mixdog_core_base::support::remove_file_forced;
 use mixdog_core_config::config::Config;
+use mixdog_core_config::config::ConfigError;
 use mixdog_core_config::workflow::ids::clean;
 use mixdog_core_config::workflow::ids::one_line;
 use mixdog_core_config::workflow::pack::read_text_safe;
@@ -186,7 +187,11 @@ impl LeadAppearance {
             let mascot = mascot.ok_or_else(|| AgentsError::Refused("usage: setLeadAppearance(a mascot appearance or null)".into()))?;
             after.insert("leadAvatar".into(), mascot);
         }
-        self.config.save_agent_config(&before, &after, false).await?;
+        // A failed write throws what `fs` threw (`EPERM: operation not permitted, rename ...`).
+        self.config.save_agent_config(&before, &after, false).await.map_err(|error| match error {
+            ConfigError::Publish(failure) => AgentsError::Lane(edit::publish_failure(failure)),
+            other => AgentsError::Config(other),
+        })?;
         Ok(self.get())
     }
 }

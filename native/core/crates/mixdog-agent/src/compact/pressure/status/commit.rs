@@ -83,6 +83,11 @@ pub struct Committed {
     /// `session.compaction` after the commit (the record with its timing).
     pub compaction: Map<String, Value>,
     pub changed: bool,
+    /// The numbers after the commit (the transcript with the appended messages).
+    pub after: After,
+    /// The post-compaction policy as Node's policy object (postCompactPolicy), for the usage snapshot;
+    /// None when the session has no policy.
+    pub policy: Option<Header>,
 }
 
 /// A compaction that did not apply.
@@ -130,11 +135,32 @@ pub fn usage_totals(session: &Header, usage: &Value, input_excludes_cache: bool)
     out
 }
 
+/// The fields of a policy object the usage snapshot reads (`recordContextUsageSnapshot(session, policy, ..)`).
+fn policy_header(policy: &Policy) -> Header {
+    let mut out = Header::new();
+    for (key, value) in [
+        ("boundaryTokens", policy.boundary_tokens.map(num)),
+        ("triggerTokens", policy.trigger_tokens.map(num)),
+        ("contextWindow", policy.context_window.map(num)),
+        ("toolSchemaSignature", policy.tool_schema_signature.as_ref().map(|s| json!(s))),
+        ("provider", policy.provider.clone()),
+    ] {
+        if let Some(value) = value {
+            out.insert(key.to_owned(), value);
+        }
+    }
+    out
+}
+
 /// `withLiveCompactionConfig(withoutLegacyCompactFields(live), telemetry)`.
-fn record_of(session: &Header, telemetry: Vec<(&str, Value)>) -> Map<String, Value> {
+fn record_of(session: &Header, archive: Option<Value>, telemetry: Vec<(&str, Value)>) -> Map<String, Value> {
     let mut live = get(session, "compaction").and_then(Value::as_object).cloned().unwrap_or_default();
     for key in LEGACY_FIELDS {
         live.shift_remove(key);
+    }
+    // The archive segment the commit claimed (prepareCompactionArchive sets it on the live record).
+    if let Some(archive) = archive {
+        live.insert("archive".into(), archive);
     }
     let live_auto = live.get("auto") != Some(&Value::Bool(false));
     let mut record = live.clone();
@@ -194,7 +220,7 @@ pub fn failed_compaction(status: &StatusInput<'_>, plan: &CompactionPlan, auto_m
         ("lastFreshContextError", fresh_error_value.clone()),
         ("lastError", json!(compact_error)),
     ];
-    let compaction = record_of(status.session, telemetry(plan, stage, &after, now, vec![("reserveTokens", num(plan.reserve_tokens))], outcome));
+    let compaction = record_of(status.session, None, telemetry(plan, stage, &after, now, vec![("reserveTokens", num(plan.reserve_tokens))], outcome));
     let outcome_map = Map::from_iter([("changed".to_owned(), json!(false)), ("error".to_owned(), json!(compact_error))]);
     let tail = Map::from_iter([("freshContext".to_owned(), json!(false)), ("freshContextError".to_owned(), fresh_error_value)]);
     Failed { result: plan.result(outcome_map, &after, tail), compaction }
@@ -214,10 +240,10 @@ pub fn commit_compaction(input: &CommitInput<'_>) -> Committed {
     }
     let transcript_len = input.compacted.len() + input.appended.len();
     // `afterTranscriptTokens`: the calibrated estimate plus the request reserve of the final transcript.
-    let (tokens, request_reserve, reserve) = match worker_policy(session, &input.after_tools, true) {
-        Some(Worker::Policy(policy)) => (current_estimate_tokens(message_tokens, &policy), policy.request_reserve_tokens, policy.reserve_tokens),
-        Some(Worker::Off) => (current_estimate_tokens(message_tokens, &Policy::default()), None, None),
-        None => (message_tokens + plan.reserve_tokens, None, None),
+    let (tokens, request_reserve, reserve, policy) = match worker_policy(session, &input.after_tools, true) {
+        Some(Worker::Policy(policy)) => (current_estimate_tokens(message_tokens, &policy), policy.request_reserve_tokens, policy.reserve_tokens, Some(policy_header(&policy))),
+        Some(Worker::Off) => (current_estimate_tokens(message_tokens, &Policy::default()), None, None, None),
+        None => (message_tokens + plan.reserve_tokens, None, None, None),
     };
     let after = After { messages: transcript_len, tokens, message_tokens };
     let prior = get(session, "compaction").and_then(Value::as_object);
@@ -236,12 +262,20 @@ pub fn commit_compaction(input: &CommitInput<'_>) -> Committed {
         ("lastSummaryUsage", usage_record(fresh.usage.as_ref())),
         ("compactCount", num(prior_number("compactCount").unwrap_or(0.0) + if changed { 1.0 } else { 0.0 })),
     ];
+    // A pass that archived rows claimed the next segment number (`compaction.archive.nextSeq`); the
+    // segment itself is written by the archive, not here.
+    let archive_claim = input.archived.as_ref().filter(|_| changed).map(|_| {
+        let mut archive = prior.and_then(|c| get(c, "archive")).and_then(Value::as_object).cloned().unwrap_or_default();
+        let seq = number_or_zero(archive.get("nextSeq")).floor();
+        archive.insert("nextSeq".into(), num(if seq == 0.0 { 1.0 } else { seq.max(1.0) } + 1.0));
+        Value::Object(archive)
+    });
     let stage = if input.auto_mode { "post_turn" } else { "manual" };
     let reserve_fields = vec![
         ("requestReserveTokens", num(request_reserve.unwrap_or(0.0))),
         ("reserveTokens", num(reserve.unwrap_or(plan.reserve_tokens))),
     ];
-    let mut compaction = record_of(session, telemetry(plan, stage, &after, input.now, reserve_fields, outcome));
+    let mut compaction = record_of(session, archive_claim, telemetry(plan, stage, &after, input.now, reserve_fields, outcome));
     // `recordCompactionTiming`.
     let summary_run = fresh.summary_route.as_ref().filter(|r| !r.is_empty()).map(|route| format!("{}:{route}", if fresh.forked { "fork" } else { "isolated" }));
     let mode = match (&summary_run, &fresh.pipeline_mode) {
@@ -270,5 +304,5 @@ pub fn commit_compaction(input: &CommitInput<'_>) -> Committed {
         ("droppedMessages".to_owned(), json!(archived.map_or(0, |a| a.dropped))),
         ("droppedIdentities".to_owned(), archived.and_then(|a| a.identities.clone()).unwrap_or(Value::Null)),
     ]);
-    Committed { result: plan.result(outcome_map, &after, tail), compaction, changed }
+    Committed { result: plan.result(outcome_map, &after, tail), compaction, changed, after, policy }
 }

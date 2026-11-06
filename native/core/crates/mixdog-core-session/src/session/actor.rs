@@ -204,7 +204,7 @@ pub(crate) enum Inbox {
     CommitCompaction {
         snapshot: Vec<mixdog_core_api::ids::ItemId>,
         compaction: super::run::Compaction,
-        header: Option<HeaderChange>,
+        header: Option<super::turn_ops::CompactionHeader>,
         tx: oneshot::Sender<Result<super::turn_ops::CompactionCommit, CoreError>>,
     },
 }
@@ -277,7 +277,7 @@ pub(crate) enum JobDone {
 pub(crate) struct CommitRows {
     snapshot: Vec<mixdog_core_api::ids::ItemId>,
     compaction: super::run::Compaction,
-    header: Option<HeaderChange>,
+    header: Option<super::turn_ops::CompactionHeader>,
     /// `runs_begun` when the read started: a turn begun since owns the context.
     begun: u64,
     rows: Result<Vec<(mixdog_core_api::ids::ItemId, Value)>, CoreError>,

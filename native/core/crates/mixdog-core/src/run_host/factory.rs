@@ -163,7 +163,7 @@ impl RunFactory for RunHostFactory {
     }
 }
 
-fn new_item_id() -> ItemId {
+pub(super) fn new_item_id() -> ItemId {
     ItemId::from(format!("itm_{}", uuid::Uuid::new_v4().simple()))
 }
 

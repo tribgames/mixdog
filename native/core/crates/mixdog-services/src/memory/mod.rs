@@ -2,6 +2,7 @@
 //! history and `recall`, session transcript search, and the embeddings behind
 //! semantic recall.
 
+pub mod boot;
 pub mod clean;
 pub mod core;
 pub mod cycles;

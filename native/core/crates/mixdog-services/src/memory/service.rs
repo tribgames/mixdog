@@ -54,7 +54,8 @@ pub trait MemoryModule: Send + Sync {
 pub struct LocalMemory {
     db: Db,
     data_dir: PathBuf,
-    revision: AtomicU64,
+    /// The process's one snapshot revision counter; the rooms' memory control shares it.
+    revision: Arc<AtomicU64>,
     recall: Recall,
     ingest: SessionIngest,
     /// The lane project markers and the snapshot file are read and written on.
@@ -63,7 +64,26 @@ pub struct LocalMemory {
 
 impl LocalMemory {
     pub fn new(db: Db, data_dir: PathBuf, recall: Recall, ingest: SessionIngest, lane: mixdog_rt::DurabilityIo) -> Self {
-        Self { db, data_dir, revision: AtomicU64::new(0), recall, ingest, lane }
+        Self { db, data_dir, revision: Arc::new(AtomicU64::new(0)), recall, ingest, lane }
+    }
+
+    pub fn db(&self) -> &Db {
+        &self.db
+    }
+
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.data_dir
+    }
+
+    pub fn snapshot_revision(&self) -> Arc<AtomicU64> {
+        self.revision.clone()
+    }
+
+    /// `refreshCoreMemorySnapshot(reason)`: a failure is logged, never raised.
+    pub async fn refresh_snapshot(&self, reason: &str) {
+        if let Err(error) = crate::memory::core::snapshot::refresh(self.lane, &self.db, &self.data_dir, &self.revision).await {
+            tracing::warn!(reason, error = %error.message(), "core memory: snapshot refresh failed");
+        }
     }
 }
 

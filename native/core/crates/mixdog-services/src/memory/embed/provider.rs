@@ -61,6 +61,16 @@ impl EmbeddingProvider {
         })
     }
 
+    /// `getEmbeddingModelId()`.
+    pub fn model_id(&self) -> &str {
+        &self.config.model_id
+    }
+
+    /// The configured dtype (`None` = the model's default), as `config::identity` takes it.
+    pub fn dtype(&self) -> Option<&str> {
+        self.config.dtype.as_deref()
+    }
+
     /// Fetch models from another host (tests).
     pub fn with_hub(mut self, hub: impl Into<String>) -> Self {
         self.hub = hub.into();

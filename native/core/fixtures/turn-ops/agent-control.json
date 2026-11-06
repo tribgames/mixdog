@@ -1,8 +1,5 @@
 [
   {
-    "args": {
-      "action": "list"
-    },
     "context": {
       "callerCwd": "C:\\work\\app",
       "callerSessionId": "s1",
@@ -10,17 +7,105 @@
       "invocationSource": "user-command"
     },
     "cwd": "C:\\work\\app",
-    "name": "a session with a host pid",
-    "result": "ran",
+    "name": "a list shows the roster and the tag filter narrows it",
     "session": {
       "clientHostPid": 4321,
       "id": "s1"
-    }
+    },
+    "steps": [
+      {
+        "args": {
+          "type": "list"
+        },
+        "result": "agents: 2 · tasks: 0\n- idle/closed agents: 2 (latest 2; pass tag=<text> to find one)\n- alpha  idle\n- beta  idle",
+        "trace": [
+          [
+            "execute",
+            {
+              "type": "list"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": 4321,
+              "s": "s1"
+            }
+          ]
+        ]
+      },
+      {
+        "args": {
+          "tag": "al",
+          "type": "list"
+        },
+        "result": "agents: 2 · tasks: 0\n- idle/closed agents: 2 (1 match tag \"al\", showing 1)\n- alpha  idle",
+        "trace": [
+          [
+            "execute",
+            {
+              "tag": "al",
+              "type": "list"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": 4321,
+              "s": "s1"
+            }
+          ]
+        ]
+      },
+      {
+        "args": {
+          "type": "status"
+        },
+        "result": "agents: 2 · tasks: 0\n- idle/closed agents: 2 (latest 2; pass tag=<text> to find one)\n- alpha  idle\n- beta  idle",
+        "trace": [
+          [
+            "execute",
+            {
+              "type": "status"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": 4321,
+              "s": "s1"
+            }
+          ]
+        ]
+      }
+    ],
+    "workers": [
+      "alpha",
+      "beta"
+    ]
   },
   {
-    "args": {
-      "action": "list"
-    },
     "context": {
       "callerCwd": "/work/app",
       "callerSessionId": "s2",
@@ -28,16 +113,264 @@
       "invocationSource": "user-command"
     },
     "cwd": "/work/app",
-    "name": "a session without a host pid",
-    "result": "ran",
+    "name": "a close is seen by the next list",
     "session": {
       "id": "s2"
-    }
+    },
+    "steps": [
+      {
+        "args": {
+          "tag": "alpha",
+          "type": "close"
+        },
+        "result": "agent close: ok\ntag: alpha\nsessionId: sess_alpha",
+        "trace": [
+          [
+            "execute",
+            {
+              "tag": "alpha",
+              "type": "close"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": "process.pid",
+              "s": "s2"
+            }
+          ],
+          [
+            "refreshTags",
+            false,
+            {
+              "p": "process.pid",
+              "s": "s2"
+            }
+          ],
+          [
+            "resolveTag",
+            "alpha",
+            {
+              "p": "process.pid",
+              "s": "s2"
+            },
+            {
+              "scan": false,
+              "traces": false
+            }
+          ],
+          [
+            "closeSession",
+            "sess_alpha",
+            "cli-agent-close",
+            {
+              "ownerClose": true,
+              "tombstone": false
+            }
+          ],
+          [
+            "forgetTerminalSession",
+            "alpha",
+            "sess_alpha"
+          ],
+          [
+            "markReleased",
+            [
+              "sess_alpha"
+            ]
+          ]
+        ]
+      },
+      {
+        "args": {
+          "type": "list"
+        },
+        "result": "agents: 1 · tasks: 0\n- idle/closed agents: 1 (latest 1; pass tag=<text> to find one)\n- beta  idle",
+        "trace": [
+          [
+            "execute",
+            {
+              "type": "list"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": "process.pid",
+              "s": "s2"
+            }
+          ]
+        ]
+      },
+      {
+        "args": {
+          "tag": "alpha",
+          "type": "close"
+        },
+        "result": "Error: agent close: target \"alpha\" not found",
+        "trace": [
+          [
+            "execute",
+            {
+              "tag": "alpha",
+              "type": "close"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": "process.pid",
+              "s": "s2"
+            }
+          ],
+          [
+            "refreshTags",
+            false,
+            {
+              "p": "process.pid",
+              "s": "s2"
+            }
+          ],
+          [
+            "resolveTag",
+            "alpha",
+            {
+              "p": "process.pid",
+              "s": "s2"
+            },
+            {
+              "scan": false,
+              "traces": false
+            }
+          ]
+        ]
+      },
+      {
+        "args": {
+          "sessionId": "sess_beta",
+          "type": "cancel"
+        },
+        "result": "agent close: ok\ntag: beta\nsessionId: sess_beta",
+        "trace": [
+          [
+            "execute",
+            {
+              "sessionId": "sess_beta",
+              "type": "cancel"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": "process.pid",
+              "s": "s2"
+            }
+          ],
+          [
+            "refreshTags",
+            false,
+            {
+              "p": "process.pid",
+              "s": "s2"
+            }
+          ],
+          [
+            "resolveTag",
+            "sess_beta",
+            {
+              "p": "process.pid",
+              "s": "s2"
+            },
+            {
+              "scan": false,
+              "traces": false
+            }
+          ],
+          [
+            "closeSession",
+            "sess_beta",
+            "cli-agent-close",
+            {
+              "ownerClose": true,
+              "tombstone": false
+            }
+          ],
+          [
+            "forgetTerminalSession",
+            "beta",
+            "sess_beta"
+          ],
+          [
+            "markReleased",
+            [
+              "sess_beta"
+            ]
+          ]
+        ]
+      },
+      {
+        "args": {
+          "type": "list"
+        },
+        "result": "agents: 0 · tasks: 0\n(no agents or tasks)",
+        "trace": [
+          [
+            "execute",
+            {
+              "type": "list"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": "process.pid",
+              "s": "s2"
+            }
+          ]
+        ]
+      }
+    ],
+    "workers": [
+      "alpha",
+      "beta"
+    ]
   },
   {
-    "args": {
-      "action": "list"
-    },
     "context": {
       "callerCwd": "/w",
       "callerSessionId": "s3",
@@ -45,11 +378,157 @@
       "invocationSource": "user-command"
     },
     "cwd": "/w",
-    "name": "a zero host pid reads as none",
-    "result": "ran",
+    "name": "a request the executor refuses is its answer",
     "session": {
       "clientHostPid": 0,
       "id": "s3"
-    }
+    },
+    "steps": [
+      {
+        "args": {
+          "type": "frobnicate"
+        },
+        "result": "Error: agent: unknown type \"frobnicate\"",
+        "trace": [
+          [
+            "execute",
+            {
+              "type": "frobnicate"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": "process.pid",
+              "s": "s3"
+            }
+          ]
+        ]
+      },
+      {
+        "args": {
+          "type": "close"
+        },
+        "result": "Error: agent close: tag or sessionId is required",
+        "trace": [
+          [
+            "execute",
+            {
+              "type": "close"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": "process.pid",
+              "s": "s3"
+            }
+          ],
+          [
+            "refreshTags",
+            false,
+            {
+              "p": "process.pid",
+              "s": "s3"
+            }
+          ]
+        ]
+      },
+      {
+        "args": {
+          "tag": "ghost",
+          "type": "close"
+        },
+        "result": "Error: agent close: target \"ghost\" not found",
+        "trace": [
+          [
+            "execute",
+            {
+              "tag": "ghost",
+              "type": "close"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": "process.pid",
+              "s": "s3"
+            }
+          ],
+          [
+            "refreshTags",
+            false,
+            {
+              "p": "process.pid",
+              "s": "s3"
+            }
+          ],
+          [
+            "resolveTag",
+            "ghost",
+            {
+              "p": "process.pid",
+              "s": "s3"
+            },
+            {
+              "scan": false,
+              "traces": false
+            }
+          ]
+        ]
+      },
+      {
+        "args": {
+          "type": "list"
+        },
+        "result": "agents: 1 · tasks: 0\n- idle/closed agents: 1 (latest 1; pass tag=<text> to find one)\n- alpha  idle",
+        "trace": [
+          [
+            "execute",
+            {
+              "type": "list"
+            }
+          ],
+          [
+            "resolveTombstoneOwners"
+          ],
+          [
+            "rehydrate"
+          ],
+          [
+            "refreshTags",
+            true,
+            {
+              "p": "process.pid",
+              "s": "s3"
+            }
+          ]
+        ]
+      }
+    ],
+    "workers": [
+      "alpha"
+    ]
   }
 ]

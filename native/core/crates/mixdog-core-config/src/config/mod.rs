@@ -106,6 +106,9 @@ pub enum ConfigError {
     /// The file exists but is not a JSON object; nothing is replaced, so nothing is lost.
     Parse(String),
     Io(std::io::Error),
+    /// The atomic write of the file failed at one `fs` call; the step is what lets a caller word
+    /// the error as Node throws it.
+    Publish(mixdog_statefile::PublishFailure),
     /// The lane's queue is full: the caller answers `overloaded` at once.
     Overloaded(LaneFull),
     /// The job was dropped before it finished (shutdown).
@@ -122,6 +125,7 @@ impl std::fmt::Display for ConfigError {
             }
             ConfigError::Parse(message) => write!(f, "mixdog-config.json is not valid: {message}"),
             ConfigError::Io(error) => write!(f, "mixdog-config.json: {error}"),
+            ConfigError::Publish(failure) => write!(f, "mixdog-config.json: {}", failure.error),
             ConfigError::Overloaded(full) => full.fmt(f),
             ConfigError::Stopped => f.write_str("the config job was dropped before it finished"),
             ConfigError::Rejected(error) => write!(f, "{error:?}"),
@@ -669,12 +673,13 @@ fn read_file(_lane: &InLane<InteractiveIo>, path: &Path) -> Result<Doc, ConfigEr
 /// under `<config>.lock`, the lock Node's own config writers take (`mixdog-statefile`).
 fn persist(lane: &InLane<DurabilityIo>, path: &Path, doc: &Doc) -> Result<(), ConfigError> {
     let opts = mixdog_statefile::Opts { fsync_dir: true, secret: true, ..mixdog_statefile::Opts::default() };
+    let bytes = mixdog_statefile::json_bytes(&Value::Object(doc.clone()), &opts);
     let written = mixdog_statefile::with_lock(lane, path, &mixdog_statefile::LockOpts::default(), || {
-        mixdog_statefile::write_json(lane, path, &Value::Object(doc.clone()), &opts)
+        mixdog_statefile::write_file_stepped(lane, path, &bytes, &opts)
     });
     match written {
         Ok(Ok(_)) => Ok(()),
-        Ok(Err(error)) => Err(std::io::Error::other(error.to_string()).into()),
+        Ok(Err(failure)) => Err(ConfigError::Publish(failure)),
         Err(error) => Err(std::io::Error::other(error.to_string()).into()),
     }
 }

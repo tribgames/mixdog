@@ -134,6 +134,7 @@ pub use self::worktree_state::workspace_for_project_selection;
 use self::worktree_gate::folder_in_use;
 use self::worktree_merge::Admission;
 use self::worktree_ops::Ops;
+use self::worktree_ops::TxScope;
 use self::worktree_state::checkout_folder;
 use self::worktree_state::is_bound;
 use self::worktree_state::is_within;

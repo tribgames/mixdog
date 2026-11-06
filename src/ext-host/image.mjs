@@ -71,14 +71,17 @@ async function validate(ctx) {
 // The read tool's resize (`read-image.mjs`): `resizeImageBuffer(buffer, ext)` end to end, with its
 // defaults. `ok` is Node's `{ data, mimeType, dimensions }`, or null when there is no sharp (or
 // the buffer is empty); a decoder rejection is `invalid`, whatever its cause, because the read
-// tool reports every `INVALID_IMAGE_DATA` the same way.
+// tool reports every `INVALID_IMAGE_DATA` the same way. The composer's resize names its provider's
+// image `profile` (`imageProfileForProvider`); the read tool names none. The rejection carries
+// the decoder's sentence, which the composer shows.
 async function resize(ctx) {
   const buffer = bytesOf(ctx.params);
+  const { profile } = ctx.params;
   try {
-    return { value: { ok: await resizeImageBuffer(buffer, String(ctx.params.ext ?? '')) } };
+    return { value: { ok: await resizeImageBuffer(buffer, String(ctx.params.ext ?? ''), profile === undefined ? undefined : { profile }) } };
   } catch (error) {
     if (error?.code !== 'INVALID_IMAGE_DATA') throw error;
-    return { value: { error: 'invalid' } };
+    return { value: { error: 'invalid', message: error.message } };
   }
 }
 

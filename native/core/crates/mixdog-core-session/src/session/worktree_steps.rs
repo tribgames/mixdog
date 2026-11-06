@@ -90,7 +90,7 @@ impl Inner {
                 let hint = name.or_else(|| options.name_hint.clone()).unwrap_or_default();
                 let created = self
                     .ops
-                    .create_for_session(&project, session, tx_id, &hint, options.changes.as_deref(), options.confirm_large, cancel)
+                    .create_for_session(&project, TxScope { session, tx_id }, &hint, options.changes.as_deref(), options.confirm_large, cancel)
                     .await?;
                 (created.record, created.changes)
             }
@@ -149,7 +149,7 @@ impl Inner {
     ) -> Result<JsonValue, ScmFailure> {
         let project_path = previous.project_path.clone();
         let project = self.ops.inspect(&project_path, cancel).await?;
-        let resolved = self.ops.resolve_branch(&project_path, branch, create, session, tx_id, options.confirm_large, cancel).await?;
+        let resolved = self.ops.resolve_branch(&project_path, branch, create, TxScope { session, tx_id }, options.confirm_large, cancel).await?;
         let entry = resolved.entry;
         if let Some(entry) = &entry {
             journal.push(self.release_undo(&entry.id, session, resolved.reference_added));
