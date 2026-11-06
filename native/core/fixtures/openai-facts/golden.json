@@ -1,0 +1,266 @@
+{
+  "cases": [
+    {
+      "cacheOptions": null,
+      "cacheRetention": "24h",
+      "fast": false,
+      "model": "gpt-4.1",
+      "reasoning": false,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": false
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": null,
+      "fast": false,
+      "model": "gpt-4o",
+      "reasoning": false,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": false
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": null,
+      "fast": false,
+      "model": "o1",
+      "reasoning": true,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": false
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": null,
+      "fast": false,
+      "model": "o3-mini",
+      "reasoning": true,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": false
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": "24h",
+      "fast": false,
+      "model": "gpt-5",
+      "reasoning": true,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": null,
+      "fast": false,
+      "model": "gpt-5-chat-latest",
+      "reasoning": false,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": "24h",
+      "fast": false,
+      "model": "gpt-5-codex",
+      "reasoning": true,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": "24h",
+      "fast": false,
+      "model": "gpt-5.1",
+      "reasoning": true,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": "24h",
+      "fast": false,
+      "model": "gpt-5.1-codex-max",
+      "reasoning": true,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": "24h",
+      "fast": false,
+      "model": "gpt-5.2",
+      "reasoning": true,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": "24h",
+      "fast": false,
+      "model": "gpt-5.2-2026-01-01",
+      "reasoning": true,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": "24h",
+      "fast": true,
+      "model": "gpt-5.4",
+      "reasoning": true,
+      "toolSearch": true,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": null,
+      "fast": true,
+      "model": "gpt-5.4-mini",
+      "reasoning": true,
+      "toolSearch": true,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": "24h",
+      "fast": true,
+      "model": "gpt-5.5",
+      "reasoning": true,
+      "toolSearch": true,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": "24h",
+      "fast": false,
+      "model": "gpt-5.5-pro",
+      "reasoning": true,
+      "toolSearch": true,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": {
+        "ttl": "30m"
+      },
+      "cacheRetention": null,
+      "fast": true,
+      "model": "gpt-5.6-sol",
+      "reasoning": true,
+      "toolSearch": true,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": {
+        "ttl": "30m"
+      },
+      "cacheRetention": null,
+      "fast": true,
+      "model": "gpt-5.6-sol-2026-02-03",
+      "reasoning": true,
+      "toolSearch": true,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": {
+        "ttl": "30m"
+      },
+      "cacheRetention": null,
+      "fast": false,
+      "model": "gpt-5.6",
+      "reasoning": true,
+      "toolSearch": true,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": {
+        "ttl": "30m"
+      },
+      "cacheRetention": null,
+      "fast": true,
+      "model": "gpt-6-astra",
+      "reasoning": true,
+      "toolSearch": true,
+      "ultrafast": true,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": {
+        "ttl": "30m"
+      },
+      "cacheRetention": null,
+      "fast": true,
+      "model": "gpt-6.1-sol",
+      "reasoning": true,
+      "toolSearch": true,
+      "ultrafast": true,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": {
+        "ttl": "30m"
+      },
+      "cacheRetention": null,
+      "fast": true,
+      "model": "gpt-6-luna-2026-05-06",
+      "reasoning": true,
+      "toolSearch": true,
+      "ultrafast": false,
+      "verbosity": true
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": null,
+      "fast": false,
+      "model": "gpt-60",
+      "reasoning": false,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": false
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": null,
+      "fast": false,
+      "model": "text-embedding-3-small",
+      "reasoning": false,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": false
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": null,
+      "fast": false,
+      "model": "claude-opus-5",
+      "reasoning": false,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": false
+    },
+    {
+      "cacheOptions": null,
+      "cacheRetention": null,
+      "fast": false,
+      "model": "",
+      "reasoning": false,
+      "toolSearch": false,
+      "ultrafast": false,
+      "verbosity": false
+    }
+  ]
+}

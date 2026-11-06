@@ -41,6 +41,23 @@ use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
+use mixdog_core::ports::gate::GateEnv;
+use mixdog_core::ports::gate::GateRun;
+use mixdog_core::run_host::mcp_seams::AllowAllActions;
+use mixdog_core::run_host::mcp_seams::CatalogSkillsListed;
+use mixdog_core::run_host::mcp_seams::ConfigAllowAll;
+use mixdog_core::run_host::mcp_seams::ContactBots;
+use mixdog_core::run_host::mcp_seams::HostGateEnv;
+use mixdog_core::run_host::mcp_seams::McpAwareResolver;
+use mixdog_core::run_host::mcp_seams::UnattendedRuns;
+use mixdog_core::run_host::session_tools::SkillsListed;
+use mixdog_mcp::McpHub;
+use mixdog_mcp::McpIo;
+use mixdog_mcp::result::OutputPolicy;
+use mixdog_mcp::skill_catalog::SkillCatalog;
+use mixdog_store::schema::record::Header;
+use mixdog_tools::policy::RunKind;
+use mixdog_tools::policy::ToolResolver;
 use mixdog_mcp::hook_bus::HookBus;
 use mixdog_mcp::hook_bus::HookCommon;
 use mixdog_mcp::skill_select::SkillNames;
@@ -227,6 +244,175 @@ async fn an_unreadable_catalog_selects_nothing() {
     let mut transcript = Vec::new();
     selector.select(&Content::Text("$alpha".to_owned()), &mut transcript).await;
     assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
+}
+
+fn named_tool(name: &str, aliases: &[&str]) -> Arc<dyn Tool> {
+    Arc::new(SkillTool {
+        spec: ToolSpec {
+            name: name.to_owned(),
+            aliases: aliases.iter().map(|a| (*a).to_owned()).collect(),
+            description: String::new(),
+            input_schema: json!({"type": "object"}),
+            annotations: ToolAnnotations::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        },
+        answers: json!({}),
+        calls: Mutex::new(Vec::new()),
+    })
+}
+
+fn empty_hub() -> Arc<McpHub> {
+    let tokens = mixdog_rt::testing::tokens();
+    McpHub::new(McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }, std::env::temp_dir().join("mcp-seams-artifacts"), OutputPolicy::default())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_resolver_finds_pool_tools_by_name_or_alias_and_nothing_else_without_a_server() {
+    let resolver = McpAwareResolver::new(vec![named_tool("read", &["Read"]), named_tool("grep", &[])], empty_hub());
+    let name = |found: Option<Arc<dyn Tool>>| found.map(|tool| tool.spec().name.clone());
+    assert_eq!(name(resolver.resolve("read")).as_deref(), Some("read"));
+    assert_eq!(name(resolver.resolve("Read")).as_deref(), Some("read"));
+    assert_eq!(name(resolver.resolve("grep")).as_deref(), Some("grep"));
+    assert!(resolver.resolve("edit").is_none());
+    // An MCP tool of a server the hub does not run resolves to nothing (so the call is not outbound).
+    assert!(resolver.resolve("mcp__mail__send").is_none());
+}
+
+struct Runs(Option<GateRun>);
+impl UnattendedRuns for Runs {
+    fn run_of(&self, thread: &ThreadId) -> Option<GateRun> {
+        (thread.as_str() == "sess_task").then(|| self.0.clone()).flatten()
+    }
+}
+
+struct Contacts;
+impl ContactBots for Contacts {
+    fn is_contact_bot(&self, agent_id: &str) -> bool {
+        agent_id == "ann"
+    }
+}
+
+struct AllowAll(bool);
+impl AllowAllActions for AllowAll {
+    fn allow_all_actions(&self) -> bool {
+        self.0
+    }
+}
+
+/// The gate's connector account is the hub's choice among the connector's accounts
+/// (`resolveMcpToolAccount`); the other three answers come from their owners.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_gate_env_binds_a_connector_call_to_the_hubs_account_choice() {
+    use mixdog_mcp::McpServerConfig;
+    use mixdog_mcp::connector_accounts::AccountHealth;
+    use mixdog_mcp::connector_accounts::AccountReport;
+    use mixdog_mcp::connector_accounts::AccountSeed;
+    use mixdog_mcp::connector_accounts::ConnectorAccounts;
+
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = empty_hub();
+    // The server never starts (no such program), but it is known: a call resolves to it.
+    let missing = dir.path().join("no-such-program");
+    hub.apply(vec![McpServerConfig::from_entry("linear", &json!({"command": missing.to_string_lossy()}), &std::env::vars().collect()).unwrap()]);
+    let seeds = [("linear", "a@example.com"), ("linear-2", "b@example.com")]
+        .map(|(name, email)| AccountSeed { name: name.to_owned(), id: format!("{name}|{email}"), email: email.to_owned() })
+        .to_vec();
+    let accounts = ConnectorAccounts::new("linear", seeds, Arc::new(AccountHealth::default()), dir.path().to_path_buf(), tokens.maintenance_io).unwrap();
+    for name in ["linear", "linear-2"] {
+        accounts.note_tools(name, vec!["search".to_owned()]);
+        accounts.record(name, &AccountReport::default());
+    }
+    accounts.set_listed(vec!["search".to_owned()]);
+    hub.set_connector_accounts("linear", accounts);
+
+    let run = GateRun { kind: RunKind::Schedule, agent_id: "ann".to_owned() };
+    let env = HostGateEnv::new(Arc::new(Runs(Some(run.clone()))), Arc::new(Contacts), Arc::new(AllowAll(true)), hub);
+    let header = Header::new();
+    let bound = |args: Value| {
+        let call = GateCall::new("mcp__linear__search", args);
+        let (env, header) = (&env, &header);
+        async move { env.connector_account(&ThreadId::from("sess_a"), header, &call).await }
+    };
+    // The account the call names; without one, the connector's default.
+    let named = bound(json!({"account": "linear-2"})).await.unwrap().unwrap();
+    assert_eq!((named.name.as_str(), named.label.as_str()), ("linear-2", "b@example.com"));
+    let default = bound(json!({})).await.unwrap().unwrap();
+    assert_eq!((default.name.as_str(), default.label.as_str()), ("linear", "a@example.com"));
+    // An account that does not exist is the refusal, with the usable ones listed.
+    let refusal = bound(json!({"account": "nobody"})).await.unwrap_err();
+    assert_eq!(refusal, "No connected Linear account is \"nobody\". Usable Linear accounts: a@example.com, b@example.com. Pass one as `account`.");
+    // A tool of a server the hub does not know is bound to nothing.
+    let other = GateCall::new("mcp__other__search", json!({}));
+    assert_eq!(env.connector_account(&ThreadId::from("sess_a"), &header, &other).await, Ok(None));
+
+    assert_eq!(env.run_of(&ThreadId::from("sess_task")), Some(run));
+    assert_eq!(env.run_of(&ThreadId::from("sess_a")), None);
+    assert!(env.is_contact_bot("ann") && !env.is_contact_bot("bob"));
+    assert!(env.allow_all_actions());
+}
+
+/// "Allow all actions" is on only when the stored option is `true` (`developerOptionEnabledStrict`).
+#[tokio::test(flavor = "multi_thread")]
+async fn allow_all_actions_is_on_only_for_a_stored_true() {
+    use mixdog_core::config::Config;
+    use mixdog_core::config::ConfigLanes;
+    use mixdog_core_api::mock::MockStatePublisher;
+
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    for (index, (stored, expected)) in [
+        (json!({"agent": {"developer": {"allowAllActions": true}}}), true),
+        (json!({"agent": {"developer": {"allowAllActions": "true"}}}), false),
+        (json!({"agent": {"developer": {"allowAllActions": false}}}), false),
+        (json!({"agent": {"developer": {}}}), false),
+        (json!({"agent": {}}), false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = dir.path().join(format!("config-{index}.json"));
+        std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        assert_eq!(ConfigAllowAll(config).allow_all_actions(), expected, "{stored}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_skill_listing_answers_from_the_catalog() {
+    use mixdog_mcp::skill_catalog::SkillSettings;
+    use mixdog_mcp::skill_catalog::SkillSettingsSource;
+    use mixdog_mcp::skills::SkillRoot;
+    use mixdog_mcp::skills::SkillSource;
+    use mixdog_mcp::skills_watch::SkillsWatch;
+
+    struct NoSettings;
+    impl SkillSettingsSource for NoSettings {
+        fn current(&self) -> SkillSettings {
+            SkillSettings::default()
+        }
+    }
+
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("skills");
+    std::fs::create_dir_all(root.join("alpha")).unwrap();
+    std::fs::write(root.join("alpha").join("SKILL.md"), "---\nname: alpha\ndescription: Use when alpha.\n---\n\nbody\n").unwrap();
+    let skill_root = SkillRoot { dir: root, source: SkillSource::Global, plugin: None };
+    let catalog = SkillCatalog::new(
+        dir.path().to_path_buf(),
+        tokens.maintenance_io,
+        Arc::new(move || vec![skill_root.clone()]),
+        Arc::new(NoSettings),
+        &SkillsWatch::new(),
+    );
+    let listed = CatalogSkillsListed(Arc::clone(&catalog));
+    // Before the host's first collection nothing is known; afterwards the skill is listed.
+    assert!(!listed.any_for(dir.path()));
+    catalog.skills().await.unwrap();
+    assert!(listed.any_for(dir.path()));
 }
 
 #[tokio::test(flavor = "multi_thread")]

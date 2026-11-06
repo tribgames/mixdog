@@ -5,6 +5,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use arc_swap::ArcSwap;
 use mixdog_js::JsRegex;
@@ -103,6 +105,10 @@ pub struct SkillCatalog {
     settings: Arc<dyn SkillSettingsSource>,
     changes: watch::Receiver<u64>,
     cache: ArcSwap<Option<Cached>>,
+    /// The list as last collected; kept when `invalidate` drops `cache`, for readers that cannot
+    /// wait for a new collection (`any_visible_now`).
+    last: ArcSwap<Option<Arc<Vec<Skill>>>>,
+    refreshing: AtomicBool,
 }
 
 impl SkillCatalog {
@@ -113,7 +119,16 @@ impl SkillCatalog {
         settings: Arc<dyn SkillSettingsSource>,
         watch: &SkillsWatch,
     ) -> Arc<Self> {
-        Arc::new(Self { data_dir, maintenance, roots, settings, changes: watch.subscribe(), cache: ArcSwap::from_pointee(None) })
+        Arc::new(Self {
+            data_dir,
+            maintenance,
+            roots,
+            settings,
+            changes: watch.subscribe(),
+            cache: ArcSwap::from_pointee(None),
+            last: ArcSwap::from_pointee(None),
+            refreshing: AtomicBool::new(false),
+        })
     }
 
     /// Drops the list so the next read collects it again (every write the app makes itself).
@@ -137,7 +152,41 @@ impl SkillCatalog {
         let collected = self.run(move |lane| collect_skills(lane, &data_dir, &roots)).await?;
         let skills = Arc::new(collected);
         self.cache.store(Arc::new(Some(Cached { generation, skills: Arc::clone(&skills) })));
+        self.last.store(Arc::new(Some(Arc::clone(&skills))));
         Ok(skills)
+    }
+
+    /// Whether any skill is visible at `cwd`, answered without waiting for the lane (a session's
+    /// tool list is built synchronously). It reads the list as last collected, so a list that
+    /// changed since is seen once the collection this call starts in the background finishes;
+    /// before the first collection (`skills().await`, which a host does at start) the answer is
+    /// `false`.
+    pub fn any_visible_now(self: &Arc<Self>, cwd: &Path) -> bool {
+        if skills_disabled_by_env() {
+            return false;
+        }
+        let generation = *self.changes.borrow();
+        if !matches!(&**self.cache.load(), Some(cached) if cached.generation == generation) {
+            self.refresh_in_background();
+        }
+        match &**self.last.load() {
+            Some(skills) => !self.filter_visible(skills, cwd).is_empty(),
+            None => false,
+        }
+    }
+
+    fn refresh_in_background(self: &Arc<Self>) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        if self.refreshing.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let catalog = Arc::clone(self);
+        runtime.spawn(async move {
+            if let Err(error) = catalog.skills().await {
+                tracing::warn!(%error, "the skill list could not be refreshed");
+            }
+            catalog.refreshing.store(false, Ordering::Release);
+        });
     }
 
     /// Runs `job` on the maintenance lane, waiting for room when the lane is full. A job the
@@ -155,15 +204,17 @@ impl SkillCatalog {
     /// The skills a session in `cwd` may see: not switched off, feature available, inside the
     /// skill's (and its plugin's) project scope.
     pub async fn visible(&self, cwd: &Path) -> Result<Vec<Skill>, CatalogError> {
+        Ok(self.filter_visible(&self.skills().await?, cwd))
+    }
+
+    fn filter_visible(&self, skills: &[Skill], cwd: &Path) -> Vec<Skill> {
         let settings = self.settings.current();
-        Ok(self
-            .skills()
-            .await?
+        skills
             .iter()
             .filter(|s| !js_trim(&s.name).is_empty())
             .filter(|s| settings.gate.refusal(s).is_none() && settings.scopes.skill_allowed_for_cwd(s, cwd))
             .cloned()
-            .collect())
+            .collect()
     }
 
     /// Why the `Skill` tool refuses `name` at `cwd`, or `None`.

@@ -245,6 +245,13 @@ impl McpHub {
         out
     }
 
+    /// The tool a qualified name was published for, by a ready server; the policy asks it what
+    /// a call does outside the machine (`Tool::outbound_kind`).
+    pub fn tool(&self, qualified: &str) -> Option<Arc<dyn Tool>> {
+        let (server, entry) = self.resolve(qualified)?;
+        Some(Arc::new(McpTool::new(server, entry)))
+    }
+
     /// The server and entry a qualified tool name was published for.
     pub fn resolve(&self, qualified: &str) -> Option<(Arc<McpServer>, Arc<ToolEntry>)> {
         self.servers.load().iter().find_map(|server| {

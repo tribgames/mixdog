@@ -7,6 +7,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_agent::env::ALLOW_NOT_SAVED_NOTICE;
+use mixdog_agent::env::BoundAccount;
 use mixdog_agent::env::GateCall;
 use mixdog_agent::env::GateDecision;
 use mixdog_agent::env::GateSession;
@@ -107,8 +108,11 @@ impl ToolResolver for NoTools {
 
 struct Session {
     surface: SessionSurface,
+    /// What the session answers for every call's connector account.
+    account: Result<Option<BoundAccount>, String>,
 }
 
+#[async_trait]
 impl GateSession for Session {
     fn facts(&self) -> SessionFacts {
         SessionFacts {
@@ -126,22 +130,25 @@ impl GateSession for Session {
     fn settings(&self) -> PolicySettings {
         PolicySettings::default()
     }
-    fn account(&self, _call: &GateCall) -> Option<String> {
-        None
+    async fn account(&self, _call: &GateCall) -> Result<Option<BoundAccount>, String> {
+        self.account.clone()
     }
 }
 
-struct RewriteHook;
+/// Rewrites a `read` and a mail send; records the arguments it was asked about.
+#[derive(Default)]
+struct RewriteHook(Mutex<Vec<Value>>);
 
 #[async_trait]
 impl PreToolHook for RewriteHook {
     async fn pre_tool(&self, call: &HookCall<'_>) -> Result<Option<HookDecision>, HookFailure> {
-        Ok((call.name == "read").then(|| HookDecision {
-            action: HookAction::Rewrite,
-            reason: None,
-            name: None,
-            args: Some(json!({"path": "rewritten"})),
-        }))
+        self.0.lock().expect("seen").push(call.args.clone());
+        let args = match call.name {
+            "read" => json!({"path": "rewritten"}),
+            "mcp__mail__send" => json!({"to": "x"}),
+            _ => return Ok(None),
+        };
+        Ok(Some(HookDecision { action: HookAction::Rewrite, reason: None, name: None, args: Some(args) }))
     }
 }
 
@@ -153,10 +160,19 @@ struct Rig {
 }
 
 fn rig(connectors: Connectors, surface: SessionSurface, hook: bool) -> Rig {
+    rig_bound(connectors, surface, hook.then(|| Arc::new(RewriteHook::default())), Ok(None))
+}
+
+fn rig_bound(
+    connectors: Connectors,
+    surface: SessionSurface,
+    hook: Option<Arc<RewriteHook>>,
+    account: Result<Option<BoundAccount>, String>,
+) -> Rig {
     let connectors = Arc::new(connectors);
     let mut policy = ToolPolicy::new(Arc::new(MemoryGrantStore::default()), connectors.clone());
-    if hook {
-        policy = policy.with_hook(Arc::new(RewriteHook));
+    if let Some(hook) = hook {
+        policy = policy.with_hook(hook);
     }
     let approvals = Arc::new(MockApprovalGate::default());
     let events = Arc::new(Events::default());
@@ -164,7 +180,7 @@ fn rig(connectors: Connectors, surface: SessionSurface, hook: bool) -> Rig {
     let gate = PolicyGate::new(PolicyGateParts {
         policy: Arc::new(policy),
         connectors,
-        session: Arc::new(Session { surface }),
+        session: Arc::new(Session { surface, account }),
         tools: Arc::new(NoTools),
         grants: Arc::new(SessionGrants::default()),
         approvals: approvals.clone(),
@@ -271,6 +287,55 @@ async fn a_routed_call_is_judged_under_its_schema_name() {
         r.gate.pre_dispatch_deny(&routed(Some("web_fetch"))).as_deref(),
         Some("Error: tool \"local_fetch\" is not available to this agent.")
     );
+}
+
+fn work_account() -> BoundAccount {
+    BoundAccount { name: "gmail-2".into(), label: "work@example.com".into() }
+}
+
+/// `tool-exec.mjs`: a connector call is bound to its account before any hook sees it, and a
+/// hook's rewrite of the same tool keeps the account.
+#[tokio::test]
+async fn a_connector_call_is_bound_to_its_account_before_the_hook_and_after_its_rewrite() {
+    let hook = Arc::new(RewriteHook::default());
+    let r = rig_bound(Connectors::default(), SessionSurface::default(), Some(hook.clone()), Ok(Some(work_account())));
+    // No hook decision: the call runs with the account added.
+    assert_eq!(
+        r.gate.check_call("c1", &call("mcp__mail__search", json!({"q": "bills"}))).await,
+        GateDecision::Rewrite(call("mcp__mail__search", json!({"q": "bills", "account": "gmail-2"})))
+    );
+    // The call already carries the account it is bound to: unchanged.
+    assert_eq!(
+        r.gate.check_call("c2", &call("mcp__mail__search", json!({"account": "gmail-2"}))).await,
+        GateDecision::Allow
+    );
+    // A rewrite of the same tool keeps the account; the hook itself was asked about the bound call.
+    assert_eq!(
+        r.gate.check_call("c3", &call("mcp__mail__send", json!({"to": "a"}))).await,
+        GateDecision::Rewrite(call("mcp__mail__send", json!({"to": "x", "account": "gmail-2"})))
+    );
+    assert_eq!(hook.0.lock().expect("seen")[2], json!({"to": "a", "account": "gmail-2"}));
+    // A call bound to no account (the connector holds none) is left as it is.
+    let none = rig_bound(Connectors::default(), SessionSurface::default(), None, Ok(None));
+    assert_eq!(none.gate.check_call("c4", &call("mcp__mail__search", json!({"q": "x"}))).await, GateDecision::Allow);
+}
+
+#[tokio::test]
+async fn an_account_that_cannot_be_used_is_the_result_before_any_hook_or_card() {
+    let hook = Arc::new(RewriteHook::default());
+    let refusal = "Account \"gone\" cannot be used. Usable gmail accounts: a, b. Pass one as `account`.".to_owned();
+    let r = rig_bound(
+        Connectors { needs: vec!["mcp__mail__send".into()], ..Connectors::default() },
+        SessionSurface::default(),
+        Some(hook.clone()),
+        Err(refusal.clone()),
+    );
+    assert_eq!(
+        r.gate.check_call("c", &call("mcp__mail__send", json!({"account": "gone"}))).await,
+        GateDecision::Deny(format!("Error: {refusal}"))
+    );
+    assert!(hook.0.lock().expect("seen").is_empty(), "no hook ran");
+    assert!(r.approvals.asks.lock().expect("asks").is_empty(), "no card was shown");
 }
 
 #[tokio::test]

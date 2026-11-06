@@ -1,0 +1,277 @@
+{
+  "cases": [
+    {
+      "identity": {
+        "ownerSessionId": null,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "lead"
+      },
+      "model": "gpt-x",
+      "name": "a request alone",
+      "opts": {
+        "requestKind": "lead",
+        "sessionId": "s1"
+      },
+      "provider": "openai"
+    },
+    {
+      "identity": {
+        "ownerSessionId": null,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": ""
+      },
+      "model": "gpt-x",
+      "name": "no kind",
+      "opts": {
+        "sessionId": "s1"
+      },
+      "provider": "openai"
+    },
+    {
+      "identity": {
+        "ownerSessionId": null,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "compaction"
+      },
+      "model": "gpt-x",
+      "name": "a compaction under its source session",
+      "opts": {
+        "requestKind": "compaction",
+        "sessionId": "s1:compact",
+        "usageSessionId": "s1"
+      },
+      "provider": "openai"
+    },
+    {
+      "identity": {
+        "ownerSessionId": null,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "cli"
+      },
+      "model": "gpt-x",
+      "name": "the session type wins over the kind",
+      "opts": {
+        "requestKind": "lead",
+        "sessionId": "s1"
+      },
+      "provider": "openai",
+      "session": {
+        "id": "s1",
+        "provider": "openai",
+        "sourceType": "cli"
+      }
+    },
+    {
+      "identity": {
+        "ownerSessionId": null,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "lead"
+      },
+      "model": "gpt-x",
+      "name": "an empty session type falls to the kind",
+      "opts": {
+        "requestKind": "lead",
+        "sessionId": "s1"
+      },
+      "provider": "openai",
+      "session": {
+        "id": "s1",
+        "provider": "openai",
+        "sourceType": ""
+      }
+    },
+    {
+      "identity": {
+        "ownerSessionId": "o1",
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "agent"
+      },
+      "model": "gpt-x",
+      "name": "an owner session",
+      "opts": {
+        "requestKind": "agent",
+        "sessionId": "s1"
+      },
+      "provider": "openai",
+      "session": {
+        "id": "s1",
+        "ownerSessionId": "o1",
+        "provider": "openai"
+      }
+    },
+    {
+      "identity": {
+        "ownerSessionId": "p1",
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "agent"
+      },
+      "model": "gpt-x",
+      "name": "a parent session",
+      "opts": {
+        "requestKind": "agent",
+        "sessionId": "s1"
+      },
+      "provider": "openai",
+      "session": {
+        "id": "s1",
+        "parentSessionId": "p1",
+        "provider": "openai"
+      }
+    },
+    {
+      "identity": {
+        "ownerSessionId": "o1",
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "agent"
+      },
+      "model": "gpt-x",
+      "name": "the owner wins over the parent",
+      "opts": {
+        "requestKind": "agent",
+        "sessionId": "s1"
+      },
+      "provider": "openai",
+      "session": {
+        "id": "s1",
+        "ownerSessionId": "o1",
+        "parentSessionId": "p1",
+        "provider": "openai"
+      }
+    },
+    {
+      "identity": {
+        "ownerSessionId": null,
+        "requestedModel": "claude-x",
+        "requestedProvider": "anthropic",
+        "sessionId": "s1",
+        "sourceType": "lead"
+      },
+      "model": "gpt-x",
+      "name": "a route hop asks the primary route",
+      "opts": {
+        "requestKind": "lead",
+        "sessionId": "s1"
+      },
+      "provider": "openai",
+      "session": {
+        "id": "s1",
+        "provider": "openai",
+        "routeFallbackPrimary": {
+          "model": "claude-x",
+          "provider": "anthropic"
+        }
+      }
+    },
+    {
+      "identity": {
+        "ownerSessionId": null,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "lead"
+      },
+      "model": "gpt-x",
+      "name": "a primary on another provider is not this send",
+      "opts": {
+        "requestKind": "lead",
+        "sessionId": "s1"
+      },
+      "provider": "openai",
+      "session": {
+        "id": "s1",
+        "provider": "anthropic",
+        "routeFallbackPrimary": {
+          "model": "claude-x",
+          "provider": "anthropic"
+        }
+      }
+    },
+    {
+      "identity": {
+        "ownerSessionId": null,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "lead"
+      },
+      "model": "gpt-x",
+      "name": "a primary equal to the route is no hop",
+      "opts": {
+        "requestKind": "lead",
+        "sessionId": "s1"
+      },
+      "provider": "openai",
+      "session": {
+        "id": "s1",
+        "provider": "openai",
+        "routeFallbackPrimary": {
+          "model": "gpt-x",
+          "provider": "openai"
+        }
+      }
+    },
+    {
+      "identity": {
+        "ownerSessionId": null,
+        "requestedModel": "gpt-y",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "lead"
+      },
+      "model": "gpt-x",
+      "name": "a primary on the same provider but another model is a hop",
+      "opts": {
+        "requestKind": "lead",
+        "sessionId": "s1"
+      },
+      "provider": "openai",
+      "session": {
+        "id": "s1",
+        "provider": "openai",
+        "routeFallbackPrimary": {
+          "model": "gpt-y",
+          "provider": "openai"
+        }
+      }
+    },
+    {
+      "identity": {
+        "ownerSessionId": null,
+        "requestedModel": "",
+        "requestedProvider": "",
+        "sessionId": "s1",
+        "sourceType": "lead"
+      },
+      "model": "gpt-x",
+      "name": "a primary without a provider is no hop",
+      "opts": {
+        "requestKind": "lead",
+        "sessionId": "s1"
+      },
+      "provider": "openai",
+      "session": {
+        "id": "s1",
+        "provider": "openai",
+        "routeFallbackPrimary": {
+          "model": "gpt-y"
+        }
+      }
+    }
+  ]
+}

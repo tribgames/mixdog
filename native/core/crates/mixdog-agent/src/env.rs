@@ -621,7 +621,16 @@ impl ToolGate for AllowAll {
 /// The renderer translates this exact text (`ALLOW_NOT_SAVED_NOTICE` in Node's before-hook).
 pub const ALLOW_NOT_SAVED_NOTICE: &str = "Allowed this once. The setting could not be saved.";
 
+/// The connector account a call is bound to (`resolveMcpToolAccount`): `name` is unique and binds
+/// the call (`args.account`); `label` is what the approval card shows.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct BoundAccount {
+    pub name: String,
+    pub label: String,
+}
+
 /// What the policy-backed gate reads from the owning session, per call.
+#[async_trait]
 pub trait GateSession: Send + Sync {
     /// Who is acting (agent, bot, run kind, life mark).
     fn facts(&self) -> mixdog_tools::policy::SessionFacts;
@@ -630,8 +639,17 @@ pub trait GateSession: Send + Sync {
     fn surface(&self) -> mixdog_tools::policy::SessionSurface;
     /// The developer options the policy reads ("Allow all actions").
     fn settings(&self) -> mixdog_tools::policy::PolicySettings;
-    /// The connector account the call is bound to; the approval card names it.
-    fn account(&self, call: &GateCall) -> Option<String>;
+    /// The connector account the call is bound to: the one `args.account` names, else the one used
+    /// last. `Ok(None)` for a call bound to no account. `Err` is the refusal (usable accounts
+    /// listed), which the model sees as the call's result before any hook or card.
+    async fn account(&self, call: &GateCall) -> Result<Option<BoundAccount>, String>;
+}
+
+/// `{ ...args, account }`: a connector call carries the account it was approved for.
+fn with_account(args: &JsonValue, account: &str) -> JsonValue {
+    let mut map = args.as_object().cloned().unwrap_or_default();
+    map.insert("account".to_owned(), JsonValue::String(account.to_owned()));
+    JsonValue::Object(map)
 }
 
 /// `ApprovalGate` seen from the loop: while the person decides the run is waiting on them
@@ -733,7 +751,17 @@ impl ToolGate for PolicyGate {
     async fn check_call(&self, call_id: &str, call: &GateCall) -> GateDecision {
         let facts = self.session.facts();
         let surface = self.session.surface();
-        let account = self.session.account(call);
+        // A connector call is bound to its account before any hook or card sees it, so an
+        // approval approves that account, whatever is used last meanwhile (`tool-exec.mjs`).
+        let bound = match self.session.account(call).await {
+            Ok(bound) => bound.filter(|account| !account.name.is_empty()),
+            Err(message) => return GateDecision::Deny(format!("Error: {message}")),
+        };
+        let account = bound.as_ref().map(|account| account.label.as_str()).filter(|label| !label.is_empty());
+        let args = match &bound {
+            Some(bound) => with_account(&call.args, &bound.name),
+            None => call.args.clone(),
+        };
         let call_id = ToolCallId::from(call_id);
         let authorized = self
             .policy
@@ -741,13 +769,13 @@ impl ToolGate for PolicyGate {
                 call_id: &call_id,
                 thread_id: &self.thread_id,
                 name: &call.name,
-                args: call.args.clone(),
+                args,
                 cwd: &self.cwd,
                 facts: &facts,
                 surface: &surface,
                 schema_name: call.schema_name.as_deref(),
                 settings: self.session.settings(),
-                account: account.as_deref(),
+                account,
                 session_grants: &self.grants,
                 tools: self.tools.as_ref(),
                 approvals: &self.approvals,
@@ -762,10 +790,15 @@ impl ToolGate for PolicyGate {
                         message: ALLOW_NOT_SAVED_NOTICE.to_owned(),
                     }));
                 }
-                if authorized.name == call.name && authorized.args == call.args {
+                // A hook's rewrite of the same tool keeps the bound account.
+                let args = match &bound {
+                    Some(bound) if authorized.name == call.name => with_account(&authorized.args, &bound.name),
+                    _ => authorized.args,
+                };
+                if authorized.name == call.name && args == call.args {
                     GateDecision::Allow
                 } else {
-                    GateDecision::Rewrite(GateCall::new(authorized.name, authorized.args))
+                    GateDecision::Rewrite(GateCall::new(authorized.name, args))
                 }
             }
         }

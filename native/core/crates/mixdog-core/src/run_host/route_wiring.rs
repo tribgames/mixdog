@@ -83,8 +83,12 @@ pub fn claude_generation(model: &str) -> Option<f64> {
 }
 
 /// `CLAUDE_GENERATION_FLOOR.xhighEffort` / `.maxEffort`.
-const XHIGH_FLOOR: f64 = 407.0;
-const MAX_FLOOR: f64 = 405.0;
+pub(super) const XHIGH_FLOOR: f64 = 407.0;
+pub(super) const MAX_FLOOR: f64 = 405.0;
+/// `.adaptiveEffort`: adaptive thinking and `output_config.effort` from here on.
+pub(super) const ADAPTIVE_FLOOR: f64 = 406.0;
+/// `.manualThinkingRejected`: `thinking: {type: "enabled", budget_tokens}` is refused from here on.
+pub(super) const MANUAL_REJECTED_FLOOR: f64 = 407.0;
 
 impl AnthropicEffortGates {
     /// The gates a catalog row's caps give: the advertised ladder decides, and `xhigh` implies `max`.

@@ -1,16 +1,17 @@
 //! Agent home threads: each agent contact owns ONE persistent user session whose id is the fixed
 //! key of its agent id (`ids::agent_home_session_id`). Every surface resolves it through the same
 //! method; it is created on first open and archived when its agent is gone. Open, reset, retire
-//! and restore of one agent are serialized (`KeyedSerial`); different agents never wait.
+//! and restore of one agent are serialized (`KeyedChains`); different agents never wait.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_rt::KeyedChains;
 use serde_json::Value;
 
 use super::RoomError;
 use super::ids::{MIXY_AGENT_ID, agent_home_session_id, agent_id_of_home_session};
-use super::serial::KeyedSerial;
 
 /// What an agent's home thread is created and routed with.
 #[derive(Clone, Debug, PartialEq)]
@@ -74,12 +75,12 @@ fn route_change(definition: &Value, current: &Value) -> bool {
 
 pub struct AgentHomes<P: HomePorts> {
     ports: P,
-    serial: KeyedSerial,
+    serial: Arc<KeyedChains>,
 }
 
 impl<P: HomePorts> AgentHomes<P> {
     pub fn new(ports: P) -> Self {
-        Self { ports, serial: KeyedSerial::new() }
+        Self { ports, serial: KeyedChains::new() }
     }
 
     fn session_id_of(agent_id: &str) -> Result<String, RoomError> {
@@ -113,7 +114,7 @@ impl<P: HomePorts> AgentHomes<P> {
 
     /// `agent/home/open`.
     pub async fn open(&self, agent_id: &str) -> Result<String, RoomError> {
-        let _turn = self.serial.lock(agent_id).await;
+        let _turn = self.serial.acquire(agent_id).await;
         self.resolve(agent_id).await
     }
 
@@ -121,7 +122,7 @@ impl<P: HomePorts> AgentHomes<P> {
     /// a new archived id. The archive mark is written before the copy exists, so the copy never
     /// lists as a live chat; the clear wipes nothing until the copy is on disk.
     pub async fn reset(&self, agent_id: &str) -> Result<Reset, RoomError> {
-        let _turn = self.serial.lock(agent_id).await;
+        let _turn = self.serial.acquire(agent_id).await;
         let session_id = self.resolve(agent_id).await?;
         let archive_id = self.ports.mint_archive_id();
         self.ports.set_archived(&archive_id, true).await?;
@@ -154,7 +155,7 @@ impl<P: HomePorts> AgentHomes<P> {
         let presence = self.ports.agent_presence(&ids).await?;
         for id in &ids {
             let session_id = Self::session_id_of(id)?;
-            let _turn = self.serial.lock(id).await;
+            let _turn = self.serial.acquire(id).await;
             match presence.get(id).copied().unwrap_or(Presence::Unknown) {
                 Presence::Present => {
                     if on_transition {
@@ -196,7 +197,7 @@ impl<P: HomePorts> AgentHomes<P> {
         if agent_id == MIXY_AGENT_ID {
             return Ok(());
         }
-        let _turn = self.serial.lock(agent_id).await;
+        let _turn = self.serial.acquire(agent_id).await;
         self.ports.set_retired(&session_id, false).await?;
         self.ports.set_archived(&session_id, false).await
     }

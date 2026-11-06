@@ -2,6 +2,15 @@
   "note": "Index of P0-BENCH fixture sets. Verify with benchmarks/rust-core/recorders/verify-manifests.mjs.",
   "sets": [
     {
+      "command": "node benchmarks/rust-core/recorders/record-accounting-scope.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "accounting-scope/MANIFEST.json",
+      "manifestSha256": "6cc26bc34610ed0d4066d7808384aba54736836bff2cba8622c79d9139aa0c68",
+      "recorder": "benchmarks/rust-core/recorders/record-accounting-scope.mjs",
+      "set": "accounting-scope",
+      "totalBytes": 6402
+    },
+    {
       "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
       "fileCount": 74,
       "manifest": "agent/MANIFEST.json",
@@ -27,6 +36,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-quota-settlement.mjs",
       "set": "ai-admin",
       "totalBytes": 31294543
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-anthropic-caps.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "anthropic-caps/MANIFEST.json",
+      "manifestSha256": "bc4e6ef291edbd4132db1a2fce5f1fe8f807f9eaec2321b5534f5008662ddaa3",
+      "recorder": "benchmarks/rust-core/recorders/record-anthropic-caps.mjs",
+      "set": "anthropic-caps",
+      "totalBytes": 8184
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-automation-setup.mjs --tree <tree>",
@@ -84,12 +102,12 @@
     },
     {
       "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop.mjs --tree <tree>",
-      "fileCount": 29,
+      "fileCount": 30,
       "manifest": "desktop/MANIFEST.json",
-      "manifestSha256": "4559ab4341f9c72aa4e6b6b1ebcba6fef5cf93b922c57749c9bbdae19671f381",
+      "manifestSha256": "9aeddfe7416dc42065fc22199db780ea8abbd6f1915a72ec72111c2915dae694",
       "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
       "set": "desktop",
-      "totalBytes": 15168142
+      "totalBytes": 15971853
     },
     {
       "command": "written by the product's own tests: apps/desktop/src/main/host/host-twin.test.mjs and apps/desktop/src/main/browser/golden-twin.integration.ts (no P0-BENCH recorder)",
@@ -216,6 +234,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-network-proxy.mjs",
       "set": "network-proxy",
       "totalBytes": 219449
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-openai-facts.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "openai-facts/MANIFEST.json",
+      "manifestSha256": "03b60f4ccc71452a336efc6e311a6bd68ffb8b00ee4a4d693a7c4b9dc4449bac",
+      "recorder": "benchmarks/rust-core/recorders/record-openai-facts.mjs",
+      "set": "openai-facts",
+      "totalBytes": 5771
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-prompt.mjs --tree <tree>",

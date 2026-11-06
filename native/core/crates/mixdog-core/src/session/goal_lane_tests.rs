@@ -52,11 +52,22 @@ struct Spy {
     inputs: Mutex<Vec<ContinuationInput>>,
     /// The Goal the test injected; the runtime has none, and its own answers would clear the lane.
     pinned: Mutex<Option<Goal>>,
+    /// While set, `turn_settled` waits for it.
+    hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    /// Per continuation call in order: `Some(run)` replaces the runtime's `run`.
+    runs: Mutex<std::collections::VecDeque<Option<bool>>>,
 }
 
 impl Spy {
     fn new(rig: &Rig) -> Arc<Self> {
-        Arc::new(Self { inner: rig.goals.clone(), resets: Mutex::new(0), inputs: Mutex::new(Vec::new()), pinned: Mutex::new(None) })
+        Arc::new(Self {
+            inner: rig.goals.clone(),
+            resets: Mutex::new(0),
+            inputs: Mutex::new(Vec::new()),
+            pinned: Mutex::new(None),
+            hold: Mutex::new(None),
+            runs: Mutex::default(),
+        })
     }
     fn resets(&self) -> usize {
         *lock(&self.resets)
@@ -75,6 +86,10 @@ impl GoalTurnHooks for Spy {
         self.pin_or(self.inner.turn_started(thread).await)
     }
     async fn turn_settled(&self, thread: &ThreadId, detail: Value) -> GoalResult<Option<Goal>> {
+        let hold = lock(&self.hold).clone();
+        if let Some(hold) = hold {
+            hold.notified().await;
+        }
         self.pin_or(self.inner.turn_settled(thread, detail).await)
     }
     async fn archive_completed_on_user_input(&self, thread: &ThreadId) -> GoalResult<Option<Goal>> {
@@ -89,7 +104,11 @@ impl GoalTurnHooks for Spy {
 impl GoalContinuationHooks for Spy {
     async fn continuation(&self, thread: &ThreadId, input: ContinuationInput) -> GoalResult<Continuation> {
         lock(&self.inputs).push(input.clone());
-        GoalContinuationHooks::continuation(&self.inner, thread, input).await
+        let mut decision = GoalContinuationHooks::continuation(&self.inner, thread, input).await?;
+        if let Some(Some(run)) = lock(&self.runs).pop_front() {
+            decision.run = run;
+        }
+        Ok(decision)
     }
     fn reset_continuation_rules(&self, thread: &ThreadId) -> GoalResult<()> {
         *lock(&self.resets) += 1;
@@ -309,6 +328,109 @@ async fn a_user_prompt_dropping_the_closeout_marks_the_reminder() {
     gate.notify_one();
     gate.notify_one();
     eventually(|| idle(&handle).then_some(())).await;
+}
+
+/// Holds the first run open until released and keeps every run's input row.
+fn recording(rig: &Rig) -> (Arc<tokio::sync::Notify>, Arc<Mutex<Vec<Value>>>) {
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let seen: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let (open, inputs) = (gate.clone(), seen.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, inputs) = (open.clone(), inputs.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let first = {
+                let mut inputs = lock(&inputs);
+                inputs.push(run.input_body.clone());
+                inputs.len() == 1
+            };
+            if first {
+                open.notified().await;
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    (gate, seen)
+}
+
+fn sources(seen: &Mutex<Vec<Value>>) -> Vec<String> {
+    lock(seen).iter().map(|body| body.pointer("/meta/source").and_then(Value::as_str).unwrap_or("user").to_owned()).collect()
+}
+
+/// `shouldRunGoalContinuation` for a queued closeout (`drain.mjs`): it runs while the lane's
+/// Goal is still the one at its duration, and is dropped once that Goal is no longer there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_queued_closeout_runs_only_while_its_goal_is_at_its_duration() {
+    for still_due in [true, false] {
+        let rig = Rig::new();
+        let (gate, seen) = recording(&rig);
+        let spy = Spy::new(&rig);
+        let directory = directory(&rig, &spy);
+        let handle = start_thread(&directory).await;
+        changed(&spy, &handle, goal("g1", "active", 0, 60_000)).await;
+        turn(&handle, "work", "op-1").await;
+        eventually(|| (!idle(&handle)).then_some(())).await;
+        changed(&spy, &handle, goal("g1", "duration_reached", 0, 0)).await;
+        eventually(|| handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
+        if !still_due {
+            // The runtime's Goal moved on without the lane hearing it yet.
+            *lock(&spy.pinned) = Some(goal("g1", "active", 0, 60_000));
+        }
+        gate.notify_one();
+        if still_due {
+            eventually(|| (sources(&seen) == ["user", "goal-closeout"]).then_some(())).await;
+        }
+        eventually(|| (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(|queued| queued.is_empty())).then_some(())).await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let expected: &[&str] = if still_due { &["user", "goal-closeout"] } else { &["user"] };
+        assert_eq!(sources(&seen), expected, "still due: {still_due}");
+    }
+}
+
+/// `shouldRunGoalContinuation` for a queued continuation: the runtime decides again when the
+/// entry comes up, and a `run: false` drops it without rescheduling.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_queued_continuation_runs_only_if_the_runtime_still_decides_to_run() {
+    let rig = Rig::new();
+    let (gate, seen) = recording(&rig);
+    gate.notify_one();
+    let spy = Spy::new(&rig);
+    // The scheduling decision as the runtime makes it, then the check refuses.
+    lock(&spy.runs).extend([None, Some(false)]);
+    let directory = directory(&rig, &spy);
+    let handle = start_thread(&directory).await;
+    spy.inner.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship the feature" })).await.expect("create");
+    eventually(|| (lock(&spy.inputs).len() >= 2).then_some(())).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(lock(&seen).is_empty(), "the refused continuation never ran: {:?}", sources(&seen));
+    assert_eq!(lock(&spy.inputs).len(), 2, "the dropped entry is not rescheduled");
+    assert!(idle(&handle));
+    assert!(handle.cell.view.load_full().state.queued.as_ref().is_none_or(|queued| queued.is_empty()));
+}
+
+/// Node's `state.busy` is cleared when the turn closes, before its Goal settlement: a deadline
+/// warning that lands while the turn settles marks the reminder, as on an idle thread.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deadline_warning_during_the_settlement_marks_the_reminder() {
+    let rig = Rig::new();
+    let (gate, seen) = recording(&rig);
+    gate.notify_one();
+    let spy = Spy::new(&rig);
+    let directory = directory(&rig, &spy);
+    let handle = start_thread(&directory).await;
+    changed(&spy, &handle, goal("g1", "active", 0, 600_000)).await;
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *lock(&spy.hold) = Some(hold.clone());
+    turn(&handle, "work", "op-1").await;
+    eventually(|| (lock(&seen).len() == 1 && idle(&handle)).then_some(())).await;
+
+    changed(&spy, &handle, goal("g1", "active", 1, 300_000)).await;
+    let pending = eventually(|| handle.cell.header.load().get("pendingGoalReminder").cloned()).await;
+    assert_eq!(pending["reason"], "deadline-soon");
+    assert_eq!(spy.resets(), 1);
+    assert!(queued_entries(&rig, &handle).is_empty(), "a settling turn takes no queued warning");
+    *lock(&spy.hold) = None;
+    hold.notify_one();
 }
 
 /// `markGoalReminder(reason)` marks the session's pending Goal reminder

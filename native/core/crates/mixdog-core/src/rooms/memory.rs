@@ -3,12 +3,14 @@
 //! the prohibition lives in the type. A deleted agent's pool is retained, unreferenced, until its
 //! entries are deleted here. Calls for one agent run one at a time; other agents are independent.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use mixdog_rt::KeyedChains;
 use serde::{Deserialize, Serialize};
 
 use super::RoomError;
 use super::ids::agent_home_session_id;
-use super::serial::KeyedSerial;
 
 const PAGE_SIZE: u32 = 100;
 
@@ -42,7 +44,7 @@ pub trait MemoryControl: Send + Sync {
 
 pub struct AgentMemory<C: MemoryControl> {
     control: C,
-    serial: KeyedSerial,
+    serial: Arc<KeyedChains>,
 }
 
 fn required_agent_id(agent_id: &str) -> Result<(), RoomError> {
@@ -64,13 +66,13 @@ pub fn required_entry_ref(id: u64, index_revision: &str) -> Result<(), RoomError
 
 impl<C: MemoryControl> AgentMemory<C> {
     pub fn new(control: C) -> Self {
-        Self { control, serial: KeyedSerial::new() }
+        Self { control, serial: KeyedChains::new() }
     }
 
     /// `agent/memory/list`: every active entry of the agent's pool, in its list order.
     pub async fn list(&self, agent_id: &str) -> Result<Vec<MemoryEntry>, RoomError> {
         required_agent_id(agent_id)?;
-        let _turn = self.serial.lock(agent_id).await;
+        let _turn = self.serial.acquire(agent_id).await;
         let mut entries = Vec::new();
         let mut offset = 0;
         loop {
@@ -87,7 +89,7 @@ impl<C: MemoryControl> AgentMemory<C> {
     pub async fn delete(&self, agent_id: &str, id: u64, index_revision: &str) -> Result<(), RoomError> {
         required_agent_id(agent_id)?;
         required_entry_ref(id, index_revision)?;
-        let _turn = self.serial.lock(agent_id).await;
+        let _turn = self.serial.acquire(agent_id).await;
         match self.control.delete(agent_id, id, index_revision).await? {
             DeleteOutcome::Deleted => Ok(()),
             DeleteOutcome::StaleRevision => Err(RoomError::PreconditionFailed(

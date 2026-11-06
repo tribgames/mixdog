@@ -302,6 +302,7 @@ fn options_in(o: w::ProxyOptions) -> Result<p::RequestOptions, Invalid> {
         },
         // A group names the loop's own retries on this PC; a remote request carries none.
         send_group: None,
+        usage_session_id: None,
     })
 }
 
