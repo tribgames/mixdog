@@ -62,14 +62,51 @@ test('a cancel of the server relays to the local core for the run that request s
   assert.equal(local.sent.length, 2, 'a call that is over has nothing to stop');
 });
 
-test('a cancel of a request the PC never ran is dropped, and a stopped relay relays nothing', () => {
-  const { local, calls, execute, cancel, stop } = rig();
+test('a cancel of a request the PC never ran is dropped', () => {
+  const { local, execute, cancel } = rig();
   cancel(99);
   execute(1);
-  stop();
-  cancel(1);
   assert.deepEqual(local.sent, []);
-  assert.equal(calls.length, 1);
+});
+
+test('a stopped relay abandons its calls and relays nothing more', async () => {
+  const { server, local, calls, execute, cancel, stop, settle } = rig();
+  execute(1);
+  stop();
+  assert.deepEqual(local.sent, [['modelProxy/cancel', { runId: calls[0].params.runId }]]);
+  cancel(1);
+  calls[0].resolve({ result: { result: 'route', route: null } });
+  await settle();
+  assert.equal(local.sent.length, 1);
+  assert.deepEqual(server.sent, [], 'an abandoned call is unanswered');
+});
+
+test('a lost server link stops every call in flight and leaves them unanswered, like the lease of Node', async () => {
+  const { server, local, calls, execute, settle } = rig();
+  execute(1);
+  execute(2);
+  server.emit({ type: 'status', status: { state: 'ready' } });
+  assert.deepEqual(local.sent, []);
+  server.emit({ type: 'status', status: { state: 'reconnecting' } });
+  assert.deepEqual(
+    local.sent.map(([method]) => method),
+    ['modelProxy/cancel', 'modelProxy/cancel']
+  );
+  assert.deepEqual(new Set(local.sent.map(([, p]) => p.runId)), new Set(calls.map((c) => c.params.runId)));
+  server.emit({ type: 'status', status: { state: 'closed' } });
+  assert.equal(local.sent.length, 2, 'nothing left to stop');
+
+  calls[0].resolve({ result: { result: 'route', route: null } });
+  calls[1].reject(new Error('cancelled'));
+  await settle();
+  assert.deepEqual(server.sent, []);
+
+  // The server's ids restart on the next link: the new call is its own run and is answered.
+  execute(1);
+  assert.notEqual(calls[2].params.runId, calls[0].params.runId);
+  calls[2].resolve({ result: { result: 'route', route: null } });
+  await settle();
+  assert.equal(server.sent.length, 1);
 });
 
 test('runs of two server connections on one local core get different run ids', () => {

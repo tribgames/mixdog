@@ -12,6 +12,8 @@ pub mod single_flight;
 pub mod wav;
 pub mod whisper_owner;
 pub mod whisper_server;
+#[cfg(test)]
+mod whisper_twin_tests;
 
 pub use pipeline::{AudioTools, ServerContract, VoiceError, VoicePipeline, VoiceSettings, VoiceSettingsSource, WhisperEngine};
 pub use runtime::{RuntimeManifest, VoiceRuntime, resolve_voice_runtime, voice_runtime_info};

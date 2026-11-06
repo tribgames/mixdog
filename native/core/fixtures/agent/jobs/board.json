@@ -1,0 +1,2015 @@
+[
+  {
+    "name": "completion_is_announced_once_with_its_result",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "list",
+        "scope": {
+          "session": "s1"
+        }
+      },
+      {
+        "op": "complete",
+        "id": "t1",
+        "status": "completed",
+        "content": "done <ok> & more"
+      },
+      {
+        "op": "complete",
+        "id": "t1",
+        "status": "failed",
+        "error": "late"
+      },
+      {
+        "op": "list",
+        "scope": {
+          "session": "s1"
+        }
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          }
+        ],
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>t1</task-id>\n<tag>t1</tag>\n<status>completed</status>\n<summary>Agent \"t1\" completed</summary>\n<result>\ndone <ok> & more\n</result>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "completed",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": null,
+            "notified": true,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "a_failed_run_names_its_error",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "complete",
+        "id": "t1",
+        "status": "error",
+        "content": "partial",
+        "error": "boom <x>"
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>t1</task-id>\n<tag>t1</tag>\n<status>failed</status>\n<summary>Agent \"t1\" failed</summary>\n<result>\npartial\n</result>\n<error>boom &lt;x&gt;</error>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "failed",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": "boom <x>",
+            "notified": true,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "status_words_are_normalised",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "a",
+        "tag": "a",
+        "sessionId": "a-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "register",
+        "id": "b",
+        "tag": "b",
+        "sessionId": "b-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "register",
+        "id": "c",
+        "tag": "c",
+        "sessionId": "c-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "complete",
+        "id": "a",
+        "status": "done",
+        "content": "x"
+      },
+      {
+        "op": "complete",
+        "id": "b",
+        "status": "killed"
+      },
+      {
+        "op": "complete",
+        "id": "c",
+        "status": "success",
+        "content": "y"
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>a</task-id>\n<tag>a</tag>\n<status>completed</status>\n<summary>Agent \"a\" completed</summary>\n<result>\nx\n</result>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>b</task-id>\n<tag>b</tag>\n<status>cancelled</status>\n<summary>Agent \"b\" was cancelled</summary>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>c</task-id>\n<tag>c</tag>\n<status>completed</status>\n<summary>Agent \"c\" completed</summary>\n<result>\ny\n</result>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "rows": [
+          {
+            "task_id": "a",
+            "operation": "spawn",
+            "label": "a",
+            "status": "completed",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": null,
+            "notified": true,
+            "tag": "a",
+            "sessionId": "a-sess"
+          },
+          {
+            "task_id": "b",
+            "operation": "spawn",
+            "label": "b",
+            "status": "cancelled",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": null,
+            "notified": true,
+            "tag": "b",
+            "sessionId": "b-sess"
+          },
+          {
+            "task_id": "c",
+            "operation": "spawn",
+            "label": "c",
+            "status": "completed",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": null,
+            "notified": true,
+            "tag": "c",
+            "sessionId": "c-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "a_header_only_completion_is_announced_once",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "complete",
+        "id": "t1",
+        "status": "completed"
+      },
+      {
+        "op": "reconcile",
+        "id": "t1",
+        "status": "completed"
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>t1</task-id>\n<tag>t1</tag>\n<status>completed</status>\n<summary>Agent \"t1\" completed</summary>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "completed",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": null,
+            "notified": true,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "the_report_appendix_follows_the_body",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "appendix",
+        "id": "t1",
+        "text": "not done: a, b"
+      },
+      {
+        "op": "complete",
+        "id": "t1",
+        "status": "completed",
+        "content": "body"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>t1</task-id>\n<tag>t1</tag>\n<status>completed</status>\n<summary>Agent \"t1\" completed</summary>\n<result>\nbody\n\nnot done: a, b\n</result>\n</task-notification>"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "an_appendix_alone_is_not_a_body",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "appendix",
+        "id": "t1",
+        "text": "not done: a"
+      },
+      {
+        "op": "complete",
+        "id": "t1",
+        "status": "completed"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>t1</task-id>\n<tag>t1</tag>\n<status>completed</status>\n<summary>Agent \"t1\" completed</summary>\n<result>\nnot done: a\n</result>\n</task-notification>"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "a_notify_on_cancel_job_reports_once_after_its_run_settles",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11,
+        "notifyOnCancel": true
+      },
+      {
+        "op": "cancel",
+        "id": "t1",
+        "reason": "cancelled by agent close"
+      },
+      {
+        "op": "list"
+      },
+      {
+        "op": "settle",
+        "id": "t1",
+        "content": "partial work"
+      },
+      {
+        "op": "settle",
+        "id": "t1",
+        "content": "again"
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "cancelled",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": "cancelled by agent close",
+            "notified": false,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          }
+        ],
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>t1</task-id>\n<tag>t1</tag>\n<status>cancelled</status>\n<summary>Agent \"t1\" was cancelled (cancelled by agent close)</summary>\n<result>\npartial work\n</result>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "cancelled",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": "cancelled by agent close",
+            "notified": true,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "cancel_now_reports_at_once",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11,
+        "notifyOnCancel": true
+      },
+      {
+        "op": "cancel",
+        "id": "t1",
+        "reason": "stop",
+        "notice": "now"
+      },
+      {
+        "op": "settle",
+        "id": "t1",
+        "content": "late"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>t1</task-id>\n<tag>t1</tag>\n<status>cancelled</status>\n<summary>Agent \"t1\" was cancelled (stop)</summary>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "owner_teardown_cancels_silently",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11,
+        "notifyOnCancel": true
+      },
+      {
+        "op": "cancel",
+        "id": "t1",
+        "reason": "teardown",
+        "notice": "never"
+      },
+      {
+        "op": "settle",
+        "id": "t1",
+        "content": "late"
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "cancelled",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": "teardown",
+            "notified": false,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "a_job_without_notify_on_cancel_cancels_silently",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "cancel",
+        "id": "t1",
+        "reason": "stop"
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "cancelled",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": "stop",
+            "notified": false,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "cancelling_a_finished_job_changes_nothing",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "complete",
+        "id": "t1",
+        "status": "completed",
+        "content": "ok"
+      },
+      {
+        "op": "cancel",
+        "id": "t1",
+        "reason": "late",
+        "notice": "now"
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>t1</task-id>\n<tag>t1</tag>\n<status>completed</status>\n<summary>Agent \"t1\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "completed",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": null,
+            "notified": true,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "scope_follows_session_identity_then_process",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "own",
+        "tag": "own",
+        "sessionId": "own-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "register",
+        "id": "sibling",
+        "tag": "sibling",
+        "sessionId": "sibling-sess",
+        "agent": "worker",
+        "caller": "s2",
+        "pid": 11
+      },
+      {
+        "op": "register",
+        "id": "pidonly",
+        "tag": "pidonly",
+        "sessionId": null,
+        "agent": "worker",
+        "caller": null,
+        "pid": 11,
+        "owner": "s9"
+      },
+      {
+        "op": "register",
+        "id": "loose",
+        "tag": "loose",
+        "sessionId": null,
+        "agent": "worker",
+        "caller": null,
+        "pid": null,
+        "owner": null
+      },
+      {
+        "op": "list",
+        "scope": {
+          "session": "s1"
+        }
+      },
+      {
+        "op": "list",
+        "scope": {
+          "session": "s2",
+          "pid": 11
+        }
+      },
+      {
+        "op": "list",
+        "scope": {
+          "pid": 11
+        }
+      },
+      {
+        "op": "list",
+        "scope": {
+          "pid": 12
+        }
+      },
+      {
+        "op": "list"
+      },
+      {
+        "op": "get",
+        "id": "own",
+        "scope": {
+          "session": "s2"
+        }
+      },
+      {
+        "op": "get",
+        "id": "own",
+        "scope": {
+          "session": "s1"
+        }
+      },
+      {
+        "op": "get",
+        "id": "loose",
+        "scope": {
+          "session": "s2"
+        }
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "own",
+            "operation": "spawn",
+            "label": "own",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "own",
+            "sessionId": "own-sess"
+          },
+          {
+            "task_id": "loose",
+            "operation": "spawn",
+            "label": "loose",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "loose",
+            "sessionId": null
+          }
+        ],
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "sibling",
+            "operation": "spawn",
+            "label": "sibling",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "sibling",
+            "sessionId": "sibling-sess"
+          },
+          {
+            "task_id": "pidonly",
+            "operation": "spawn",
+            "label": "pidonly",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "pidonly",
+            "sessionId": null
+          },
+          {
+            "task_id": "loose",
+            "operation": "spawn",
+            "label": "loose",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "loose",
+            "sessionId": null
+          }
+        ],
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "own",
+            "operation": "spawn",
+            "label": "own",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "own",
+            "sessionId": "own-sess"
+          },
+          {
+            "task_id": "sibling",
+            "operation": "spawn",
+            "label": "sibling",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "sibling",
+            "sessionId": "sibling-sess"
+          },
+          {
+            "task_id": "pidonly",
+            "operation": "spawn",
+            "label": "pidonly",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "pidonly",
+            "sessionId": null
+          },
+          {
+            "task_id": "loose",
+            "operation": "spawn",
+            "label": "loose",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "loose",
+            "sessionId": null
+          }
+        ],
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "loose",
+            "operation": "spawn",
+            "label": "loose",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "loose",
+            "sessionId": null
+          }
+        ],
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "own",
+            "operation": "spawn",
+            "label": "own",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "own",
+            "sessionId": "own-sess"
+          },
+          {
+            "task_id": "sibling",
+            "operation": "spawn",
+            "label": "sibling",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "sibling",
+            "sessionId": "sibling-sess"
+          },
+          {
+            "task_id": "pidonly",
+            "operation": "spawn",
+            "label": "pidonly",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "pidonly",
+            "sessionId": null
+          },
+          {
+            "task_id": "loose",
+            "operation": "spawn",
+            "label": "loose",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "loose",
+            "sessionId": null
+          }
+        ],
+        "notices": []
+      },
+      {
+        "found": false,
+        "status": null,
+        "label": null,
+        "notices": []
+      },
+      {
+        "found": true,
+        "status": "running",
+        "label": "own",
+        "notices": []
+      },
+      {
+        "found": true,
+        "status": "running",
+        "label": "loose",
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "finished_rows_expire_after_thirty_minutes_inside_the_scope_asked",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "old1",
+        "tag": "old1",
+        "sessionId": "old1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "register",
+        "id": "old2",
+        "tag": "old2",
+        "sessionId": "old2-sess",
+        "agent": "worker",
+        "caller": "s2",
+        "pid": 11
+      },
+      {
+        "op": "register",
+        "id": "live",
+        "tag": "live",
+        "sessionId": "live-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "complete",
+        "id": "old1",
+        "status": "completed",
+        "content": "a",
+        "notify": false
+      },
+      {
+        "op": "complete",
+        "id": "old2",
+        "status": "completed",
+        "content": "b",
+        "notify": false
+      },
+      {
+        "op": "advance",
+        "ms": 1800001
+      },
+      {
+        "op": "list",
+        "scope": {
+          "session": "s1"
+        }
+      },
+      {
+        "op": "list",
+        "scope": {
+          "session": "s2"
+        }
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "live",
+            "operation": "spawn",
+            "label": "live",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "live",
+            "sessionId": "live-sess"
+          }
+        ],
+        "notices": []
+      },
+      {
+        "rows": [],
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "live",
+            "operation": "spawn",
+            "label": "live",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "live",
+            "sessionId": "live-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "cleanup_counts_what_it_removes_and_force_removes_running_rows_too",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "a",
+        "tag": "a",
+        "sessionId": "a-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "register",
+        "id": "b",
+        "tag": "b",
+        "sessionId": "b-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "register",
+        "id": "c",
+        "tag": "c",
+        "sessionId": "c-sess",
+        "agent": "worker",
+        "caller": "s2",
+        "pid": 11
+      },
+      {
+        "op": "complete",
+        "id": "a",
+        "status": "completed",
+        "notify": false
+      },
+      {
+        "op": "cleanup",
+        "scope": {
+          "session": "s1"
+        }
+      },
+      {
+        "op": "advance",
+        "ms": 1860000
+      },
+      {
+        "op": "cleanup",
+        "scope": {
+          "session": "s1"
+        }
+      },
+      {
+        "op": "cleanup",
+        "scope": {
+          "session": "s1"
+        },
+        "force": true
+      },
+      {
+        "op": "list"
+      },
+      {
+        "op": "cleanup",
+        "force": true
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "removed": 0,
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "removed": 1,
+        "notices": []
+      },
+      {
+        "removed": 1,
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "c",
+            "operation": "spawn",
+            "label": "c",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "c",
+            "sessionId": "c-sess"
+          }
+        ],
+        "notices": []
+      },
+      {
+        "removed": 1,
+        "notices": []
+      },
+      {
+        "rows": [],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "an_acknowledged_completion_is_never_announced",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "complete",
+        "id": "t1",
+        "status": "completed",
+        "content": "x",
+        "notify": false
+      },
+      {
+        "op": "ack",
+        "id": "t1"
+      },
+      {
+        "op": "reconcile",
+        "id": "t1",
+        "status": "completed"
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "completed",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": null,
+            "notified": true,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "reconcile_completes_a_stuck_row_and_reannounces_an_unannounced_one",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "stuck",
+        "tag": "stuck",
+        "sessionId": "stuck-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "register",
+        "id": "quiet",
+        "tag": "quiet",
+        "sessionId": "quiet-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "reconcile",
+        "id": "stuck",
+        "status": "completed",
+        "content": "recovered"
+      },
+      {
+        "op": "complete",
+        "id": "quiet",
+        "status": "completed",
+        "content": "q",
+        "notify": false
+      },
+      {
+        "op": "reconcile",
+        "id": "quiet",
+        "status": "completed"
+      },
+      {
+        "op": "reconcile",
+        "id": "quiet",
+        "status": "completed"
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>stuck</task-id>\n<tag>stuck</tag>\n<status>completed</status>\n<summary>Agent \"stuck\" completed</summary>\n<result>\nrecovered\n</result>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "s1",
+            "text": "<task-notification>\n<task-id>quiet</task-id>\n<tag>quiet</tag>\n<status>completed</status>\n<summary>Agent \"quiet\" completed</summary>\n<result>\nq\n</result>\n</task-notification>"
+          }
+        ]
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "stuck",
+            "operation": "spawn",
+            "label": "stuck",
+            "status": "completed",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": null,
+            "notified": true,
+            "tag": "stuck",
+            "sessionId": "stuck-sess"
+          },
+          {
+            "task_id": "quiet",
+            "operation": "spawn",
+            "label": "quiet",
+            "status": "completed",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": "2026-03-01T10:00:00.000Z",
+            "error": null,
+            "notified": true,
+            "tag": "quiet",
+            "sessionId": "quiet-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "a_duplicate_explicit_id_is_refused",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "error": "background task already exists: t1",
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "no_session_to_tell_means_no_notice",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": null,
+        "pid": 11,
+        "owner": null
+      },
+      {
+        "op": "complete",
+        "id": "t1",
+        "status": "completed",
+        "content": "x"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "the_owner_session_receives_when_there_is_no_caller",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": null,
+        "pid": 11,
+        "owner": "lead"
+      },
+      {
+        "op": "complete",
+        "id": "t1",
+        "status": "completed",
+        "content": "x"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": [
+          {
+            "session": "lead",
+            "text": "<task-notification>\n<task-id>t1</task-id>\n<tag>t1</tag>\n<status>completed</status>\n<summary>Agent \"t1\" completed</summary>\n<result>\nx\n</result>\n</task-notification>"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "a_later_meta_update_relabels_the_row",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": null,
+        "sessionId": null,
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11
+      },
+      {
+        "op": "list"
+      },
+      {
+        "op": "merge",
+        "id": "t1",
+        "meta": {
+          "tag": "ops",
+          "sessionId": "sess-9"
+        }
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "spawn",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": null,
+            "sessionId": null
+          }
+        ],
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "ops",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "ops",
+            "sessionId": "sess-9"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "a_start_time_in_the_future_is_clamped_to_now",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "register",
+        "id": "t1",
+        "tag": "t1",
+        "sessionId": "t1-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11,
+        "startedAt": 5000
+      },
+      {
+        "op": "register",
+        "id": "t2",
+        "tag": "t2",
+        "sessionId": "t2-sess",
+        "agent": "worker",
+        "caller": "s1",
+        "pid": 11,
+        "startedAt": -5000
+      },
+      {
+        "op": "list"
+      }
+    ],
+    "results": [
+      {
+        "notices": []
+      },
+      {
+        "notices": []
+      },
+      {
+        "rows": [
+          {
+            "task_id": "t1",
+            "operation": "spawn",
+            "label": "t1",
+            "status": "running",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "t1",
+            "sessionId": "t1-sess"
+          },
+          {
+            "task_id": "t2",
+            "operation": "spawn",
+            "label": "t2",
+            "status": "running",
+            "startedAt": "2026-03-01T09:59:55.000Z",
+            "finishedAt": null,
+            "error": null,
+            "notified": false,
+            "tag": "t2",
+            "sessionId": "t2-sess"
+          }
+        ],
+        "notices": []
+      }
+    ]
+  },
+  {
+    "name": "the_table_keeps_the_newest_three_hundred_finished_rows",
+    "start": 1772359200000,
+    "ops": [
+      {
+        "op": "bulk",
+        "n": 310
+      }
+    ],
+    "results": [
+      {
+        "rows": [
+          "b10",
+          "b11",
+          "b12",
+          "b13",
+          "b14",
+          "b15",
+          "b16",
+          "b17",
+          "b18",
+          "b19",
+          "b20",
+          "b21",
+          "b22",
+          "b23",
+          "b24",
+          "b25",
+          "b26",
+          "b27",
+          "b28",
+          "b29",
+          "b30",
+          "b31",
+          "b32",
+          "b33",
+          "b34",
+          "b35",
+          "b36",
+          "b37",
+          "b38",
+          "b39",
+          "b40",
+          "b41",
+          "b42",
+          "b43",
+          "b44",
+          "b45",
+          "b46",
+          "b47",
+          "b48",
+          "b49",
+          "b50",
+          "b51",
+          "b52",
+          "b53",
+          "b54",
+          "b55",
+          "b56",
+          "b57",
+          "b58",
+          "b59",
+          "b60",
+          "b61",
+          "b62",
+          "b63",
+          "b64",
+          "b65",
+          "b66",
+          "b67",
+          "b68",
+          "b69",
+          "b70",
+          "b71",
+          "b72",
+          "b73",
+          "b74",
+          "b75",
+          "b76",
+          "b77",
+          "b78",
+          "b79",
+          "b80",
+          "b81",
+          "b82",
+          "b83",
+          "b84",
+          "b85",
+          "b86",
+          "b87",
+          "b88",
+          "b89",
+          "b90",
+          "b91",
+          "b92",
+          "b93",
+          "b94",
+          "b95",
+          "b96",
+          "b97",
+          "b98",
+          "b99",
+          "b100",
+          "b101",
+          "b102",
+          "b103",
+          "b104",
+          "b105",
+          "b106",
+          "b107",
+          "b108",
+          "b109",
+          "b110",
+          "b111",
+          "b112",
+          "b113",
+          "b114",
+          "b115",
+          "b116",
+          "b117",
+          "b118",
+          "b119",
+          "b120",
+          "b121",
+          "b122",
+          "b123",
+          "b124",
+          "b125",
+          "b126",
+          "b127",
+          "b128",
+          "b129",
+          "b130",
+          "b131",
+          "b132",
+          "b133",
+          "b134",
+          "b135",
+          "b136",
+          "b137",
+          "b138",
+          "b139",
+          "b140",
+          "b141",
+          "b142",
+          "b143",
+          "b144",
+          "b145",
+          "b146",
+          "b147",
+          "b148",
+          "b149",
+          "b150",
+          "b151",
+          "b152",
+          "b153",
+          "b154",
+          "b155",
+          "b156",
+          "b157",
+          "b158",
+          "b159",
+          "b160",
+          "b161",
+          "b162",
+          "b163",
+          "b164",
+          "b165",
+          "b166",
+          "b167",
+          "b168",
+          "b169",
+          "b170",
+          "b171",
+          "b172",
+          "b173",
+          "b174",
+          "b175",
+          "b176",
+          "b177",
+          "b178",
+          "b179",
+          "b180",
+          "b181",
+          "b182",
+          "b183",
+          "b184",
+          "b185",
+          "b186",
+          "b187",
+          "b188",
+          "b189",
+          "b190",
+          "b191",
+          "b192",
+          "b193",
+          "b194",
+          "b195",
+          "b196",
+          "b197",
+          "b198",
+          "b199",
+          "b200",
+          "b201",
+          "b202",
+          "b203",
+          "b204",
+          "b205",
+          "b206",
+          "b207",
+          "b208",
+          "b209",
+          "b210",
+          "b211",
+          "b212",
+          "b213",
+          "b214",
+          "b215",
+          "b216",
+          "b217",
+          "b218",
+          "b219",
+          "b220",
+          "b221",
+          "b222",
+          "b223",
+          "b224",
+          "b225",
+          "b226",
+          "b227",
+          "b228",
+          "b229",
+          "b230",
+          "b231",
+          "b232",
+          "b233",
+          "b234",
+          "b235",
+          "b236",
+          "b237",
+          "b238",
+          "b239",
+          "b240",
+          "b241",
+          "b242",
+          "b243",
+          "b244",
+          "b245",
+          "b246",
+          "b247",
+          "b248",
+          "b249",
+          "b250",
+          "b251",
+          "b252",
+          "b253",
+          "b254",
+          "b255",
+          "b256",
+          "b257",
+          "b258",
+          "b259",
+          "b260",
+          "b261",
+          "b262",
+          "b263",
+          "b264",
+          "b265",
+          "b266",
+          "b267",
+          "b268",
+          "b269",
+          "b270",
+          "b271",
+          "b272",
+          "b273",
+          "b274",
+          "b275",
+          "b276",
+          "b277",
+          "b278",
+          "b279",
+          "b280",
+          "b281",
+          "b282",
+          "b283",
+          "b284",
+          "b285",
+          "b286",
+          "b287",
+          "b288",
+          "b289",
+          "b290",
+          "b291",
+          "b292",
+          "b293",
+          "b294",
+          "b295",
+          "b296",
+          "b297",
+          "b298",
+          "b299",
+          "b300",
+          "b301",
+          "b302",
+          "b303",
+          "b304",
+          "b305",
+          "b306",
+          "b307",
+          "b308",
+          "b309"
+        ],
+        "notices": []
+      }
+    ]
+  }
+]

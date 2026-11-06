@@ -33,6 +33,9 @@ use serde_json::json;
 use super::ItemCommit;
 use super::SessionDirectory;
 use super::SessionHandle;
+use super::SteerInput;
+use super::run::Priority;
+use super::run::SteerMode;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::Script;
@@ -62,7 +65,7 @@ async fn eventually<T>(mut probe: impl FnMut() -> Option<T>) -> T {
     }
 }
 
-async fn start_thread(directory: &SessionDirectory) -> Arc<SessionHandle> {
+pub(super) async fn start_thread(directory: &SessionDirectory) -> Arc<SessionHandle> {
     let reply = directory
         .request(request(
             "thread/start",
@@ -429,12 +432,19 @@ async fn input_and_task_notifications_release_the_runs_wait() {
     let wakes = rig.wakes.clone();
     let reasons: Arc<Mutex<Vec<WakeReason>>> = Arc::default();
     let seen = reasons.clone();
-    // The run's `task wait`, twice: once released by new input, once by a notification.
+    let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let bodies = inputs.clone();
+    // The first run's `task wait`, twice: once released by new input, once by a notification.
     rig.set_script(Arc::new(move |run| {
         let wakes = wakes.clone();
         let seen = seen.clone();
+        let first = {
+            let mut bodies = lock(&bodies);
+            bodies.push(run.input_body.clone());
+            bodies.len() == 1
+        };
         Box::pin(async move {
-            for _ in 0..2 {
+            for _ in 0..usize::from(first) * 2 {
                 let wait = wakes.begin(&run.thread);
                 wait.released().await;
                 lock(&seen).push(wait.wake().expect("released").reason);
@@ -454,24 +464,174 @@ async fn input_and_task_notifications_release_the_runs_wait() {
     eventually(|| (lock(&reasons).len() == 2).then_some(())).await;
     assert_eq!(*lock(&reasons), [WakeReason::UserMessage, WakeReason::Notification]);
 
-    // The completion is a task-notification row of the running turn; it is no prompt.
-    let note = eventually(|| {
-        rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
-            mixdog_store::schema::record::Record::Item(item)
-                if item.prompt.is_none() && item.role.as_ref().is_some_and(|r| r.as_str() == "user") =>
-            {
-                Some(item)
-            }
-            _ => None,
+    // The completion was queued, never a queued prompt; the turn took no boundary after it, so
+    // it runs as its own turn after the queued prompt, as a task-notification row.
+    eventually(|| (lock(&inputs).len() == 3).then_some(())).await;
+    let bodies = lock(&inputs).clone();
+    assert_eq!(bodies[1]["content"], "next");
+    assert_eq!(bodies[2]["meta"]["source"], "task-notification");
+    assert_eq!(bodies[2]["meta"]["execution"], json!({ "id": "job-7", "status": "completed" }));
+    assert_eq!(bodies[2]["content"], "Async shell task job-7 finished.");
+    assert!(!prompt_list(&handle).iter().any(|p| p.contains("job-7")));
+    eventually(|| idle(&handle).then_some(())).await;
+    assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
+}
+
+/// A queued completion as the run takes it at a boundary: `SteerMode::TaskNotification`
+/// with its execution, after steered prompts; taken, it never starts a turn of its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let taken: Arc<Mutex<Vec<SteerInput>>> = Arc::default();
+    let (open, out) = (gate.clone(), taken.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, out) = (open.clone(), out.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            open.notified().await;
+            let steers = run.port.take_steers(Priority::Next).await.expect("take");
+            lock(&out).extend(steers);
+            RunOutcome::Completed
         })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "build", "op-1").await;
+    directory.finished(&handle.id, "job-7", "completed", "job-7 finished.".into()).await;
+    // Durable before the boundary looks.
+    eventually(|| {
+        rig.store.records(&handle.id).into_iter().any(|(_, record)| {
+            matches!(record, mixdog_store::schema::record::Record::Queue(_))
+        })
+        .then_some(())
     })
     .await;
-    let mixdog_store::schema::blob::Slot::Inline(body) = &note.body else { panic!() };
-    assert_eq!(body["meta"]["source"], "task-notification");
-    assert_eq!(body["meta"]["execution"]["taskId"], "job-7");
-    assert_eq!(body["content"], "Async shell task job-7 finished.");
-    assert!(note.turn.is_some());
-    assert!(!prompt_list(&handle).iter().any(|p| p.contains("job-7")));
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    gate.notify_one();
+    eventually(|| idle(&handle).then_some(())).await;
+    let taken = lock(&taken).clone();
+    assert_eq!(taken.len(), 1);
+    assert_eq!(taken[0].mode, SteerMode::TaskNotification);
+    assert_eq!(taken[0].execution, Some(json!({ "id": "job-7", "status": "completed" })));
+    assert_eq!(taken[0].entry["message"], "job-7 finished.");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(runs_started(&rig, &handle.id), 1, "a taken completion starts no turn");
+}
+
+/// `notification-bus.test.mjs` "one wake per session is in flight, and a suppressed wake
+/// replays afterwards": completions that land after the woken turn's last look each get a
+/// turn of their own, oldest first, and a replay that finds nothing ends the chain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn completions_after_the_woken_turns_last_look_replay_oldest_first() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let inputs: Arc<Mutex<Vec<(Value, usize)>>> = Arc::default();
+    let (open, seen) = (gate.clone(), inputs.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, seen) = (open.clone(), seen.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let first = lock(&seen).is_empty();
+            // The boundary looks first; the woken turn then waits past its last look.
+            let took = run.port.take_steers(Priority::Next).await.expect("take").len();
+            lock(&seen).push((run.input_body.clone(), took));
+            if first {
+                open.notified().await;
+            }
+            RunOutcome::Completed
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    directory.finished(&handle.id, "job-1", "completed", "job-1 finished.".into()).await;
+    eventually(|| (lock(&inputs).len() == 1).then_some(())).await;
+    directory.finished(&handle.id, "job-2", "completed", "job-2 finished.".into()).await;
+    directory.finished(&handle.id, "job-3", "completed", "job-3 finished.".into()).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    gate.notify_one();
+    eventually(|| (lock(&inputs).len() == 3).then_some(())).await;
+    eventually(|| idle(&handle).then_some(())).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let inputs = lock(&inputs).clone();
+    let order: Vec<&str> = inputs.iter().map(|(body, _)| body["content"].as_str().unwrap()).collect();
+    assert_eq!(order, ["job-1 finished.", "job-2 finished.", "job-3 finished."]);
+    // The replayed wake drained both: job-3 is its own turn, not taken by job-2's boundary.
+    assert!(inputs.iter().all(|(_, took)| *took == 0), "{inputs:?}");
+    assert_eq!(runs_started(&rig, &handle.id), 3, "a replay that finds nothing ends the chain");
+}
+
+/// The ports' header seam: `thread/header/patch` is one durable `meta` record and
+/// `thread/header/read` answers the acked header; a connection may do neither.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_header_is_patched_and_read_through_the_ports_seam_only() {
+    use crate::ports::threads::SessionThreads;
+    use crate::ports::threads::ThreadState;
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    let threads = SessionThreads::new(directory.clone());
+    let mut set = serde_json::Map::new();
+    set.insert("pendingRoute".into(), json!({ "provider": "p", "model": "m" }));
+    set.insert("title".into(), json!("held"));
+    threads.patch_header(&handle.id, set, Vec::new()).await.expect("patch");
+    let header = threads.header(&handle.id).await.expect("read");
+    assert_eq!(header["pendingRoute"], json!({ "provider": "p", "model": "m" }));
+    assert!(rig.store.records(&handle.id).into_iter().any(|(_, record)| matches!(
+        record,
+        mixdog_store::schema::record::Record::Meta(meta)
+            if matches!(&meta.change, mixdog_store::schema::blob::Slot::Inline(c) if c.set.contains_key("pendingRoute"))
+    )));
+    threads.patch_header(&handle.id, serde_json::Map::new(), vec!["pendingRoute".into()]).await.expect("unset");
+    let header = threads.header(&handle.id).await.expect("read");
+    assert!(!header.contains_key("pendingRoute"));
+    assert_eq!(header["title"], "held");
+
+    for method in ["thread/header/patch", "thread/header/read"] {
+        let refused = handle
+            .request(request(method, json!({ "threadId": handle.id, "set": { "x": 1 } }), "op-x"))
+            .await;
+        assert!(matches!(refused, Err(CoreError::InvalidParams { .. })), "{method}: {refused:?}");
+    }
+}
+
+/// `ask-turn-steering-drain.mjs:48`: while a route saved during the turn is held, the queued
+/// completion is left to the next turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_route_leaves_a_completion_to_the_next_turn() {
+    use crate::ports::threads::SessionThreads;
+    use crate::ports::threads::ThreadState;
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let took: Arc<Mutex<Vec<usize>>> = Arc::default();
+    let (open, seen) = (gate.clone(), took.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, seen) = (open.clone(), seen.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if lock(&seen).is_empty() {
+                open.notified().await;
+            }
+            let n = run.port.take_steers(Priority::Next).await.expect("take").len();
+            lock(&seen).push(n);
+            RunOutcome::Completed
+        })
+    }));
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "build", "op-1").await;
+    let mut set = serde_json::Map::new();
+    set.insert("pendingRoute".into(), json!({ "provider": "p", "model": "m" }));
+    SessionThreads::new(directory.clone()).patch_header(&handle.id, set, Vec::new()).await.expect("held");
+    directory.finished(&handle.id, "job-7", "completed", "job-7 finished.".into()).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    gate.notify_one();
+    eventually(|| (lock(&took).len() == 2).then_some(())).await;
+    assert_eq!(lock(&took)[0], 0, "held: not taken by this turn");
+    assert_eq!(runs_started(&rig, &handle.id), 2, "the next turn is the completion's");
 }
 
 fn runs_started(rig: &Rig, id: &ThreadId) -> usize {
@@ -521,7 +681,7 @@ async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turn
     assert_eq!(body["role"], "user");
     assert_eq!(body["content"], "Async shell task job-7 finished.");
     assert_eq!(body["meta"]["source"], "task-notification");
-    assert_eq!(body["meta"]["execution"]["taskId"], "job-7");
+    assert_eq!(body["meta"]["execution"], json!({ "id": "job-7", "status": "completed" }));
     eventually(|| idle(&handle).then_some(())).await;
     assert_eq!(runs_started(&rig, &handle.id), 1);
     assert!(prompt_list(&handle).is_empty(), "a completion is no prompt");
@@ -546,16 +706,15 @@ async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
     directory.finished(&parked.id, "job-2", "completed", "job-2 finished.".into()).await;
 
     for (handle, task) in [(&quiet, "job-1"), (&parked, "job-2")] {
-        let note = eventually(|| {
+        let queued = eventually(|| {
             rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
-                mixdog_store::schema::record::Record::Item(item) if item.prompt.is_none() => Some(item),
+                mixdog_store::schema::record::Record::Queue(queue) => queue.entry,
                 _ => None,
             })
         })
         .await;
-        let mixdog_store::schema::blob::Slot::Inline(body) = &note.body else { panic!("inline body") };
-        assert_eq!(body["meta"]["execution"]["taskId"], task);
-        assert!(note.turn.is_none(), "kept for the next turn");
+        let mixdog_store::schema::blob::Slot::Inline(entry) = &queued else { panic!("inline entry") };
+        assert_eq!(entry["executionId"], task, "kept for the next turn");
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(runs_started(&rig, &quiet.id), 0);

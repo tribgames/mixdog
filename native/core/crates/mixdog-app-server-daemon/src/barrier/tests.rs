@@ -187,6 +187,44 @@ fn a_transient_sharing_violation_on_the_target_is_retried() {
     assert_eq!(own.revalidate(), Ok(()));
 }
 
+/// The same scan on a dead holder's `B` while the core reclaims it under the
+/// guard (what a core killed after taking `B` leaves the next boot).
+#[cfg(windows)]
+#[test]
+fn a_transient_sharing_violation_on_a_dead_holders_b_is_retried() {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::time::Duration;
+
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE;
+
+    let temp = TempData::new();
+    temp.write(CLAIM_LOCK_FILE, b"99991 1700000000000 0123456789abcdef\n");
+    let (own, mut gate) = temp.gate(Box::new(FakeTable::default()));
+    let path = temp.data().join(CLAIM_LOCK_FILE);
+    let mut scanned = false;
+    let (result, steps) = steps_with(&mut gate, move |step| {
+        if step == Step::Held && !scanned {
+            scanned = true;
+            let scan = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .open(&path)
+                .expect("scan handle");
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(300));
+                drop(scan);
+            });
+        }
+    });
+    assert!(matches!(result, GateStep::Clear), "{result:?}");
+    assert_eq!(steps, ALL_STEPS);
+    assert_eq!(
+        temp.file(CLAIM_LOCK_FILE).unwrap(),
+        barrier_bytes(own.instance_id())
+    );
+}
+
 #[test]
 fn installed_barrier_is_kept_and_the_record_never_rewritten() {
     let temp = TempData::new();
@@ -227,10 +265,23 @@ fn dead_holder_is_reclaimed_under_the_guard() {
     );
 }
 
+/// A dead holder's `B`: a fixed pid could name an unrelated live process
+/// (these tests read the real process table), so it names a reaped child.
+fn dead_claim_lock() -> Vec<u8> {
+    let mut child = std::process::Command::new(std::env::current_exe().expect("test exe"))
+        .args(["--exact", "none", "--list"])
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn");
+    let pid = child.id();
+    child.wait().expect("wait");
+    format!("{pid} 1700000000000 0123456789abcdef\n").into_bytes()
+}
+
 #[test]
 fn dead_reclaim_guard_is_revoked_and_live_one_waited_for() {
     let temp = TempData::new();
-    temp.write(CLAIM_LOCK_FILE, b"99991 1700000000000 0123456789abcdef\n");
+    temp.write(CLAIM_LOCK_FILE, &dead_claim_lock());
     // The gate watches a live holder's real OS exit, so it must be a real process.
     let (child, _) = idle_child_process(false);
     temp.write(
@@ -358,8 +409,8 @@ fn a_claim_in_the_gap_gives_the_claim_lock_back_at_once() {
 fn a_claim_in_the_gap_before_a_reclaim_keeps_the_dead_holder_and_frees_the_guard() {
     let (child, port) = idle_child_process(true);
     let temp = TempData::new();
-    let dead = b"99991 1700000000000 0123456789abcdef\n";
-    temp.write(CLAIM_LOCK_FILE, dead);
+    let dead = dead_claim_lock();
+    temp.write(CLAIM_LOCK_FILE, &dead);
     let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
     let (result, steps) = change_record_at(
         &temp,

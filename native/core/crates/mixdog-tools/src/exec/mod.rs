@@ -43,6 +43,7 @@ pub use jobs::IoLanes;
 pub use jobs::Job;
 pub use jobs::JobStatus;
 pub use jobs::TaskNotifier;
+pub use jobs::most_significant_duration;
 pub use shell::ShellTool;
 pub use wake::QueuedWake;
 pub use wake::Wake;

@@ -4,6 +4,7 @@
 
 use async_trait::async_trait;
 pub use mixdog_agent::env::Priority;
+pub use mixdog_agent::env::SteerMode;
 use bytes::Bytes;
 use mixdog_app_protocol::v2::thread::ItemDeltaParams;
 use mixdog_core_api::domain::approval::ApprovalAsk;
@@ -94,12 +95,18 @@ pub enum RunError {
     NotApplied,
 }
 
-/// A steer entry handed to the run at a model-call boundary (R10).
+/// A queue entry handed to the run at a model-call boundary (R10): a steered prompt or a
+/// background job's completion.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SteerInput {
     pub queued_id: QueuedId,
     /// The queue entry (`{message, …}`).
     pub entry: Value,
+    /// `TaskNotification` for a completion: the drain's `SteerEntry.mode`, stored under its own
+    /// source, never as the user speaking.
+    pub mode: SteerMode,
+    /// A completion's execution provenance (`SteerEntry.execution`).
+    pub execution: Option<Value>,
 }
 
 /// `queuePriorityValue(entry.priority) <= queuePriorityValue(max)`: `now` (0) and `next` (1)
@@ -299,9 +306,13 @@ impl RunPort {
         rx.await.map_err(|_| RunError::Closed)?
     }
 
-    /// Steer entries whose enqueue is durable and whose queue priority is at most
-    /// `max_priority`, dequeued for injection now, in queue order (today's
-    /// `drainPendingSteering({maxPriority})`: `next` leaves `later` entries queued).
+    /// Entries dequeued for injection now: the steered ones whose enqueue is durable and whose
+    /// queue priority is at most `max_priority`, in queue order (today's
+    /// `drainPendingSteering({maxPriority})`: `next` leaves `later` entries queued), then every
+    /// queued completion, oldest first, each its own entry (`createAskSteeringDrain`: a queue
+    /// holding only notifications is taken at every boundary). While a route saved during the
+    /// turn is held, completions stay queued for the next turn. A completion no boundary took
+    /// starts its own turn when this one ends.
     pub async fn take_steers(&self, max_priority: Priority) -> Result<Vec<SteerInput>, RunError> {
         let (reply, rx) = oneshot::channel();
         self.send(ProducerMsg::TakeSteers {

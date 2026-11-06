@@ -352,10 +352,19 @@ impl SessionState {
         }
     }
 
+    /// The queued prompts the composer shows; a queued completion is runtime input, not one.
+    pub fn queued_rows(&self) -> Vec<Value> {
+        self.queue
+            .iter()
+            .filter(|q| !super::completions::is_notification(&q.entry))
+            .map(|q| q.display.clone())
+            .collect()
+    }
+
     /// The `ThreadState` the view and snapshots show.
     pub fn thread_state(&self, storage: StorageState) -> ThreadState {
         let mut state = self.sections.clone();
-        state.queued = Some(self.queue.iter().map(|q| q.display.clone()).collect());
+        state.queued = Some(self.queued_rows());
         state.prompt_history_list = Some(self.prompt_history.clone());
         if storage != StorageState::Ok {
             state

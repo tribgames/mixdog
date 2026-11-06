@@ -32,6 +32,7 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
 use mixdog_rt::DurabilityIo;
+use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneTokens;
 use serde_json::Map;
@@ -218,9 +219,9 @@ fn read_cache(dir: &std::path::Path) -> Option<Cache> {
 }
 
 /// Best effort: a cache that cannot be written only costs the next call a fetch.
-fn write_cache(dir: &std::path::Path, latest: &str, at: i64) {
+fn write_cache(lane: &InLane<DurabilityIo>, dir: &std::path::Path, latest: &str, at: i64) {
     let text = json!({ "latestVersion": latest, "lastCheckedAt": at }).to_string();
-    let _ = super::support::write_atomic(&dir.join(CACHE_FILE), text.as_bytes(), false);
+    let _ = super::support::write_atomic(lane, &dir.join(CACHE_FILE), text.as_bytes(), false);
 }
 
 #[derive(Clone)]
@@ -381,8 +382,8 @@ impl UpdateService {
         }
         if let Some(latest) = self.fetch_latest().await {
             let (to, version) = (dir.clone(), latest.clone());
-            let _ = on_lane(self.durability, cancel, move |_| {
-                write_cache(&to, &version, now)
+            let _ = on_lane(self.durability, cancel, move |lane| {
+                write_cache(lane, &to, &version, now)
             })
             .await;
             return Checked {

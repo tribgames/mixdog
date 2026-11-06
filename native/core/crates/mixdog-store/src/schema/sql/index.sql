@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 4: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 5: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -64,7 +64,18 @@ CREATE TABLE sessions (
     id_fold TEXT NOT NULL,
     model_fold TEXT,
     source_fold TEXT,
-    summary TEXT NOT NULL
+    summary TEXT NOT NULL,
+    -- The worker index (FORMAT.md §8.2): the header's `worker` map as JSON and its keys
+    -- (worker.rs `WorkerKeys`); all NULL without a map or for a Lead pool row.
+    -- `worker_tag` is '' for a map without a tag.
+    worker TEXT,
+    worker_tag TEXT,
+    worker_owner TEXT,
+    worker_host_pid INTEGER,
+    -- The session's own `agentTag` and owner (worker.rs `TagKeys`): the newest session per
+    -- tag. NULL without a tag or for a Lead pool session.
+    agent_tag TEXT,
+    agent_owner TEXT
 );
 CREATE INDEX sessions_recent ON sessions(deleted, activity DESC, id);
 CREATE INDEX sessions_created ON sessions(deleted, created_at DESC, id);
@@ -78,6 +89,16 @@ CREATE INDEX sessions_dirty ON sessions(id) WHERE dirty = 1;
 CREATE INDEX sessions_search_order ON sessions(deleted, archived, activity DESC, id_key)
     WHERE classification IN ('task','project');
 CREATE INDEX sessions_title_kind ON sessions(title_kind) WHERE title_kind IS NOT NULL;
+-- Worker rows by tag and owner, by owner, by host pid, and all of them; newest first.
+CREATE INDEX sessions_worker_tag ON sessions(worker_tag, worker_owner, created_at DESC, id)
+    WHERE worker_tag IS NOT NULL;
+CREATE INDEX sessions_worker_owner ON sessions(worker_owner, created_at DESC, id)
+    WHERE worker_owner IS NOT NULL;
+CREATE INDEX sessions_worker_pid ON sessions(worker_host_pid, created_at DESC, id)
+    WHERE worker_host_pid IS NOT NULL;
+CREATE INDEX sessions_workers ON sessions(created_at DESC, id) WHERE worker_tag IS NOT NULL;
+CREATE INDEX sessions_agent_tag ON sessions(agent_tag, agent_owner, created_at DESC, id)
+    WHERE agent_tag IS NOT NULL;
 
 -- Session search: a needle is a substring of one of the seven folded fields. A trigram
 -- index over them (the writer folds, so the tokenizer stays case-sensitive and a phrase

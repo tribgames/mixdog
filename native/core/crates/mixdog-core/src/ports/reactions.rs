@@ -19,16 +19,20 @@ use mixdog_tools::state::react::{ReactResult, ReactSeat, Reactions};
 use serde_json::{Value, json};
 
 use super::threads::port_error;
+use crate::run_host::reactions::LoopReactions;
 use crate::rooms::ids::{agent_id_of_home_session, room_member_of_session, room_session_id};
 use crate::session::SessionDirectory;
 
 pub struct SessionReactions {
     directory: Arc<SessionDirectory>,
+    /// Where a successful reaction records the message it hit, for the loop to mark
+    /// (`noteReactionTarget`).
+    targets: Arc<LoopReactions>,
 }
 
 impl SessionReactions {
-    pub fn new(directory: Arc<SessionDirectory>) -> Self {
-        Self { directory }
+    pub fn new(directory: Arc<SessionDirectory>, targets: Arc<LoopReactions>) -> Self {
+        Self { directory, targets }
     }
 }
 
@@ -38,6 +42,17 @@ fn seat_of(session_id: &str) -> Option<ReactSeat> {
         .map(|member| member.agent_id)
         .or_else(|| agent_id_of_home_session(session_id))
         .map(|agent_id| ReactSeat { agent_id })
+}
+
+/// `noteReactionTarget`: a set (never a removal) records the message the session's reply says it
+/// landed on.
+fn note_hit(targets: &LoopReactions, call_id: &str, set: bool, room: bool, reply: &Value) {
+    if !set {
+        return;
+    }
+    if let Some(message_id) = reply.get("messageId").and_then(Value::as_str) {
+        targets.note_target(call_id, message_id, room);
+    }
 }
 
 #[async_trait]
@@ -74,7 +89,10 @@ impl Reactions for SessionReactions {
             .await
             .map_err(port_error)?;
         match reply {
-            Reply::Value(value) => Ok(ReactResult { changed: value.get("changed").and_then(Value::as_bool).unwrap_or(false) }),
+            Reply::Value(value) => {
+                note_hit(&self.targets, call.as_str(), emoji.is_some(), room.is_some(), &value);
+                Ok(ReactResult { changed: value.get("changed").and_then(Value::as_bool).unwrap_or(false) })
+            }
             Reply::Subscribe(_) => Err(PortError::Failed {
                 capability: "session".into(),
                 message: "thread/reactions/set subscribed".into(),
@@ -85,7 +103,22 @@ impl Reactions for SessionReactions {
 
 #[cfg(test)]
 mod tests {
+    use mixdog_agent::env::Reactions as _;
+
     use super::*;
+    use crate::run_host::reactions::NoMessageFacts;
+
+    #[test]
+    fn a_set_notes_the_hit_message_and_a_removal_or_a_reply_without_one_notes_nothing() {
+        let targets = LoopReactions::new(Arc::new(NoMessageFacts), |_| false);
+        let reply = json!({ "changed": true, "messageId": "m7" });
+        note_hit(&targets, "c1", false, false, &reply);
+        note_hit(&targets, "c2", true, false, &json!({ "changed": true }));
+        assert_eq!(targets.held(), 0);
+        note_hit(&targets, "c3", true, true, &reply);
+        let hit = targets.take_target("c3").unwrap();
+        assert_eq!((hit.message_id.as_str(), hit.room), ("m7", true));
+    }
 
     /// The seat is derived from the id alone, so it needs no thread to be loaded.
     #[test]

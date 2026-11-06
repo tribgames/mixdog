@@ -367,7 +367,7 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::ServerToolBlock(value) => w::ProxyEvent::ServerToolBlock { value: value.clone() },
         E::ProviderKeepalive => w::ProxyEvent::ProviderKeepalive,
         E::ProviderState(state) => w::ProxyEvent::ProviderState { state: serde_json::to_value(state).unwrap_or(Value::Null) },
-        E::Completed { stop } => w::ProxyEvent::Completed {
+        E::Completed { stop, .. } => w::ProxyEvent::Completed {
             stop: stop.as_ref().map(|s| match s {
                 p::StopReason::EndTurn => w::ProxyStop::EndTurn,
                 p::StopReason::ToolUse => w::ProxyStop::ToolUse,
@@ -417,6 +417,7 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         w::ProxyEvent::ProviderKeepalive => E::ProviderKeepalive,
         w::ProxyEvent::ProviderState { state } => E::ProviderState(serde_json::from_value(state).map_err(|e| format!("invalid providerState: {e}"))?),
         w::ProxyEvent::Completed { stop } => E::Completed {
+            pricing_model: None,
             stop: stop.map(|s| match s {
                 w::ProxyStop::EndTurn => p::StopReason::EndTurn,
                 w::ProxyStop::ToolUse => p::StopReason::ToolUse,
@@ -609,7 +610,9 @@ pub fn model_out(m: &p::ModelRecord) -> w::ProxyModel {
     w::ProxyModel {
         id: m.id.clone(),
         display_name: m.display_name.clone(),
+        name: m.name.clone(),
         context_window: m.context_window,
+        max_context_window: m.max_context_window,
         max_output_tokens: m.max_output_tokens,
         supports_reasoning: m.supports_reasoning,
         reasoning_levels: m.reasoning_levels.clone(),
@@ -620,6 +623,7 @@ pub fn model_out(m: &p::ModelRecord) -> w::ProxyModel {
         mode: m.mode.clone(),
         created: m.created,
         alias_target: m.alias_target.clone(),
+        wire: m.wire.as_ref().map(wire_out),
         picker: picker_out(&m.picker),
         first_response_budget: None,
     }
@@ -636,7 +640,9 @@ pub fn catalog_model_out(m: &mixdog_ai::catalog::ModelRecord) -> w::ProxyModel {
     w::ProxyModel {
         id: m.id.clone(),
         display_name: m.display_name.clone(),
+        name: None,
         context_window: m.context_window,
+        max_context_window: m.max_context_window,
         max_output_tokens: m.output_tokens,
         supports_reasoning: tri(m.reasoning),
         reasoning_levels: m.reasoning_efforts.clone(),
@@ -647,6 +653,7 @@ pub fn catalog_model_out(m: &mixdog_ai::catalog::ModelRecord) -> w::ProxyModel {
         mode: m.mode.clone(),
         created: m.created,
         alias_target: m.alias_target.clone(),
+        wire: m.wire.as_ref().map(wire_out),
         picker: picker_out(&m.picker),
         first_response_budget: None,
     }
@@ -655,7 +662,9 @@ pub fn catalog_model_out(m: &mixdog_ai::catalog::ModelRecord) -> w::ProxyModel {
 pub fn model_in(m: w::ProxyModel) -> p::ModelRecord {
     let mut out = p::ModelRecord::new(m.id);
     out.display_name = m.display_name;
+    out.name = m.name;
     out.context_window = m.context_window;
+    out.max_context_window = m.max_context_window;
     out.max_output_tokens = m.max_output_tokens;
     out.supports_reasoning = m.supports_reasoning;
     out.reasoning_levels = m.reasoning_levels;
@@ -666,8 +675,23 @@ pub fn model_in(m: w::ProxyModel) -> p::ModelRecord {
     out.mode = m.mode;
     out.created = m.created;
     out.alias_target = m.alias_target;
+    out.wire = m.wire.map(wire_in);
     out.picker = picker_in(m.picker);
     out
+}
+
+fn wire_out(w: &p::WireIds) -> w::ProxyWireIds {
+    match w {
+        p::WireIds::One(id) => w::ProxyWireIds::One(id.clone()),
+        p::WireIds::Tiers(tiers) => w::ProxyWireIds::Tiers(tiers.clone()),
+    }
+}
+
+fn wire_in(w: w::ProxyWireIds) -> p::WireIds {
+    match w {
+        w::ProxyWireIds::One(id) => p::WireIds::One(id),
+        w::ProxyWireIds::Tiers(tiers) => p::WireIds::Tiers(tiers),
+    }
 }
 
 // -- the PC end -----------------------------------------------------------------------------
@@ -924,5 +948,4 @@ impl AttachmentReader for StoreAttachments {
 }
 
 #[cfg(test)]
-#[path = "model_proxy_tests.rs"]
-pub(super) mod tests;
+#[path = "model_proxy_

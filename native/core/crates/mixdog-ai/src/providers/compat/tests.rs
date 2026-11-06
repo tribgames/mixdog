@@ -1487,6 +1487,118 @@ mod liveness {
         route.map_or("-".into(), |r| format!("{}{}", &r.wire[..1], &r.source[..1]))
     }
 
+    /// A scripted answer for the roster / console config, whatever the URL.
+    fn listing_adapter(case: &JsonValue, goldens: &JsonValue, http: Arc<Scripted>) -> CompatAdapter {
+        let provider = case["provider"].as_str().unwrap();
+        let (profile, base, key, headers): (CompatProfile, Option<&str>, &'static str, Vec<(String, String)>) = match provider {
+            "xai" => (CompatProfile::xai(), Some("https://gateway.example/v1"), "fixture-list-key", vec![]),
+            "deepseek" => (CompatProfile::deepseek(), Some("https://gateway.example/v1"), "fixture-list-key", vec![]),
+            "openrouter" => (CompatProfile::openrouter(), Some("https://gateway.example/v1"), "fixture-list-key", vec![]),
+            "mimo-oauth" => (CompatProfile::mimo_oauth(), None, "fixture-mimo-key", vec![]),
+            "muse-code-oauth" => (CompatProfile::muse_code_oauth(), None, "fixture-muse-key", vec![]),
+            "command-code-oauth" => (CompatProfile::command_code_oauth(), None, "fixture-command-key", vec![]),
+            "opencode-go-oauth" => (CompatProfile::opencode_go(), None, "fixture-go-access", vec![("x-org-id".into(), "org-1".into())]),
+            other => panic!("unknown provider {other}"),
+        };
+        let mut config = CompatConfig::for_profile(&profile);
+        config.base_url = base.map(str::to_owned).or(config.base_url);
+        config.extra_headers = headers;
+        let lookup = crate::catalog::ListingLookup::with_models_dev(&json!({ "opencode-go": { "models": goldens["rosters"]["goModelsDev"] } }));
+        CompatAdapter::new(CompatChatCodec::new(profile, config), http, Some(Arc::new(Key(key)))).with_listing_lookup(lookup)
+    }
+
+    /// The roster each scenario scripts.
+    fn scripted_roster(case: &JsonValue, rosters: &JsonValue) -> (u16, JsonValue) {
+        let r = |name: &str| rosters[name].clone();
+        match (case["provider"].as_str().unwrap(), case["scenario"].as_str().unwrap()) {
+            (_, "bare-array") => (200, JsonValue::Array(rosters["generic"].as_array().unwrap()[..4].to_vec())),
+            (_, "refused") => (403, json!({ "error": { "message": "bad key fixture-list-key", "code": "invalid_api_key" } })),
+            (_, "server-error") => (500, json!({ "error": "boom" })),
+            (_, "unauthorized") => (401, json!({ "error": { "message": "no" } })),
+            (_, "empty-roster") => (200, json!({ "data": [] })),
+            ("opencode-go-oauth", "config") => (200, r("goConfig")),
+            ("opencode-go-oauth", "config-empty-models-dev") => (200, r("goEmpty")),
+            ("opencode-go-oauth", "config-without-provider") => (200, json!({ "providers": {} })),
+            ("mimo-oauth", _) => (200, json!({ "data": r("mimo") })),
+            ("muse-code-oauth", _) => (200, json!({ "data": r("muse") })),
+            ("command-code-oauth", _) => (200, json!({ "data": r("command") })),
+            _ => (200, json!({ "data": r("generic") })),
+        }
+    }
+
+    /// Every recorded listing scenario gives Node's rows (the fields a
+    /// listed row carries; prices and capability flags are the catalog's) and
+    /// asks the URL Node asked with the headers Node sent.
+    #[tokio::test]
+    async fn every_recorded_listing_gives_nodes_rows() {
+        use mixdog_core_api::domain::provider::ModelListing;
+        let golden = read_json("providers/oracles/compat-listing.json");
+        let mut checked = 0;
+        for case in golden["cases"].as_array().unwrap() {
+            let what = format!("{} {}", case["provider"], case["scenario"]);
+            let (status, body) = scripted_roster(case, &golden["rosters"]);
+            let http = Arc::new(Scripted { status, chunks: vec![serde_json::to_vec(&body).unwrap()], sent: Mutex::new(Vec::new()) });
+            let adapter = listing_adapter(case, &golden, http.clone());
+            let result = adapter.list_models().await;
+
+            let sent = http.sent.lock().unwrap();
+            let want = &case["requests"][0];
+            assert_eq!(sent[0].url, want["url"].as_str().unwrap(), "{what}");
+            for (name, value) in want["headers"].as_object().unwrap() {
+                let has = sent[0].headers.iter().any(|(k, v)| k.eq_ignore_ascii_case(name) && v == value.as_str().unwrap());
+                assert!(has, "{what}: header {name}");
+            }
+            if case["error"].is_string() {
+                let error = result.err().unwrap_or_else(|| panic!("{what}: Node failed with {}", case["error"]));
+                if let Some(status) = case["status"].as_u64() {
+                    assert_eq!(error.status, Some(status as u16), "{what}");
+                }
+                assert!(!error.message.contains("fixture-list-key"), "{what}: {}", error.message);
+                continue;
+            }
+            let rows = result.unwrap_or_else(|e| panic!("{what}: {e:?}"));
+            let expected = case["rows"].as_array().unwrap();
+            let ids = |rows: &[JsonValue]| rows.iter().map(|r| r["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+            let got: Vec<JsonValue> = rows
+                .iter()
+                .map(|r| {
+                    json!({
+                        "id": r.id,
+                        "name": r.name,
+                        "display": r.display_name,
+                        "contextWindow": r.context_window.unwrap_or(0),
+                        "outputTokens": r.max_output_tokens,
+                        "created": r.created,
+                        "mode": r.mode,
+                        "aliasTarget": r.alias_target,
+                        "reasoningLevels": r.reasoning_levels,
+                        "reasoningOptions": r.picker.reasoning_options,
+                        "supportsReasoning": r.supports_reasoning,
+                    })
+                })
+                .collect();
+            assert_eq!(ids(&got), ids(expected), "{what}: ids");
+            for (got, node) in got.iter().zip(expected) {
+                let field = |key: &str| node.get(key).filter(|v| !v.is_null()).cloned();
+                let row = format!("{what}: {}", node["id"]);
+                assert_eq!(got["name"].as_str().or(got["id"].as_str()), node["name"].as_str(), "{row} name");
+                assert_eq!(got["display"].as_str(), node["display"].as_str(), "{row} display");
+                assert_eq!(got["contextWindow"], node["contextWindow"], "{row} contextWindow");
+                assert_eq!(got["outputTokens"].as_u64(), node["outputTokens"].as_u64(), "{row} outputTokens");
+                assert_eq!(got["created"].as_i64(), node["created"].as_i64(), "{row} created");
+                assert_eq!(got["mode"].as_str(), node["mode"].as_str(), "{row} mode");
+                assert_eq!(field("aliasTarget"), got["aliasTarget"].as_str().map(|s| json!(s)), "{row} aliasTarget");
+                assert_eq!(got["reasoningLevels"], node.get("reasoningLevels").cloned().unwrap_or(json!([])), "{row} reasoningLevels");
+                assert_eq!(got["reasoningOptions"], node.get("reasoningOptions").cloned().unwrap_or(json!([])), "{row} reasoningOptions");
+                if let Some(flag) = got["supportsReasoning"].as_bool() {
+                    assert_eq!(node["supportsReasoning"].as_bool(), Some(flag), "{row} supportsReasoning");
+                }
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 14);
+    }
+
     /// OpenCode Go (catalog package narrows the offered wires) and Command
     /// Code (the roster's declared endpoints) answer as Node's glue does.
     #[tokio::test]

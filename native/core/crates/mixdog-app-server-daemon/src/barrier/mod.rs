@@ -381,7 +381,8 @@ fn release_own(dir: &DataDir, name: &str, content: &[u8]) -> io::Result<()> {
 /// judged bytes is rename-replaced with this core's content, so it never
 /// disappears. While the guard is held over a dead holder's `B`, no 1.4.5
 /// process can take `B`, so `R` is re-read before `B` is touched.
-fn reclaim(
+fn reclaim<L: WriteLane>(
+    lane: &InLane<L>,
     dir: &DataDir,
     judged: &[u8],
     judged_record: Option<&[u8]>,
@@ -403,7 +404,7 @@ fn reclaim(
         }
         let staged = staged_name(CLAIM_LOCK_FILE);
         dir.create_new(&staged, content)?;
-        if let Err(error) = dir.rename(&staged, CLAIM_LOCK_FILE) {
+        if let Err(error) = rename_replace(lane, dir, &staged, CLAIM_LOCK_FILE) {
             dir.remove_if_exists(&staged)?;
             return Err(error);
         }
@@ -430,18 +431,16 @@ fn publish_durable<L: WriteLane>(
 /// ([`DataDir`]); no refusal of a rename-replace over a file clears by waiting.
 #[cfg(unix)]
 fn replace_durable<L: WriteLane>(
-    _lane: &InLane<L>,
+    lane: &InLane<L>,
     dir: &DataDir,
     staging: &str,
     target: &str,
 ) -> io::Result<()> {
-    dir.rename(staging, target)?;
+    rename_replace(lane, dir, staging, target)?;
     dir.sync()
 }
 
-/// Windows: an antivirus or indexer handle on the target refuses the rename for
-/// moments; 1.4.5's `renameWithRetrySync` waits that out, and so does this.
-/// That rename is not write-through, so the directory is flushed after it.
+/// Windows: that rename is not write-through, so the directory is flushed after it.
 #[cfg(windows)]
 fn replace_durable<L: WriteLane>(
     lane: &InLane<L>,
@@ -449,9 +448,31 @@ fn replace_durable<L: WriteLane>(
     staging: &str,
     target: &str,
 ) -> io::Result<()> {
+    rename_replace(lane, dir, staging, target)?;
+    mixdog_statefile::sync_dir(lane, dir.path())
+}
+
+#[cfg(unix)]
+fn rename_replace<L: WriteLane>(
+    _lane: &InLane<L>,
+    dir: &DataDir,
+    staging: &str,
+    target: &str,
+) -> io::Result<()> {
+    dir.rename(staging, target)
+}
+
+/// Windows: an antivirus or indexer handle on the target refuses the rename for
+/// moments; 1.4.5's `renameWithRetrySync` waits that out, and so does this.
+#[cfg(windows)]
+fn rename_replace<L: WriteLane>(
+    lane: &InLane<L>,
+    dir: &DataDir,
+    staging: &str,
+    target: &str,
+) -> io::Result<()> {
     let path = dir.path();
-    mixdog_statefile::rename_with_retry(lane, &path.join(staging), &path.join(target))?;
-    mixdog_statefile::sync_dir(lane, path)
+    mixdog_statefile::rename_with_retry(lane, &path.join(staging), &path.join(target))
 }
 
 /// LR §3.2 step 1, under the OS lock and only after a `clear` verdict judged
@@ -459,7 +480,8 @@ fn replace_durable<L: WriteLane>(
 /// core's ordinary content, then re-reads `R` under it. Any change (a 1.4.5
 /// claim landed after the verdict, or a release deleted `R`) gives `B` back at
 /// once, with no further judging while it is held.
-pub(crate) fn take(
+pub(crate) fn take<L: WriteLane>(
+    lane: &InLane<L>,
     own: &Arc<CoreOwnership>,
     take: Take,
     judged_record: Option<&[u8]>,
@@ -480,18 +502,20 @@ pub(crate) fn take(
             Err(error) if error.kind() == io::ErrorKind::NotFound => false,
             Err(error) => return Err(error),
         },
-        Take::DeadHolder(judged) => match reclaim(dir, &judged, judged_record, &content, procs)? {
-            Reclaim::Replaced => {
-                hook(Step::ClaimLockTaken);
-                return Ok(Taken::Held(HeldClaim {
-                    own: own.clone(),
-                    content,
-                }));
+        Take::DeadHolder(judged) => {
+            match reclaim(lane, dir, &judged, judged_record, &content, procs)? {
+                Reclaim::Replaced => {
+                    hook(Step::ClaimLockTaken);
+                    return Ok(Taken::Held(HeldClaim {
+                        own: own.clone(),
+                        content,
+                    }));
+                }
+                Reclaim::Changed => false,
+                Reclaim::RecordChanged => return Ok(Taken::RecordChanged),
+                Reclaim::GuardHeld(pid) => return Ok(Taken::GuardHeld(pid)),
             }
-            Reclaim::Changed => false,
-            Reclaim::RecordChanged => return Ok(Taken::RecordChanged),
-            Reclaim::GuardHeld(pid) => return Ok(Taken::GuardHeld(pid)),
-        },
+        }
     };
     if !linked {
         return Ok(Taken::Raced);

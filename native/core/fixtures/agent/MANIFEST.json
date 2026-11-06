@@ -1,6 +1,6 @@
 {
   "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
-  "fileCount": 56,
+  "fileCount": 59,
   "files": [
     {
       "bytes": 47880,
@@ -153,6 +153,16 @@
       "sha256": "7dea0c7d8d78857eb9849d80ad8193833ebdb869cd6207b37f190bf5e0545a22"
     },
     {
+      "bytes": 42842,
+      "path": "jobs/board.json",
+      "sha256": "bebba01c49ef2c2f658fbc4b1b2aa78720c68a9c33167ed7bcfda4cadf35dd1e"
+    },
+    {
+      "bytes": 97100,
+      "path": "jobs/progress.json",
+      "sha256": "08477a97d880b5b466fe47fff5b8b6850e58aeccef413513f1734ce476570308"
+    },
+    {
       "bytes": 18290,
       "path": "record-agent-tool.mjs",
       "sha256": "1fa0c1d52e1cc2c945e276a4a8a6002235a94e6af2726c3cd23589fee123d2a2"
@@ -161,6 +171,11 @@
       "bytes": 3804,
       "path": "record-explorer.mjs",
       "sha256": "214bea77e0251d1b08cc441ac5b0bc361e22760ae4bb26b7d43f33571ce3d262"
+    },
+    {
+      "bytes": 19557,
+      "path": "record-jobs.mjs",
+      "sha256": "01a1977a8b4a4622597ba928eb57d3be70a2dc7aefa8c2a13f8c396b42c0a564"
     },
     {
       "bytes": 2478,
@@ -301,5 +316,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 439000
+  "totalBytes": 598499
 }

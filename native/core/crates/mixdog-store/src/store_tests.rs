@@ -1327,6 +1327,146 @@ fn dump(db: &Path) -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
+fn worker_head(id: &str, created: u64, worker: serde_json::Value) -> CatalogHead {
+    let mut h = head(id, "task", "t");
+    h.header.insert("createdAt".into(), json!(created));
+    h.header.insert("worker".into(), worker);
+    h
+}
+
+fn ids(rows: &[crate::worker::WorkerRow]) -> Vec<&str> {
+    rows.iter().map(|r| r.session.as_str()).collect()
+}
+
+/// The worker index follows every header write of a session's `worker` map and answers
+/// the registry's lookups by tag, owner and host pid, newest session first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn worker_rows_are_indexed_by_tag_owner_and_host_pid() {
+    use crate::worker::WorkerScope::*;
+    let env = Env::new();
+    let s = &env.store;
+    let upsert = |h: CatalogHead| async move { s.upsert(h, DirtyMark::Clear).await.unwrap() };
+    upsert(worker_head("w1", 10, json!({"tag":" a ","parentSessionId":"p1","clientHostPid":"7","status":"idle"}))).await;
+    upsert(worker_head("w2", 30, json!({"tag":"a","parentSessionId":"","ownerSessionId":"p1","clientHostPid":7.9}))).await;
+    upsert(worker_head("w3", 20, json!({"tag":"b","parentSessionId":"p2","clientHostPid":8}))).await;
+    upsert(worker_head("w4", 40, json!({"parentSessionId":"p2","reapedAt":"2026-01-01T00:00:00.000Z"}))).await;
+    // A Lead pool row and a session without a map are not worker rows.
+    upsert(worker_head("lead", 50, json!({"tag":"a","agent":"Lead","parentSessionId":"p1"}))).await;
+    upsert(head("plain", "task", "t")).await;
+
+    let rows = s.worker_rows(Some("a"), Owner("p1".into())).await.unwrap();
+    assert_eq!(ids(&rows), ["w2", "w1"]);
+    assert_eq!(rows[1].worker["status"], "idle");
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&rows[1].summary).unwrap()["id"], "w1");
+    assert_eq!(ids(&s.worker_rows(None, Owner("p2".into())).await.unwrap()), ["w4", "w3"]);
+    assert_eq!(ids(&s.worker_rows(None, HostPid(7)).await.unwrap()), ["w2", "w1"]);
+    assert_eq!(ids(&s.worker_rows(Some("b"), HostPid(8)).await.unwrap()), ["w3"]);
+    assert_eq!(ids(&s.worker_rows(Some(""), All).await.unwrap()), ["w4"]);
+    assert_eq!(ids(&s.worker_rows(None, All).await.unwrap()), ["w4", "w2", "w3", "w1"]);
+    // A header write moves the row; dropping the map or deleting the session removes it.
+    upsert(worker_head("w2", 30, json!({"tag":"b","parentSessionId":"p2"}))).await;
+    assert_eq!(ids(&s.worker_rows(Some("a"), All).await.unwrap()), ["w1"]);
+    assert_eq!(ids(&s.worker_rows(Some("b"), Owner("p2".into())).await.unwrap()), ["w2", "w3"]);
+    upsert(head("w3", "task", "t")).await;
+    s.mark_deleted("w1").await.unwrap();
+    assert_eq!(ids(&s.worker_rows(None, All).await.unwrap()), ["w4", "w2"]);
+
+    // Every lookup is a seek on its index, never a scan of the sessions.
+    let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+    let sqls = crate::worker::ROWS_SQL.iter().flatten().copied().chain([AGENT_ONLY_SQL, crate::worker::NEWEST_TAG_SQL]);
+    for sql in sqls {
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let args: Vec<rusqlite::types::Value> =
+            (0..stmt.parameter_count()).map(|_| rusqlite::types::Value::Integer(1)).collect();
+        let plan: Vec<String> =
+            stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
+        assert!(plan.iter().all(|p| p.contains("USING INDEX") || p.contains("TEMP B-TREE")), "{sql}: {plan:?}");
+    }
+}
+
+/// The newest session per tag is 1.4.5 `lastTagSession`: the session's own `agentTag` and
+/// owner (`parentSessionId || ownerSessionId`), open or closed, with or without a worker
+/// map, never a Lead pool session; newest `createdAt` wins.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_newest_session_per_tag_follows_the_session_agent_tag() {
+    let env = Env::new();
+    let s = &env.store;
+    let tagged = |id: &str, created: u64, fields: serde_json::Value| {
+        let mut h = head(id, "task", "t");
+        h.header.insert("createdAt".into(), json!(created));
+        for (k, v) in fields.as_object().unwrap() {
+            h.header.insert(k.clone(), v.clone());
+        }
+        h
+    };
+    for h in [
+        tagged("t1", 10, json!({"agentTag":" a ","parentSessionId":"p1"})),
+        tagged("t2", 30, json!({"agentTag":"a","ownerSessionId":"p1","closed":true,"worker":{"tag":"other"}})),
+        tagged("t3", 40, json!({"agentTag":"a","parentSessionId":"p2"})),
+        tagged("t4", 50, json!({"agentTag":"a","parentSessionId":"p1","agent":"lead"})),
+        tagged("t5", 60, json!({"parentSessionId":"p1","worker":{"tag":"a","parentSessionId":"p1"}})),
+    ] {
+        s.upsert(h, DirtyMark::Clear).await.unwrap();
+    }
+    assert_eq!(s.newest_tag_session("a", "p1").await.unwrap().unwrap().session, "t2");
+    assert_eq!(s.newest_tag_session("a", "p2").await.unwrap().unwrap().session, "t3");
+    assert!(s.newest_tag_session("other", "p1").await.unwrap().is_none());
+    // A header write that retags the session moves it.
+    s.upsert(tagged("t2", 30, json!({"agentTag":"b","ownerSessionId":"p1"})), DirtyMark::Clear).await.unwrap();
+    let newest = s.newest_tag_session("a", "p1").await.unwrap().unwrap();
+    assert_eq!(newest.session, "t1");
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&newest.summary).unwrap()["id"], "t1");
+}
+
+/// The agent-only sessions (declared, or a legacy `owner: agent` child) are listed for
+/// rehydration; a rebuild of an index without the worker columns fills them from the logs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_only_sessions_are_listed_and_a_rebuild_fills_the_worker_index() {
+    let env = Env::new();
+    let mut child = head("c1", "task", "t");
+    child.header.insert("visibility".into(), json!("agent-only"));
+    env.store.upsert(child, DirtyMark::Clear).await.unwrap();
+    let mut legacy = head("c2", "task", "t");
+    legacy.header.insert("owner".into(), json!("agent"));
+    legacy.header.insert("parentSessionId".into(), json!("p1"));
+    env.store.upsert(legacy, DirtyMark::Clear).await.unwrap();
+    env.store.upsert(head("o1", "task", "t"), DirtyMark::Clear).await.unwrap();
+    let listed: Vec<String> = env
+        .store
+        .agent_only_sessions()
+        .await
+        .unwrap()
+        .iter()
+        .map(|s| serde_json::from_str::<serde_json::Value>(s).unwrap()["id"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(listed, ["c1", "c2"]);
+
+    let w = env.create("s1", None).await;
+    let change = json!({"k":"meta","change":{"inline":{"set":{"worker":{"tag":"t1","parentSessionId":"p9"}},"unset":[]}}});
+    let (w, _) = env.commit(w, vec![rec(change)]).await;
+    drop(w);
+    assert_eq!(ids(&env.store.worker_rows(Some("t1"), crate::worker::WorkerScope::Owner("p9".into())).await.unwrap()), ["s1"]);
+
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    let db = other.path().join(INDEX_FILE);
+    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+    let old = rusqlite::Connection::open(&db).unwrap();
+    old.execute_batch(crate::schema::sql::INDEX_DDL).unwrap();
+    old.execute_batch(&format!(
+        "DROP INDEX sessions_worker_tag; DROP INDEX sessions_worker_owner; DROP INDEX sessions_worker_pid;
+         DROP INDEX sessions_workers; ALTER TABLE sessions DROP COLUMN worker_tag;
+         PRAGMA user_version = {};",
+        crate::schema::sql::INDEX_USER_VERSION - 1
+    ))
+    .unwrap();
+    drop(old);
+    let store = open_index(other.path()).unwrap();
+    let rows = store.worker_rows(Some("t1"), crate::worker::WorkerScope::Owner("p9".into())).await.unwrap();
+    assert_eq!(ids(&rows), ["s1"]);
+    assert_eq!(rows[0].worker, *json!({"tag":"t1","parentSessionId":"p9"}).as_object().unwrap());
+}
+
 /// The catalog keeps the header's raw `title` (1.4.5 `readStoredSessionMetadata`:
 /// `session.title || null`) beside the cleaned list title, and the rebuild of an index of
 /// the previous version (no `title` column) fills it from the logs.

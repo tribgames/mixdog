@@ -11,6 +11,7 @@ workspace = true
 mixdog-ai = { workspace = true }
 mixdog-sandboxing = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-statefile = { workspace = true }
 mixdog-workspace = { workspace = true }
 mixdog-scm = { workspace = true }
 mixdog-protocol = { workspace = true }

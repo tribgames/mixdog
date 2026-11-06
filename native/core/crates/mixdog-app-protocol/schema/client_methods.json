@@ -9690,6 +9690,29 @@
         }
       ]
     },
+    "ProxyCustomReasoning": {
+      "description": "A custom provider's reasoning wire contract (``CustomReasoning``).",
+      "properties": {
+        "replay": {
+          "type": "boolean"
+        },
+        "wireFormat": {
+          "type": "string"
+        },
+        "wireValues": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "replay",
+        "wireFormat",
+        "wireValues"
+      ],
+      "type": "object"
+    },
     "ProxyDelivery": {
       "enum": [
         "notSent",
@@ -10388,9 +10411,24 @@
     "ProxyModel": {
       "description": "A model the PC's provider lists, with the first-response budget of its catalog entry.",
       "properties": {
+        "aliasTarget": {
+          "description": "The model a routing alias resolves to.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "contextWindow": {
           "format": "uint64",
           "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "created": {
+          "description": "When the provider created the model (epoch seconds, as listed).",
+          "format": "int64",
           "type": [
             "integer",
             "null"
@@ -10424,6 +10462,15 @@
         "id": {
           "type": "string"
         },
+        "maxContextWindow": {
+          "description": "The largest window the listing states for the model.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "maxOutputTokens": {
           "format": "uint64",
           "minimum": 0.0,
@@ -10432,8 +10479,22 @@
             "null"
           ]
         },
+        "mode": {
+          "description": "The kind of model the listing states (`chat`, `embedding`, ...).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The row's own `name`, the label when no display name is known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "picker": {
-          "description": "The picker fields of the PC's catalog row (`PickerFields`), as JSON."
+          "$ref": "#/definitions/ProxyPicker"
         },
         "raw": true,
         "reasoningLevels": {
@@ -10453,11 +10514,23 @@
             "boolean",
             "null"
           ]
+        },
+        "wire": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyWireShape"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The wire id(s) the picker id is sent under."
         }
       },
       "required": [
         "hidden",
         "id",
+        "picker",
         "reasoningLevels"
       ],
       "type": "object"
@@ -10661,6 +10734,57 @@
         }
       ]
     },
+    "ProxyParameterOption": {
+      "description": "A selectable non-effort, non-fast model parameter (``ParameterOption``).",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/definitions/ProxyParameterValue"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "label",
+        "options"
+      ],
+      "type": "object"
+    },
+    "ProxyParameterValue": {
+      "description": "One value of a picker parameter (``ParameterValue``).",
+      "properties": {
+        "contextWindow": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "type": "object"
+    },
     "ProxyPart": {
       "oneOf": [
         {
@@ -10760,6 +10884,84 @@
       ],
       "type": "string"
     },
+    "ProxyPicker": {
+      "description": "What the model picker shows beyond limits and capabilities (``PickerFields``).",
+      "properties": {
+        "accessPrograms": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "additionalSpeedTiers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "customReasoning": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProxyCustomReasoning"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fastEfforts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "modelParameterOptions": {
+          "items": {
+            "$ref": "#/definitions/ProxyParameterOption"
+          },
+          "type": "array"
+        },
+        "parameterVariants": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "reasoningOptions": {
+          "items": {
+            "$ref": "#/definitions/ProxyReasoningOption"
+          },
+          "type": "array"
+        },
+        "releaseDate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "serviceTiers": {
+          "items": {
+            "$ref": "#/definitions/ProxyServiceTier"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "additionalSpeedTiers",
+        "fastEfforts",
+        "modelParameterOptions",
+        "parameterVariants",
+        "reasoningOptions",
+        "serviceTiers"
+      ],
+      "type": "object"
+    },
     "ProxyProviderInfo": {
       "description": "What a server learns of one PC provider: usable or not, and its traits.",
       "properties": {
@@ -10810,6 +11012,25 @@
         "plan"
       ],
       "type": "string"
+    },
+    "ProxyReasoningOption": {
+      "description": "A declared effort ladder (``ReasoningOption``).",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "values"
+      ],
+      "type": "object"
     },
     "ProxyReplay": {
       "properties": {
@@ -10866,6 +11087,12 @@
     "ProxyRouteContext": {
       "properties": {
         "agent": {
+          "description": "An agent/tool session, or a send carrying tools.",
+          "type": "boolean"
+        },
+        "legacy": {
+          "default": false,
+          "description": "A session that predates the wire table (`model-proxy-provider.mjs:193`).",
           "type": "boolean"
         }
       },
@@ -10886,6 +11113,25 @@
         "unknown"
       ],
       "type": "string"
+    },
+    "ProxyServiceTier": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "id",
+        "name"
+      ],
+      "type": "object"
     },
     "ProxyThread": {
       "properties": {
@@ -11082,6 +11328,20 @@
         "wire"
       ],
       "type": "object"
+    },
+    "ProxyWireShape": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ],
+      "description": "The schema of [`ProxyWireIds`]' wire form."
     },
     "PtySize": {
       "properties": {

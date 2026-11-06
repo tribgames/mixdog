@@ -47,12 +47,15 @@ pub use json::rename_with_retry;
 pub use json::update_json;
 pub use json::with_lock;
 pub use json::write_file;
+pub use json::write_file_stepped;
 pub use json::write_json;
 pub use lock::LockError;
 pub use lock::LockOpts;
 pub use lock::default_timeout;
 pub use lock::lock_path;
 pub use publish::Opts;
+pub use publish::PublishFailure;
+pub use publish::Step;
 pub use publish::Published;
 pub use publish::holds_no_data;
 

@@ -374,7 +374,7 @@ impl GeminiDecoder {
         if let Some(um) = &self.usage {
             out.push(StreamEvent::Usage(usage_of(um, self.dialect.usage)));
         }
-        out.push(StreamEvent::Completed { stop });
+        out.push(StreamEvent::Completed { stop, pricing_model: None });
         self.done = true;
         Ok(out)
     }
@@ -458,7 +458,7 @@ mod tests {
             panic!("no replay");
         };
         assert_eq!(replay.items["parts"].as_array().unwrap().len(), 3);
-        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: None }));
+        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: None, pricing_model: None }));
     }
 
     #[test]
@@ -471,7 +471,7 @@ mod tests {
             events.iter().filter_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some(c) } else { None }).collect();
         assert_eq!(calls[0].id, "gemini_366b187da650ce24");
         assert_eq!(calls[1].id, "srv-1");
-        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: None }));
+        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: None, pricing_model: None }));
     }
 
     #[test]
@@ -500,6 +500,6 @@ mod tests {
         assert_eq!(run(&mut decoder(false), band).unwrap_err().status, Some(503));
         let max = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"cut\"}]},\"finishReason\":\"MAX_TOKENS\"}]}\n";
         let events = run(&mut decoder(false), max).unwrap();
-        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: Some(StopReason::MaxTokens) }));
+        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: Some(StopReason::MaxTokens), pricing_model: None }));
     }
 }

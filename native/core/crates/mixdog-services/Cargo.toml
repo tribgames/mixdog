@@ -54,7 +54,7 @@ walkdir = { workspace = true }
 libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
+windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
 mixdog-rt = { workspace = true, features = ["test-support"] }

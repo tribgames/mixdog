@@ -17,6 +17,7 @@ use std::process::ChildStdin;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -204,6 +205,9 @@ pub(crate) struct SelfChild {
     child: Child,
     stdin: Option<ChildStdin>,
     markers: mpsc::Receiver<String>,
+    /// Everything the child wrote, stderr included, for a failure message.
+    output: Arc<Mutex<String>>,
+    stderr_closed: mpsc::Receiver<()>,
 }
 
 impl SelfChild {
@@ -219,16 +223,20 @@ impl SelfChild {
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
         for (key, value) in env {
             command.env(key, value);
         }
         let mut child = command.spawn().expect("spawn self");
         let stdin = child.stdin.take();
         let stdout = child.stdout.take().expect("stdout");
+        let stderr = child.stderr.take().expect("stderr");
+        let output = Arc::new(Mutex::new(String::new()));
         let (tx, markers) = mpsc::channel();
+        let sink = output.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                sink.lock().expect("output").push_str(&format!("{line}\n"));
                 for (index, part) in line.split("@@").enumerate() {
                     if index % 2 == 1 && tx.send(part.to_string()).is_err() {
                         return;
@@ -236,11 +244,29 @@ impl SelfChild {
                 }
             }
         });
+        let (closed, stderr_closed) = mpsc::channel();
+        let sink = output.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                sink.lock()
+                    .expect("output")
+                    .push_str(&format!("[stderr] {line}\n"));
+            }
+            let _ = closed.send(());
+        });
         Self {
             child,
             stdin,
             markers,
+            output,
+            stderr_closed,
         }
+    }
+
+    /// What the child wrote, once its stderr closed (bounded by [`EVENT_BOUND`]).
+    pub(crate) fn output(&self) -> String {
+        let _ = self.stderr_closed.recv_timeout(EVENT_BOUND);
+        self.output.lock().expect("output").clone()
     }
 
     pub(crate) fn pid(&self) -> u32 {
@@ -261,7 +287,7 @@ impl SelfChild {
     pub(crate) fn expect(&self, prefix: &str) -> String {
         let marker = self
             .next()
-            .unwrap_or_else(|| panic!("child exited before {prefix}"));
+            .unwrap_or_else(|| panic!("child exited before {prefix}:\n{}", self.output()));
         marker
             .strip_prefix(prefix)
             .unwrap_or_else(|| panic!("expected {prefix}, got {marker}"))

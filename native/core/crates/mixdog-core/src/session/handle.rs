@@ -273,6 +273,10 @@ impl ThreadHandle for SessionHandle {
             "thread/resume" => self.resume(&req),
             "thread/read" => self.read(&req).await,
             "thread/fork" => self.fork(req).await,
+            // The acked header, for the core's own ports; never a connection's read.
+            "thread/header/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
+                Ok(Reply::Value(json!({ "header": *self.cell.header.load_full() })))
+            }
             _ => self.to_actor(req).await,
         }
     }

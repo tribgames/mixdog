@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 mixdog-core-api = { workspace = true }
 mixdog-store = { workspace = true }
+mixdog-statefile = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-agent = { workspace = true }
 mixdog-ledger = { workspace = true }

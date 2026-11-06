@@ -194,7 +194,12 @@ fn property<'a>(payload: &'a Value, key: &str) -> Result<Option<&'a Value>, Core
 }
 
 /// `saveWorkflowPack(payload)`.
-pub(crate) fn save_pack(paths: &WorkflowPaths, payload: &Value, now: &dyn Fn() -> String) -> Result<Value, CoreError> {
+pub(crate) fn save_pack(
+    lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>,
+    paths: &WorkflowPaths,
+    payload: &Value,
+    now: &dyn Fn() -> String,
+) -> Result<Value, CoreError> {
     let Some(id) = workflow_id_of(property(payload, "id")?) else {
         return Err(failed(DOMAIN, "workflow id must contain letters/numbers (dashes and dots allowed)"));
     };
@@ -218,13 +223,18 @@ pub(crate) fn save_pack(paths: &WorkflowPaths, payload: &Value, now: &dyn Fn() -
             meta.push(("description", description.as_str()));
         }
         let text = serialize_document(&meta, &body);
-        write_atomic(&dir.join(ENTRY), text.as_bytes(), true).map_err(|failure| io_failure(DOMAIN, &failure))?;
+        write_atomic(lane, &dir.join(ENTRY), text.as_bytes(), true).map_err(|failure| io_failure(DOMAIN, &failure))?;
     }
     get_pack(paths, &id)
 }
 
 /// `createWorkflow(payload)`.
-pub(crate) fn create_pack(paths: &WorkflowPaths, payload: &Value, now: &dyn Fn() -> String) -> Result<Value, CoreError> {
+pub(crate) fn create_pack(
+    lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>,
+    paths: &WorkflowPaths,
+    payload: &Value,
+    now: &dyn Fn() -> String,
+) -> Result<Value, CoreError> {
     let name = one_line(property(payload, "name")?);
     if name.is_empty() {
         return Err(failed(DOMAIN, "workflow name must not be empty"));
@@ -243,7 +253,7 @@ pub(crate) fn create_pack(paths: &WorkflowPaths, payload: &Value, now: &dyn Fn()
     };
     next.insert("id".into(), Value::String(id));
     next.insert("name".into(), Value::String(name));
-    save_pack(paths, &Value::Object(next), now)
+    save_pack(lane, paths, &Value::Object(next), now)
 }
 
 /// The id `createWorkflow` gave the pack: the requested one, else the first slug candidate that

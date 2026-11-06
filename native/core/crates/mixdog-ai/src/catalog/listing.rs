@@ -46,6 +46,15 @@ impl ListingLookup {
         Self::default()
     }
 
+    /// A lookup whose only resident table is this models.dev document (test hook).
+    #[cfg(test)]
+    pub(crate) fn with_models_dev(document: &Value) -> Self {
+        let lookup = Self::new();
+        let models_dev = ModelsDev::parse(&serde_json::to_vec(document).unwrap()).expect("a models.dev document");
+        lookup.publish(None, Some(Arc::new(models_dev)), Arc::default());
+        lookup
+    }
+
     pub(super) fn publish(&self, litellm: Option<Arc<ModelsDev>>, models_dev: Option<Arc<ModelsDev>>, rosters: Arc<RosterSnapshot>) {
         self.0.store(Arc::new(Layers { litellm, models_dev, rosters }));
     }
@@ -104,6 +113,9 @@ fn row_of(provider: &str, record: &ModelRecord) -> Value {
     }
     if let Some(v) = record.context_window {
         row.insert("contextWindow".into(), json!(v));
+    }
+    if let Some(v) = record.max_context_window {
+        row.insert("maxContextWindow".into(), json!(v));
     }
     if let Some(v) = record.max_output_tokens {
         row.insert("outputTokens".into(), json!(v));
@@ -199,6 +211,7 @@ mod tests {
         record.display_name = input.get("display").and_then(Value::as_str).map(str::to_owned);
         record.name = input.get("name").and_then(Value::as_str).map(str::to_owned);
         record.context_window = input.get("contextWindow").and_then(Value::as_u64);
+        record.max_context_window = input.get("maxContextWindow").and_then(Value::as_u64);
         record.max_output_tokens = input.get("outputTokens").and_then(Value::as_u64);
         record.supports_images = input.get("supportsVision").and_then(Value::as_bool);
         record.supports_reasoning = input.get("supportsReasoning").and_then(Value::as_bool);

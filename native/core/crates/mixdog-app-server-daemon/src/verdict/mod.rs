@@ -430,8 +430,13 @@ impl Gate {
                             continue;
                         }
                         barrier::hook(Step::Linking);
-                        match barrier::take(&self.ownership, take, record.as_deref(), &*self.procs)?
-                        {
+                        match barrier::take(
+                            lane,
+                            &self.ownership,
+                            take,
+                            record.as_deref(),
+                            &*self.procs,
+                        )? {
                             Taken::Held(held) => {
                                 held.install(lane, &self.record)?;
                                 return Ok(GateStep::Clear);

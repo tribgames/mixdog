@@ -1,0 +1,178 @@
+//! `ArtifactStore` over the data dir: `<data>/tool-results/<session>/<sha256>.txt`, owner-only,
+//! content-addressed and verified, exactly as the earlier runtime laid it out (the model sees
+//! the path, so it is part of the contract).
+
+use std::io;
+use std::path::Path;
+use std::path::PathBuf;
+
+use async_trait::async_trait;
+use mixdog_agent::offload::Artifact;
+use mixdog_agent::offload::ArtifactStore;
+use mixdog_store::fsio::Access;
+use mixdog_store::fsio::publish_file_with;
+use sha2::Digest;
+use sha2::Sha256;
+
+pub struct ToolResultArtifacts {
+    dir: PathBuf,
+    session_ok: bool,
+}
+
+/// Session ids are path segments: anything outside `[A-Za-z0-9_-]` becomes `_`, so a `..` or a
+/// slash cannot leave the tool-results root.
+fn safe_segment(session_id: &str) -> String {
+    let cleaned: String = session_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .take(200)
+        .collect();
+    if cleaned.is_empty() { "_invalid".to_owned() } else { cleaned }
+}
+
+fn split_lines(text: &str) -> usize {
+    if text.is_empty() { 0 } else { text.bytes().filter(|b| *b == b'\n').count() + 1 }
+}
+
+/// The path as shown to the model (`normalizeOutputPath`: forward slashes and an uppercase drive
+/// letter on Windows).
+fn display(path: &Path) -> String {
+    let text = path.to_string_lossy().into_owned();
+    if !cfg!(windows) {
+        return text;
+    }
+    let text = text.replace('\\', "/");
+    let mut chars = text.chars();
+    match (chars.next(), chars.next()) {
+        (Some(d), Some(':')) if d.is_ascii_lowercase() => format!("{}{}", d.to_ascii_uppercase(), &text[1..]),
+        _ => text,
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// What a crash leaves of a file whose data never reached disk: only NUL and whitespace.
+fn holds_no_data(bytes: &[u8]) -> bool {
+    bytes.iter().all(|b| matches!(b, 0 | b' ' | b'\t' | b'\n' | b'\r'))
+}
+
+enum State {
+    Absent,
+    Intact,
+    /// A file a crash left without data: replaced whole.
+    Damaged,
+    /// Anything else (other bytes, a link, a directory, unreadable): evidence, never touched.
+    Foreign,
+}
+
+fn existing_state(path: &Path, sha256: &str, bytes: u64) -> State {
+    let info = match std::fs::symlink_metadata(path) {
+        Ok(info) => info,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return State::Absent,
+        Err(_) => return State::Foreign,
+    };
+    if !info.is_file() {
+        return State::Foreign;
+    }
+    if info.len() != bytes {
+        return if info.len() == 0 { State::Damaged } else { State::Foreign };
+    }
+    let Ok(found) = std::fs::read(path) else {
+        return State::Foreign;
+    };
+    if hex(&Sha256::digest(&found)) == sha256 {
+        State::Intact
+    } else if holds_no_data(&found) {
+        State::Damaged
+    } else {
+        State::Foreign
+    }
+}
+
+impl ToolResultArtifacts {
+    /// `data_dir` is the data root; `session_id` names the session whose results are stored.
+    pub fn new(data_dir: &Path, session_id: &str) -> Self {
+        Self { dir: data_dir.join("tool-results").join(safe_segment(session_id)), session_ok: !session_id.is_empty() }
+    }
+
+    fn describe(&self, content: &str) -> (PathBuf, Artifact) {
+        let sha256 = hex(&Sha256::digest(content.as_bytes()));
+        let path = self.dir.join(format!("{sha256}.txt"));
+        let artifact = Artifact { display_path: display(&path), lines: split_lines(content), sha256 };
+        (path, artifact)
+    }
+}
+
+#[async_trait]
+impl ArtifactStore for ToolResultArtifacts {
+    async fn persist(&self, content: &str) -> Option<Artifact> {
+        if !self.session_ok {
+            return None;
+        }
+        let (path, artifact) = self.describe(content);
+        let text = content.to_owned();
+        let sha = artifact.sha256.clone();
+        tokio::task::spawn_blocking(move || {
+            let len = text.len() as u64;
+            match existing_state(&path, &sha, len) {
+                State::Intact => true,
+                State::Foreign => false,
+                State::Damaged | State::Absent => {
+                    publish_file_with(&path, text.as_bytes(), Access::OwnerOnly).is_ok()
+                        && matches!(existing_state(&path, &sha, len), State::Intact)
+                }
+            }
+        })
+        .await
+        .ok()?
+        .then_some(artifact)
+    }
+
+    async fn preview(&self, content: &str) -> Option<Artifact> {
+        self.session_ok.then(|| self.describe(content).1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn persist_lays_the_file_out_as_the_earlier_runtime_did() {
+        let data = tempfile::tempdir().unwrap();
+        let store = ToolResultArtifacts::new(data.path(), "sess_1/../x");
+        let text = "a\nb\nc";
+        let preview = store.preview(text).await.unwrap();
+        assert!(!data.path().join("tool-results").exists(), "a preview creates nothing");
+        let artifact = store.persist(text).await.unwrap();
+        // sha256("a\nb\nc")
+        assert_eq!(artifact.sha256, hex(&Sha256::digest(b"a\nb\nc")));
+        assert_eq!(artifact.sha256, preview.sha256);
+        assert_eq!(artifact.lines, 3);
+        let file = data.path().join("tool-results/sess_1____x").join(format!("{}.txt", artifact.sha256));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+        assert_eq!(artifact.display_path, display(&file));
+        // an intact file is reused; a data-free one is replaced; a foreign one refuses
+        assert!(store.persist(text).await.is_some());
+        std::fs::write(&file, vec![0u8; text.len()]).unwrap();
+        assert!(store.persist(text).await.is_some());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+        std::fs::write(&file, "x\ny\nz").unwrap();
+        assert!(store.persist(text).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn no_session_means_no_artifact() {
+        let data = tempfile::tempdir().unwrap();
+        assert!(ToolResultArtifacts::new(data.path(), "").persist("x").await.is_none());
+    }
+
+    #[test]
+    fn line_counts_follow_the_split_rule() {
+        assert_eq!(split_lines(""), 0);
+        assert_eq!(split_lines("a"), 1);
+        assert_eq!(split_lines("a\n"), 2);
+    }
+}

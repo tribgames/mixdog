@@ -829,6 +829,91 @@ async fn a_reconcile_removes_clean_unretained_work_keeps_the_rest_and_resumes_a_
     assert!(!std::path::Path::new(&second.path).exists());
 }
 
+struct Sessions {
+    stored: std::collections::HashSet<String>,
+    jobs: Vec<crate::worktree::maintenance::ShellJob>,
+}
+
+#[async_trait::async_trait]
+impl crate::worktree::maintenance::SessionSource for Sessions {
+    async fn stored_session_ids(&self) -> Result<std::collections::HashSet<String>, crate::error::ScmFailure> {
+        Ok(self.stored.clone())
+    }
+    async fn favorites(&self) -> Option<std::collections::HashSet<String>> {
+        Some(Default::default())
+    }
+    async fn archived(&self) -> Option<std::collections::HashSet<String>> {
+        None
+    }
+    async fn activity(&self, _: &[String]) -> std::collections::HashMap<String, crate::worktree::maintenance::SessionActivity> {
+        Default::default()
+    }
+    async fn running_jobs(&self) -> Result<Vec<crate::worktree::maintenance::ShellJob>, crate::error::ScmFailure> {
+        Ok(self.jobs.clone())
+    }
+}
+
+#[tokio::test]
+async fn the_cleanup_pass_removes_unretained_work_but_not_what_a_job_or_a_stored_session_keeps() {
+    use crate::worktree::maintenance::CleanupOptions;
+    use crate::worktree::maintenance::SessionSource;
+    use crate::worktree::maintenance::ShellJob;
+    use crate::worktree::settings::WorktreeSettings;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let (first, second) = (&made[0], &made[1]);
+    let off = CleanupOptions { settings: Some(WorktreeSettings { auto_cleanup: false, ..WorktreeSettings::default() }), ..CleanupOptions::default() };
+    let on = CleanupOptions { settings: Some(WorktreeSettings::default()), ..CleanupOptions::default() };
+    let sessions: std::sync::Arc<dyn SessionSource> = std::sync::Arc::new(Sessions {
+        stored: ["s1".to_owned()].into(),
+        jobs: vec![ShellJob { cwd: Some(format!("{}/sub", second.path)), owner_session_id: None }],
+    });
+    // Off: the bookkeeping pass only, nothing selected or removed.
+    let report = worktrees.run_worktree_cleanup(&sessions, &off, &cancel).await.unwrap();
+    assert_eq!(report["removed"], serde_json::json!([]));
+    assert_eq!(report["selected"], serde_json::json!([]));
+    // The creating process holds an owner lease; these sessions' runtime has ended.
+    for record in &made {
+        worktrees.remove_owner_lease(record, &cancel).await.unwrap();
+    }
+    // The preview names the unretained one; nothing is verified.
+    let (ids, _) = worktrees.preview_worktree_cleanup(&sessions, &on, &cancel).await.unwrap();
+    let probe = worktrees.retention_of(second, &Default::default(), &["s1".to_owned()].into(), &cancel).await.unwrap();
+    assert_eq!(ids, [second.id.clone()], "{probe:?} {:?}", worktrees.read_owner_lease(second, &cancel).await);
+    // On: `first` belongs to a stored session and stays; `second` has a job running in it.
+    let report = worktrees.run_worktree_cleanup(&sessions, &on, &cancel).await.unwrap();
+    assert_eq!(report["removed"], serde_json::json!([]), "{report}");
+    assert!(std::path::Path::new(&second.path).exists() && std::path::Path::new(&first.path).exists());
+    assert_eq!(report["limits"], "applied");
+    // Once the job ends the unretained worktree goes.
+    let idle: std::sync::Arc<dyn SessionSource> = std::sync::Arc::new(Sessions { stored: ["s1".to_owned()].into(), jobs: Vec::new() });
+    let report = worktrees.run_worktree_cleanup(&idle, &on, &cancel).await.unwrap();
+    assert_eq!(report["removed"], serde_json::json!([second.id]), "{report}");
+    assert!(!std::path::Path::new(&second.path).exists());
+}
+
+#[tokio::test]
+async fn a_deleted_sessions_worktree_is_removed_when_clean_and_kept_when_not() {
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    std::fs::write(std::path::Path::new(&made[1].path).join("dirty.txt"), "d\n").unwrap();
+    let kept = worktrees.cleanup_deleted_session_worktree("s2", &cancel).await.unwrap().unwrap();
+    assert_ne!(kept["removed"], true, "{kept}");
+    assert!(std::path::Path::new(&made[1].path).exists());
+    let gone = worktrees.cleanup_deleted_session_worktree("s1", &cancel).await.unwrap().unwrap();
+    assert_eq!(gone["removed"], true, "{gone}");
+    assert!(!std::path::Path::new(&made[0].path).exists());
+    assert!(worktrees.cleanup_deleted_session_worktree("nobody", &cancel).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn the_list_carries_sizes_until_the_worktree_is_removed_and_measured_again_when_recreated() {
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let rows = worktrees.list_with_sizes(None, &NoRetention, &cancel).await.unwrap();
+    assert!(rows.iter().all(|row| row["sizeBytes"].as_u64().is_some_and(|n| n > 0) && row["sizeComplete"] == true), "{rows:?}");
+    worktrees.remove(&made[0].id, false, Some("s1"), &cancel).await.unwrap();
+    let rows = worktrees.list_with_sizes(None, &NoRetention, &cancel).await.unwrap();
+    assert_eq!(rows.len(), 1);
+}
+
 #[tokio::test]
 async fn an_automatic_removal_that_finds_the_checkout_changed_keeps_it() {
     use crate::worktree::removal::Auto;

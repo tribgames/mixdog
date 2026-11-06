@@ -50,6 +50,9 @@ use crate::summary::CatalogHead;
 use crate::title::PlaceholderLabels;
 use crate::title::TitleKind;
 use crate::title::session_display_title;
+use crate::worker::TagSession;
+use crate::worker::WorkerRow;
+use crate::worker::WorkerScope;
 
 /// SPEC R31 append transaction bounds.
 pub const APPEND_ROWS: usize = 512;
@@ -211,6 +214,10 @@ pub struct CatalogRow {
     pub source_name: Option<String>,
     /// The JSON list row.
     pub summary: String,
+    /// The worker index keys of the header's `worker` map.
+    pub worker: Option<crate::worker::WorkerKeys>,
+    /// The header's `agentTag` and owner.
+    pub agent_tag: Option<crate::worker::TagKeys>,
 }
 
 /// FORMAT.md §8.2 `fold(x)`: Unicode default lowercase, no normalization.
@@ -283,16 +290,20 @@ fn set_status_on(tx: &Transaction, session: &str, status: SessionStatus, damage:
     Ok(())
 }
 
+/// The agent-only sessions in list order (`sessions_visibility_recent`).
+pub(crate) const AGENT_ONLY_SQL: &str = "SELECT summary FROM sessions WHERE visibility = 'agent-only'
+    AND deleted = 0 AND log_id <> '' ORDER BY activity DESC, id";
+
 const UPSERT_SQL: &str = "
 INSERT INTO sessions (id, dirty, status, damage, deleted, base_session, log_id, newest_file_no,
     projected_file_no, projected_offset, projected_ordinal, history_rev, row_count, visible_count,
     activity, created_at, updated_at, closed, archived_at, cwd, visibility, owner_session_id,
     parent_session_id, agent, source_type, classification, archived, title_kind, id_key,
     title_fold, preview_fold, cwd_fold, project_fold, id_fold, model_fold, source_fold, summary,
-    title)
+    title, worker, worker_tag, worker_owner, worker_host_pid, agent_tag, agent_owner)
 VALUES (?1, ?2, 'ok', NULL, 0, ?3, ?4, 0, 0, 0, 0, 0, 0, 0,
     ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
-    ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?29)
+    ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?29, ?30, ?31, ?32, ?33, ?34, ?35)
 ON CONFLICT(id) DO UPDATE SET
     dirty = CASE WHEN ?28 THEN dirty ELSE excluded.dirty END,
     activity = excluded.activity, created_at = excluded.created_at,
@@ -305,7 +316,10 @@ ON CONFLICT(id) DO UPDATE SET
     preview_fold = excluded.preview_fold, cwd_fold = excluded.cwd_fold,
     project_fold = excluded.project_fold, id_fold = excluded.id_fold,
     model_fold = excluded.model_fold, source_fold = excluded.source_fold,
-    summary = excluded.summary, title = excluded.title";
+    summary = excluded.summary, title = excluded.title, worker = excluded.worker,
+    worker_tag = excluded.worker_tag, worker_owner = excluded.worker_owner,
+    worker_host_pid = excluded.worker_host_pid, agent_tag = excluded.agent_tag,
+    agent_owner = excluded.agent_owner";
 
 /// Writes the catalog row of `head` with the message state projected so far; the bytes
 /// of the list row.
@@ -353,6 +367,12 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
         row.summary,
         dirty == DirtyMark::Keep,
         row.title,
+        row.worker.as_ref().map(|w| &w.map),
+        row.worker.as_ref().map(|w| &w.tag),
+        row.worker.as_ref().and_then(|w| w.owner.as_ref()),
+        row.worker.as_ref().and_then(|w| w.host_pid),
+        row.agent_tag.as_ref().map(|t| &t.tag),
+        row.agent_tag.as_ref().and_then(|t| t.owner.as_ref()),
     ])?;
     Ok(())
 }
@@ -1282,6 +1302,58 @@ impl SqliteStore {
                 .query_row([&session], |r| r.get(0))
                 .optional()?
                 .flatten())
+        })
+        .await
+    }
+
+    /// The worker rows (FORMAT.md §8.2 worker index) in `scope`, of tag `tag` when given
+    /// (a cleaned tag; '' finds the rows without one), newest session first.
+    pub async fn worker_rows(&self, tag: Option<&str>, scope: WorkerScope) -> Result<Vec<WorkerRow>, DbError> {
+        let tag = tag.map(str::to_owned);
+        self.read(move |c| {
+            let sql = crate::worker::ROWS_SQL[usize::from(tag.is_some())][match scope {
+                WorkerScope::Owner(_) => 0,
+                WorkerScope::HostPid(_) => 1,
+                WorkerScope::All => 2,
+            }];
+            let mut args: Vec<rusqlite::types::Value> = Vec::with_capacity(2);
+            match scope {
+                WorkerScope::Owner(owner) => args.push(owner.into()),
+                WorkerScope::HostPid(pid) => args.push(pid.into()),
+                WorkerScope::All => {}
+            }
+            args.extend(tag.map(rusqlite::types::Value::from));
+            let mut stmt = c.prepare_cached(sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
+                let worker = serde_json::from_str(r.get_ref(1)?.as_str()?).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
+                })?;
+                Ok(WorkerRow { session: r.get(0)?, worker, summary: r.get(2)? })
+            })?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        })
+        .await
+    }
+
+    /// The newest session `owner` ran under `tag` (1.4.5 `lastTagSession`, open or closed),
+    /// by the session's own `agentTag` (a cleaned tag) and owner.
+    pub async fn newest_tag_session(&self, tag: &str, owner: &str) -> Result<Option<TagSession>, DbError> {
+        let (tag, owner) = (tag.to_owned(), owner.to_owned());
+        self.read(move |c| {
+            Ok(c.prepare_cached(crate::worker::NEWEST_TAG_SQL)?
+                .query_row([&tag, &owner], |r| Ok(TagSession { session: r.get(0)?, summary: r.get(1)? }))
+                .optional()?)
+        })
+        .await
+    }
+
+    /// The list rows of the agent-only sessions (`visibility` 'agent-only'), the
+    /// candidates of 1.4.5 agent rehydration; most recent activity first.
+    pub async fn agent_only_sessions(&self) -> Result<Vec<String>, DbError> {
+        self.read(|c| {
+            let mut stmt = c.prepare_cached(AGENT_ONLY_SQL)?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            Ok(rows.collect::<Result<_, _>>()?)
         })
         .await
     }

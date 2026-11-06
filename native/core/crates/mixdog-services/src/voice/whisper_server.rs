@@ -8,7 +8,7 @@
 //! not pin the model for the life of the daemon.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ use mixdog_js::JsRegex;
 use tokio_util::sync::CancellationToken;
 
 use super::pipeline::{AudioTools, ServerContract, VoiceError, WhisperEngine};
-use super::whisper_owner::{PidMeta, clear_pid_file, listener_owned, pid_file, port_from_env, read_pid_file, reclaim_stale, select_port, write_pid_file};
+use super::whisper_owner::{PidMeta, clear_pid_file, listener_owned, pid_file, port_from_env, raise_priority, read_pid_file, reclaim_stale, select_port, write_pid_file};
 use crate::lane::io_on_lane;
 use crate::local_provider::server_process::{Launcher, LogSink, RunningProcess, SystemLauncher};
 use crate::tidy::process::{Processes, RunOptions};
@@ -43,6 +43,9 @@ struct Running {
     lane: DurabilityIo,
     /// Where the pid file of this child lives.
     pid_file: PathBuf,
+    /// Set by teardown: the child's exit is then no longer this record's business, so the exit
+    /// watcher must not touch a pid file a replacement may own.
+    detached: Arc<AtomicBool>,
 }
 
 impl Running {
@@ -120,8 +123,9 @@ impl WhisperServer {
         let cwd = contract.server_cmd.parent().unwrap_or(Path::new(".")).to_owned();
         // Reclaim only a child the pid file proves is ours; a foreign listener is never touched.
         if let Some(meta) = read_pid_file(lane, pid_path.clone()).await {
-            reclaim_stale(&self.processes, &meta, &contract.model_path.to_string_lossy(), self.preferred_port, &cwd).await;
-            clear_pid_file(lane, pid_path.clone()).await;
+            if reclaim_stale(&self.processes, &meta, &contract.model_path.to_string_lossy(), self.preferred_port, &cwd).await {
+                clear_pid_file(lane, pid_path.clone()).await;
+            }
         }
         let port = select_port(&contract.host, self.preferred_port).map_err(VoiceError)?;
         let args = [
@@ -145,8 +149,20 @@ impl WhisperServer {
             .await
             .map_err(|e| VoiceError(format!("whisper-server failed to start: {e}")))?;
         let pid = process.pid();
-        let running = Running { process, contract: contract.clone(), port, log, lane, pid_file: pid_path.clone() };
+        let detached = Arc::new(AtomicBool::new(false));
+        let running = Running { process: process.clone(), contract: contract.clone(), port, log, lane, pid_file: pid_path.clone(), detached: detached.clone() };
+        // A child that dies on its own takes its pid file with it (Node's `exit` handler).
+        tokio::spawn({
+            let pid_path = pid_path.clone();
+            async move {
+                process.wait().await;
+                if !detached.load(Ordering::SeqCst) {
+                    clear_pid_file(lane, pid_path).await;
+                }
+            }
+        });
         if let Some(pid) = pid {
+            raise_priority(pid);
             let meta = PidMeta { pid, server_cmd: &contract.server_cmd, model_path: &contract.model_path, thread_count: contract.thread_count, host: &contract.host, port, started_at_ms: crate::media::store::now_ms() };
             write_pid_file(lane, pid_path, &meta).await;
         }
@@ -258,21 +274,22 @@ fn read_wav(path: &Path) -> std::io::Result<Vec<u8>> {
 /// `file`, `response_format=json` and the optional `language` form fields.
 pub(crate) fn multipart_body(boundary: &str, filename: &str, wav: &[u8], language: Option<&str>) -> Vec<u8> {
     let mut body = Vec::with_capacity(wav.len() + 512);
-    let mut field = |name: &str, value: &str| {
-        body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n").bytes());
+    // `file` carries the wav as `audio/wav` under its file name; the others are plain text.
+    let mut field = |name: &str, value: &str, file: Option<&[u8]>| match file {
+        Some(bytes) => {
+            body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{value}\"\r\nContent-Type: audio/wav\r\n\r\n").bytes());
+            body.extend_from_slice(bytes);
+            body.extend(b"\r\n");
+        }
+        None => body.extend(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n").bytes()),
     };
-    field("response_format", "json");
+    // The fields in the order Node's FormData appends them: file, response_format, language.
+    field("file", filename, Some(wav));
+    field("response_format", "json", None);
     if let Some(language) = language {
-        field("language", language);
+        field("language", language, None);
     }
-    body.extend(
-        format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: audio/wav\r\n\r\n"
-        )
-        .bytes(),
-    );
-    body.extend_from_slice(wav);
-    body.extend(format!("\r\n--{boundary}--\r\n").bytes());
+    body.extend(format!("--{boundary}--\r\n").bytes());
     body
 }
 
@@ -323,6 +340,7 @@ async fn teardown(slot: &mut Option<Running>) {
 }
 
 async fn teardown_running(running: Running) {
+    running.detached.store(true, Ordering::SeqCst);
     clear_pid_file(running.lane, running.pid_file.clone()).await;
     running.process.kill();
     let _ = tokio::time::timeout(STOP_GRACE, running.process.wait()).await;
@@ -390,7 +408,8 @@ mod tests {
         let text = String::from_utf8(body).unwrap();
         assert!(text.contains("name=\"response_format\"\r\n\r\njson\r\n"));
         assert!(text.contains("name=\"language\"\r\n\r\nko\r\n"));
-        assert!(text.contains("name=\"file\"; filename=\"a.wav\"\r\nContent-Type: audio/wav\r\n\r\nRIFF\r\n--B--\r\n"));
+        assert!(text.starts_with("--B\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\nContent-Type: audio/wav\r\n\r\nRIFF\r\n--B\r\n"));
+        assert!(text.ends_with("name=\"language\"\r\n\r\nko\r\n--B--\r\n"));
         assert!(!String::from_utf8(multipart_body("B", "a.wav", b"", None)).unwrap().contains("language"));
     }
 

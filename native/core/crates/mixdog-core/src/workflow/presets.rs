@@ -97,21 +97,6 @@ pub(crate) fn normalize_preset(preset: &Value) -> Option<Value> {
     Some(Value::Object(out))
 }
 
-/// The config with the sections the Node save builder normalizes in their stored form:
-/// `presets` (`normalizePreset` of each, the unusable ones dropped) and `webSearchRoute`
-/// (`normalizeWebSearchRouteConfig`). `Config`'s stored form passes both through as given, so a
-/// route's `modelParameters` or a `fast: false` would reach the file.
-pub(crate) fn with_stored_routes(agent: &Doc) -> Doc {
-    let mut next = agent.clone();
-    if let Some(list) = agent.get("presets").and_then(Value::as_array) {
-        next.insert("presets".into(), Value::Array(list.iter().filter_map(normalize_preset).collect()));
-    }
-    if agent.contains_key("webSearchRoute") {
-        next.insert("webSearchRoute".into(), stored_web_search_route(&agent["webSearchRoute"]));
-    }
-    next
-}
-
 /// `normalizeWebSearchRoute` of `config-storage.mjs`: the stored shape of the route, which keeps
 /// neither fallbacks nor a false `fast`.
 pub(crate) fn stored_web_search_route(route: &Value) -> Value {

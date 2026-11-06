@@ -58,6 +58,8 @@ impl ExtensionConfig for Config {
         self.log.lock().unwrap().push("save".to_owned());
         Ok(())
     }
+
+    fn set_disabled_skills(&self, _: &[String]) {}
 }
 
 /// The host effects in the order Node's extension sync performs them.
@@ -84,6 +86,14 @@ impl ExtensionHost for Host {
             self.push("invalidateSkills");
         }
         self.push("surface");
+    }
+
+    async fn announce_without_invalidating(&self, _: &str) {
+        self.push("surface");
+    }
+
+    async fn tool_names(&self) -> Vec<String> {
+        Vec::new()
     }
 
     fn invalidate_skills(&self) {

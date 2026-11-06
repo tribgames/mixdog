@@ -302,6 +302,7 @@ impl DevinDecoder {
             items: json!([item]),
         }));
         events.push(StreamEvent::Completed {
+            pricing_model: None,
             stop: Some(if tool_use {
                 StopReason::ToolUse
             } else if self.stop_reason == stop::MAX_TOKENS {

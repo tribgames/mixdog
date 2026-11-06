@@ -5,14 +5,14 @@
 //!
 //! All file work runs in `mixdog-rt` I/O lanes: reads on the interactive lane
 //! (the gate waits on them), writes and the audit append on the durability
-//! lane. A damaged `grants.json` (empty, torn, not JSON) is moved aside to
+//! lane. Reads and writes of `grants.json` are `mixdog-statefile`'s port of `atomic-file.mjs`:
+//! a damaged file (empty, torn, not JSON) is moved aside to
 //! `grants.json.corrupt-<ms>` and reads as no grants, so every action asks
-//! again; no backup copy is ever restored, because an older copy could bring
-//! back a revoked allow.
+//! again; no backup copy is ever restored (`restoreBackup: false`), because an older copy could
+//! bring back a revoked allow.
 //!
-//! Grant writes are read-modify-write; one async mutex orders them within the
-//! process (the data dir has one owner process). Readers and audit appends
-//! never take it.
+//! Grant writes are read-modify-write under the file's lock; one async mutex orders them within
+//! the process first, so they do not wait on the lock. Readers and audit appends never take it.
 
 use std::io::ErrorKind;
 use std::io::Write;
@@ -25,8 +25,13 @@ use std::time::UNIX_EPOCH;
 use async_trait::async_trait;
 use mixdog_protocol::ApprovalRemember;
 use mixdog_rt::DurabilityIo;
+use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
+use mixdog_statefile::IoLane;
+use mixdog_statefile::Opts;
+use mixdog_statefile::Peek;
+use mixdog_statefile::StateError;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -100,16 +105,9 @@ fn table_of(doc: &Value) -> GrantTable {
     GrantTable::from_rows(rows)
 }
 
-fn quarantine(path: &Path) -> std::io::Result<()> {
-    let mut stamp = now_ms();
-    let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    loop {
-        let aside = path.with_file_name(format!("{name}.corrupt-{stamp}"));
-        if !aside.exists() {
-            return std::fs::rename(path, aside);
-        }
-        stamp += 1;
-    }
+/// Node's `human-gate/store.mjs` options: no backup is ever restored.
+fn grant_opts() -> Opts {
+    Opts { restore_backup: false, ..Opts::default() }
 }
 
 enum Read {
@@ -120,35 +118,23 @@ enum Read {
 }
 
 /// Reads and parses the file; touches nothing.
-fn read_file(path: &Path) -> Result<Read, StoreError> {
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Read::Missing),
-        Err(error) => return Err(io_error(error)),
-    };
-    let text = String::from_utf8_lossy(&bytes);
-    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-    Ok(match serde_json::from_str::<Value>(text) {
-        Ok(doc) => Read::Table(table_of(&doc)),
-        Err(_) => Read::Corrupt,
+fn read_file<L: IoLane>(lane: &InLane<L>, path: &Path) -> Result<Read, StoreError> {
+    Ok(match mixdog_statefile::peek(lane, path, None).map_err(io_error)? {
+        Peek::Value(doc) => Read::Table(table_of(&doc)),
+        Peek::Absent => Read::Missing,
+        Peek::Damaged(_) | Peek::Unsupported => Read::Corrupt,
     })
 }
 
-/// The grants as the writer sees them: a damaged file is kept aside and reads as none. Only
-/// code holding the writer order calls this, so the file it quarantines is the one it just read.
-fn load_locked(path: &Path) -> Result<GrantTable, StoreError> {
-    match read_file(path)? {
-        Read::Table(table) => Ok(table),
-        Read::Missing => Ok(GrantTable::default()),
-        Read::Corrupt => {
-            quarantine(path).map_err(io_error)?;
-            Ok(GrantTable::default())
-        }
-    }
+/// The grants as the writer sees them: a damaged file is kept aside (under the file's lock, after
+/// reading it again, so a file a writer has repaired meanwhile is kept) and reads as none.
+fn load_locked(lane: &InLane<DurabilityIo>, path: &Path) -> Result<GrantTable, StoreError> {
+    let doc = mixdog_statefile::read_json(lane, path, None, &grant_opts()).map_err(io_error)?;
+    Ok(doc.as_ref().map(table_of).unwrap_or_default())
 }
 
-/// Replaces the file with `table` through a temp file in the same directory.
-fn store(path: &Path, table: &GrantTable) -> Result<(), StoreError> {
+/// The stored document of `table`.
+fn grants_doc(table: &GrantTable) -> Result<Value, StoreError> {
     let doc = GrantsDoc {
         grants: table
             .rows()
@@ -163,19 +149,7 @@ fn store(path: &Path, table: &GrantTable) -> Result<(), StoreError> {
             })
             .collect(),
     };
-    let mut text = serde_json::to_string_pretty(&doc).map_err(|e| StoreError(e.to_string()))?;
-    text.push('\n');
-    let temp = path.with_extension(format!("json.tmp-{}", std::process::id()));
-    let result = std::fs::File::create(&temp)
-        .and_then(|mut file| {
-            file.write_all(text.as_bytes())?;
-            file.sync_all()
-        })
-        .and_then(|()| std::fs::rename(&temp, path));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    result.map_err(io_error)
+    serde_json::to_value(&doc).map_err(|e| StoreError(e.to_string()))
 }
 
 /// A field as Node writes it: `JSON.stringify(value.slice(0, 200))`. A cut that falls inside a
@@ -311,13 +285,13 @@ impl FileGrantStore {
     /// still damaged: a writer may have repaired it since the first read.
     async fn read_table(&self) -> Result<GrantTable, StoreError> {
         let path = self.grants_path.clone();
-        match run(self.interactive, move |_| read_file(&path)).await? {
+        match run(self.interactive, move |lane| read_file(lane, &path)).await? {
             Read::Table(table) => Ok(table),
             Read::Missing => Ok(GrantTable::default()),
             Read::Corrupt => {
                 let _order = self.writes.lock().await;
                 let path = self.grants_path.clone();
-                run(self.durability, move |_| load_locked(&path)).await
+                run(self.durability, move |lane| load_locked(lane, &path)).await
             }
         }
     }
@@ -330,16 +304,25 @@ impl FileGrantStore {
     ) -> Result<R, StoreError> {
         let _order = self.writes.lock().await;
         let path = self.grants_path.clone();
-        run(self.durability, move |_| {
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir).map_err(io_error)?;
-            }
-            let mut table = load_locked(&path)?;
-            let (result, changed) = change(&mut table);
-            if changed {
-                store(&path, &table)?;
-            }
-            Ok(result)
+        run(self.durability, move |lane| {
+            let mut outcome = None;
+            mixdog_statefile::update_json(
+                lane,
+                &path,
+                |current| {
+                    let mut table = current.as_ref().map(table_of).unwrap_or_default();
+                    let (result, changed) = change(&mut table);
+                    outcome = Some(result);
+                    if changed { grants_doc(&table).map(Some) } else { Ok(None) }
+                },
+                &grant_opts(),
+            )
+            .map_err(|error| match error {
+                StateError::Mutator(error) => error,
+                StateError::Io(error) => io_error(error),
+                StateError::Lock(error) => StoreError(error.to_string()),
+            })?;
+            Ok(outcome.expect("the mutator ran"))
         })
         .await
     }
@@ -518,7 +501,7 @@ mod tests {
         assert!(!reader.is_finished(), "the reader waits for the writer order");
         let mut repaired = GrantTable::default();
         repaired.grant("bot", &comment(), ApprovalRemember::Agent, "", 1);
-        super::store(&path, &repaired).expect("repair");
+        std::fs::write(&path, serde_json::to_vec(&grants_doc(&repaired).expect("doc")).expect("json")).expect("repair");
         drop(order);
         assert_eq!(reader.await.expect("join"), Ok(PermissionMode::Allow));
         let aside = std::fs::read_dir(dir.path())

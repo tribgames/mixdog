@@ -263,6 +263,7 @@ impl AnthropicDecoder {
         }
         out.push(StreamEvent::Usage(self.usage.usage()));
         out.push(StreamEvent::Completed {
+            pricing_model: None,
             stop: stop_reason(self.stop.as_deref()),
         });
     }

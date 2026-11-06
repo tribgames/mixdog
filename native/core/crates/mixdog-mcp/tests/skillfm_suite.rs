@@ -7,12 +7,11 @@
 use mixdog_mcp::skill_frontmatter::Fields;
 use mixdog_mcp::skill_frontmatter::create_document;
 use mixdog_mcp::skill_frontmatter::update_document;
-use mixdog_mcp::skills::SkillDocumentError;
 use mixdog_mcp::skills::parse_document;
 use serde_json::Value;
 
-/// Frontmatter Node prints through its own machinery and this port refuses (a flow-style mapping).
-const REFUSED: &[&str] = &["flowMap"];
+/// Frontmatter Node prints whole again (a flow mapping): the output must match byte for byte.
+const REPRINTED: &[&str] = &["flowMap", "fuzzFlow"];
 
 fn text<'a>(case: &'a Value, key: &str) -> &'a str {
     case[key].as_str().unwrap_or_default()
@@ -55,7 +54,6 @@ fn every_edit_writes_what_node_writes() {
         let expected = text(case, "output");
         let output = match got {
             Ok(output) => output,
-            Err(SkillDocumentError::Unsupported(_)) if REFUSED.iter().any(|r| label.starts_with(r)) => continue,
             Err(error) => {
                 failures.push(format!("{label}: failed with {error}, Node wrote {expected:?}"));
                 continue;
@@ -63,7 +61,7 @@ fn every_edit_writes_what_node_writes() {
         };
         if output == expected {
             exact += 1;
-        } else if case["stable"] == Value::Bool(false) {
+        } else if case["stable"] == Value::Bool(false) && !REPRINTED.iter().any(|p| label.starts_with(p)) {
             match (parse_document(&output), parse_document(expected)) {
                 (Ok(a), Ok(b)) if a == b => by_data += 1,
                 // The data readers here cannot parse U+2028 in a block scalar; the text decides.

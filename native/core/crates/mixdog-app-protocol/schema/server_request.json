@@ -1124,6 +1124,12 @@
     "ProxyRouteContext": {
       "properties": {
         "agent": {
+          "description": "An agent/tool session, or a send carrying tools.",
+          "type": "boolean"
+        },
+        "legacy": {
+          "default": false,
+          "description": "A session that predates the wire table (`model-proxy-provider.mjs:193`).",
           "type": "boolean"
         }
       },

@@ -18,6 +18,20 @@ use crate::domains::support::testing::with_op;
 
 const GOLDEN: &str = include_str!("../goldens/instructions.json");
 
+/// [`write_atomic`] as a durability-lane job.
+fn write_on_lane(path: &std::path::Path, bytes: &[u8], backup: bool) -> Result<(), crate::domains::support::FsFailure> {
+    use mixdog_rt::LaneToken;
+    let (path, bytes) = (path.to_owned(), bytes.to_vec());
+    tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+        mixdog_rt::testing::tokens()
+            .durability_io
+            .submit(&tokio_util::sync::CancellationToken::new(), move |lane| write_atomic(lane, &path, &bytes, backup))
+            .unwrap()
+            .await
+            .unwrap()
+    })
+}
+
 struct Modes(Mutex<String>);
 
 #[async_trait]
@@ -351,7 +365,7 @@ fn writers_of_one_file_never_collide_on_a_temp_name() {
             std::thread::spawn(move || {
                 barrier.wait();
                 (0..25).try_for_each(|i| {
-                    write_atomic(&path, format!("writer {n} round {i}\n").as_bytes(), true)
+                    write_on_lane(&path, format!("writer {n} round {i}\n").as_bytes(), true)
                 })
             })
         })
@@ -458,7 +472,7 @@ fn a_failed_write_reads_as_the_node_error_of_the_same_step() {
     std::fs::write(target.join("inner"), "x").unwrap();
     // Node: `rename '<tmp>' -> '<target>'`, EPERM on Windows (libuv's ACCESS_DENIED), EISDIR
     // elsewhere, over a directory that holds a file.
-    let failure = write_atomic(&target, b"text", false).unwrap_err();
+    let failure = write_on_lane(&target, b"text", false).unwrap_err();
     let (code, description) = if cfg!(windows) {
         ("EPERM", "operation not permitted")
     } else {

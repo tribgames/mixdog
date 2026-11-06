@@ -75,6 +75,8 @@ mod tests {
         listed.created = Some(1_700_000_000);
         listed.alias_target = Some("anthropic/claude-x".into());
         listed.wire = Some(mixdog_core_api::domain::provider::WireIds::Tiers(vec![("high".into(), "m1-high".into())]));
+        listed.context_window = Some(272_000);
+        listed.max_context_window = Some(1_000_000);
         listed.picker = PickerFields {
             release_date: Some("2026-03-17".into()),
             access_programs: Some(Vec::new()),
@@ -95,6 +97,10 @@ mod tests {
         assert_eq!(records[0].wire, listed.wire);
         let cached: ModelRecord = serde_json::from_value(serde_json::to_value(&records[0]).unwrap()).unwrap();
         assert_eq!(cached.wire, listed.wire, "the catalog cache keeps the wire ids");
+        assert_eq!(records[0].max_context_window, Some(1_000_000));
+        let cached_json = serde_json::to_value(&records[0]).unwrap();
+        assert_eq!(cached_json["maxContextWindow"], 1_000_000, "the cached row carries Node's key");
+        assert_eq!(cached.max_context_window, Some(1_000_000));
         assert_eq!(records[0].picker, listed.picker, "an empty access list stays empty, not absent");
     }
 }
@@ -114,6 +120,7 @@ fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::domain::provid
     // `display || name` is every Node reader's label.
     record.display_name = listed.display_name.or(listed.name);
     record.context_window = listed.context_window;
+    record.max_context_window = listed.max_context_window;
     record.output_tokens = listed.max_output_tokens;
     record.reasoning = tri(listed.supports_reasoning);
     record.reasoning_efforts = listed.reasoning_levels;

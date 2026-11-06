@@ -292,8 +292,9 @@ fn view_of(v: &Value) -> TaskView {
     }
 }
 
+#[async_trait]
 impl Views for Fakes {
-    fn get_job_or_worker(&self, _args: &Value, _scope: &Scope) -> Result<Job, String> {
+    async fn get_job_or_worker(&self, _args: &Value, _scope: &Scope, _include_result: bool) -> Result<Job, String> {
         let job = self.0.json.get("job").ok_or("no job in the world")?;
         Ok(Job {
             task_id: job.get("taskId").and_then(Value::as_str).map(str::to_owned),
@@ -301,7 +302,7 @@ impl Views for Fakes {
             view: view_of(&job["view"]),
         })
     }
-    fn list(&self, _scope: &Scope, _options: ListOptions) -> Vec<WorkerRow> {
+    async fn list(&self, _scope: &Scope, _options: ListOptions) -> Vec<WorkerRow> {
         self.0
             .list("workers")
             .iter()

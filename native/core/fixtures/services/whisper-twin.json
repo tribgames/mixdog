@@ -1,0 +1,518 @@
+{
+  "domain": "whisper-twin",
+  "listener": [
+    {
+      "calls": [
+        {
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort {PORT} -ErrorAction SilentlyContinue | Where-Object RemotePort -eq 0).OwningProcess"
+          ],
+          "file": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1",
+      "outcome": "owned",
+      "owned": true,
+      "platform": "win32"
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort {PORT} -ErrorAction SilentlyContinue | Where-Object RemotePort -eq 0).OwningProcess"
+          ],
+          "file": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1",
+      "outcome": "other pid",
+      "owned": false,
+      "platform": "win32"
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort {PORT} -ErrorAction SilentlyContinue | Where-Object RemotePort -eq 0).OwningProcess"
+          ],
+          "file": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1",
+      "outcome": "query fails",
+      "owned": false,
+      "platform": "win32"
+    },
+    {
+      "calls": [],
+      "host": "127.0.0.1'; calc",
+      "outcome": "bad host",
+      "owned": false,
+      "platform": "win32"
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-H",
+            "-ltnp",
+            "sport = :{PORT}"
+          ],
+          "file": "ss",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1",
+      "outcome": "owned",
+      "owned": true,
+      "platform": "linux"
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-H",
+            "-ltnp",
+            "sport = :{PORT}"
+          ],
+          "file": "ss",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1",
+      "outcome": "other pid",
+      "owned": false,
+      "platform": "linux"
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-H",
+            "-ltnp",
+            "sport = :{PORT}"
+          ],
+          "file": "ss",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1",
+      "outcome": "query fails",
+      "owned": false,
+      "platform": "linux"
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-H",
+            "-ltnp",
+            "sport = :{PORT}"
+          ],
+          "file": "ss",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1'; calc",
+      "outcome": "bad host",
+      "owned": false,
+      "platform": "linux"
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-nP",
+            "-a",
+            "-p",
+            "2147480001",
+            "-iTCP@127.0.0.1:{PORT}",
+            "-sTCP:LISTEN",
+            "-Fp"
+          ],
+          "file": "lsof",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1",
+      "outcome": "owned",
+      "owned": true,
+      "platform": "darwin"
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-nP",
+            "-a",
+            "-p",
+            "2147480001",
+            "-iTCP@127.0.0.1:{PORT}",
+            "-sTCP:LISTEN",
+            "-Fp"
+          ],
+          "file": "lsof",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1",
+      "outcome": "other pid",
+      "owned": false,
+      "platform": "darwin"
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-nP",
+            "-a",
+            "-p",
+            "2147480001",
+            "-iTCP@127.0.0.1:{PORT}",
+            "-sTCP:LISTEN",
+            "-Fp"
+          ],
+          "file": "lsof",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1",
+      "outcome": "query fails",
+      "owned": false,
+      "platform": "darwin"
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-nP",
+            "-a",
+            "-p",
+            "2147480001",
+            "-iTCP@127.0.0.1'; calc:{PORT}",
+            "-sTCP:LISTEN",
+            "-Fp"
+          ],
+          "file": "lsof",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "host": "127.0.0.1'; calc",
+      "outcome": "bad host",
+      "owned": true,
+      "platform": "darwin"
+    }
+  ],
+  "pidLines": [
+    {
+      "includes": true,
+      "stdout": "2147480001\r\n"
+    },
+    {
+      "includes": true,
+      "stdout": "12\n2147480001\n"
+    },
+    {
+      "includes": true,
+      "stdout": " 2147480001 \n"
+    },
+    {
+      "includes": false,
+      "stdout": "21474800010\n"
+    },
+    {
+      "includes": false,
+      "stdout": ""
+    },
+    {
+      "includes": false,
+      "stdout": "\n"
+    }
+  ],
+  "pipeline": [
+    {
+      "calls": [
+        {
+          "args": [
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            "{DATA}\\in\\clip.ogg"
+          ],
+          "cwd": null,
+          "detached": false,
+          "file": "ffprobe",
+          "kind": "spawn",
+          "stdio": null,
+          "windowsHide": true
+        },
+        {
+          "args": [
+            "-i",
+            "{DATA}\\in\\clip.ogg",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            "-threads",
+            "3",
+            "-y",
+            "{DATA}\\in\\clip.wav"
+          ],
+          "cwd": null,
+          "detached": false,
+          "file": "ffmpeg",
+          "kind": "spawn",
+          "stdio": "ignore",
+          "windowsHide": true
+        },
+        {
+          "args": [
+            "--model",
+            "{DATA}\\voice\\models\\ggml-large-v3-turbo-q8_0.bin",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "{PORT}",
+            "-t",
+            "3"
+          ],
+          "cwd": "{DATA}\\voice-runtime\\whisper-1.10.1-vulkan\\Release",
+          "detached": false,
+          "file": "whisper-server",
+          "kind": "spawn",
+          "stdio": [
+            "ignore",
+            "pipe",
+            "pipe"
+          ],
+          "windowsHide": true
+        },
+        {
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort {PORT} -ErrorAction SilentlyContinue | Where-Object RemotePort -eq 0).OwningProcess"
+          ],
+          "file": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "modelFilename": "ggml-large-v3-turbo-q8_0.bin",
+      "name": "korean with a duration gate",
+      "requests": [
+        {
+          "fields": [
+            {
+              "filename": "clip.wav",
+              "name": "file",
+              "type": "audio/wav",
+              "value": null
+            },
+            {
+              "filename": null,
+              "name": "response_format",
+              "type": null,
+              "value": "json"
+            },
+            {
+              "filename": null,
+              "name": "language",
+              "type": null,
+              "value": "ko"
+            }
+          ],
+          "method": "POST",
+          "multipart": true,
+          "url": "/inference"
+        }
+      ],
+      "text": "hello world",
+      "version": "1.10.1",
+      "voice": {
+        "language": "ko",
+        "transcription": {
+          "maxDurationSec": 60,
+          "threadCount": 3
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": [
+            "-i",
+            "{DATA}\\in\\clip.ogg",
+            "-ar",
+            "8000",
+            "-ac",
+            "2",
+            "-threads",
+            "2",
+            "-y",
+            "{DATA}\\in\\clip.wav"
+          ],
+          "cwd": null,
+          "detached": false,
+          "file": "ffmpeg",
+          "kind": "spawn",
+          "stdio": "ignore",
+          "windowsHide": true
+        },
+        {
+          "args": [
+            "--model",
+            "{DATA}\\voice\\models\\ggml-large-v3-turbo-q8_0.bin",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "{PORT}",
+            "-t",
+            "2"
+          ],
+          "cwd": "{DATA}\\voice-runtime\\whisper-1.10.1-vulkan\\Release",
+          "detached": false,
+          "file": "whisper-server",
+          "kind": "spawn",
+          "stdio": [
+            "ignore",
+            "pipe",
+            "pipe"
+          ],
+          "windowsHide": true
+        },
+        {
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort {PORT} -ErrorAction SilentlyContinue | Where-Object RemotePort -eq 0).OwningProcess"
+          ],
+          "file": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "hasSignal": true,
+          "kind": "listener",
+          "maxBuffer": 16777216,
+          "windowsHide": true
+        }
+      ],
+      "modelFilename": "ggml-large-v3-turbo-q8_0.bin",
+      "name": "english, custom audio format, no gate",
+      "requests": [
+        {
+          "fields": [
+            {
+              "filename": "clip.wav",
+              "name": "file",
+              "type": "audio/wav",
+              "value": null
+            },
+            {
+              "filename": null,
+              "name": "response_format",
+              "type": null,
+              "value": "json"
+            },
+            {
+              "filename": null,
+              "name": "language",
+              "type": null,
+              "value": "en"
+            }
+          ],
+          "method": "POST",
+          "multipart": true,
+          "url": "/inference"
+        }
+      ],
+      "text": "hello world",
+      "version": "1.10.1",
+      "voice": {
+        "language": "en",
+        "transcription": {
+          "channels": 2,
+          "sampleRate": 8000,
+          "threadCount": 2
+        }
+      }
+    }
+  ],
+  "platform": "win32",
+  "recorder": "benchmarks/rust-core/recorders/record-whisper.mjs",
+  "systemRoot": "C:\\WINDOWS",
+  "treeKill": [
+    {
+      "aliveAt": 1000,
+      "command": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "flags": [
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand"
+      ],
+      "pid": 2147480001,
+      "script": "& {\nparam([int[]]$Pids, [long]$AliveAt, [object[]]$Table, [switch]$List)\n$ErrorActionPreference = 'Stop'\n$limit = [DateTime]::FromFileTimeUtc($AliveAt)\nif ($Table) {\n  $rows = @(foreach ($t in $Table) { [pscustomobject]@{ Id = [int]$t.Id; Parent = [int]$t.Parent; Created = [DateTime]::FromFileTimeUtc([long]$t.Created) } })\n} else {\n  $rows = @(Get-CimInstance Win32_Process -OperationTimeoutSec 10 | Where-Object CreationDate | ForEach-Object { [pscustomobject]@{ Id = [int]$_.ProcessId; Parent = [int]$_.ParentProcessId; Created = $_.CreationDate.ToUniversalTime() } })\n}\n$byId = @{}\n$byParent = @{}\nforeach ($r in $rows) {\n  $byId[$r.Id] = $r\n  if (-not $byParent.ContainsKey($r.Parent)) { $byParent[$r.Parent] = [Collections.Generic.List[object]]::new() }\n  $byParent[$r.Parent].Add($r)\n}\n$members = [Collections.Generic.List[object]]::new()\nforeach ($id in $Pids) {\n  $r = $byId[$id]\n  if ($r -and $r.Created -le $limit -and -not $members.Contains($r)) { $members.Add($r) }\n}\n$roots = $members.Count\nif ($roots -eq 0) { exit 128 }\nfor ($i = 0; $i -lt $members.Count; $i++) {\n  $parent = $members[$i]\n  if (-not $byParent.ContainsKey($parent.Id)) { continue }\n  foreach ($child in $byParent[$parent.Id]) {\n    if ($child.Created -ge $parent.Created -and -not $members.Contains($child)) { $members.Add($child) }\n  }\n}\nif ($List) { foreach ($m in $members) { $m.Id }; exit 0 }\n$survived = $false\nfor ($i = 0; $i -lt $members.Count; $i++) {\n  $m = $members[$i]\n  try { $p = [Diagnostics.Process]::GetProcessById($m.Id) } catch { continue }\n  try { $same = [math]::Abs(($p.StartTime.ToUniversalTime() - $m.Created).TotalMilliseconds) -lt 1 } catch { $same = $null }\n  if ($same -eq $false) { continue }\n  # A start time that cannot be read proves nothing: the process is left alone,\n  # and a root left alone counts as surviving.\n  if ($null -eq $same) { if ($i -lt $roots) { $survived = $true }; continue }\n  try { $p.Kill() } catch {}\n  if ($i -lt $roots) { try { if (-not $p.WaitForExit(2000)) { $survived = $true } } catch { $survived = $true } }\n}\nif ($survived) { exit 1 }\nexit 0\n} -Pids @(2147480001) -AliveAt 116444736010000000"
+    },
+    {
+      "aliveAt": 1700000000000,
+      "command": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "flags": [
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand"
+      ],
+      "pid": 7,
+      "script": "& {\nparam([int[]]$Pids, [long]$AliveAt, [object[]]$Table, [switch]$List)\n$ErrorActionPreference = 'Stop'\n$limit = [DateTime]::FromFileTimeUtc($AliveAt)\nif ($Table) {\n  $rows = @(foreach ($t in $Table) { [pscustomobject]@{ Id = [int]$t.Id; Parent = [int]$t.Parent; Created = [DateTime]::FromFileTimeUtc([long]$t.Created) } })\n} else {\n  $rows = @(Get-CimInstance Win32_Process -OperationTimeoutSec 10 | Where-Object CreationDate | ForEach-Object { [pscustomobject]@{ Id = [int]$_.ProcessId; Parent = [int]$_.ParentProcessId; Created = $_.CreationDate.ToUniversalTime() } })\n}\n$byId = @{}\n$byParent = @{}\nforeach ($r in $rows) {\n  $byId[$r.Id] = $r\n  if (-not $byParent.ContainsKey($r.Parent)) { $byParent[$r.Parent] = [Collections.Generic.List[object]]::new() }\n  $byParent[$r.Parent].Add($r)\n}\n$members = [Collections.Generic.List[object]]::new()\nforeach ($id in $Pids) {\n  $r = $byId[$id]\n  if ($r -and $r.Created -le $limit -and -not $members.Contains($r)) { $members.Add($r) }\n}\n$roots = $members.Count\nif ($roots -eq 0) { exit 128 }\nfor ($i = 0; $i -lt $members.Count; $i++) {\n  $parent = $members[$i]\n  if (-not $byParent.ContainsKey($parent.Id)) { continue }\n  foreach ($child in $byParent[$parent.Id]) {\n    if ($child.Created -ge $parent.Created -and -not $members.Contains($child)) { $members.Add($child) }\n  }\n}\nif ($List) { foreach ($m in $members) { $m.Id }; exit 0 }\n$survived = $false\nfor ($i = 0; $i -lt $members.Count; $i++) {\n  $m = $members[$i]\n  try { $p = [Diagnostics.Process]::GetProcessById($m.Id) } catch { continue }\n  try { $same = [math]::Abs(($p.StartTime.ToUniversalTime() - $m.Created).TotalMilliseconds) -lt 1 } catch { $same = $null }\n  if ($same -eq $false) { continue }\n  # A start time that cannot be read proves nothing: the process is left alone,\n  # and a root left alone counts as surviving.\n  if ($null -eq $same) { if ($i -lt $roots) { $survived = $true }; continue }\n  try { $p.Kill() } catch {}\n  if ($i -lt $roots) { try { if (-not $p.WaitForExit(2000)) { $survived = $true } } catch { $survived = $true } }\n}\nif ($survived) { exit 1 }\nexit 0\n} -Pids @(7) -AliveAt 133444736000000000"
+    }
+  ]
+}

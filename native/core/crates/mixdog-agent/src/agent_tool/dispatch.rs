@@ -78,7 +78,7 @@ fn is_dead_target(message: &str) -> bool {
 }
 
 /// `a || b` over raw argument values, then `clean`.
-fn first_truthy(values: &[Option<&Value>]) -> String {
+pub(super) fn first_truthy(values: &[Option<&Value>]) -> String {
     for v in values.iter().flatten() {
         let truthy = match v {
             Value::Null | Value::Bool(false) => false,
@@ -162,20 +162,22 @@ impl AgentRuntime {
         match kind.as_str() {
             "status" | "list" => {
                 if kind == "status" && !(clean(args.get("task_id")).is_empty() && clean(args.get("tag")).is_empty() && clean(args.get("sessionId")).is_empty()) {
-                    let job = views.get_job_or_worker(args, &scope)?;
+                    let job = views.get_job_or_worker(args, &scope, false).await?;
                     return Ok(AgentReply::Task { view: job.view, diagnostics: true });
                 }
                 // Targetless status is the same compact overview as list. Idle workers stay
                 // open for follow-ups; the roster counts them and lists a bounded tail.
-                let workers = views.list(
-                    &scope,
-                    ListOptions {
-                        scan_sessions: wants_session_scan(args),
-                        include_idle: true,
-                        include_closed: true,
-                        include_terminal: false,
-                    },
-                );
+                let workers = views
+                    .list(
+                        &scope,
+                        ListOptions {
+                            scan_sessions: wants_session_scan(args),
+                            include_idle: true,
+                            include_closed: true,
+                            include_terminal: false,
+                        },
+                    )
+                    .await;
                 Ok(AgentReply::Roster { workers, jobs: views.list_jobs(&scope) })
             }
             "read" => self.read_job(args, &scope).await,
@@ -188,7 +190,7 @@ impl AgentRuntime {
     }
 
     async fn read_job(&self, args: &Value, scope: &Scope) -> Result<AgentReply, String> {
-        let mut job = self.deps.views.get_job_or_worker(args, scope)?;
+        let mut job = self.deps.views.get_job_or_worker(args, scope, true).await?;
         if job.task_id.is_none()
             && let Some(handoff) = self.deps.sessions.read_session_handoff(job.session_id.as_deref().unwrap_or_default()).await
             && !handoff.is_empty()
@@ -303,6 +305,7 @@ impl AgentRuntime {
             .deps
             .views
             .list(scope, ListOptions { scan_sessions: wants_session_scan(args), include_terminal: true, ..ListOptions::default() })
+            .await
             .len();
         Ok(AgentReply::Json(json!({
             "tasksRemoved": cleaned.removed,

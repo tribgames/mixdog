@@ -199,6 +199,7 @@ impl MockDecoder {
         } else if line == "done" || line == "cont" {
             self.terminal = true;
             StreamEvent::Completed {
+                pricing_model: None,
                 stop: Some(if line == "done" {
                     StopReason::EndTurn
                 } else {

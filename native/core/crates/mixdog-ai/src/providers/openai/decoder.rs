@@ -729,7 +729,7 @@ impl ResponsesDecoder {
             stop
         };
         self.terminal = true;
-        out.push(StreamEvent::Completed { stop });
+        out.push(StreamEvent::Completed { stop, pricing_model: None });
     }
 
     fn response_done(&mut self, event: &Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {

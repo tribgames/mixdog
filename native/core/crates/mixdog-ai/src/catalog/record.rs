@@ -106,6 +106,9 @@ pub struct ModelRecord {
     pub provider: ProviderId,
     pub display_name: Option<String>,
     pub context_window: Option<u64>,
+    /// The largest window the listing states for the model.
+    #[serde(default)]
+    pub max_context_window: Option<u64>,
     pub output_tokens: Option<u64>,
     pub rates: Rates,
     pub vision: Capability,
@@ -136,6 +139,7 @@ impl ModelRecord {
             provider,
             display_name: None,
             context_window: None,
+            max_context_window: None,
             output_tokens: None,
             rates: Rates::default(),
             vision: Capability::Unknown,
