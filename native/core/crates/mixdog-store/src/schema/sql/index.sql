@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 5: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 6: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 5;
+PRAGMA user_version = 6;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -72,8 +72,8 @@ CREATE TABLE sessions (
     worker_tag TEXT,
     worker_owner TEXT,
     worker_host_pid INTEGER,
-    -- The session's own `agentTag` and owner (worker.rs `TagKeys`): the newest session per
-    -- tag. NULL without a tag or for a Lead pool session.
+    -- The session's own `agentTag` and parent link (worker.rs `TagKeys`): the newest
+    -- session per tag. NULL unless an agent registry session with a tag, not Lead pool.
     agent_tag TEXT,
     agent_owner TEXT
 );
@@ -97,7 +97,7 @@ CREATE INDEX sessions_worker_owner ON sessions(worker_owner, created_at DESC, id
 CREATE INDEX sessions_worker_pid ON sessions(worker_host_pid, created_at DESC, id)
     WHERE worker_host_pid IS NOT NULL;
 CREATE INDEX sessions_workers ON sessions(created_at DESC, id) WHERE worker_tag IS NOT NULL;
-CREATE INDEX sessions_agent_tag ON sessions(agent_tag, agent_owner, created_at DESC, id)
+CREATE INDEX sessions_agent_tag ON sessions(agent_tag, agent_owner, created_at DESC, updated_at DESC, id)
     WHERE agent_tag IS NOT NULL;
 
 -- Session search: a needle is a substring of one of the seven folded fields. A trigram

@@ -302,6 +302,13 @@ impl ProviderAdapter for GoogleAdapter {
             queue.push_back(Ok(StreamEvent::ProviderState(ProviderState { gemini: None, rest })));
             response = self.dispatch(&self.codec.wire(&request, &inner, None)?).await?;
         }
+        // A region from the environment that lacks the model (404) is retried
+        // once on global (`vertex-ai.mjs:325-327`).
+        let mut global = false;
+        if response.status == 404 && self.codec.falls_back_to_global(&request) {
+            global = true;
+            response = self.dispatch(&self.codec.wire_at(&request, &inner, None, true)?).await?;
+        }
         // A typed 401 is the only credential event Node acts on
         // (`gemini.mjs:667`): every cache made under the rejected key goes.
         if response.status == 401
@@ -311,7 +318,7 @@ impl ProviderAdapter for GoogleAdapter {
         }
         if !response.is_success() {
             let rejected = response.read_all().await?;
-            return Err(self.codec.classify_for(&rejected, &request));
+            return Err(self.codec.classify_for(&rejected, &request, global));
         }
         Ok(Box::new(GoogleStream {
             body: response.body,
@@ -357,7 +364,7 @@ impl GoogleStream {
                         items.insert("model".into(), self.model.clone().into());
                     }
                 }
-                StreamEvent::Completed { stop: None }
+                StreamEvent::Completed { stop: None, .. }
                     if !self.produced_output && !self.after_tool_result =>
                 {
                     let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);

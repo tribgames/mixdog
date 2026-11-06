@@ -35,7 +35,7 @@ pub struct TidyConfig {
 }
 
 /// Reads `.mixdog/tidy.json` on the lane; a malformed file is reported, never thrown.
-pub async fn read_tidy_config(lane: DurabilityIo, cwd: &Path) -> TidyConfig {
+async fn read_tidy_config(lane: DurabilityIo, cwd: &Path) -> TidyConfig {
     let owned = cwd.to_owned();
     on_lane(lane, move || read_tidy_config_blocking(&owned)).await.unwrap_or_else(|e| TidyConfig { error: format!("cannot read {TIDY_CONFIG_RELATIVE_PATH}: {e}"), ..Default::default() })
 }
@@ -66,7 +66,7 @@ pub struct DownloadPolicy {
 
 /// Effective download policy. Project config wins over the environment override; an unknown
 /// value falls back to the default and is reported.
-pub fn resolve_download_policy(config: &TidyConfig, env_value: Option<&str>) -> DownloadPolicy {
+fn resolve_download_policy(config: &TidyConfig, env_value: Option<&str>) -> DownloadPolicy {
     let from_config = config.policy.get("downloads").and_then(Value::as_str).unwrap_or("");
     let from_config = mixdog_js::js_trim(from_config).to_lowercase();
     let from_env = mixdog_js::js_trim(env_value.unwrap_or("")).to_lowercase();
@@ -465,7 +465,7 @@ async fn refine_managed_modules(processes: &Processes, engines: &mut [Resolved],
 }
 
 /// Engines that can actually run: resolved, not suppressed, not config-gated.
-pub fn runnable_engines(engines: &[Resolved]) -> Vec<&Resolved> {
+fn runnable_engines(engines: &[Resolved]) -> Vec<&Resolved> {
     engines.iter().filter(|e| e.runnable()).collect()
 }
 

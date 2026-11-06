@@ -1,11 +1,21 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-setup-local-voice.mjs --tree <tree>",
-  "fileCount": 3,
+  "fileCount": 7,
   "files": [
+    {
+      "bytes": 753574,
+      "path": "gguf-hf-twin.json",
+      "sha256": "17af04566549b203bf231afc77cde6d92e822ee2b8349f75c6c4b14759883cec"
+    },
     {
       "bytes": 232255,
       "path": "import-convert-twin.json",
       "sha256": "9b0211fed13a78cbbcf941879822d34b480e774dd7e7aeab13ca21fb94673344"
+    },
+    {
+      "bytes": 51958,
+      "path": "local-process-twin.json",
+      "sha256": "e2ee92068540f47174ae769b64a8c213e5480dfea690a4bd1f0fdb3a88a1f631"
     },
     {
       "bytes": 33713,
@@ -13,28 +23,38 @@
       "sha256": "83232f468561ccc568dbd2f07c52cfe1fd92f00839b95a97f9e3b45d1d23fcf5"
     },
     {
+      "bytes": 282928,
+      "path": "tidy-runners-twin.json",
+      "sha256": "3eb053ab7c6f68635c75ba38a72b2a8597a4949089e76d0d1523545d7206f7a1"
+    },
+    {
       "bytes": 2876,
       "path": "voice-language-twin.json",
       "sha256": "afd665e6685e113eaf2ea9b25417d1f4e4ea1e6e7d09ec195be946e1d4a87650"
+    },
+    {
+      "bytes": 16698,
+      "path": "whisper-twin.json",
+      "sha256": "718f81934cfda77d170904cc26daf575374318c61c0ec9c162d93151eff5c7e8"
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9139,
+    "files": 43480,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34400
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "496e9670c833592f5676f057609525e1e4246394106c341c6f11d0d47441da01",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-setup-local-voice.mjs",
   "set": "services",
-  "totalBytes": 268844
+  "totalBytes": 1374002
 }

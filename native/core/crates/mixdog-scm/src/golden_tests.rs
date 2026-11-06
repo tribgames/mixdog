@@ -875,20 +875,120 @@ async fn the_cleanup_pass_removes_unretained_work_but_not_what_a_job_or_a_stored
     for record in &made {
         worktrees.remove_owner_lease(record, &cancel).await.unwrap();
     }
-    // The preview names the unretained one; nothing is verified.
+    // A job running in a folder makes its owner live, so the preview skips that worktree; with
+    // the job gone it names the unretained one (nothing is verified).
     let (ids, _) = worktrees.preview_worktree_cleanup(&sessions, &on, &cancel).await.unwrap();
-    let probe = worktrees.retention_of(second, &Default::default(), &["s1".to_owned()].into(), &cancel).await.unwrap();
-    assert_eq!(ids, [second.id.clone()], "{probe:?} {:?}", worktrees.read_owner_lease(second, &cancel).await);
+    assert!(ids.is_empty(), "{ids:?}");
+    let idle: std::sync::Arc<dyn SessionSource> = std::sync::Arc::new(Sessions { stored: ["s1".to_owned()].into(), jobs: Vec::new() });
+    let (ids, _) = worktrees.preview_worktree_cleanup(&idle, &on, &cancel).await.unwrap();
+    assert_eq!(ids, [second.id.clone()]);
     // On: `first` belongs to a stored session and stays; `second` has a job running in it.
     let report = worktrees.run_worktree_cleanup(&sessions, &on, &cancel).await.unwrap();
     assert_eq!(report["removed"], serde_json::json!([]), "{report}");
     assert!(std::path::Path::new(&second.path).exists() && std::path::Path::new(&first.path).exists());
     assert_eq!(report["limits"], "applied");
     // Once the job ends the unretained worktree goes.
-    let idle: std::sync::Arc<dyn SessionSource> = std::sync::Arc::new(Sessions { stored: ["s1".to_owned()].into(), jobs: Vec::new() });
     let report = worktrees.run_worktree_cleanup(&idle, &on, &cancel).await.unwrap();
     assert_eq!(report["removed"], serde_json::json!([second.id]), "{report}");
     assert!(!std::path::Path::new(&second.path).exists());
+}
+
+#[tokio::test]
+async fn a_registered_recovery_store_keeps_its_worktree_through_a_restart_until_the_host_discards_it() {
+    use crate::worktree::housekeeping::RecoveryAction;
+    use crate::worktree::maintenance::CleanupOptions;
+    use crate::worktree::maintenance::SessionSource;
+    use sha2::Digest;
+    let (_guard, data, worktrees, made, cancel) = two_worktrees().await;
+    let entry = &made[0];
+    worktrees.remove_owner_lease(entry, &cancel).await.unwrap();
+    let checkout = std::path::Path::new(&entry.path);
+    let digest: String = sha2::Sha256::digest(checkout.to_string_lossy().as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+    let directory = data.path().join("host").join("editor-recovery").join(digest);
+    let retain = || async {
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("retained-record"), "do not delete").unwrap();
+        Ok(())
+    };
+    worktrees.with_recovery_store(checkout, &directory, RecoveryAction::Inspect, retain, &cancel).await.unwrap();
+    // A descriptor outside the scope rules is refused, not recorded.
+    let stray = worktrees.with_recovery_store(checkout, data.path(), RecoveryAction::Inspect, || async { Ok(()) }, &cancel).await.unwrap_err();
+    assert_eq!(stray.code(), Some(crate::worktree::errors::WORKTREE_FILE_RECOVERY));
+    // The restart pass finds no stored session for it, but the retained record stops the removal.
+    let sessions: std::sync::Arc<dyn SessionSource> = std::sync::Arc::new(Sessions { stored: Default::default(), jobs: Vec::new() });
+    let options = CleanupOptions { settings: Some(crate::worktree::settings::WorktreeSettings::default()), ..CleanupOptions::default() };
+    let report = worktrees.reconcile_at_startup(&sessions, &options, &cancel).await.unwrap();
+    assert!(report["errors"].as_array().unwrap().iter().any(|e| e["id"] == entry.id.as_str() && e["error"].as_str().unwrap().contains("Retained file recovery")), "{report}");
+    assert!(checkout.exists());
+    let forced = worktrees.remove(&entry.id, true, Some("s1"), &cancel).await.unwrap_err();
+    assert_eq!(forced.code(), Some(crate::worktree::errors::WORKTREE_FILE_RECOVERY));
+    // Once the host discarded its record the worktree is removable; the store itself stays.
+    worktrees.with_recovery_store(checkout, &directory, RecoveryAction::Discard, || async { Ok(std::fs::remove_file(directory.join("retained-record")).unwrap()) }, &cancel).await.unwrap();
+    assert_eq!(worktrees.remove(&entry.id, true, Some("s1"), &cancel).await.unwrap()["removed"], true);
+    assert!(directory.exists());
+    // A checkout that is gone leaves its reserved namespace unusable for ordinary projects.
+    let gone = worktrees.with_recovery_store(checkout, &directory, RecoveryAction::Write, || async { Ok(()) }, &cancel).await.unwrap_err();
+    assert_eq!(gone.code(), Some(crate::worktree::errors::WORKTREE_MISSING));
+    // An ordinary project outside the store just runs.
+    worktrees.with_recovery_store(data.path(), &directory, RecoveryAction::Write, || async { Ok(()) }, &cancel).await.unwrap();
+}
+
+fn link_dir(target: &std::path::Path, link: &std::path::Path) {
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_dir(target, link).is_ok()
+        || std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(link).arg(target).output().is_ok_and(|o| o.status.success());
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(target, link).is_ok();
+    assert!(made, "cannot link {link:?}");
+}
+
+#[tokio::test]
+async fn a_recorded_link_in_a_snapshot_or_disposable_worktree_is_unlinked_and_its_target_survives() {
+    let (_guard, data, worktrees, made, cancel) = two_worktrees().await;
+    let shared = data.path().join("main-node_modules");
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::write(shared.join("pkg.txt"), "kept\n").unwrap();
+    // A disposable worktree with a linked shared folder Mixdog listed on its record.
+    let disposable = &made[0];
+    worktrees.mark_disposable(&disposable.id, true, &cancel).await.unwrap();
+    link_dir(&shared, &std::path::Path::new(&disposable.path).join("node_modules"));
+    worktrees.record_link(&disposable.id, "node_modules", &shared, "created", &cancel).await.unwrap();
+    // A snapshot likewise.
+    let snapshot = worktrees.create_worker_snapshot("worker-9", std::path::Path::new(&made[1].project_path), "HEAD", "tx-9", false, &cancel).await.unwrap();
+    let snapshot_path = std::path::PathBuf::from(snapshot["path"].as_str().unwrap());
+    link_dir(&shared, &snapshot_path.join("node_modules"));
+    worktrees.record_link(snapshot["id"].as_str().unwrap(), "node_modules", &shared, "created", &cancel).await.unwrap();
+    // A link outside the checkout cannot be recorded.
+    assert_eq!(
+        worktrees.record_link(&disposable.id, "../escape", &shared, "created", &cancel).await.unwrap_err().code(),
+        Some(crate::worktree::errors::WORKTREE_PATH_UNSAFE)
+    );
+
+    let removed = worktrees.remove(&disposable.id, true, Some("s1"), &cancel).await.unwrap();
+    assert_eq!(removed["removed"], true, "{removed}");
+    assert!(!std::path::Path::new(&disposable.path).exists());
+    let removed = worktrees.remove_snapshot(snapshot["id"].as_str().unwrap(), true, &cancel).await.unwrap();
+    assert_eq!(removed["removed"], true, "{removed}");
+    assert!(!snapshot_path.exists());
+    assert_eq!(std::fs::read_to_string(shared.join("pkg.txt")).unwrap(), "kept\n", "the target is never touched");
+}
+
+#[tokio::test]
+async fn an_unrecorded_link_still_refuses_the_removal_and_nothing_is_deleted() {
+    let (_guard, data, worktrees, made, cancel) = two_worktrees().await;
+    let shared = data.path().join("elsewhere");
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::write(shared.join("pkg.txt"), "kept\n").unwrap();
+    let entry = &made[0];
+    link_dir(&shared, &std::path::Path::new(&entry.path).join("deps"));
+    let refused = worktrees.remove(&entry.id, true, Some("s1"), &cancel).await;
+    let remaining = match refused {
+        Ok(result) => result["remaining"].to_string(),
+        Err(failure) => failure.to_string(),
+    };
+    assert!(remaining.contains("linked folders it did not create") || remaining.contains("unrecorded-links") || remaining.contains("deps"), "{remaining}");
+    assert!(std::path::Path::new(&entry.path).join("deps").exists());
+    assert_eq!(std::fs::read_to_string(shared.join("pkg.txt")).unwrap(), "kept\n");
 }
 
 #[tokio::test]
@@ -1063,6 +1163,75 @@ async fn review_pages_come_from_the_cache_and_follow_the_work_tree() {
     other.worktree_token.push('x');
     assert!(matches!(scm.inspector.review_page(&other, None, None).unwrap(), Cached::Pending { .. }));
 }
+/// G10 / DS-SCM-4: a replayed day of turns, edits and window focus changes. The client model
+/// reads a review page only when a published review key differs from the last one it saw, so
+/// the reads it makes can never exceed the updates it received; the server side must not
+/// inspect the repository for anything that changed nothing (focus, idle, a turn ending, a
+/// publish after an unchanged tree).
+#[tokio::test]
+async fn g10_a_replayed_day_has_no_periodic_review_reads_and_inspects_only_on_change() {
+    use mixdog_core_api::domain::repo::Cached;
+    use mixdog_core_api::domain::repo::RepoEvidence;
+    use mixdog_core_api::domain::repo::RepoInspector;
+    use mixdog_core_api::domain::repo::ReviewRequest;
+    use mixdog_core_api::domain::repo::ReviewScope;
+    #[derive(Clone, Copy)]
+    enum Event {
+        Edit(usize),
+        Focus,
+        TurnEnd,
+        Idle,
+    }
+    let (_guard, repo, _head) = fixture_repo();
+    let base = mixdog_core_api::domain::repo::ObjectId(git(&repo, &["rev-parse", "HEAD"]));
+    let scm = scm();
+    let cancel = CancellationToken::new();
+    let reference = scm.open(&repo, &cancel).await.unwrap().repo_ref().unwrap();
+    let request = ReviewRequest { repo: reference.clone(), scope: ReviewScope::Session { thread_id: mixdog_protocol::ThreadId::from("day") }, base };
+
+    // A deterministic day: 24 edits, each followed by many events that change nothing.
+    let mut trace = Vec::new();
+    for edit in 0..24 {
+        trace.push(Event::Edit(edit));
+        for step in 0..40 {
+            trace.push(match step % 4 { 0 => Event::Focus, 1 => Event::Idle, 2 => Event::TurnEnd, _ => Event::Focus });
+        }
+    }
+    let edits = trace.iter().filter(|e| matches!(e, Event::Edit(_))).count() as u64;
+
+    let (mut updates, mut reads) = (0u64, 0u64);
+    let mut flights_before_noop;
+    let first = scm.inspector.review_summary(scm.lane, request.clone()).await.unwrap();
+    let mut last_key = Some(first.key.clone());
+    for event in &trace {
+        flights_before_noop = scm.inspector.flights_started();
+        match event {
+            Event::Edit(n) => {
+                std::fs::write(repo.join("a.txt"), format!("edit {n}\n")).unwrap();
+                scm.inspector.evidence(&reference, RepoEvidence::WorkTree);
+            }
+            // Nothing changed: the publish after the event is served from the cache.
+            Event::Focus | Event::Idle | Event::TurnEnd => {}
+        }
+        let summary = scm.inspector.review_summary(scm.lane, request.clone()).await.unwrap();
+        if !matches!(event, Event::Edit(_)) {
+            assert_eq!(scm.inspector.flights_started(), flights_before_noop, "an event that changed nothing inspected the repository");
+        }
+        if last_key.as_ref() != Some(&summary.key) {
+            updates += 1;
+            last_key = Some(summary.key.clone());
+            // The client's one read for this update is a cache hit.
+            match scm.inspector.review_page(&summary.key, Some("a.txt"), None).unwrap() {
+                Cached::Ready(_) => reads += 1,
+                other => panic!("{other:?}"),
+            }
+        }
+    }
+    assert_eq!(updates, edits, "every edit published exactly one new review key");
+    assert!(reads <= updates, "reads {reads} exceed updates {updates}");
+    assert!(scm.inspector.flights_started() <= edits + 1, "{} inspections for {edits} edits", scm.inspector.flights_started());
+}
+
 #[tokio::test]
 async fn a_worker_snapshot_is_held_by_a_lease_and_removed_when_its_turn_settles() {
     use crate::worktree::manager::Worktrees;

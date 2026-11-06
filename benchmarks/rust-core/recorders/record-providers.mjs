@@ -16,6 +16,7 @@ import { recordAnthropicEffort } from './record-anthropic-effort.mjs';
 import { recordAnthropicModels } from './record-anthropic-models.mjs';
 import { recordAnthropicSharedPrefix } from './record-anthropic-shared-prefix.mjs';
 import { recordCompatListing } from './record-compat-listing.mjs';
+import { recordCustomListing } from './record-custom-listing.mjs';
 import { recordListingMisc } from './record-listing-misc.mjs';
 import { recordWireRoute } from './record-wire-route.mjs';
 import { recordXaiCacheRouting } from './record-xai-cache-routing.mjs';
@@ -258,6 +259,7 @@ await recordXaiResponsesContinuation(tree, join(setDir, 'oracles', 'xai-response
 await recordXaiCacheRouting(tree, join(setDir, 'oracles', 'xai-cache-routing.json'));
 await recordWireRoute(tree, join(setDir, 'oracles', 'wire-route.json'));
 await recordCompatListing(tree, join(setDir, 'oracles', 'compat-listing.json'));
+await recordCustomListing(tree, join(setDir, 'oracles', 'custom-listing.json'));
 // WP-AI-LISTING-MISC: the grok-, cursor-, devin- and local-models cases.
 await recordListingMisc(tree, setDir);
 

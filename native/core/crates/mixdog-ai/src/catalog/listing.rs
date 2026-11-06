@@ -138,6 +138,9 @@ fn row_of(provider: &str, record: &ModelRecord) -> Value {
     if let Some(v) = record.created {
         row.insert("created".into(), json!(v));
     }
+    if let Some(v) = &record.reasoning_content_field {
+        row.insert("reasoningContentField".into(), json!(v));
+    }
     Value::Object(row)
 }
 
@@ -164,6 +167,9 @@ pub fn enrich_listed(lookup: &Lookup<'_>, provider: &str, rows: Vec<ModelRecord>
             }
             record.picker.reasoning_options =
                 serde_json::from_value::<Vec<ReasoningOption>>(out.get("reasoningOptions").cloned().unwrap_or(Value::Null)).unwrap_or_default();
+            if let Some(field) = out.get("reasoningContentField").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                record.reasoning_content_field = Some(field.to_owned());
+            }
             if let Some(mode) = out.get("mode").and_then(Value::as_str).filter(|s| !s.is_empty()) {
                 record.mode = Some(mode.to_owned());
             }

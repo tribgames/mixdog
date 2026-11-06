@@ -532,7 +532,8 @@ pub enum ProxyEvent {
     ServerToolBlock { value: JsonValue },
     ProviderKeepalive,
     ProviderState { state: JsonValue },
-    Completed { stop: Option<ProxyStop> },
+    /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
+    Completed { stop: Option<ProxyStop>, pricing_model: Option<String> },
     /// The attempt failed and a retry begins: everything its events showed is dropped.
     AttemptDiscarded,
     /// A retried attempt reported usage before it died; it is billed once, here.

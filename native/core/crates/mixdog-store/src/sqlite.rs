@@ -372,7 +372,7 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
         row.worker.as_ref().and_then(|w| w.owner.as_ref()),
         row.worker.as_ref().and_then(|w| w.host_pid),
         row.agent_tag.as_ref().map(|t| &t.tag),
-        row.agent_tag.as_ref().and_then(|t| t.owner.as_ref()),
+        row.agent_tag.as_ref().map(|t| &t.owner),
     ])?;
     Ok(())
 }

@@ -58,6 +58,7 @@ pub use publish::PublishFailure;
 pub use publish::Step;
 pub use publish::Published;
 pub use publish::holds_no_data;
+pub use publish::read_content;
 
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;

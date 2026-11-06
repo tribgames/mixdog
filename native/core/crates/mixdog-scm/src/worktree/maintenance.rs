@@ -387,6 +387,14 @@ impl Worktrees {
         Ok(report)
     }
 
+    /// Daemon startup, off the boot path: resume interrupted deletions and creations, release
+    /// stale leases, prune stale registrations; with autoCleanup on, also the automatic cleanup.
+    /// The editor-recovery descriptors the file host registered (`with_recovery_store`) are
+    /// read from the records, so a deletion pending across the restart still waits for them.
+    pub async fn reconcile_at_startup(&self, sessions: &Arc<dyn SessionSource>, options: &CleanupOptions, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        self.run_worktree_cleanup(sessions, options, cancel).await
+    }
+
     /// After sessions were archived (or restored): with autoCleanup and cleanupArchived on, an
     /// archive marks their worktrees disposable (nothing is removed here); a restore always
     /// clears the mark.

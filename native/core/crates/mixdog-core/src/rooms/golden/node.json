@@ -1,0 +1,234 @@
+{
+ "members": [
+  {
+   "id": "lead",
+   "name": "Mixy"
+  },
+  {
+   "id": "bench",
+   "name": "Bench"
+  },
+  {
+   "id": "dup1",
+   "name": "Same"
+  },
+  {
+   "id": "dup2",
+   "name": "Same"
+  },
+  {
+   "id": "kim",
+   "name": "김 철수"
+  }
+ ],
+ "decisions": [
+  {
+   "reply": "{\"action\":\"finish\",\"scene\":\"casual\"}",
+   "decision": {
+    "action": "finish",
+    "scene": "casual"
+   }
+  },
+  {
+   "reply": "{\"action\":\"speak\",\"scene\":\"work\",\"member\":\"bench\",\"instruction\":\"check it\"}",
+   "decision": {
+    "action": "speak",
+    "agentId": "bench",
+    "scene": "work",
+    "instruction": "check it"
+   }
+  },
+  {
+   "reply": "Sure!\n```json\n{\"Action\":\"Speak\",\"scene\":\"CASUAL\",\"member\":\"@bench\",\"instruction\":\"  be\\nbrief \",}\n```",
+   "decision": {
+    "action": "speak",
+    "agentId": "bench",
+    "scene": "casual",
+    "instruction": "be brief"
+   }
+  },
+  {
+   "reply": "{\"action\":\"speak\",\"member\":\"Mixy (id lead)\"}",
+   "decision": {
+    "action": "speak",
+    "agentId": "lead",
+    "scene": "work"
+   }
+  },
+  {
+   "reply": "{\"action\":\"speak\",\"member\":\"same\"}",
+   "decision": null
+  },
+  {
+   "reply": "{\"action\":\"speak\",\"member\":\"nobody\"}",
+   "decision": null
+  },
+  {
+   "reply": "{\"action\":\"speak\",\"member\":\"lead\",\"instruction\":3}",
+   "decision": null
+  },
+  {
+   "reply": "{\"action\":\"speak\",\"member\":\"lead\",\"instruction\":null}",
+   "decision": {
+    "action": "speak",
+    "agentId": "lead",
+    "scene": "work"
+   }
+  },
+  {
+   "reply": "{\"action\":\"finish\"} {\"action\":\"finish\"}",
+   "decision": null
+  },
+  {
+   "reply": "{\"action\":\"dance\"}",
+   "decision": null
+  },
+  {
+   "reply": "no json here",
+   "decision": null
+  },
+  {
+   "reply": "{\"scene\":\"work\"}",
+   "decision": null
+  },
+  {
+   "reply": "{\"action\":\"speak\",\"member\":\"김 철수\",\"instruction\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "decision": {
+    "action": "speak",
+    "agentId": "kim",
+    "scene": "work",
+    "instruction": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  },
+  {
+   "reply": "{\"action\":\"speak\",\"member\":\"lead\",\"instruction\":\"a b c﻿d\"}",
+   "decision": {
+    "action": "speak",
+    "agentId": "lead",
+    "scene": "work",
+    "instruction": "a b c d"
+   }
+  },
+  {
+   "reply": "{\"action\":\"speak\",\"member\":\"BENCH\"} trailing {\"note\":1}",
+   "decision": {
+    "action": "speak",
+    "agentId": "bench",
+    "scene": "work"
+   }
+  }
+ ],
+ "asks": [
+  {
+   "text": "/ask Bench lead, hi",
+   "parsed": {
+    "to": [
+     "bench"
+    ],
+    "text": "lead, hi"
+   }
+  },
+  {
+   "text": "/ASK  bench\thello",
+   "parsed": {
+    "to": [
+     "bench"
+    ],
+    "text": "hello"
+   }
+  },
+  {
+   "text": "/ask nobody hi",
+   "parsed": {
+    "to": [],
+    "text": "",
+    "error": "member"
+   }
+  },
+  {
+   "text": "/ask lead",
+   "parsed": {
+    "to": [
+     "lead"
+    ],
+    "text": "",
+    "error": "message"
+   }
+  },
+  {
+   "text": "/asking",
+   "parsed": {
+    "to": [],
+    "text": "/asking"
+   }
+  },
+  {
+   "text": "plain text",
+   "parsed": {
+    "to": [],
+    "text": "plain text"
+   }
+  },
+  {
+   "text": "  /ask Mixy,Bench   what now?  ",
+   "parsed": {
+    "to": [
+     "lead",
+     "bench"
+    ],
+    "text": "what now?"
+   }
+  },
+  {
+   "text": "/ask Same x",
+   "parsed": {
+    "to": [],
+    "text": "",
+    "error": "member"
+   }
+  },
+  {
+   "text": "/ask 김 철수 안녕",
+   "parsed": {
+    "to": [
+     "kim"
+    ],
+    "text": "안녕"
+   }
+  },
+  {
+   "text": "/ask lead, lead dup",
+   "parsed": {
+    "to": [
+     "lead"
+    ],
+    "text": "dup"
+   }
+  },
+  {
+   "text": "/ask",
+   "parsed": {
+    "to": [],
+    "text": "",
+    "error": "member"
+   }
+  },
+  {
+   "text": "/ask lead hi",
+   "parsed": {
+    "to": [
+     "lead"
+    ],
+    "text": "hi"
+   }
+  },
+  {
+   "text": "/ask lead,",
+   "parsed": {
+    "to": [],
+    "text": "",
+    "error": "member"
+   }
+  }
+ ]
+}

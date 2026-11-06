@@ -1384,38 +1384,84 @@ async fn worker_rows_are_indexed_by_tag_owner_and_host_pid() {
     }
 }
 
-/// The newest session per tag is 1.4.5 `lastTagSession`: the session's own `agentTag` and
-/// owner (`parentSessionId || ownerSessionId`), open or closed, with or without a worker
-/// map, never a Lead pool session; newest `createdAt` wins.
+/// An agent-only session header created at `created` (no `createdAt` when `None`), last
+/// updated at `updated`, with `fields` on top.
+fn tagged(id: &str, created: Option<u64>, updated: u64, fields: serde_json::Value) -> CatalogHead {
+    let mut h = head(id, "task", "t");
+    h.header.insert("visibility".into(), json!("agent-only"));
+    h.header.insert("updatedAt".into(), json!(updated));
+    if let Some(created) = created {
+        h.header.insert("createdAt".into(), json!(created));
+    }
+    for (k, v) in fields.as_object().unwrap() {
+        h.header.insert(k.clone(), v.clone());
+    }
+    h
+}
+
+/// The newest session per tag is 1.4.5 `lastTagSession` over the agent registry: an
+/// agent-only (or legacy `owner: agent`) session's own `agentTag` and parent link, open or
+/// closed, with or without a worker map, never a Lead pool session; newest `createdAt`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_newest_session_per_tag_follows_the_session_agent_tag() {
     let env = Env::new();
     let s = &env.store;
-    let tagged = |id: &str, created: u64, fields: serde_json::Value| {
-        let mut h = head(id, "task", "t");
-        h.header.insert("createdAt".into(), json!(created));
-        for (k, v) in fields.as_object().unwrap() {
-            h.header.insert(k.clone(), v.clone());
-        }
-        h
-    };
     for h in [
-        tagged("t1", 10, json!({"agentTag":" a ","parentSessionId":"p1"})),
-        tagged("t2", 30, json!({"agentTag":"a","ownerSessionId":"p1","closed":true,"worker":{"tag":"other"}})),
-        tagged("t3", 40, json!({"agentTag":"a","parentSessionId":"p2"})),
-        tagged("t4", 50, json!({"agentTag":"a","parentSessionId":"p1","agent":"lead"})),
-        tagged("t5", 60, json!({"parentSessionId":"p1","worker":{"tag":"a","parentSessionId":"p1"}})),
+        tagged("t1", Some(10), 1, json!({"agentTag":" a ","parentSessionId":"p1"})),
+        tagged("t2", Some(30), 1, json!({"agentTag":"a","ownerSessionId":"p1","closed":true,"worker":{"tag":"other"}})),
+        tagged("t3", Some(40), 1, json!({"agentTag":"a","parentSessionId":"p2"})),
+        tagged("t4", Some(50), 1, json!({"agentTag":"a","parentSessionId":"p1","agent":"lead"})),
+        tagged("t5", Some(60), 1, json!({"parentSessionId":"p1","worker":{"tag":"a","parentSessionId":"p1"}})),
+        // Not in the agent registry: an ordinary session, and a parent link to itself.
+        tagged("t6", Some(70), 1, json!({"agentTag":"a","parentSessionId":"p1","visibility":"ordinary"})),
+        tagged("t7", Some(80), 1, json!({"agentTag":"a","parentSessionId":"t7"})),
+        tagged("t8", Some(90), 1, json!({"agentTag":"a","parentSessionId":"p1","sourceName":"lead"})),
     ] {
         s.upsert(h, DirtyMark::Clear).await.unwrap();
     }
     assert_eq!(s.newest_tag_session("a", "p1").await.unwrap().unwrap().session, "t2");
     assert_eq!(s.newest_tag_session("a", "p2").await.unwrap().unwrap().session, "t3");
     assert!(s.newest_tag_session("other", "p1").await.unwrap().is_none());
+    // A legacy `owner: agent` child is in the registry.
+    let legacy = json!({"agentTag":"a","parentSessionId":"p1","visibility":"","owner":"agent"});
+    s.upsert(tagged("t9", Some(35), 1, legacy), DirtyMark::Clear).await.unwrap();
+    assert_eq!(s.newest_tag_session("a", "p1").await.unwrap().unwrap().session, "t9");
     // A header write that retags the session moves it.
-    s.upsert(tagged("t2", 30, json!({"agentTag":"b","ownerSessionId":"p1"})), DirtyMark::Clear).await.unwrap();
+    s.upsert(tagged("t9", Some(35), 1, json!({"agentTag":"b","parentSessionId":"p1"})), DirtyMark::Clear).await.unwrap();
+    s.upsert(tagged("t2", Some(30), 1, json!({"agentTag":"b","ownerSessionId":"p1"})), DirtyMark::Clear).await.unwrap();
     let newest = s.newest_tag_session("a", "p1").await.unwrap().unwrap();
     assert_eq!(newest.session, "t1");
     assert_eq!(serde_json::from_str::<serde_json::Value>(&newest.summary).unwrap()["id"], "t1");
+}
+
+/// Equal or missing `createdAt` (0 in 1.4.5, where a later session wins only when strictly
+/// newer) goes to the session first in the registry walk: the newest `updatedAt`, then id.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_newest_session_per_tag_breaks_created_ties_by_the_registry_walk() {
+    let env = Env::new();
+    let s = &env.store;
+    let tag = |t: &str| json!({"agentTag": t, "parentSessionId": "p1"});
+    for h in [
+        // Equal `createdAt`: the newer `updatedAt` is walked first.
+        tagged("e1", Some(70), 9, tag("eq")),
+        tagged("e2", Some(70), 5, tag("eq")),
+        // Equal both: id order.
+        tagged("f2", Some(70), 5, tag("both")),
+        tagged("f1", Some(70), 5, tag("both")),
+        // Missing `createdAt` ties at 0, and loses to any positive one.
+        tagged("m1", None, 3, tag("missing")),
+        tagged("m2", None, 8, tag("missing")),
+        tagged("m3", Some(0), 9, tag("missing")),
+        tagged("n1", None, 9, tag("some")),
+        tagged("n2", Some(1), 1, tag("some")),
+    ] {
+        s.upsert(h, DirtyMark::Clear).await.unwrap();
+    }
+    let newest = |t: &'static str| async move { s.newest_tag_session(t, "p1").await.unwrap().unwrap().session };
+    assert_eq!(newest("eq").await, "e1");
+    assert_eq!(newest("both").await, "f1");
+    assert_eq!(newest("missing").await, "m3");
+    assert_eq!(newest("some").await, "n2");
 }
 
 /// The agent-only sessions (declared, or a legacy `owner: agent` child) are listed for

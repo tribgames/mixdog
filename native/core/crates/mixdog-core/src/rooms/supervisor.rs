@@ -360,6 +360,53 @@ mod tests {
         );
     }
 
+    /// `golden/node.json` is Node's own `parseRoomDecision` and `parseRoomAsk` output over the
+    /// same replies and messages.
+    #[test]
+    fn replies_and_asks_parse_as_node_does() {
+        use crate::rooms::config::{AskError, MemberName, parse_room_ask};
+        let golden: Value = serde_json::from_str(include_str!("golden/node.json")).unwrap();
+        let listed: Vec<(String, String)> = golden["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| (m["id"].as_str().unwrap().to_owned(), m["name"].as_str().unwrap().to_owned()))
+            .collect();
+        let sup: Vec<SupervisorMember> = listed.iter().map(|(id, name)| member(id, name)).collect();
+        let names: Vec<MemberName> = listed.iter().map(|(id, name)| MemberName { id: id.clone(), name: name.clone() }).collect();
+
+        for case in golden["decisions"].as_array().unwrap() {
+            let reply = case["reply"].as_str().unwrap();
+            let got = parse_room_decision(reply, &sup).map(|d| {
+                let scene = if d.scene == Some(Scene::Casual) { "casual" } else { "work" };
+                match d.action {
+                    Action::Finish => serde_json::json!({ "action": "finish", "scene": scene }),
+                    Action::Speak { agent_id, instruction } if instruction.is_empty() => {
+                        serde_json::json!({ "action": "speak", "agentId": agent_id, "scene": scene })
+                    }
+                    Action::Speak { agent_id, instruction } => {
+                        serde_json::json!({ "action": "speak", "agentId": agent_id, "scene": scene, "instruction": instruction })
+                    }
+                }
+            });
+            assert_eq!(got.unwrap_or(Value::Null), case["decision"], "reply {reply:?}");
+        }
+        for case in golden["asks"].as_array().unwrap() {
+            let text = case["text"].as_str().unwrap();
+            let got = parse_room_ask(text, &names);
+            let want = &case["parsed"];
+            let to: Vec<&str> = want["to"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+            assert_eq!(got.to, to, "to of {text:?}");
+            assert_eq!(got.text, want["text"].as_str().unwrap(), "text of {text:?}");
+            let error = match got.error {
+                Some(AskError::Member) => Some("member"),
+                Some(AskError::Message) => Some("message"),
+                None => None,
+            };
+            assert_eq!(error, want["error"].as_str(), "error of {text:?}");
+        }
+    }
+
     #[test]
     fn the_prompt_frames_room_text_as_data() {
         let rows = vec![RoomRow {

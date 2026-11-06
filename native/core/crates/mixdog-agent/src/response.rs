@@ -84,7 +84,7 @@ impl ResponseBuilder {
             StreamEvent::Usage(usage) => response.usage = usage,
             StreamEvent::ProviderState(state) => response.provider_state = Some(state),
             StreamEvent::ServerToolBlock(block) => response.server_blocks.push(block),
-            StreamEvent::Completed { stop } => {
+            StreamEvent::Completed { stop, .. } => {
                 response.stop = stop;
                 self.completed = true;
             }

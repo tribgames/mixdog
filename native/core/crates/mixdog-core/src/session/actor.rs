@@ -109,10 +109,11 @@ use super::run::ModelContext;
 use super::user_facts::RowFacts;
 use super::user_facts::user_facts;
 use super::run::RunPort;
+use super::run::DrainStage;
 use super::run::SteerInput;
-use super::run::SteerMode;
 use super::run::within_priority;
 use super::completions;
+use super::pending;
 use super::seams::EncodedRecord;
 use super::seams::Shown;
 use super::seams::RunOutcome;
@@ -1290,63 +1291,71 @@ impl SessionActor {
             }
             ProducerMsg::TakeSteers {
                 turn,
-                max_priority,
+                request,
                 reply,
             } => {
                 if !self.active(&turn) {
                     let _ = reply.send(Vec::new());
                     return;
                 }
-                let mut durable: Vec<SteerInput> = self
-                    .steer_marked
-                    .iter()
-                    .filter_map(|qid| {
-                        self.acked
-                            .queue
-                            .iter()
-                            .find(|q| {
-                                q.qid == qid.as_str() && within_priority(&q.entry, max_priority)
-                            })
-                            .map(|q| SteerInput {
-                                queued_id: qid.clone(),
-                                entry: q.entry.clone(),
-                                mode: SteerMode::Prompt,
-                                execution: None,
-                            })
-                    })
-                    .collect();
-                self.steer_marked
-                    .retain(|qid| !durable.iter().any(|s| &s.queued_id == qid));
+                let max_priority = request.max_priority;
+                let mut taken: Vec<QueuedId> = Vec::new();
+                let mut out: Vec<SteerInput> = Vec::new();
+                for qid in &self.steer_marked {
+                    if let Some(q) = self.acked.queue.iter().find(|q| {
+                        q.qid == qid.as_str() && within_priority(&q.entry, max_priority)
+                    }) {
+                        taken.push(qid.clone());
+                        out.push(pending::steered(qid.clone(), &q.entry));
+                    }
+                }
+                self.steer_marked.retain(|qid| !taken.contains(qid));
                 // `if (turn.session?.heldRoute) return out;` (`ask-turn-steering-drain.mjs:48`).
                 if !self.route_held() {
-                    durable.extend(
-                        self.acked
-                            .queue
+                    // The rest of the queue: not steered, not claimed by a wake, within the
+                    // drain's priority (entries beyond it wait for the turn to end).
+                    let rest: Vec<&super::state::Queued> = self
+                        .projected
+                        .queue
+                        .iter()
+                        .filter(|q| {
+                            !taken.iter().any(|t| t.as_str() == q.qid)
+                                && !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
+                                && !self.wake_tail.contains(&q.qid)
+                                && within_priority(&q.entry, max_priority)
+                        })
+                        .collect();
+                    // `stage === 'terminal' || pendingQueueHoldsOnlyNotifications(sessionId)`.
+                    let only_notifications = !rest.is_empty()
+                        && rest.iter().all(|q| completions::is_notification(&q.entry));
+                    if request.stage == DrainStage::Terminal || only_notifications {
+                        // Durable entries only: memory never runs ahead of disk.
+                        let durable: Vec<(QueuedId, Value)> = rest
                             .iter()
-                            // Durable and not already taken (its dequeue may be unacked).
-                            .filter(|q| {
-                                completions::is_notification(&q.entry)
-                                    && !self.wake_tail.contains(&q.qid)
-                                    && self.projected.queue.iter().any(|p| p.qid == q.qid)
+                            .filter_map(|q| {
+                                self.acked.queue.iter().find(|a| a.qid == q.qid).map(|a| {
+                                    (QueuedId::from(a.qid.as_str()), a.entry.clone())
+                                })
                             })
-                            .map(|q| SteerInput {
-                                queued_id: QueuedId::from(q.qid.as_str()),
-                                entry: q.entry.clone(),
-                                mode: SteerMode::TaskNotification,
-                                execution: completions::execution(&q.entry),
-                            }),
-                    );
+                            .collect();
+                        let groups = pending::groups(&durable);
+                        // Nothing that carries content is released back to the queue.
+                        if !groups.is_empty() {
+                            taken.extend(durable.into_iter().map(|(qid, _)| qid));
+                            out.extend(groups);
+                        }
+                    }
                 }
-                for steer in &durable {
+                for qid in &taken {
                     self.accept_record(
-                        dequeue(steer.queued_id.as_str()),
+                        dequeue(qid.as_str()),
                         Class::Control,
                         Display::None,
                         Vec::new(),
                         Vec::new(),
                     );
                 }
-                let _ = reply.send(durable);
+                let _ = reply.send(out);
             }
         }
     }

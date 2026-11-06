@@ -234,7 +234,7 @@ impl Outcome {
             StreamEvent::ReasoningDelta(t) => self.reasoning.push_str(&t),
             StreamEvent::ToolCallDone(c) => self.calls.push((c.id, c.name, c.arguments)),
             StreamEvent::Usage(u) => self.usage = Some(u),
-            StreamEvent::Completed { stop } => self.stop = stop,
+            StreamEvent::Completed { stop, .. } => self.stop = stop,
             _ => {}
         }
     }

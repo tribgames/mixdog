@@ -160,7 +160,7 @@ fn usage_of(events: &[StreamEvent]) -> Option<(u64, u64)> {
 
 fn stop_of(events: &[StreamEvent]) -> StopReason {
     match events.last() {
-        Some(StreamEvent::Completed { stop: Some(stop) }) => stop.clone(),
+        Some(StreamEvent::Completed { stop: Some(stop), .. }) => stop.clone(),
         other => panic!("the last event is the terminal one, got {other:?}"),
     }
 }
@@ -1516,7 +1516,19 @@ mod liveness {
             (_, "server-error") => (500, json!({ "error": "boom" })),
             (_, "unauthorized") => (401, json!({ "error": { "message": "no" } })),
             (_, "empty-roster") => (200, json!({ "data": [] })),
-            ("opencode-go-oauth", "config") => (200, r("goConfig")),
+            // The golden file stores keys sorted; the console lists models in Node's row order.
+            ("opencode-go-oauth", "config") => {
+                let mut config = r("goConfig");
+                let models = config["providers"]["opencode-go"]["models"].as_object().unwrap().clone();
+                let ordered: serde_json::Map<String, JsonValue> =
+                    case["rows"].as_array().unwrap().iter().filter_map(|row| models.get_key_value(row["id"].as_str()?)).map(|(k, v)| (k.clone(), v.clone())).collect();
+                let mut all = ordered.clone();
+                for (k, v) in &models {
+                    all.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                config["providers"]["opencode-go"]["models"] = JsonValue::Object(all);
+                (200, config)
+            }
             ("opencode-go-oauth", "config-empty-models-dev") => (200, r("goEmpty")),
             ("opencode-go-oauth", "config-without-provider") => (200, json!({ "providers": {} })),
             ("mimo-oauth", _) => (200, json!({ "data": r("mimo") })),
@@ -1583,7 +1595,8 @@ mod liveness {
                 let row = format!("{what}: {}", node["id"]);
                 assert_eq!(got["name"].as_str().or(got["id"].as_str()), node["name"].as_str(), "{row} name");
                 assert_eq!(got["display"].as_str(), node["display"].as_str(), "{row} display");
-                assert_eq!(got["contextWindow"], node["contextWindow"], "{row} contextWindow");
+                // Node lists an unknown window as 0 or null by provider; both mean none.
+                assert_eq!(got["contextWindow"].as_u64().unwrap_or(0), node["contextWindow"].as_u64().unwrap_or(0), "{row} contextWindow");
                 assert_eq!(got["outputTokens"].as_u64(), node["outputTokens"].as_u64(), "{row} outputTokens");
                 assert_eq!(got["created"].as_i64(), node["created"].as_i64(), "{row} created");
                 assert_eq!(got["mode"].as_str(), node["mode"].as_str(), "{row} mode");
@@ -1596,7 +1609,7 @@ mod liveness {
             }
             checked += 1;
         }
-        assert_eq!(checked, 14);
+        assert_eq!(checked, 12, "16 scenarios, 4 of them refusals");
     }
 
     /// OpenCode Go (catalog package narrows the offered wires) and Command

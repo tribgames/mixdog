@@ -190,12 +190,14 @@ impl GoogleCodec {
 
     /// A rejected `request`: Vertex rewrites a model-not-enabled answer, the
     /// project and location read from the base it was sent to.
-    pub fn classify_for(&self, response: &ErrorResponse, request: &ModelRequest) -> ProviderError {
+    /// `global` is true when the request was resent there after a 404.
+    pub fn classify_for(&self, response: &ErrorResponse, request: &ModelRequest, global: bool) -> ProviderError {
         let mut error = classify(response, self.error_dialect());
         if let (Target::Vertex { place }, Ok(model)) = (&self.target, self.model_id(&request.model)) {
             let route = Route { publisher: "google", id: model, wire: Wire::Gemini };
             let tier = Tier::requested(request.options.model_parameters.as_ref());
-            if let Ok(location) = place.choose(&route, tier) {
+            let chosen = if global { Ok("global".to_owned()) } else { place.choose(&route, tier) };
+            if let Ok(location) = chosen {
                 let project = place.project_id().unwrap_or("(unknown project)");
                 vertex_model_access(&mut error, response, "google", model, project, &location);
             }
@@ -268,6 +270,26 @@ impl GoogleCodec {
         inner: &Value,
         cache: Option<Attach<'_>>,
     ) -> Result<WireRequest, ProviderError> {
+        self.wire_at(request, inner, cache, false)
+    }
+
+    /// Whether a 404 for `request` is resent once on Vertex's `global` location.
+    pub fn falls_back_to_global(&self, request: &ModelRequest) -> bool {
+        let (Target::Vertex { place }, Ok(id)) = (&self.target, self.model_id(&request.model)) else {
+            return false;
+        };
+        let route = Route { publisher: "google", id, wire: Wire::Gemini };
+        place.falls_back_to_global(&route, Tier::requested(request.options.model_parameters.as_ref()))
+    }
+
+    /// [`Self::wire`]; `global` sends a Vertex request to `global`.
+    pub fn wire_at(
+        &self,
+        request: &ModelRequest,
+        inner: &Value,
+        cache: Option<Attach<'_>>,
+        global: bool,
+    ) -> Result<WireRequest, ProviderError> {
         let id = self.model_id(&request.model)?;
         let mut inner = match cache {
             Some(attach) => {
@@ -285,7 +307,8 @@ impl GoogleCodec {
             Target::Vertex { place } => {
                 let route = Route { publisher: "google", id, wire: Wire::Gemini };
                 let tier = Tier::requested(request.options.model_parameters.as_ref());
-                let base = place.base(&place.choose(&route, tier)?)?;
+                let location = if global { "global".to_owned() } else { place.choose(&route, tier)? };
+                let base = place.base(&location)?;
                 if let Some(value) = tier.header_value() {
                     headers.push(("x-vertex-ai-llm-shared-request-type".into(), value.into()));
                 }

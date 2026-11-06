@@ -75,6 +75,15 @@ fn positive(value: Option<&Value>) -> Option<u64> {
     (n.is_finite() && n >= 1.0).then(|| n.floor() as u64)
 }
 
+/// Models whose served window was validated up to 1M tokens.
+const VALIDATED_1M: [&str; 3] = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+
+/// `_codexMaxContextWindow`: the reported value, raised to 1M for a validated model.
+fn max_context_window(id: &str, reported: Option<&Value>) -> Option<u64> {
+    let reported = positive(reported);
+    if VALIDATED_1M.contains(&id.to_lowercase().as_str()) { Some(reported.unwrap_or(0).max(1_000_000)) } else { reported }
+}
+
 /// `String(value || '').trim()`.
 fn trimmed(value: Option<&Value>) -> String {
     match value {
@@ -150,6 +159,7 @@ pub fn codex_record(row: &Value) -> Option<ModelRecord> {
     record.picker = picker;
     record.display_name = Some(display.to_owned());
     record.context_window = positive(row.get("context_window")).or_else(|| positive(row.get("max_context_window")));
+    record.max_context_window = max_context_window(id, row.get("max_context_window"));
     record.max_output_tokens = Some(
         ["max_output_tokens", "output_tokens"]
             .iter()

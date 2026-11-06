@@ -29,6 +29,7 @@ mod frames;
 mod handle;
 mod ops;
 mod outbox;
+mod pending;
 pub mod prompt_history;
 pub(crate) mod run;
 mod seams;

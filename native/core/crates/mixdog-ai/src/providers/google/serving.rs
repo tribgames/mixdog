@@ -359,6 +359,16 @@ impl VertexPlace {
         }
     }
 
+    /// Whether a 404 at the chosen location is retried once on `global`
+    /// (`vertex-ai.mjs:325-327`): never for a configured location or when
+    /// the request is already global, and only if `global` serves it.
+    pub fn falls_back_to_global(&self, route: &Route<'_>, tier: Tier) -> bool {
+        let pinned = self.configured.as_deref().is_some_and(|c| !c.trim().is_empty());
+        !pinned
+            && self.choose(route, tier).is_ok_and(|at| at != "global")
+            && serving_problem(route, "global", tier).is_none()
+    }
+
     /// `https://{host}/v1[/projects/{project}/locations/{location}]`.
     pub fn base(&self, location: &str) -> Result<String, ProviderError> {
         match &self.account {
