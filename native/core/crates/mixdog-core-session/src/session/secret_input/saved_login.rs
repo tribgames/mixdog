@@ -390,7 +390,7 @@ fn assert_available(command: &Value, logins: &dyn SavedLogins, windows: bool) ->
 fn as_saved_login_reply(mut response: Value) -> Value {
     let mut result: Map<String, Value> = response.get("result").and_then(Value::as_object).cloned().unwrap_or_default();
     result.insert("action".to_owned(), json!("fill_saved_login"));
-    result.remove("saved_login_target");
+    result.shift_remove("saved_login_target");
     if let Some(object) = response.as_object_mut() {
         object.insert("result".to_owned(), Value::Object(result));
     }

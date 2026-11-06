@@ -1516,6 +1516,9 @@ impl SessionActor {
         if **self.cell.queued.load() != queued {
             self.cell.queued.store(Arc::new(queued));
         }
+        if **self.cell.queue.load() != self.projected.queue {
+            self.cell.queue.store(Arc::new(self.projected.queue.clone()));
+        }
         let approvals: std::collections::HashSet<u64> =
             self.book.decidable().into_iter().map(|aid| aid.0).collect();
         if **self.cell.approvals.load() != approvals {
