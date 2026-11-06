@@ -183,23 +183,33 @@ impl SkillCatalog {
         if let Some(refusal) = self.refusal(&skills, name, cwd) {
             return Ok(SkillLoad::Refused(refusal));
         }
+        Ok(match self.resource(name).await? {
+            Some(resource) => SkillLoad::Loaded(resource),
+            None => SkillLoad::NotFound,
+        })
+    }
+
+    /// `loadSkillResource`: the skill named `name` (exactly, once trimmed) with its body, whether
+    /// or not settings or scope would hide it from the model.
+    pub async fn resource(&self, name: &str) -> Result<Option<SkillResource>, CatalogError> {
+        let skills = self.skills().await?;
         let wanted = js_trim(name);
-        let Some(skill) = skills.iter().find(|s| s.name == wanted).cloned() else { return Ok(SkillLoad::NotFound) };
+        let Some(skill) = skills.iter().find(|s| s.name == wanted).cloned() else { return Ok(None) };
         let path = skill.file_path.clone();
         // A file removed since the scan is a skill that no longer loads (Node answers null);
         // any other read failure is a real failure.
         let Some(text) = self.run(move |lane| read_text(lane, &path)).await?.map_err(CatalogError::Read)? else {
-            return Ok(SkillLoad::NotFound);
+            return Ok(None);
         };
         // `readSafe`: the file's text is trimmed, and an empty file is no skill.
         let text = js_trim(&text);
         if text.is_empty() {
-            return Ok(SkillLoad::NotFound);
+            return Ok(None);
         }
-        let Ok(document) = parse_document(text) else { return Ok(SkillLoad::NotFound) };
+        let Ok(document) = parse_document(text) else { return Ok(None) };
         let parent = skill.file_path.parent().unwrap_or_else(|| Path::new(""));
         let dir = skill_execution_dir(parent, skill.source);
-        Ok(SkillLoad::Loaded(SkillResource { body: document.body, dir, skill }))
+        Ok(Some(SkillResource { body: document.body, dir, skill }))
     }
 }
 

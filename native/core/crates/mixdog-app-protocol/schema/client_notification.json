@@ -73,6 +73,18 @@
       ],
       "type": "object"
     },
+    "ModelProxyRunCancelParams": {
+      "description": "Electron → its local core: stop the `modelProxy/run` run `run_id` (the abort of a `model/proxy/cancel`).",
+      "properties": {
+        "runId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
     "PowerEvent": {
       "enum": [
         "suspend",
@@ -905,6 +917,25 @@
         },
         "params": {
           "$ref": "#/definitions/ModelProxyEventParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Stops the `modelProxy/run` run `runId` of the sender.",
+      "properties": {
+        "method": {
+          "enum": [
+            "modelProxy/cancel"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ModelProxyRunCancelParams"
         }
       },
       "required": [

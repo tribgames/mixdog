@@ -28,9 +28,11 @@ pub struct ChannelRuntime {
     agent: Arc<dyn AgentRuntime>,
     state: Mutex<State>,
     /// One start at a time: a second caller joins the first.
+    #[allow(clippy::disallowed_types, reason = "a gate held across the awaited start on purpose: a second caller joins the first")]
     start_gate: tokio::sync::Mutex<()>,
     /// Reloads apply in the order they were asked, each reading the stores afresh, so the last
     /// one applied is the newest.
+    #[allow(clippy::disallowed_types, reason = "a gate held across the awaited reload on purpose: reloads apply in order")]
     reload_gate: tokio::sync::Mutex<()>,
 }
 
@@ -48,6 +50,7 @@ impl RuntimeStatus {
 }
 
 impl ChannelRuntime {
+    #[allow(clippy::disallowed_types, reason = "builds the start and reload gates")]
     pub fn new(
         scheduler: Scheduler,
         schedules: Arc<dyn ScheduleRecords>,

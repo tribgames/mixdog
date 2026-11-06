@@ -520,7 +520,7 @@ impl InstructionsService {
         let expected = input.get("expectedRevision").cloned();
         let write = {
             let item = item.clone();
-            move || -> Result<(), CoreError> {
+            move |lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>| -> Result<(), CoreError> {
                 locked(&item.user, || {
                     let before = item.state();
                     Self::assert_current(expected.as_ref(), &before, &item.id)?;
@@ -546,7 +546,7 @@ impl InstructionsService {
                             "instruction text cannot be saved ({problem})"
                         )));
                     }
-                    write_atomic(&item.user, &bytes, true).map_err(|e| io_failure(DOMAIN, &e))
+                    write_atomic(lane, &item.user, &bytes, true).map_err(|e| io_failure(DOMAIN, &e))
                 })
             }
         };
@@ -560,7 +560,7 @@ impl InstructionsService {
         self.ops_run(
             req,
             move || async move {
-                on_lane(durability, &cancel, move |_| write()).await??;
+                on_lane(durability, &cancel, write).await??;
                 changed.changed().await;
                 on_lane(interactive, &cancel, move |_| state_item.state()).await
             },

@@ -12,6 +12,7 @@ pub mod ops;
 pub mod ports;
 pub mod pricing;
 pub mod rooms;
+pub mod run_host;
 pub mod session;
 pub mod setup;
 pub mod state;

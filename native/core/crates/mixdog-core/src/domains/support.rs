@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -275,11 +274,7 @@ pub(crate) use mixdog_js::is_js_space;
 pub(crate) use mixdog_js::js_trim;
 
 /// A file that holds nothing but NULs and blanks has no data to keep.
-pub(crate) fn holds_no_data(bytes: &[u8]) -> bool {
-    bytes
-        .iter()
-        .all(|b| matches!(b, 0 | b' ' | b'\t' | b'\n' | b'\r'))
-}
+pub(crate) use mixdog_statefile::holds_no_data;
 
 /// The lock of one file: a mutation reads the state it checks and writes under it, so two
 /// writers (of any thread scope) never interleave their check and their write.
@@ -295,66 +290,27 @@ pub(crate) fn path_lock(path: &Path) -> Arc<Mutex<()>> {
 /// `writeFileAtomicSync(path, bytes, { backup })`: the bytes go to a uniquely named sibling
 /// that is synced and renamed over `path`, so a reader sees the old file or the new one. With
 /// `backup`, the replaced version stays as `<path>.bak` unless it held no data.
-pub(crate) fn write_atomic(path: &Path, bytes: &[u8], backup: bool) -> Result<(), FsFailure> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(FsFailure::at(FsStep::Mkdir(dir.to_owned())))?;
-    }
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    // No leading dot: cloud-sync drives refuse to create such a file. 8 random bytes in hex.
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
-    let staging = path.with_file_name(format!("{name}.mixdog-tmp-{}", &suffix[..16]));
-    let published = (|| {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&staging)
-            .map_err(FsFailure::at(FsStep::Open(staging.clone())))?;
-        file.write_all(bytes)
-            .map_err(FsFailure::at(FsStep::Write))?;
-        file.sync_all().map_err(FsFailure::at(FsStep::Fsync))?;
-        drop(file);
-        if backup {
-            keep_backup(path)?;
-        }
-        std::fs::rename(&staging, path).map_err(FsFailure::at(FsStep::Rename(
-            staging.clone(),
-            path.to_owned(),
-        )))
-    })();
-    if published.is_err() {
-        let _ = std::fs::remove_file(&staging);
-    }
-    published
-}
-
-/// `keepBackupSync`: the file being replaced becomes `<path>.bak` unless it is absent or held
-/// no data. Any other read failure fails the write, as in Node.
-fn keep_backup(path: &Path) -> Result<(), FsFailure> {
-    let previous = match std::fs::read(path) {
-        Ok(previous) => previous,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(_) if path.is_dir() => {
-            return Err(FsFailure {
-                error: std::io::ErrorKind::IsADirectory.into(),
-                step: FsStep::Read,
-            });
-        }
-        Err(error) => {
-            return Err(FsFailure {
-                error,
-                step: FsStep::Open(path.to_owned()),
-            });
-        }
-    };
-    if holds_no_data(&previous) {
-        return Ok(());
-    }
-    let mut kept = path.as_os_str().to_owned();
-    kept.push(".bak");
-    write_atomic(Path::new(&kept), &previous, false)
+pub(crate) fn write_atomic<L: mixdog_statefile::WriteLane>(
+    lane: &InLane<L>,
+    path: &Path,
+    bytes: &[u8],
+    backup: bool,
+) -> Result<(), FsFailure> {
+    use mixdog_statefile::Step;
+    let opts = mixdog_statefile::Opts { backup, ..mixdog_statefile::Opts::default() };
+    mixdog_statefile::write_file_stepped(lane, path, bytes, &opts)
+        .map(drop)
+        .map_err(|failure| FsFailure {
+            error: failure.error,
+            step: match failure.step {
+                Step::Mkdir(dir) => FsStep::Mkdir(dir),
+                Step::Open(file) => FsStep::Open(file),
+                Step::Read => FsStep::Read,
+                Step::Write | Step::Other => FsStep::Write,
+                Step::Fsync => FsStep::Fsync,
+                Step::Rename(from, to) => FsStep::Rename(from, to),
+            },
+        })
 }
 
 /// Fixtures the tests of every domain service share.

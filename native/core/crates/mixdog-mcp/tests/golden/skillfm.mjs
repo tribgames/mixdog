@@ -185,6 +185,53 @@ const structural = {
   deleteWhenFirst: 'when_to_use: Old when\nname: my-skill\ndescription: Old',
   deleteWhenBlankBefore: 'name: my-skill\n\nwhen_to_use: Old when\n\ndescription: Old',
   flowMap: '{name: my-skill, description: Old}',
+  flowMapMulti: '{\n  name: my-skill,\n  description: Old,\n  license: MIT\n}',
+  flowMapWhen: '{name: my-skill, description: Old, when_to_use: Old when}',
+  flowMapExtra: '{name: my-skill, description: Old, metadata: {author: me, tags: [a, b, "c d"]}, n: 5, t: true, z: ~}',
+  flowMapQuoted: '{"name": "my-skill", \'description\': \'Old\', license: "MIT"}',
+  flowMapComment: '{name: my-skill, # why\n description: Old, # because\n license: MIT}',
+  flowMapLong: `{name: my-skill, description: ${long(30)}, notes: ${long(30)}}`,
+  flowMapSeqValue: '{name: my-skill, description: [a, b], other: x}',
+  flowMapAnchors: '{name: &n my-skill, description: Old, ref: *n}',
+  flowMapTag: '{name: !!str my-skill, description: !custom Old}',
+  flowMapNoValue: '{name: my-skill, description, flag}',
+  flowMapExplicit: '{? name : my-skill, description: Old}',
+  flowMapEmptyValue: '{name: my-skill, description: Old, empty: }',
+  flowMapMultiLineValue: '{name: my-skill, description: "Old\n  continued", other: plain\n  text}',
+  flowMapSeqOfMaps: '{name: my-skill, description: Old, items: [{a: 1}, [x, y], k: v]}',
+  flowMapTrailingComma: '{name: my-skill, description: Old,}',
+  flowMapEmpty: '{}',
+  flowMapNested: '{name: my-skill, description: Old, a: {b: {c: {d: [1, 2, {e: f}]}}}}',
+  collSeqBlock: 'name: my-skill\ndescription:\n  - a\n  - b\nlicense: MIT',
+  collSeqBlockSameIndent: 'name: my-skill\ndescription:\n- a\n- b\nlicense: MIT',
+  collMapBlock: 'name: my-skill\ndescription:\n  k: v\n  j: w\nlicense: MIT',
+  collFlowSeq: 'name: my-skill\ndescription: [a, b]\nwhen_to_use: {k: v}\nlicense: MIT',
+  collFlowMulti: 'name: my-skill\ndescription: [a,\n  b,\n  c]\nlicense: MIT',
+  collFlowComment: 'name: my-skill\ndescription: [a, b] # why\nlicense: MIT',
+  collNameSeq: 'name: [x]\ndescription: Old',
+  collLast: 'name: my-skill\ndescription: Old\nwhen_to_use:\n  - a\n  - b',
+  collAnchored: 'name: my-skill\ndescription: &d [a, b]\nlicense: MIT',
+  collTagged: 'name: my-skill\ndescription: !!seq [a, b]\nlicense: MIT',
+  tagInt: 'name: my-skill\ndescription: !!int 5\nlicense: MIT',
+  tagFloat: 'name: my-skill\ndescription: !!float 1.5\nlicense: MIT',
+  tagBool: 'name: my-skill\ndescription: !!bool true\nlicense: MIT',
+  tagNull: 'name: my-skill\ndescription: !!null\nlicense: MIT',
+  tagBinary: 'name: my-skill\ndescription: !!binary aGk=\nlicense: MIT',
+  tagCustom: 'name: my-skill\ndescription: !custom Old\nlicense: MIT',
+  tagCustomLocal: 'name: my-skill\ndescription: !local/x Old\nlicense: MIT',
+  tagVerbatim: 'name: my-skill\ndescription: !<tag:yaml.org,2002:str> Old\nlicense: MIT',
+  tagVerbatimCustom: 'name: my-skill\ndescription: !<tag:example.com,2000:x> Old\nlicense: MIT',
+  tagStrBlock: 'name: my-skill\ndescription: !!str |\n  Old\nlicense: MIT',
+  tagStrQuoted: 'name: my-skill\ndescription: !!str "Old"\nlicense: MIT',
+  tagAnchorBoth: 'name: my-skill\ndescription: !!str &a Old\nlicense: MIT',
+  tagAnchorFirst: 'name: my-skill\ndescription: &a !!str Old\nlicense: MIT',
+  tagEmptyValue: 'name: my-skill\ndescription: !!str\nlicense: MIT',
+  tagCustomEmpty: 'name: my-skill\ndescription: !custom\nlicense: MIT',
+  tagAnchorEmpty: 'name: my-skill\ndescription: &a\nlicense: MIT',
+  tagNextLine: 'name: my-skill\ndescription: !!str\n  Old\nlicense: MIT',
+  tagCustomBlock: 'name: my-skill\ndescription: !custom |\n  Old\nlicense: MIT',
+  tagTimestamp: 'name: my-skill\ndescription: !!timestamp 2001-12-14\nlicense: MIT',
+  tagSet: 'name: my-skill\ndescription: !!set {a, b}\nlicense: MIT',
   anchorValue: 'name: &n my-skill\ndescription: Old',
   tagValue: 'name: !!str my-skill\ndescription: Old',
   aliasValue: 'x: &a Old\nname: my-skill\ndescription: *a',
@@ -213,6 +260,43 @@ for (const [label, front] of Object.entries(structural)) {
     record(`${label} ${variant}`, wrap(front), fields);
     if (!front.includes('\r')) record(`${label} ${variant} crlf`, wrap(front).replace(/\n/g, '\r\n'), fields);
     record(`${label} ${variant} bom`, `\uFEFF${wrap(front)}`, fields);
+  }
+}
+// Seeded flow-style frontmatter: random scalars, nesting, comments and line breaks.
+{
+  let seed = 12345;
+  const rnd = (n) => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % n;
+  };
+  const pick = (list) => list[rnd(list.length)];
+  const scalar = () =>
+    pick([
+      () => pick(['alpha', 'beta-1', 'x_y', 'Mixed Case', 'two words', 'with: colon', 'a,b']).replace(/[,:]/g, ''),
+      () => String(rnd(1000) - 200),
+      () => pick(['0x1F', '0o17', '1.50', '1e3', '.5', '-.inf', '.NaN', '+7', '007', '12345678901234567890']),
+      () => pick(['true', 'False', 'null', '~', 'TRUE', 'Null']),
+      () => `"${pick(['q', 'with space', 'esc\\n', 'tab\\t', 'uni\\u00e9', 'a, b', 'x: y', '[br]', '#hash', ''])}"`,
+      () => `'${pick(['s', "it''s", 'x y', '', 'a, b'])}'`,
+      () => long(rnd(14) + 1, pick(['w', 'word', 'longerword'])),
+      () => `"${long(rnd(20) + 5, 'q')}"`,
+    ])();
+  const value = (depth) => {
+    if (depth > 2 || rnd(3) > 0) return scalar();
+    if (rnd(2)) return `[${Array.from({ length: rnd(5) }, () => value(depth + 1)).join(pick([', ', ',', ',\n  ']))}]`;
+    return `{${Array.from({ length: rnd(4) }, (_, i) => `k${i}: ${value(depth + 1)}`).join(', ')}}`;
+  };
+  const names = ['name', 'description', 'when_to_use', 'license', 'metadata', 'tags', 'x'];
+  for (let n = 0; n < 220; n += 1) {
+    const keys = names.filter(() => rnd(3) > 0);
+    if (!keys.length) keys.push('license');
+    const sep = pick([', ', ',\n  ', ',\n', ', # c\n ', ',\n  # own\n  ']);
+    const items = keys.map((k) => `${pick(['', '', '"', "'"]).replace(/./, (q) => q)}${k}${''}: ${['name', 'description', 'when_to_use'].includes(k) ? pick([scalar(), value(0), 'plain', '"quoted"']) : value(0)}`);
+    const body = items.join(sep);
+    const front = pick([`{${body}}`, `{ ${body} }`, `{\n  ${body}\n}`, `# lead\n{${body}}`, `{${body}} # tail`]);
+    for (const fields of [f, { ...f, whenToUse: '' }, { name: 'my-skill', description: long(rnd(30) + 5), whenToUse: pick(['', 'x', long(8)]) }]) {
+      record(`fuzzFlow #${n}`, wrap(front), fields);
+    }
   }
 }
 for (const [label, markdown] of Object.entries({

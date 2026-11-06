@@ -13,8 +13,6 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use mixdog_protocol::RemovalRemnant;
-
 use crate::engine::Repo;
 use crate::engine::Scm;
 use crate::error::ScmFailure;
@@ -150,6 +148,7 @@ pub struct Worktrees {
     settings: Option<Arc<dyn SettingsSource>>,
     activity: Option<Arc<crate::worktree::activity::Activity>>,
     cleanups: Vec<Arc<dyn crate::worktree::removal::RootCleanup>>,
+    sizes: Arc<crate::worktree::disk::SizeCache>,
 }
 
 fn now_ms() -> i64 {
@@ -198,9 +197,14 @@ impl Worktrees {
             settings: None,
             activity: None,
             cleanups: Vec::new(),
+            sizes: Arc::default(),
             scm,
             data_dir,
         }
+    }
+
+    pub(crate) fn sizes(&self) -> &Arc<crate::worktree::disk::SizeCache> {
+        &self.sizes
     }
 
     /// A host cleanup that runs when a folder is removed (desktop terminals, caches keyed by it).
@@ -462,6 +466,8 @@ impl Worktrees {
             return Err(errors::branch_occupied(branch, None, None, None));
         }
         let path = names::managed_path(&self.data_dir, &facts.common_dir, &slug);
+        // A new checkout at this path: no size measured for an earlier one counts.
+        self.sizes.forget(&path);
         let mut record = WorktreeRecord {
             id: slug.clone(),
             repo_common_dir: common,
@@ -763,86 +769,13 @@ impl Worktrees {
         session_id: Option<&str>,
         cancel: &CancellationToken,
     ) -> Result<Value, ScmFailure> {
-        let found = self
-            .record(cancel, entry_id)
-            .await?
-            .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
-        let repo = self.scm.open(Path::new(&found.project_path), cancel).await?;
-        let _lock = repo.lock_repository().await?;
-        let record = self
-            .record(cancel, entry_id)
-            .await?
-            .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
-        Self::assert_not_shared(&record, session_id)?;
-        let cwd = PathBuf::from(&record.project_path);
-        if record.state == "ready" {
-            self.assert_managed_path(&record, cancel).await?;
-            if !force {
-                self.assert_removable(&record, cancel).await?;
-            }
-        }
-        // The links this worktree made go first, never traversing their targets; if the removal
-        // then does not go through, they are put back.
-        let links = include::ledger_of(&record);
-        let stuck = on_lane(self.scm.lane, cancel, {
-            let links = links.clone();
-            move || include::remove_include_links(&links)
-        })
-        .await?;
-        if !stuck.is_empty() {
-            let remaining = stuck
-                .into_iter()
-                .map(|path| RemovalRemnant { kind: "link".into(), path: Some(path), name: None, error: None })
-                .collect();
-            return Err(errors::removal_incomplete(record.id.clone(), record.path.clone(), true, remaining));
-        }
-        // A created worktree is locked against git's own prune; the removal lifts that lock.
-        let _ = self.scm.git.outcome(cancel, &cwd, &["worktree", "unlock", &record.path], &RunOptions::default()).await;
-        let mut args = vec!["worktree", "remove"];
-        if force || record.state != "ready" || is_snapshot(&record) {
-            args.push("--force");
-        }
-        args.push(&record.path);
-        let removed = self.scm.git.run(cancel, &cwd, &args).await;
-        let folder = PathBuf::from(&record.path);
-        if folder.exists() {
-            let _ = on_lane(self.scm.lane, cancel, move || include::restore_include_links(&links)).await;
-            let error = match removed {
-                Err(ScmFailure::Command { text, .. }) => text,
-                _ => "the folder is still in use".to_owned(),
-            };
-            return Err(errors::removal_incomplete(
-                record.id.clone(),
-                record.path.clone(),
-                true,
-                vec![RemovalRemnant {
-                    kind: "error".into(),
-                    path: Some(record.path.clone()),
-                    name: None,
-                    error: Some(error),
-                }],
-            ));
-        }
-        let _ = self.scm.git.outcome(cancel, &cwd, &["worktree", "prune"], &RunOptions::default()).await?;
-        let mut result = json!({ "removed": true });
-        if let Some(branch) = record.branch.as_deref().filter(|_| record.extra.get("existingBranch") != Some(&Value::Bool(true))) {
-            let head = self
-                .scm
-                .git
-                .outcome(cancel, &cwd, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")], &RunOptions::default())
-                .await?;
-            let deleted = self.scm.git.outcome(cancel, &cwd, &["branch", "-d", "--", branch], &RunOptions::default()).await?;
-            if deleted.success() {
-                result["branchDeleted"] = json!(true);
-            } else if head.success() {
-                // Unmerged work the user confirmed dropping stays reachable by its name.
-                result["preservedBranch"] = json!({ "name": branch, "head": head.stdout_text().trim() });
-            }
-        }
-        let id = record.id.clone();
-        self.with_registry(cancel, move |r| r.delete(&id)).await?;
-        repo.touched();
-        Ok(result)
+        let request = crate::worktree::removal::RemoveRequest {
+            entry_id: entry_id.to_owned(),
+            force,
+            session_id: session_id.map(str::to_owned),
+            ..Default::default()
+        };
+        self.remove_managed(request, cancel).await
     }
 
     /// Removes the managed worktree at `path` (`git worktree remove <path>`).

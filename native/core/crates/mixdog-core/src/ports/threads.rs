@@ -1,7 +1,6 @@
 //! The one seam between the ports and the session runtime: a thread's acked header and the
 //! section publication. The directory adapter uses `thread/header/read` and
-//! `thread/header/patch` (a `meta` record), which the session actor must serve; until it does
-//! they answer `invalidParams`.
+//! `thread/header/patch` (a `meta` record), which the session serves to internal callers only.
 
 use std::sync::Arc;
 

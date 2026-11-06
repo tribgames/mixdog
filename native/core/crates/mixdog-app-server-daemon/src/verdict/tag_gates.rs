@@ -252,6 +252,8 @@ fn core_child() {
     let data_path = PathBuf::from(&data);
     let first_held = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
     let sink = first_held.clone();
+    let steps = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let step_sink = steps.clone();
     let pauses: Vec<String> = std::env::var("MIXDOG_OWN_CORE_PAUSE")
         .map(|list| list.split(',').map(str::to_string).collect())
         .unwrap_or_default();
@@ -261,6 +263,7 @@ fn core_child() {
             *sink.borrow_mut() = Some(record_pid(&data_path));
         }
         let name = format!("{step:?}");
+        step_sink.borrow_mut().push(name.clone());
         if pauses.contains(&name) && paused.insert(name.clone()) {
             marker(&format!("AT {name}"));
             let mut line = String::new();
@@ -280,7 +283,20 @@ fn core_child() {
     );
     let interrupt = Interrupt::new().expect("interrupt");
     loop {
-        match gate.step().expect("step") {
+        let step = gate.step().unwrap_or_else(|error| {
+            let entries: Vec<String> = std::fs::read_dir(&data)
+                .map(|dir| {
+                    dir.map_while(Result::ok)
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            panic!(
+                "step: {error:?} after steps {:?}; data dir {entries:?}",
+                steps.borrow()
+            )
+        });
+        match step {
             GateStep::Clear => break,
             GateStep::Blocked(blocked) => {
                 marker(&format!(
@@ -326,7 +342,9 @@ fn core_process_paused(temp: &TempData, pauses: &str) -> SelfChild {
 fn serves_after(core: &SelfChild, temp: &TempData, daemon: Option<&mut Child>, kill: bool) {
     let mut daemon = daemon;
     loop {
-        let marker = core.next().expect("the core exited before serving");
+        let marker = core
+            .next()
+            .unwrap_or_else(|| panic!("the core exited before serving:\n{}", core.output()));
         if marker == "SERVING" {
             break;
         }
@@ -921,6 +939,7 @@ fn killed_at(at: Step, inject: bool, contend: bool) {
     }
     assert_eq!(core.expect(&format!("AT {at:?}")), "");
     drop(core);
+    println!("killed at {at:?}");
     if contend {
         let (mut child, pid) = contender(&temp);
         if pid.is_some() {

@@ -53,7 +53,6 @@ use crate::domains::support::invalid;
 use crate::domains::support::on_lane;
 use crate::domains::support::wrong_method;
 use crate::tool_modules::with_grandfathered_builtins;
-use presets::with_stored_routes;
 
 const DOMAIN: &str = "config";
 
@@ -207,8 +206,8 @@ impl WorkflowConfig {
     async fn save(&self, before: &Doc, after: &Doc) -> Result<(), CoreError> {
         // `after` descends from the adopted config, so it keeps the section `before` was stamped
         // with: a Lead route it adds must not turn a fresh profile into a grandfathered one.
-        let before = with_stored_routes(&with_grandfathered_builtins(before));
-        let mut after = with_stored_routes(after);
+        let before = with_grandfathered_builtins(before);
+        let mut after = after.clone();
         if !after.contains_key("builtins") {
             after.insert("builtins".into(), before.get("builtins").cloned().unwrap_or(Value::Null));
         }
@@ -246,7 +245,7 @@ impl WorkflowConfig {
             .run(
                 req,
                 None,
-                move || async move { on_lane(durability, &cancel, move |_| pack::save_pack(&paths, &payload, &*now)).await? },
+                move || async move { on_lane(durability, &cancel, move |lane| pack::save_pack(lane, &paths,&payload, &*now)).await? },
                 move || async move {
                     let id = ids::clean(replay_payload.get("id"));
                     on_lane(interactive, &replay_cancel, move |_| pack::get_pack(&replay_paths, &id)).await?
@@ -264,7 +263,7 @@ impl WorkflowConfig {
             .run(
                 req,
                 None,
-                move || async move { on_lane(durability, &cancel, move |_| pack::create_pack(&paths, &payload, &*now)).await? },
+                move || async move { on_lane(durability, &cancel, move |lane| pack::create_pack(lane, &paths,&payload, &*now)).await? },
                 move || async move {
                     on_lane(interactive, &replay_cancel, move |_| match pack::created_id(&replay_paths, &replay_payload) {
                         Some(id) => pack::get_pack(&replay_paths, &id),

@@ -122,9 +122,6 @@ pub struct Facts {
     pub cache_write_1h_tokens: f64,
     pub cost_usd: Option<f64>,
     pub raw_service_tier: Option<String>,
-    /// The model the provider says the request bills as (Cursor `pricingModel`
-    /// in its usage), when the send result states none.
-    pub raw_pricing_model: Option<String>,
 }
 
 impl Facts {
@@ -138,7 +135,6 @@ impl Facts {
         cache_write_1h_tokens: 0.0,
         cost_usd: None,
         raw_service_tier: None,
-        raw_pricing_model: None,
     };
     /// A failure that reported nothing: zero tokens, zero cost.
     pub const FAILED: Facts = Facts {
@@ -150,7 +146,6 @@ impl Facts {
         cache_write_1h_tokens: 0.0,
         cost_usd: Some(0.0),
         raw_service_tier: None,
-        raw_pricing_model: None,
     };
 
     /// Tokens, or a provider-reported cost (a cost-only report is still a billed request).
@@ -176,13 +171,6 @@ impl From<&Usage> for Facts {
                 .and_then(|raw| raw.get("service_tier"))
                 .filter(|tier| crate::service::admin_route::truthy(Some(tier)))
                 .map(mixdog_js::value_to_string),
-            raw_pricing_model: usage
-                .raw
-                .as_ref()
-                .and_then(|raw| raw.get("pricingModel"))
-                .and_then(|model| model.as_str())
-                .filter(|model| !model.is_empty())
-                .map(str::to_owned),
         }
     }
 }
@@ -615,7 +603,7 @@ impl SendAccounting {
             attempts: f64::from(attempts),
             ttft_ms: if row.timed { first_output_ms(&identity.provider, completed.and_then(|c| c.generation_ms), stream_ms) } else { None },
             elapsed_ms: if matches!(row.outcome, Some(RowOutcome::Failed { .. })) { (now - identity.started_at) as f64 } else { 0.0 },
-            pricing_model: completed.and_then(|c| c.pricing_model.clone()).or_else(|| facts.raw_pricing_model.clone()),
+            pricing_model: completed.and_then(|c| c.pricing_model.clone()),
             session_id: identity.session_id.clone(),
             owner_session_id: identity.owner_session_id.clone(),
             source_type: identity.source_type.clone(),

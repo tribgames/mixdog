@@ -96,6 +96,43 @@ impl Opts {
     }
 }
 
+/// The call of a publication that failed, named as `atomic-file.mjs`'s own `fs` call so a caller
+/// can word the error as Node does.
+#[derive(Debug)]
+pub enum Step {
+    /// `mkdirSync(dir, { recursive: true })`.
+    Mkdir(PathBuf),
+    /// `openSync(path, 'wx')` of the temp file, or `readFileSync` of the file being replaced.
+    Open(PathBuf),
+    /// `readFileSync` of a directory: the failing call is the `read` after the open.
+    Read,
+    /// `writeFileSync(fd, ..)`.
+    Write,
+    /// `fsyncSync(fd)`.
+    Fsync,
+    /// `renameSync(from, to)`.
+    Rename(PathBuf, PathBuf),
+    /// Linking a create-only file, or flushing the directory.
+    Other,
+}
+
+/// A failed publication and the step it failed at.
+#[derive(Debug)]
+pub struct PublishFailure {
+    pub step: Step,
+    pub error: io::Error,
+}
+
+impl From<PublishFailure> for io::Error {
+    fn from(failure: PublishFailure) -> Self {
+        failure.error
+    }
+}
+
+fn at(step: Step) -> impl FnOnce(io::Error) -> PublishFailure {
+    move |error| PublishFailure { step, error }
+}
+
 /// What a publication did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Published {
@@ -143,16 +180,21 @@ fn fsync_refused(error: &io::Error, directory: bool) -> bool {
     }
 }
 
-fn write_durable<L: WriteLane>(lane: &InLane<L>, tmp: &Path, data: &[u8], opts: &Opts) -> io::Result<()> {
+fn write_durable<L: WriteLane>(
+    lane: &InLane<L>,
+    tmp: &Path,
+    data: &[u8],
+    opts: &Opts,
+) -> Result<(), PublishFailure> {
     record("create", &[tmp]);
-    let mut file = create_new(lane, tmp, opts.access(), opts.mode)?;
-    file.write_all(data)?;
+    let mut file = create_new(lane, tmp, opts.access(), opts.mode).map_err(at(Step::Open(tmp.to_owned())))?;
+    file.write_all(data).map_err(at(Step::Write))?;
     if opts.fsync {
         record("fsync", &[tmp]);
         if let Err(error) = file.sync_all()
             && !fsync_refused(&error, false)
         {
-            return Err(error);
+            return Err(PublishFailure { step: Step::Fsync, error });
         }
     }
     Ok(())
@@ -263,8 +305,16 @@ pub(crate) fn backup_path(path: &Path) -> PathBuf {
 }
 
 /// `keepBackupSync`: the version being replaced, if it is worth keeping.
-fn keep_backup<L: WriteLane>(lane: &InLane<L>, path: &Path, opts: &Opts) -> io::Result<()> {
-    let Some(previous) = read_or_null(path)? else { return Ok(()) };
+fn keep_backup<L: WriteLane>(lane: &InLane<L>, path: &Path, opts: &Opts) -> Result<(), PublishFailure> {
+    let previous = match read_or_null(path) {
+        Ok(Some(previous)) => previous,
+        Ok(None) => return Ok(()),
+        // Node reads a directory as `open` then a failing `read`.
+        Err(_) if path.is_dir() => {
+            return Err(PublishFailure { step: Step::Read, error: io::ErrorKind::IsADirectory.into() });
+        }
+        Err(error) => return Err(PublishFailure { step: Step::Open(path.to_owned()), error }),
+    };
     let keeps = match opts.backup_accepts {
         Some(accepts) => accepts(&previous),
         None => !holds_no_data(&previous),
@@ -276,9 +326,14 @@ fn keep_backup<L: WriteLane>(lane: &InLane<L>, path: &Path, opts: &Opts) -> io::
 }
 
 /// `publishFileSync`.
-pub(crate) fn publish<L: WriteLane>(lane: &InLane<L>, path: &Path, data: &[u8], opts: &Opts) -> io::Result<Published> {
+pub(crate) fn publish<L: WriteLane>(
+    lane: &InLane<L>,
+    path: &Path,
+    data: &[u8],
+    opts: &Opts,
+) -> Result<Published, PublishFailure> {
     let dir = parent(path);
-    fs::create_dir_all(dir)?;
+    fs::create_dir_all(dir).map_err(at(Step::Mkdir(dir.to_owned())))?;
     let tmp = temp_path(path);
     let result = (|| {
         write_durable(lane, &tmp, data, opts)?;
@@ -295,13 +350,13 @@ pub(crate) fn publish<L: WriteLane>(lane: &InLane<L>, path: &Path, data: &[u8], 
             match linked {
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Ok(Published::Exists),
-                Err(error) => return Err(error),
+                Err(error) => return Err(PublishFailure { step: Step::Other, error }),
             }
         } else {
-            rename_with_retry(&tmp, path)?;
+            rename_with_retry(&tmp, path).map_err(at(Step::Rename(tmp.clone(), path.to_owned())))?;
         }
         if opts.fsync_dir {
-            fsync_dir(lane, dir)?;
+            fsync_dir(lane, dir).map_err(at(Step::Other))?;
         }
         Ok(Published::Written)
     })();

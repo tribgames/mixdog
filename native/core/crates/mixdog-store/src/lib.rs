@@ -22,6 +22,7 @@ pub mod sqlite;
 pub mod state;
 pub mod summary;
 pub mod title;
+pub mod worker;
 
 #[cfg(test)]
 mod store_tests;

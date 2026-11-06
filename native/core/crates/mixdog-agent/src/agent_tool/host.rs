@@ -158,9 +158,14 @@ pub trait Tasks: Send + Sync {
     fn cleanup(&self, scope: &Scope, force: bool) -> Cleaned;
 }
 
+/// The readers over the job board and the tag registry. Listing and lookup refresh the
+/// registry from the stored sessions first, as Node does, so they are async.
+#[async_trait]
 pub trait Views: Send + Sync {
-    fn get_job_or_worker(&self, args: &Value, scope: &Scope) -> Result<Job, String>;
-    fn list(&self, scope: &Scope, options: ListOptions) -> Vec<WorkerRow>;
+    /// A job by `task_id`, else the newest for `tag`/`sessionId`, else a synthetic job built
+    /// from the worker session. `include_result`: `read` shows the result, `status` does not.
+    async fn get_job_or_worker(&self, args: &Value, scope: &Scope, include_result: bool) -> Result<Job, String>;
+    async fn list(&self, scope: &Scope, options: ListOptions) -> Vec<WorkerRow>;
     fn list_jobs(&self, scope: &Scope) -> Vec<JobRow>;
 }
 

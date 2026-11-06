@@ -310,7 +310,7 @@ fn is_store_bot(lane: &InLane<InteractiveIo>, data_dir: &Path, id: &str) -> bool
 /// by the previous write) and otherwise reads as absent.
 #[allow(clippy::disallowed_methods, reason = "an io-interactive job body: the proof says it runs there")]
 fn read_json(_lane: &InLane<InteractiveIo>, file: &Path) -> Option<Map<String, Value>> {
-    let parse = |path: &Path| match serde_json::from_slice(&std::fs::read(path).ok()?) {
+    let parse = |path: &Path| match mixdog_statefile::parse_json_text(&std::fs::read(path).ok()?) {
         Ok(Value::Object(map)) => Some(map),
         _ => None,
     };
@@ -329,29 +329,13 @@ fn backup_of(file: &Path) -> PathBuf {
     clippy::disallowed_types,
     reason = "an io-durability job body: the proof says it runs there"
 )]
-fn write_json(_lane: &InLane<DurabilityIo>, file: &Path, value: &Map<String, Value>) -> Result<(), ConfigError> {
-    use std::io::Write;
-    if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let mut bytes = serde_json::to_vec_pretty(value).map_err(|e| ConfigError::Parse(e.to_string()))?;
-    bytes.push(b'\n');
-    if file.exists() {
-        std::fs::copy(file, backup_of(file))?;
-    }
-    let mut name = file.file_name().unwrap_or_default().to_os_string();
-    name.push(format!(".{}.tmp", std::process::id()));
-    let tmp = file.with_file_name(name);
-    let written = (|| {
-        let mut handle = std::fs::File::create(&tmp)?;
-        handle.write_all(&bytes)?;
-        handle.sync_all()?;
-        std::fs::rename(&tmp, file)
-    })();
-    if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    Ok(written?)
+fn write_json(lane: &InLane<DurabilityIo>, file: &Path, value: &Map<String, Value>) -> Result<(), ConfigError> {
+    // `writeJsonAtomicSync(file, value, { backup: true })`: the replaced version stays as `.bak`
+    // when it still parses.
+    let opts = mixdog_statefile::Opts { backup: true, ..mixdog_statefile::Opts::default() };
+    mixdog_statefile::write_json(lane, file, &Value::Object(value.clone()), &opts)
+        .map(drop)
+        .map_err(|error| std::io::Error::other(error.to_string()).into())
 }
 
 #[cfg(test)]

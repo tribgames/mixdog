@@ -122,7 +122,7 @@ fn project_local_binary_blocking(cwd: &Path, entry: &EngineEntry) -> Option<Path
 }
 
 /// Which of an engine's marker config files the project already has.
-pub(super) async fn project_config_file_for(lane: DurabilityIo, cwd: &Path, entry: &'static EngineEntry) -> Option<String> {
+async fn project_config_file_for(lane: DurabilityIo, cwd: &Path, entry: &'static EngineEntry) -> Option<String> {
     let (cwd, id) = (cwd.to_owned(), entry.id.clone());
     on_lane(lane, move || engine_entry(&id).and_then(|entry| project_config_file_blocking(&cwd, entry))).await.ok().flatten()
 }
@@ -217,7 +217,7 @@ fn installable(entry: &EngineEntry, manifest: &Value) -> bool {
     entry.managed && manifest_asset(manifest, &entry.id).is_some()
 }
 
-pub(super) async fn resolve_one(processes: &Processes, cwd: &Path, entry: &'static EngineEntry, config: &TidyConfig, env: Option<&HashMap<String, String>>, manifest: &Value, plugin_data: &Path, index: &Arc<PathIndex>) -> Resolved {
+async fn resolve_one(processes: &Processes, cwd: &Path, entry: &'static EngineEntry, config: &TidyConfig, env: Option<&HashMap<String, String>>, manifest: &Value, plugin_data: &Path, index: &Arc<PathIndex>) -> Resolved {
     let lane = processes.durability();
     let base = Resolved { id: entry.id.clone(), kind: entry.kind.clone(), languages: entry.languages.clone(), install_hint: entry.install_hint.clone(), ..Default::default() };
     if let Some(configured) = config.engines.get(&entry.id).and_then(Value::as_object) {
@@ -434,7 +434,7 @@ pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: Resolve
     Resolution { engines: resolved, policy, config, unknown_engines: unknown }
 }
 
-pub(super) async fn refine_managed_modules(processes: &Processes, engines: &mut [Resolved], probe: Option<&HostModuleProbe>, cancel: Option<&CancellationToken>) {
+async fn refine_managed_modules(processes: &Processes, engines: &mut [Resolved], probe: Option<&HostModuleProbe>, cancel: Option<&CancellationToken>) {
     let candidates: Vec<(usize, Resolved)> = engines.iter().cloned().enumerate().filter(|(_, e)| engine_entry(&e.id).is_some_and(|c| c.managed_module) && !e.command.is_empty()).collect();
     if candidates.is_empty() {
         return;

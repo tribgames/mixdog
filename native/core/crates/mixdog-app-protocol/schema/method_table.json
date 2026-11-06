@@ -10325,6 +10325,11 @@
     },
     {
       "delivery": null,
+      "method": "modelProxy/cancel",
+      "params": "ModelProxyRunCancelParams"
+    },
+    {
+      "delivery": null,
       "method": "ui/newTab/created",
       "params": "UiNewTabCreatedParams"
     },
@@ -10534,6 +10539,11 @@
       "delivery": "connection",
       "method": "modelProxy/run/event",
       "params": "ModelProxyRunEventParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "model/proxy/cancel",
+      "params": "ModelProxyCancelParams"
     },
     {
       "delivery": "app",

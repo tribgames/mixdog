@@ -1,0 +1,3412 @@
+{
+ "base": "D:\\mixdog-build\\tmp\\skillsapi-golden\\b",
+ "fixtures": {
+  "alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+  "beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+  "gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+  "wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+  "emptied/SKILL.md": ""
+ },
+ "steps": [
+  {
+   "name": "status of the fixtures",
+   "method": "skills/skillsStatus",
+   "params": {},
+   "result": {
+    "cwd": "<BASE>\\proj1\\sub",
+    "count": 3,
+    "tools": [
+     {
+      "name": "read"
+     },
+     {
+      "name": "bash"
+     }
+    ],
+    "skills": [
+     {
+      "name": "alpha",
+      "enabled": true,
+      "description": "Use when alpha.",
+      "whenToUse": "",
+      "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": [],
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     },
+     {
+      "name": "beta",
+      "enabled": false,
+      "description": "Use when beta.",
+      "whenToUse": "Beta trigger",
+      "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": [],
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     },
+     {
+      "name": "gamma",
+      "enabled": true,
+      "description": "Use when gamma.",
+      "whenToUse": "",
+      "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": [],
+      "scope": [
+       "<BASE>\\proj1"
+      ],
+      "inheritedScope": null,
+      "activeHere": true
+     }
+    ]
+   },
+   "error": null,
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "status for another folder",
+   "method": "skills/skillsStatus",
+   "params": {
+    "cwd": "<BASE>\\proj2"
+   },
+   "result": {
+    "cwd": "<BASE>\\proj2",
+    "count": 3,
+    "tools": [
+     {
+      "name": "read"
+     },
+     {
+      "name": "bash"
+     }
+    ],
+    "skills": [
+     {
+      "name": "alpha",
+      "enabled": true,
+      "description": "Use when alpha.",
+      "whenToUse": "",
+      "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": [],
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     },
+     {
+      "name": "beta",
+      "enabled": false,
+      "description": "Use when beta.",
+      "whenToUse": "Beta trigger",
+      "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": [],
+      "scope": null,
+      "inheritedScope": null,
+      "activeHere": true
+     },
+     {
+      "name": "gamma",
+      "enabled": true,
+      "description": "Use when gamma.",
+      "whenToUse": "",
+      "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": [],
+      "scope": [
+       "<BASE>\\proj1"
+      ],
+      "inheritedScope": null,
+      "activeHere": false
+     }
+    ]
+   },
+   "error": null,
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "status with a relative folder",
+   "method": "skills/skillsStatus",
+   "params": {
+    "cwd": "rel/dir"
+   },
+   "result": null,
+   "error": "skillsStatus cwd must be an absolute path.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "status with a file as folder",
+   "method": "skills/skillsStatus",
+   "params": {
+    "cwd": "<BASE>\\afile"
+   },
+   "result": null,
+   "error": "skillsStatus cwd is not a directory.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "status with an empty folder text",
+   "method": "skills/skillsStatus",
+   "params": {
+    "cwd": ""
+   },
+   "result": null,
+   "error": "skillsStatus cwd must be an absolute path.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "content of alpha",
+   "method": "skills/skillContent",
+   "params": {
+    "name": "alpha"
+   },
+   "result": {
+    "content": "# Alpha\n\nRun it.",
+    "dir": "<BASE>\\data\\skills\\alpha",
+    "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+    "source": "global",
+    "toolDependencies": [],
+    "declaredToolDependencies": [],
+    "dependencySource": "none",
+    "dependencyIssues": [],
+    "name": "alpha"
+   },
+   "error": null,
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "content of a disabled skill",
+   "method": "skills/skillContent",
+   "params": {
+    "name": "beta"
+   },
+   "result": {
+    "content": "Beta body",
+    "dir": "<BASE>\\data\\skills\\beta",
+    "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+    "source": "global",
+    "toolDependencies": [],
+    "declaredToolDependencies": [],
+    "dependencySource": "none",
+    "dependencyIssues": [],
+    "name": "beta"
+   },
+   "error": null,
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "content with spaces around the name",
+   "method": "skills/skillContent",
+   "params": {
+    "name": "  gamma "
+   },
+   "result": {
+    "content": "Gamma body",
+    "dir": "<BASE>\\data\\skills\\gamma",
+    "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+    "source": "global",
+    "toolDependencies": [],
+    "declaredToolDependencies": [],
+    "dependencySource": "none",
+    "dependencyIssues": [],
+    "name": "gamma"
+   },
+   "error": null,
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "content of nothing",
+   "method": "skills/skillContent",
+   "params": {
+    "name": ""
+   },
+   "result": null,
+   "error": "skill name is required",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "content of a ghost",
+   "method": "skills/skillContent",
+   "params": {
+    "name": "ghost"
+   },
+   "result": null,
+   "error": "skill not found: ghost",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "disabled list",
+   "method": "skills/getDisabledSkills",
+   "params": {},
+   "result": {
+    "disabled": [
+     "beta"
+    ]
+   },
+   "error": null,
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "add a skill",
+   "method": "skills/addSkill",
+   "params": {
+    "input": {
+     "name": "new-one",
+     "description": " A new skill ",
+     "whenToUse": "when new",
+     "instructions": "Do the new thing."
+    }
+   },
+   "result": {
+    "skill": {
+     "name": "new-one",
+     "filePath": "<BASE>\\data\\skills\\new-one\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 4,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Use when alpha.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "new-one",
+       "enabled": true,
+       "description": "A new skill",
+       "whenToUse": "when new",
+       "filePath": "<BASE>\\data\\skills\\new-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "announce:skills"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "add the same again",
+   "method": "skills/addSkill",
+   "params": {
+    "input": {
+     "name": "new-one",
+     "description": "x",
+     "instructions": "y"
+    }
+   },
+   "result": null,
+   "error": "skill already exists: new-one",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "add with defaults",
+   "method": "skills/addSkill",
+   "params": {
+    "input": {
+     "name": "plain",
+     "description": "Plain skill"
+    }
+   },
+   "result": {
+    "skill": {
+     "name": "plain",
+     "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 5,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Use when alpha.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "new-one",
+       "enabled": true,
+       "description": "A new skill",
+       "whenToUse": "when new",
+       "filePath": "<BASE>\\data\\skills\\new-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "announce:skills"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "add with tool dependencies",
+   "method": "skills/addSkill",
+   "params": {
+    "input": {
+     "name": "with-deps",
+     "description": "Has deps",
+     "body": "B",
+     "toolDependencies": [
+      {
+       "type": "tool",
+       "value": "read"
+      },
+      {
+       "type": "mcp",
+       "value": "srv"
+      }
+     ]
+    }
+   },
+   "result": {
+    "skill": {
+     "name": "with-deps",
+     "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 6,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Use when alpha.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "new-one",
+       "enabled": true,
+       "description": "A new skill",
+       "whenToUse": "when new",
+       "filePath": "<BASE>\\data\\skills\\new-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [
+        {
+         "type": "tool",
+         "value": "read"
+        },
+        {
+         "type": "mcp",
+         "value": "srv"
+        }
+       ],
+       "declaredToolDependencies": [],
+       "dependencySource": "override",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "announce:skills"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "add with bad dependencies",
+   "method": "skills/addSkill",
+   "params": {
+    "input": {
+     "name": "bad-deps",
+     "description": "x",
+     "toolDependencies": "nope"
+    }
+   },
+   "result": null,
+   "error": "Skill dependencies.tools must be an array of at most 128 entries.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "add with a bad name",
+   "method": "skills/addSkill",
+   "params": {
+    "input": {
+     "name": "Bad Name",
+     "description": "x"
+    }
+   },
+   "result": null,
+   "error": "Skill name may contain only lowercase letters, numbers, and hyphens.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "add without a description",
+   "method": "skills/addSkill",
+   "params": {
+    "input": {
+     "name": "nodesc"
+    }
+   },
+   "result": null,
+   "error": "Skill description is required.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "add with a long trigger",
+   "method": "skills/addSkill",
+   "params": {
+    "input": {
+     "name": "longwhen",
+     "description": "x",
+     "whenToUse": "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww"
+    }
+   },
+   "result": null,
+   "error": "Skill trigger must be 1024 characters or fewer.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "add with a very long description",
+   "method": "skills/addSkill",
+   "params": {
+    "input": {
+     "name": "long-desc",
+     "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+     "instructions": "z"
+    }
+   },
+   "result": {
+    "skill": {
+     "name": "long-desc",
+     "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 7,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Use when alpha.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "long-desc",
+       "enabled": true,
+       "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "new-one",
+       "enabled": true,
+       "description": "A new skill",
+       "whenToUse": "when new",
+       "filePath": "<BASE>\\data\\skills\\new-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [
+        {
+         "type": "tool",
+         "value": "read"
+        },
+        {
+         "type": "mcp",
+         "value": "srv"
+        }
+       ],
+       "declaredToolDependencies": [],
+       "dependencySource": "override",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "announce:skills"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "add over an empty SKILL.md",
+   "method": "skills/addSkill",
+   "params": {
+    "input": {
+     "name": "emptied",
+     "description": "was empty",
+     "instructions": "fresh"
+    }
+   },
+   "result": {
+    "skill": {
+     "name": "emptied",
+     "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 8,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Use when alpha.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "emptied",
+       "enabled": true,
+       "description": "was empty",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "long-desc",
+       "enabled": true,
+       "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "new-one",
+       "enabled": true,
+       "description": "A new skill",
+       "whenToUse": "when new",
+       "filePath": "<BASE>\\data\\skills\\new-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [
+        {
+         "type": "tool",
+         "value": "read"
+        },
+        {
+         "type": "mcp",
+         "value": "srv"
+        }
+       ],
+       "declaredToolDependencies": [],
+       "dependencySource": "override",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "announce:skills"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "save an unchanged skill",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "alpha",
+     "name": "alpha",
+     "description": "Use when alpha.",
+     "whenToUse": "",
+     "instructions": "# Alpha\n\nRun it."
+    }
+   },
+   "result": {
+    "skill": {
+     "originalName": "alpha",
+     "name": "alpha",
+     "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 8,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Use when alpha.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "emptied",
+       "enabled": true,
+       "description": "was empty",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "long-desc",
+       "enabled": true,
+       "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "new-one",
+       "enabled": true,
+       "description": "A new skill",
+       "whenToUse": "when new",
+       "filePath": "<BASE>\\data\\skills\\new-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [
+        {
+         "type": "tool",
+         "value": "read"
+        },
+        {
+         "type": "mcp",
+         "value": "srv"
+        }
+       ],
+       "declaredToolDependencies": [],
+       "dependencySource": "override",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "announce:skills:keep"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "save a new description",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "alpha",
+     "name": "alpha",
+     "description": "Alpha, changed.",
+     "whenToUse": "on alpha",
+     "instructions": "# Alpha\n\nChanged."
+    }
+   },
+   "result": {
+    "skill": {
+     "originalName": "alpha",
+     "name": "alpha",
+     "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 8,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Alpha, changed.",
+       "whenToUse": "on alpha",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "emptied",
+       "enabled": true,
+       "description": "was empty",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "long-desc",
+       "enabled": true,
+       "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "new-one",
+       "enabled": true,
+       "description": "A new skill",
+       "whenToUse": "when new",
+       "filePath": "<BASE>\\data\\skills\\new-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [
+        {
+         "type": "tool",
+         "value": "read"
+        },
+        {
+         "type": "mcp",
+         "value": "srv"
+        }
+       ],
+       "declaredToolDependencies": [],
+       "dependencySource": "override",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "announce:skills:keep"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "disable new-one",
+   "method": "skills/setDisabledSkills",
+   "params": {
+    "names": [
+     "new-one",
+     " beta",
+     "beta"
+    ]
+   },
+   "result": {
+    "disabled": [
+     "beta",
+     "new-one"
+    ]
+   },
+   "error": null,
+   "events": [
+    "flushSkills",
+    "invalidateSkills",
+    "announce:skills:keep"
+   ],
+   "disabledWrites": [
+    [
+     "beta",
+     "new-one"
+    ]
+   ],
+   "disabled": [
+    "beta",
+    "new-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/new-one/SKILL.md": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "rename a disabled skill",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "new-one",
+     "name": "renamed-one",
+     "description": "Renamed",
+     "whenToUse": "",
+     "instructions": "Body kept."
+    }
+   },
+   "result": {
+    "skill": {
+     "originalName": "new-one",
+     "name": "renamed-one",
+     "filePath": "<BASE>\\data\\skills\\renamed-one\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 8,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Alpha, changed.",
+       "whenToUse": "on alpha",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "emptied",
+       "enabled": true,
+       "description": "was empty",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "long-desc",
+       "enabled": true,
+       "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "renamed-one",
+       "enabled": true,
+       "description": "Renamed",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\renamed-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [
+        {
+         "type": "tool",
+         "value": "read"
+        },
+        {
+         "type": "mcp",
+         "value": "srv"
+        }
+       ],
+       "declaredToolDependencies": [],
+       "dependencySource": "override",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "flushSkills",
+    "announce:skills:keep"
+   ],
+   "disabledWrites": [
+    [
+     "beta",
+     "renamed-one"
+    ]
+   ],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "rename onto an existing skill",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "plain",
+     "name": "alpha",
+     "description": "x",
+     "instructions": "y"
+    }
+   },
+   "result": null,
+   "error": "skill already exists: alpha",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "rename onto an existing folder",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "plain",
+     "name": "wrongname",
+     "description": "x",
+     "instructions": "y"
+    }
+   },
+   "result": null,
+   "error": "skill folder already exists: wrongname",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "save a missing skill",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "ghost",
+     "name": "ghost",
+     "description": "x",
+     "instructions": "y"
+    }
+   },
+   "result": null,
+   "error": "skill not found: ghost",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "save a skill whose folder differs",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "other-name",
+     "name": "other-name",
+     "description": "x",
+     "instructions": "y"
+    }
+   },
+   "result": null,
+   "error": "skill not found: other-name",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"read\"\n      },\n      {\n        \"type\": \"mcp\",\n        \"value\": \"srv\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "save dependencies only",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "with-deps",
+     "dependenciesOnly": true,
+     "toolDependencies": [
+      {
+       "type": "tool",
+       "value": "write"
+      }
+     ]
+    }
+   },
+   "result": {
+    "skill": {
+     "originalName": "with-deps",
+     "name": "with-deps",
+     "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 8,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Alpha, changed.",
+       "whenToUse": "on alpha",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "emptied",
+       "enabled": true,
+       "description": "was empty",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "long-desc",
+       "enabled": true,
+       "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "renamed-one",
+       "enabled": true,
+       "description": "Renamed",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\renamed-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [
+        {
+         "type": "tool",
+         "value": "write"
+        }
+       ],
+       "declaredToolDependencies": [],
+       "dependencySource": "override",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "announce:skills:keep"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"write\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "save dependencies only without dependencies",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "with-deps",
+     "dependenciesOnly": true
+    }
+   },
+   "result": null,
+   "error": "Skill tool dependencies are required.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"write\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "clear dependencies",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "with-deps",
+     "dependenciesOnly": true,
+     "toolDependencies": null
+    }
+   },
+   "result": {
+    "skill": {
+     "originalName": "with-deps",
+     "name": "with-deps",
+     "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 8,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Alpha, changed.",
+       "whenToUse": "on alpha",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "emptied",
+       "enabled": true,
+       "description": "was empty",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "long-desc",
+       "enabled": true,
+       "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "renamed-one",
+       "enabled": true,
+       "description": "Renamed",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\renamed-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "announce:skills:keep"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps/SKILL.md": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": []
+   }
+  },
+  {
+   "name": "rename keeping a dependency override",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "with-deps",
+     "name": "with-deps2",
+     "description": "Has deps",
+     "instructions": "B",
+     "toolDependencies": [
+      {
+       "type": "tool",
+       "value": "bash"
+      }
+     ]
+    }
+   },
+   "result": {
+    "skill": {
+     "originalName": "with-deps",
+     "name": "with-deps2",
+     "filePath": "<BASE>\\data\\skills\\with-deps2\\SKILL.md"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 8,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Alpha, changed.",
+       "whenToUse": "on alpha",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "emptied",
+       "enabled": true,
+       "description": "was empty",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "long-desc",
+       "enabled": true,
+       "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "renamed-one",
+       "enabled": true,
+       "description": "Renamed",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\renamed-one\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps2",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps2\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [
+        {
+         "type": "tool",
+         "value": "bash"
+        }
+       ],
+       "declaredToolDependencies": [],
+       "dependencySource": "override",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "announce:skills:keep"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps2/SKILL.md": "---\nname: with-deps2\ndescription: Has deps\n---\n\nB\n",
+    "skills/with-deps2/SKILL.md.bak": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"bash\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "save without instructions",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "alpha",
+     "name": "alpha",
+     "description": "Alpha, changed again.",
+     "instructions": ""
+    }
+   },
+   "result": null,
+   "error": "Skill instructions are required.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps2/SKILL.md": "---\nname: with-deps2\ndescription: Has deps\n---\n\nB\n",
+    "skills/with-deps2/SKILL.md.bak": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"bash\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "save with a bad original name",
+   "method": "skills/saveSkill",
+   "params": {
+    "input": {
+     "originalName": "Bad",
+     "name": "x",
+     "description": "y"
+    }
+   },
+   "result": null,
+   "error": "Skill name may contain only lowercase letters, numbers, and hyphens.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [
+    "beta",
+    "renamed-one"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/renamed-one/SKILL.md": "---\nname: renamed-one\ndescription: Renamed\n---\n\nBody kept.\n",
+    "skills/renamed-one/SKILL.md.bak": "---\nname: new-one\ndescription: A new skill\nwhen_to_use: when new\n---\n\nDo the new thing.\n",
+    "skills/with-deps2/SKILL.md": "---\nname: with-deps2\ndescription: Has deps\n---\n\nB\n",
+    "skills/with-deps2/SKILL.md.bak": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"bash\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "remove an own skill",
+   "method": "skills/removeSkill",
+   "params": {
+    "input": {
+     "name": "renamed-one"
+    }
+   },
+   "result": {
+    "skill": {
+     "name": "renamed-one"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 7,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Alpha, changed.",
+       "whenToUse": "on alpha",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "beta",
+       "enabled": false,
+       "description": "Use when beta.",
+       "whenToUse": "Beta trigger",
+       "filePath": "<BASE>\\data\\skills\\beta\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "emptied",
+       "enabled": true,
+       "description": "was empty",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "long-desc",
+       "enabled": true,
+       "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps2",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps2\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [
+        {
+         "type": "tool",
+         "value": "bash"
+        }
+       ],
+       "declaredToolDependencies": [],
+       "dependencySource": "override",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "flushSkills",
+    "announce:skills"
+   ],
+   "disabledWrites": [
+    [
+     "beta"
+    ]
+   ],
+   "disabled": [
+    "beta"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/beta/SKILL.md": "---\nname: beta\ndescription: Use when beta.\nwhen_to_use: Beta trigger\n---\n\nBeta body\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps2/SKILL.md": "---\nname: with-deps2\ndescription: Has deps\n---\n\nB\n",
+    "skills/with-deps2/SKILL.md.bak": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"bash\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "remove a skill that is disabled",
+   "method": "skills/removeSkill",
+   "params": {
+    "input": {
+     "name": "beta"
+    }
+   },
+   "result": {
+    "skill": {
+     "name": "beta"
+    },
+    "status": {
+     "cwd": "<BASE>\\proj1\\sub",
+     "count": 6,
+     "tools": [
+      {
+       "name": "read"
+      },
+      {
+       "name": "bash"
+      }
+     ],
+     "skills": [
+      {
+       "name": "alpha",
+       "enabled": true,
+       "description": "Alpha, changed.",
+       "whenToUse": "on alpha",
+       "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "emptied",
+       "enabled": true,
+       "description": "was empty",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "gamma",
+       "enabled": true,
+       "description": "Use when gamma.",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "long-desc",
+       "enabled": true,
+       "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "plain",
+       "enabled": true,
+       "description": "Plain skill",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [],
+       "declaredToolDependencies": [],
+       "dependencySource": "none",
+       "dependencyIssues": []
+      },
+      {
+       "name": "with-deps2",
+       "enabled": true,
+       "description": "Has deps",
+       "whenToUse": "",
+       "filePath": "<BASE>\\data\\skills\\with-deps2\\SKILL.md",
+       "source": "global",
+       "owner": {
+        "kind": "user"
+       },
+       "editable": true,
+       "toolDependencies": [
+        {
+         "type": "tool",
+         "value": "bash"
+        }
+       ],
+       "declaredToolDependencies": [],
+       "dependencySource": "override",
+       "dependencyIssues": []
+      }
+     ]
+    }
+   },
+   "error": null,
+   "events": [
+    "flushSkills",
+    "announce:skills"
+   ],
+   "disabledWrites": [
+    []
+   ],
+   "disabled": [],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps2/SKILL.md": "---\nname: with-deps2\ndescription: Has deps\n---\n\nB\n",
+    "skills/with-deps2/SKILL.md.bak": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"bash\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "remove a ghost",
+   "method": "skills/removeSkill",
+   "params": {
+    "input": {
+     "name": "ghost"
+    }
+   },
+   "result": null,
+   "error": "skill not found: ghost",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps2/SKILL.md": "---\nname: with-deps2\ndescription: Has deps\n---\n\nB\n",
+    "skills/with-deps2/SKILL.md.bak": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"bash\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "remove with a bad name",
+   "method": "skills/removeSkill",
+   "params": {
+    "input": {
+     "name": ""
+    }
+   },
+   "result": null,
+   "error": "Skill name is required.",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps2/SKILL.md": "---\nname: with-deps2\ndescription: Has deps\n---\n\nB\n",
+    "skills/with-deps2/SKILL.md.bak": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"bash\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "remove a skill whose folder differs",
+   "method": "skills/removeSkill",
+   "params": {
+    "input": {
+     "name": "other-name"
+    }
+   },
+   "result": null,
+   "error": "skill not found: other-name",
+   "events": [],
+   "disabledWrites": [],
+   "disabled": [],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps2/SKILL.md": "---\nname: with-deps2\ndescription: Has deps\n---\n\nB\n",
+    "skills/with-deps2/SKILL.md.bak": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"bash\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "disable by names",
+   "method": "skills/setDisabledSkills",
+   "params": {
+    "names": [
+     "b",
+     " a ",
+     "b",
+     ""
+    ]
+   },
+   "result": {
+    "disabled": [
+     "a",
+     "b"
+    ]
+   },
+   "error": null,
+   "events": [
+    "flushSkills",
+    "invalidateSkills",
+    "announce:skills:keep"
+   ],
+   "disabledWrites": [
+    [
+     "a",
+     "b"
+    ]
+   ],
+   "disabled": [
+    "a",
+    "b"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps2/SKILL.md": "---\nname: with-deps2\ndescription: Has deps\n---\n\nB\n",
+    "skills/with-deps2/SKILL.md.bak": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"bash\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  },
+  {
+   "name": "reload",
+   "method": "skills/reloadSkills",
+   "params": {},
+   "result": {
+    "cwd": "<BASE>\\proj1\\sub",
+    "count": 6,
+    "tools": [
+     {
+      "name": "read"
+     },
+     {
+      "name": "bash"
+     }
+    ],
+    "skills": [
+     {
+      "name": "alpha",
+      "enabled": true,
+      "description": "Alpha, changed.",
+      "whenToUse": "on alpha",
+      "filePath": "<BASE>\\data\\skills\\alpha\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": []
+     },
+     {
+      "name": "emptied",
+      "enabled": true,
+      "description": "was empty",
+      "whenToUse": "",
+      "filePath": "<BASE>\\data\\skills\\emptied\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": []
+     },
+     {
+      "name": "gamma",
+      "enabled": true,
+      "description": "Use when gamma.",
+      "whenToUse": "",
+      "filePath": "<BASE>\\data\\skills\\gamma\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": []
+     },
+     {
+      "name": "long-desc",
+      "enabled": true,
+      "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+      "whenToUse": "",
+      "filePath": "<BASE>\\data\\skills\\long-desc\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": []
+     },
+     {
+      "name": "plain",
+      "enabled": true,
+      "description": "Plain skill",
+      "whenToUse": "",
+      "filePath": "<BASE>\\data\\skills\\plain\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [],
+      "declaredToolDependencies": [],
+      "dependencySource": "none",
+      "dependencyIssues": []
+     },
+     {
+      "name": "with-deps2",
+      "enabled": true,
+      "description": "Has deps",
+      "whenToUse": "",
+      "filePath": "<BASE>\\data\\skills\\with-deps2\\SKILL.md",
+      "source": "global",
+      "owner": {
+       "kind": "user"
+      },
+      "editable": true,
+      "toolDependencies": [
+       {
+        "type": "tool",
+        "value": "bash"
+       }
+      ],
+      "declaredToolDependencies": [],
+      "dependencySource": "override",
+      "dependencyIssues": []
+     }
+    ]
+   },
+   "error": null,
+   "events": [
+    "announce:skills"
+   ],
+   "disabledWrites": [],
+   "disabled": [
+    "a",
+    "b"
+   ],
+   "files": {
+    "skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha, changed.\nlicense: MIT # keep\nwhen_to_use: on alpha\n---\n\n# Alpha\n\nChanged.\n",
+    "skills/alpha/SKILL.md.bak": "---\nname: alpha\ndescription: Use when alpha.\nlicense: MIT # keep\n---\n\n# Alpha\n\nRun it.\n",
+    "skills/emptied/SKILL.md": "---\nname: emptied\ndescription: was empty\n---\n\nfresh\n",
+    "skills/gamma/SKILL.md": "---\nname: gamma\ndescription: Use when gamma.\n---\n\nGamma body\n",
+    "skills/long-desc/SKILL.md": "---\nname: long-desc\ndescription: word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n  word word word word word word word word word word word word word word word\n---\n\nz\n",
+    "skills/plain/SKILL.md": "---\nname: plain\ndescription: Plain skill\n---\n\n# Instructions\n\nDescribe how to use this skill.\n",
+    "skills/with-deps2/SKILL.md": "---\nname: with-deps2\ndescription: Has deps\n---\n\nB\n",
+    "skills/with-deps2/SKILL.md.bak": "---\nname: with-deps\ndescription: Has deps\n---\n\nB\n",
+    "skills/wrongname/SKILL.md": "---\nname: other-name\ndescription: Folder differs.\n---\n\nx\n",
+    "overrides": [
+     "{\n  \"dependencies\": {\n    \"tools\": [\n      {\n        \"type\": \"tool\",\n        \"value\": \"bash\"\n      }\n    ]\n  }\n}\n"
+    ]
+   }
+  }
+ ]
+}

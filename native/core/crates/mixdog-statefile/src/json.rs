@@ -21,7 +21,9 @@ use crate::lock::LockOpts;
 use crate::lock::lock_path;
 use crate::lock::locked;
 use crate::publish::Opts;
+use crate::publish::PublishFailure;
 use crate::publish::Published;
+use crate::publish::Step;
 use crate::publish::backup_path;
 use crate::publish::publish;
 use crate::publish::read_content;
@@ -216,10 +218,29 @@ pub fn write_file<L: WriteLane>(
     data: &[u8],
     opts: &Opts,
 ) -> Result<Published, StateError> {
-    if opts.lock {
-        return Ok(locked(&lock_path(path), &opts.lock_opts(), || publish(lane, path, data, opts))??);
+    write_file_stepped(lane, path, data, opts).map_err(|failure| StateError::Io(failure.error))
+}
+
+/// [`write_file`] that names the call that failed, for a caller that words the error as Node
+/// does (`<errno>: <description>, rename '<from>' -> '<to>'`). A lock that stays busy is a
+/// failure at no particular step.
+pub fn write_file_stepped<L: WriteLane>(
+    lane: &InLane<L>,
+    path: &Path,
+    data: &[u8],
+    opts: &Opts,
+) -> Result<Published, PublishFailure> {
+    if !opts.lock {
+        return publish(lane, path, data, opts);
     }
-    Ok(publish(lane, path, data, opts)?)
+    locked(&lock_path(path), &opts.lock_opts(), || publish(lane, path, data, opts))
+        .map_err(|error| PublishFailure {
+            step: Step::Other,
+            error: match error {
+                LockError::Io(error) => error,
+                busy => io::Error::new(io::ErrorKind::TimedOut, busy.to_string()),
+            },
+        })?
 }
 
 /// `JSON.stringify(value, null, 2)` and a newline (compact: no indentation), written as a parsed
@@ -236,7 +257,7 @@ fn publish_json<L: WriteLane>(lane: &InLane<L>, path: &Path, value: &Value, opts
     if opts.backup && opts.backup_accepts.is_none() {
         opts.backup_accepts = Some(is_json_content);
     }
-    publish(lane, path, &json_bytes(value, &opts), &opts)
+    Ok(publish(lane, path, &json_bytes(value, &opts), &opts)?)
 }
 
 /// `writeJsonAtomicSync`: `JSON.stringify(value, null, 2)` and a newline.

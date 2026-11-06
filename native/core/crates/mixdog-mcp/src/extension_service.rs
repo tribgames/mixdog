@@ -61,6 +61,9 @@ pub trait ExtensionConfig: Send + Sync {
     /// Stores `after` as the agent config: the difference to `before` (what this writer started
     /// from) is applied in one transaction, so a field another writer changed meanwhile survives.
     async fn save_agent(&self, before: &Map<String, Value>, after: &Map<String, Value>) -> Result<(), String>;
+    /// `settingsApi.setDisabledSkills`: adopts the (already normalized) list in memory at once and
+    /// schedules the debounced save; [`ExtensionHost::flush_skills_save`] writes it out.
+    fn set_disabled_skills(&self, names: &[String]);
 }
 
 /// What a registry or scope change does to the live process (Node's `sync` and runtime hooks).
@@ -70,6 +73,11 @@ pub trait ExtensionHost: Send + Sync {
     async fn reconcile_plugins_and_announce(&self);
     /// Announces a change of `kind` (`skills`, `mcp`, `plugins`) to new sessions and other processes.
     async fn announce(&self, kind: &str);
+    /// [`announce`](Self::announce) for a caller that already dropped the skills cache itself
+    /// (`announce(kind, { invalidate: false })`).
+    async fn announce_without_invalidating(&self, kind: &str);
+    /// The names of the tools the session offers (`getTools()`).
+    async fn tool_names(&self) -> Vec<String>;
     /// Drops the skills cache (and the recursive watchers on plugin roots).
     fn invalidate_skills(&self);
     /// Persists debounced skill-state writes now.

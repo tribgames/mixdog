@@ -534,7 +534,7 @@ pub fn silence_warn_ms() -> f64 {
 }
 
 /// `formatDuration(ms, { mostSignificantOnly: true })`.
-fn most_significant_duration(ms: u64) -> String {
+pub fn most_significant_duration(ms: u64) -> String {
     if ms < 1_000 {
         return String::new();
     }

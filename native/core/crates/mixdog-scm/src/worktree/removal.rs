@@ -193,7 +193,9 @@ impl Worktrees {
 
     async fn delete_record(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         let id = record.id.clone();
-        self.with_registry(cancel, move |registry| registry.delete(&id)).await
+        self.with_registry(cancel, move |registry| registry.delete(&id)).await?;
+        self.sizes().forget(Path::new(&record.path));
+        Ok(())
     }
 
     /// The HEAD commit of a branch worktree's checkout, read while it still exists.

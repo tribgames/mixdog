@@ -24,6 +24,7 @@ use mixdog_js::js_trim_end;
 use mixdog_js::json_quote;
 use mixdog_js::utf16_len;
 
+use crate::skill_flow as flow;
 use crate::skills::DESCRIPTION_MAX;
 use crate::skills::SkillDocumentError;
 use crate::skills::WHEN_TO_USE_MAX;
@@ -49,21 +50,40 @@ struct Checked {
     when_to_use: String,
 }
 
-fn check(fields: &Fields) -> Result<Checked, SkillDocumentError> {
-    let name = js_trim(fields.name);
+/// `validateSkillName`: the trimmed name, if it is a valid one.
+pub fn checked_name(raw: &str) -> Result<String, SkillDocumentError> {
+    let name = js_trim(raw);
     validate_name(name)?;
-    let description = js_trim(fields.description);
+    Ok(name.to_owned())
+}
+
+/// `validateSkillDescription`.
+pub fn checked_description(raw: &str) -> Result<String, SkillDocumentError> {
+    let description = js_trim(raw);
     if description.is_empty() {
         return Err(SkillDocumentError::DescriptionRequired);
     }
     if utf16_len(description) > DESCRIPTION_MAX {
         return Err(SkillDocumentError::DescriptionTooLong);
     }
-    let when_to_use = js_trim(fields.when_to_use);
+    Ok(description.to_owned())
+}
+
+/// `validateSkillWhenToUse`.
+pub fn checked_when_to_use(raw: &str) -> Result<String, SkillDocumentError> {
+    let when_to_use = js_trim(raw);
     if utf16_len(when_to_use) > WHEN_TO_USE_MAX {
         return Err(SkillDocumentError::WhenToUseTooLong);
     }
-    Ok(Checked { name: name.to_owned(), description: description.to_owned(), when_to_use: when_to_use.to_owned() })
+    Ok(when_to_use.to_owned())
+}
+
+fn check(fields: &Fields) -> Result<Checked, SkillDocumentError> {
+    Ok(Checked {
+        name: checked_name(fields.name)?,
+        description: checked_description(fields.description)?,
+        when_to_use: checked_when_to_use(fields.when_to_use)?,
+    })
 }
 
 fn render(front: &str, body: &str) -> Result<String, SkillDocumentError> {
@@ -78,9 +98,9 @@ fn render(front: &str, body: &str) -> Result<String, SkillDocumentError> {
 /// `createSkillDocument`.
 pub fn create_document(fields: &Fields, body: &str) -> Result<String, SkillDocumentError> {
     let checked = check(fields)?;
-    let mut pairs = vec![pair("name", &checked.name, &Site::fresh()), pair("description", &checked.description, &Site::fresh())];
+    let mut pairs = vec![pair("name", &checked.name, &Site::fresh())?, pair("description", &checked.description, &Site::fresh())?];
     if !checked.when_to_use.is_empty() {
-        pairs.push(pair("when_to_use", &checked.when_to_use, &Site::fresh()));
+        pairs.push(pair("when_to_use", &checked.when_to_use, &Site::fresh())?);
     }
     render(&pairs.join("\n"), body)
 }
@@ -90,16 +110,19 @@ pub fn update_document(markdown: &str, fields: &Fields, body: &str) -> Result<St
     let front = frontmatter_of(markdown)?;
     let checked = check(fields)?;
     let normalized = front.replace("\r\n", "\n");
-    let lines: Vec<&str> = normalized.split('\n').collect();
-    let entries = entries(&lines)?;
-    let Some(last) = entries.last() else {
-        return Err(SkillDocumentError::Unsupported("a frontmatter without top-level keys"));
-    };
     let wanted: [(&str, Option<&String>); 3] = [
         ("name", Some(&checked.name)),
         ("description", Some(&checked.description)),
         ("when_to_use", (!checked.when_to_use.is_empty()).then_some(&checked.when_to_use)),
     ];
+    let lines: Vec<&str> = normalized.split('\n').collect();
+    if lines.iter().map(|l| l.trim_start()).find(|l| !l.is_empty() && !l.starts_with('#')).is_some_and(|l| l.starts_with('{')) {
+        return render(&flow::print_flow_document(&normalized, &wanted)?, body);
+    }
+    let entries = entries(&lines)?;
+    let Some(last) = entries.last() else {
+        return Err(SkillDocumentError::InvalidYaml("no top-level keys".to_owned()));
+    };
     let mut edits: Vec<Edit> = Vec::new();
     let mut appended: Vec<String> = Vec::new();
     for (key, value) in wanted {
@@ -108,9 +131,9 @@ pub fn update_document(markdown: &str, fields: &Fields, body: &str) -> Result<St
             (Some(at), Some(value)) => {
                 let entry = &entries[at];
                 let (site, scalar_end) = value_site(&lines, entry)?;
-                edits.push(Edit { from: entry.start, to: scalar_end, text: vec![pair(&entry.key_text, value, &site)] });
+                edits.push(Edit { from: entry.start, to: scalar_end, text: vec![pair(&entry.key_text, value, &site)?] });
             }
-            (None, Some(value)) => appended.push(pair(key, value, &Site::fresh())),
+            (None, Some(value)) => appended.push(pair(key, value, &Site::fresh())?),
             (Some(at), None) => {
                 let entry = &entries[at];
                 // The comment lines written directly above a key belong to it; so, past the first
@@ -223,9 +246,6 @@ fn entries(lines: &[&str]) -> Result<Vec<Entry>, SkillDocumentError> {
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i];
-        if line.starts_with('{') {
-            return Err(SkillDocumentError::Unsupported("a flow-style frontmatter mapping"));
-        }
         let Some((key, key_text, after)) = parse_key(line) else {
             i += 1;
             continue;
@@ -252,8 +272,8 @@ fn entries(lines: &[&str]) -> Result<Vec<Entry>, SkillDocumentError> {
 // ---------------------------------------------------------------------------------------------
 // The value of an existing key.
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Kind {
     /// A scalar built in memory: no style yet, so the writer chooses.
     Unset,
     Plain,
@@ -265,8 +285,12 @@ enum Kind {
 
 struct Site {
     kind: Kind,
-    /// `&anchor` and `!!str`, in the order the writer prints them.
-    props: String,
+    /// The anchor name (without `&`).
+    anchor: Option<String>,
+    /// The resolved tag: `tag:yaml.org,2002:str` for `!!str`, `!custom` for `!custom`.
+    tag: Option<String>,
+    /// The scalar's text as the document wrote it (what a `!!null` or `!!float` keeps).
+    source: String,
     /// The comment after the value (text after its `#`).
     comment: Option<String>,
     /// Comments between the key and a value that starts on a later line.
@@ -277,7 +301,83 @@ struct Site {
 
 impl Site {
     fn fresh() -> Self {
-        Self { kind: Kind::Unset, props: String::new(), comment: None, comment_before: Vec::new(), space_before: false }
+        Self {
+            kind: Kind::Unset,
+            anchor: None,
+            tag: None,
+            source: String::new(),
+            comment: None,
+            comment_before: Vec::new(),
+            space_before: false,
+        }
+    }
+}
+
+/// `&anchor` and `!tag` in front of a value.
+#[derive(Default)]
+struct Props {
+    anchor: Option<String>,
+    tag: Option<String>,
+}
+
+/// `directives.tagName`: the tag a `!`-token names.
+pub(crate) fn tag_name(token: &str) -> String {
+    if let Some(verbatim) = token.strip_prefix("!<").and_then(|t| t.strip_suffix('>')) {
+        return verbatim.to_owned();
+    }
+    match token.strip_prefix("!!") {
+        Some(suffix) => format!("tag:yaml.org,2002:{suffix}"),
+        None => token.to_owned(),
+    }
+}
+
+/// `directives.tagString`.
+fn tag_string(tag: &str) -> String {
+    let escape = |name: &str| {
+        name.chars()
+            .map(|c| match c {
+                '!' => "%21".to_owned(),
+                ',' => "%2C".to_owned(),
+                '[' => "%5B".to_owned(),
+                ']' => "%5D".to_owned(),
+                '{' => "%7B".to_owned(),
+                '}' => "%7D".to_owned(),
+                other => other.to_string(),
+            })
+            .collect::<String>()
+    };
+    if let Some(name) = tag.strip_prefix('!') {
+        return format!("!{}", escape(name));
+    }
+    match tag.strip_prefix("tag:yaml.org,2002:") {
+        Some(suffix) => format!("!!{}", escape(suffix)),
+        None => format!("!<{tag}>"),
+    }
+}
+
+/// The properties at the start of `text` and the text after them.
+fn take_props(mut text: &str) -> (Props, &str) {
+    let mut props = Props::default();
+    loop {
+        let end = if text.starts_with("!<") {
+            text.find('>').map_or(text.len(), |i| i + 1)
+        } else {
+            text.find([' ', '\t']).unwrap_or(text.len())
+        };
+        if text.starts_with('&') {
+            props.anchor = Some(text[1..end].to_owned());
+        } else if text.starts_with('!') {
+            props.tag = Some(tag_name(&text[..end]));
+        } else {
+            return (props, text);
+        }
+        text = text[end..].trim_start_matches([' ', '\t']);
+    }
+}
+
+impl Props {
+    fn is_empty(&self) -> bool {
+        self.anchor.is_none() && self.tag.is_none()
     }
 }
 
@@ -287,7 +387,8 @@ fn value_site(lines: &[&str], entry: &Entry) -> Result<(Site, usize), SkillDocum
     let mut site = Site::fresh();
     site.kind = Kind::Plain;
     let rest = lines[entry.start][entry.after..].trim_start_matches([' ', '\t']);
-    let (at, mut text, on_later_line) = if rest.is_empty() || rest.starts_with('#') {
+    let (key_props, rest) = take_props(rest);
+    let (at, text, on_later_line) = if rest.is_empty() || rest.starts_with('#') {
         let key_comment = rest.strip_prefix('#');
         let mut own: Vec<String> = Vec::new();
         let mut blank_first = false;
@@ -307,6 +408,7 @@ fn value_site(lines: &[&str], entry: &Entry) -> Result<(Site, usize), SkillDocum
         }
         let Some(at) = found else {
             site.comment = key_comment.map(str::to_owned);
+            (site.anchor, site.tag) = (key_props.anchor, key_props.tag);
             return Ok((site, entry.start + 1));
         };
         site.comment_before.extend(key_comment.map(str::to_owned));
@@ -316,43 +418,30 @@ fn value_site(lines: &[&str], entry: &Entry) -> Result<(Site, usize), SkillDocum
     } else {
         (entry.start, rest, false)
     };
+    let (props, text) = if key_props.is_empty() { take_props(text) } else { (key_props, text) };
+    // Setting a key whose value is a collection or an alias replaces that node (with its
+    // properties and comments) by a new scalar.
     if on_later_line && (is_seq_dash(text) || parse_key(text).is_some()) {
-        return Err(SkillDocumentError::Unsupported("a collection as the value of name, description or when_to_use"));
+        return Ok((Site::fresh(), entry.end));
     }
-    let (mut anchor, mut tag) = (None, None);
-    while text.starts_with('&') || text.starts_with('!') {
-        let token_end = text.find([' ', '\t']).unwrap_or(text.len());
-        let token = &text[..token_end];
-        if token.starts_with('&') {
-            anchor = Some(token);
-        } else if token == "!!str" {
-            tag = Some(token);
-        } else {
-            return Err(SkillDocumentError::Unsupported("a tag other than !!str"));
-        }
-        text = text[token_end..].trim_start_matches([' ', '\t']);
-        if text.is_empty() {
-            return Err(SkillDocumentError::Unsupported("a property without a value on its line"));
-        }
-    }
-    site.props = [anchor, tag].into_iter().flatten().collect::<Vec<_>>().join(" ");
+    (site.anchor, site.tag) = (props.anchor, props.tag);
     let column = lines[at].len() - text.len();
     let scalar_end = match text.chars().next() {
-        // Setting a key whose value is an alias replaces the alias node by a new scalar.
-        Some('*') => {
-            site = Site { comment_before: site.comment_before, space_before: site.space_before, ..Site::fresh() };
-            at + 1
+        Some('*') => return Ok((Site::fresh(), at + 1)),
+        Some('[' | '{') => {
+            let end = flow_end(lines, at, column).ok_or_else(|| SkillDocumentError::InvalidYaml("missing closing bracket".to_owned()))?;
+            return Ok((Site::fresh(), end + 1));
         }
-        Some('[' | '{') => return Err(SkillDocumentError::Unsupported("a flow collection as the value of name, description or when_to_use")),
         Some(quote @ ('"' | '\'')) => {
             site.kind = if quote == '"' { Kind::Double } else { Kind::Single };
             let (end_line, end_byte) = closing_quote(lines, at, column + 1, quote)
-                .ok_or(SkillDocumentError::Unsupported("a quoted value without its closing quote"))?;
+                .ok_or_else(|| SkillDocumentError::InvalidYaml("missing closing quote".to_owned()))?;
+            if end_line == at {
+                site.source = lines[at][column + 1..end_byte].to_owned();
+            }
             let tail = lines[end_line][end_byte + 1..].trim_start_matches([' ', '\t']);
-            match tail.strip_prefix('#') {
-                Some(comment) => site.comment = Some(comment.to_owned()),
-                None if tail.is_empty() => {}
-                None => return Err(SkillDocumentError::Unsupported("text after a quoted value")),
+            if let Some(comment) = tail.strip_prefix('#') {
+                site.comment = Some(comment.to_owned());
             }
             end_line + 1
         }
@@ -389,11 +478,14 @@ fn value_site(lines: &[&str], entry: &Entry) -> Result<(Site, usize), SkillDocum
             let mut last = at;
             let mut line_text = text;
             let mut k = at;
+            let mut words: Vec<&str> = Vec::new();
             loop {
                 if let Some(c) = find_comment(line_text) {
                     site.comment = Some(line_text[c + 1..].to_owned());
+                    words.push(line_text[..c].trim_end_matches([' ', '\t']));
                     break;
                 }
+                words.push(line_text.trim_end_matches([' ', '\t']));
                 // The next line continues the scalar when it is indented text (not a comment).
                 let next = (k + 1..entry.end).find(|&m| !is_blank(lines[m]));
                 match next {
@@ -405,10 +497,45 @@ fn value_site(lines: &[&str], entry: &Entry) -> Result<(Site, usize), SkillDocum
                     _ => break,
                 }
             }
+            site.source = words.join(" ");
             last + 1
         }
     };
     Ok((site, scalar_end))
+}
+
+/// The line holding the bracket that closes the flow collection starting at `lines[line][byte..]`.
+fn flow_end(lines: &[&str], line: usize, byte: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let (mut l, mut p) = (line, byte);
+    loop {
+        let s = lines.get(l)?;
+        let Some(c) = s.get(p..).and_then(|rest| rest.chars().next()) else {
+            l += 1;
+            p = 0;
+            continue;
+        };
+        match c {
+            '[' | '{' => depth += 1,
+            ']' | '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(l);
+                }
+            }
+            '"' | '\'' => {
+                let (end_line, end_byte) = closing_quote(lines, l, p + 1, c)?;
+                (l, p) = (end_line, end_byte);
+            }
+            '#' if p == 0 || s[..p].ends_with([' ', '\t']) => {
+                l += 1;
+                p = 0;
+                continue;
+            }
+            _ => {}
+        }
+        p += c.len_utf8();
+    }
 }
 
 /// The position of the quote closing the scalar whose content starts at `lines[line][byte..]`.
@@ -446,24 +573,94 @@ fn closing_quote(lines: &[&str], line: usize, byte: usize, quote: char) -> Optio
 // ---------------------------------------------------------------------------------------------
 // Printing a pair, as the `yaml` package's `stringifyPair` does for a scalar value.
 
-fn comment_string(text: &str) -> String {
-    match text {
-        "" => String::new(),
-        " " => "#".to_owned(),
-        _ => format!("#{text}"),
+/// `commentString`: every non-empty line gets its `#`; a line of one space is just `#`.
+pub(crate) fn comment_string(text: &str) -> String {
+    text.split('\n')
+        .map(|line| match line {
+            "" => String::new(),
+            " " => "#".to_owned(),
+            _ => format!("#{line}"),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `&anchor` and the tag, as the writer prints them in front of a value.
+pub(crate) fn props_text(anchor: Option<&str>, tag: Option<&str>) -> String {
+    [anchor.map(|a| format!("&{a}")), tag.map(tag_string)].into_iter().flatten().collect::<Vec<_>>().join(" ")
+}
+
+const TAG_NULL: &str = "tag:yaml.org,2002:null";
+const TAG_BOOL: &str = "tag:yaml.org,2002:bool";
+const TAG_INT: &str = "tag:yaml.org,2002:int";
+const TAG_FLOAT: &str = "tag:yaml.org,2002:float";
+const TAG_BINARY: &str = "tag:yaml.org,2002:binary";
+const TAG_TIMESTAMP: &str = "tag:yaml.org,2002:timestamp";
+
+/// `toExponential()` as JavaScript writes it.
+pub(crate) fn to_exponential(number: f64) -> String {
+    let text = format!("{number:e}");
+    match text.split_once('e') {
+        Some((digits, exponent)) if !exponent.starts_with('-') => format!("{digits}e+{exponent}"),
+        _ => text,
     }
 }
 
-fn pair(key_text: &str, value: &str, site: &Site) -> String {
+/// A string `value` printed through the tag of its node (`stringifyNumber` and the like): the
+/// tag's own writer gets the string as its value.
+pub(crate) fn tagged_string(
+    value: &str,
+    kind: Kind,
+    comment: Option<&str>,
+    tag: Option<&str>,
+    source: &str,
+    ctx: &Ctx,
+) -> Result<(String, bool), SkillDocumentError> {
+    static NULL: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(?:~|[Nn]ull|NULL)?$", ""));
+    static NAN_INF: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(?:[-+]?\.(?:inf|Inf|INF)|\.nan|\.NaN|\.NAN)$", ""));
+    static EXP: LazyLock<JsRegex> = LazyLock::new(|| re(r"^[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)[eE][-+]?[0-9]+$", ""));
+    let number = |value: &str, exponent: bool| {
+        let n = mixdog_js::string_to_number(value);
+        if n.is_nan() {
+            ".nan".to_owned()
+        } else if n.is_infinite() {
+            if n < 0.0 { "-.inf" } else { ".inf" }.to_owned()
+        } else if exponent {
+            to_exponential(n)
+        } else {
+            let mut quoted = String::new();
+            json_quote(value, &mut quoted);
+            quoted
+        }
+    };
+    Ok(match tag {
+        Some(TAG_NULL) => (if NULL.is_match(source) { source.to_owned() } else { "null".to_owned() }, false),
+        Some(TAG_BOOL) => ("true".to_owned(), false),
+        Some(TAG_INT) => (number(value, false), false),
+        Some(TAG_FLOAT) => (number(value, EXP.is_match(source) && !NAN_INF.is_match(source)), false),
+        Some(TAG_BINARY) => {
+            return Err(SkillDocumentError::Writer(
+                "The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received undefined".to_owned(),
+            ));
+        }
+        Some(TAG_TIMESTAMP) => return Err(SkillDocumentError::Writer("value?.toISOString is not a function".to_owned())),
+        _ => scalar_string(value, kind, comment, ctx),
+    })
+}
+
+fn pair(key_text: &str, value: &str, site: &Site) -> Result<String, SkillDocumentError> {
     let mut out = format!("{key_text}:");
+    let props = props_text(site.anchor.as_deref(), site.tag.as_deref());
     // A value built in memory is no node when the pair is printed, so the column where it starts
     // is unknown and its first line folds at the width less the indent.
     let mut indent_at_start = (site.kind != Kind::Unset).then(|| utf16_len(&out) + 1);
-    if !site.props.is_empty() {
-        indent_at_start = indent_at_start.map(|column| column + utf16_len(&site.props) + 1);
+    if !props.is_empty() {
+        indent_at_start = indent_at_start.map(|column| column + utf16_len(&props) + 1);
     }
-    let (printed, comment_done) = scalar_string(value, site.kind, site.comment.as_deref(), indent_at_start);
-    let printed = if site.props.is_empty() { printed } else { format!("{} {printed}", site.props) };
+    let ctx = Ctx::block_value(indent_at_start);
+    let (printed, comment_done) =
+        tagged_string(value, site.kind, site.comment.as_deref(), site.tag.as_deref(), &site.source, &ctx)?;
+    let printed = if props.is_empty() { printed } else { format!("{props} {printed}") };
     let separator = if site.space_before || !site.comment_before.is_empty() {
         let mut ws = if site.space_before { "\n" } else { "" }.to_owned();
         if !site.comment_before.is_empty() {
@@ -489,7 +686,7 @@ fn pair(key_text: &str, value: &str, site: &Site) -> String {
         }
         out.push_str(&comment_string(comment));
     }
-    out
+    Ok(out)
 }
 
 fn re(pattern: &str, flags: &str) -> JsRegex {
@@ -550,54 +747,91 @@ fn line_length_over_limit(text: &str, indent: usize) -> bool {
 
 /// `stringifyString` for a string in block-mapping value position. Returns the text and whether
 /// it already carries `comment` (a block scalar's header does).
-fn scalar_string(value: &str, kind: Kind, comment: Option<&str>, indent_at_start: Option<usize>) -> (String, bool) {
+pub(crate) fn scalar_string(value: &str, kind: Kind, comment: Option<&str>, ctx: &Ctx) -> (String, bool) {
     let dispatch = if kind != Kind::Double && CONTROL.is_match(value) { Kind::Double } else { kind };
     match dispatch {
-        Kind::Literal | Kind::Folded => block_string(value, kind, comment, indent_at_start),
-        Kind::Double => (double_quoted(value, indent_at_start), false),
-        Kind::Single => (single_quoted(value, indent_at_start), false),
-        Kind::Plain | Kind::Unset => plain_string(value, kind, comment, indent_at_start),
+        Kind::Literal | Kind::Folded if ctx.implicit_key || ctx.in_flow => (quoted_string(value, ctx), false),
+        Kind::Literal | Kind::Folded => block_string(value, kind, comment, ctx),
+        Kind::Double => (double_quoted(value, ctx), false),
+        Kind::Single => (single_quoted(value, ctx), false),
+        Kind::Plain | Kind::Unset => plain_string(value, kind, comment, ctx),
     }
 }
 
-fn plain_string(value: &str, kind: Kind, comment: Option<&str>, indent_at_start: Option<usize>) -> (String, bool) {
+/// Where a scalar is printed (`ctx` of the `yaml` package's stringifier).
+#[derive(Clone)]
+pub(crate) struct Ctx {
+    /// The indent of the lines a folded scalar continues on.
+    pub indent: String,
+    pub in_flow: bool,
+    pub implicit_key: bool,
+    /// The column the scalar starts at, when its pair knows it (`None` for a value built in memory).
+    pub indent_at_start: Option<usize>,
+}
+
+impl Ctx {
+    /// A value of a top-level block mapping.
+    fn block_value(indent_at_start: Option<usize>) -> Self {
+        Self { indent: INDENT.to_owned(), in_flow: false, implicit_key: false, indent_at_start }
+    }
+}
+
+fn contains_document_marker(value: &str) -> bool {
+    static MARKER: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(%|---|\.\.\.)", "m"));
+    MARKER.is_match(value)
+}
+
+fn plain_string(value: &str, kind: Kind, comment: Option<&str>, ctx: &Ctx) -> (String, bool) {
+    static FLOW_INDICATORS: LazyLock<JsRegex> = LazyLock::new(|| re(r"[\[\]{},]", ""));
+    if (ctx.implicit_key && value.contains('\n')) || (ctx.in_flow && FLOW_INDICATORS.is_match(value)) {
+        return (quoted_string(value, ctx), false);
+    }
     if PLAIN_UNSAFE.is_match(value) {
-        return if value.contains('\n') {
-            block_string(value, kind, comment, indent_at_start)
+        return if ctx.implicit_key || ctx.in_flow || !value.contains('\n') {
+            (quoted_string(value, ctx), false)
         } else {
-            (quoted_string(value, indent_at_start), false)
+            block_string(value, kind, comment, ctx)
         };
     }
-    if kind != Kind::Plain && value.contains('\n') {
-        return block_string(value, kind, comment, indent_at_start);
+    if !ctx.implicit_key && !ctx.in_flow && kind != Kind::Plain && value.contains('\n') {
+        return block_string(value, kind, comment, ctx);
     }
-    let text = append_after(&NEWLINES, value, &format!("\n{INDENT}"));
+    if ctx.implicit_key && contains_document_marker(value) && ctx.indent == INDENT {
+        return (quoted_string(value, ctx), false);
+    }
+    let text = append_after(&NEWLINES, value, &format!("\n{}", ctx.indent));
     if IMPLICIT_TYPES.iter().any(|t| t.is_match(&text)) {
-        return (quoted_string(value, indent_at_start), false);
+        return (quoted_string(value, ctx), false);
     }
-    (fold_flow_lines(&text, INDENT, Mode::Flow, indent_at_start, false).0, false)
+    if ctx.implicit_key {
+        return (text, false);
+    }
+    (fold_flow_lines(&text, &ctx.indent, Mode::Flow, ctx.indent_at_start, false).0, false)
 }
 
-fn quoted_string(value: &str, indent_at_start: Option<usize>) -> String {
+fn quoted_string(value: &str, ctx: &Ctx) -> String {
     let has_double = value.contains('"');
     let has_single = value.contains('\'');
     if has_double && !has_single {
-        single_quoted(value, indent_at_start)
+        single_quoted(value, ctx)
     } else {
-        double_quoted(value, indent_at_start)
+        double_quoted(value, ctx)
     }
 }
 
-fn single_quoted(value: &str, indent_at_start: Option<usize>) -> String {
-    if WHITESPACE_AROUND_NEWLINE.is_match(value) {
-        return double_quoted(value, indent_at_start);
+fn single_quoted(value: &str, ctx: &Ctx) -> String {
+    if (ctx.implicit_key && value.contains('\n')) || WHITESPACE_AROUND_NEWLINE.is_match(value) {
+        return double_quoted(value, ctx);
     }
     let escaped = value.replace('\'', "''");
-    let text = format!("'{}'", append_after(&NEWLINES, &escaped, &format!("\n{INDENT}")));
-    fold_flow_lines(&text, INDENT, Mode::Flow, indent_at_start, false).0
+    let text = format!("'{}'", append_after(&NEWLINES, &escaped, &format!("\n{}", ctx.indent)));
+    if ctx.implicit_key {
+        return text;
+    }
+    fold_flow_lines(&text, &ctx.indent, Mode::Flow, ctx.indent_at_start, false).0
 }
 
-fn double_quoted(value: &str, indent_at_start: Option<usize>) -> String {
+fn double_quoted(value: &str, ctx: &Ctx) -> String {
     let mut json = String::new();
     json_quote(value, &mut json);
     let json_len = utf16_len(&json);
@@ -639,7 +873,7 @@ fn double_quoted(value: &str, indent_at_start: Option<usize>) -> String {
                     start = i + 1;
                 }
                 Some('n') => {
-                    if at(i + 2) == Some('"') || json_len < DOUBLE_QUOTED_MIN_MULTILINE {
+                    if ctx.implicit_key || at(i + 2) == Some('"') || json_len < DOUBLE_QUOTED_MIN_MULTILINE {
                         i += 1;
                     } else {
                         out.extend(&c[start..i]);
@@ -648,7 +882,7 @@ fn double_quoted(value: &str, indent_at_start: Option<usize>) -> String {
                             out.push('\n');
                             i += 2;
                         }
-                        out.push_str(INDENT);
+                        out.push_str(&ctx.indent);
                         if at(i + 2) == Some(' ') {
                             out.push('\\');
                         }
@@ -667,17 +901,21 @@ fn double_quoted(value: &str, indent_at_start: Option<usize>) -> String {
     } else {
         json
     };
-    fold_flow_lines(&text, INDENT, Mode::Quoted, indent_at_start, false).0
+    if ctx.implicit_key {
+        return text;
+    }
+    fold_flow_lines(&text, &ctx.indent, Mode::Quoted, ctx.indent_at_start, false).0
 }
 
-fn block_string(value: &str, kind: Kind, comment: Option<&str>, indent_at_start: Option<usize>) -> (String, bool) {
+fn block_string(value: &str, kind: Kind, comment: Option<&str>, ctx: &Ctx) -> (String, bool) {
     if ENDS_IN_BLANK_LINE.is_match(value) {
-        return (quoted_string(value, indent_at_start), false);
+        return (quoted_string(value, ctx), false);
     }
+    let indent = ctx.indent.as_str();
     let literal = match kind {
         Kind::Folded => false,
         Kind::Literal => true,
-        _ => !line_length_over_limit(value, INDENT.len()),
+        _ => !line_length_over_limit(value, indent.len()),
     };
     if value.is_empty() {
         return (if literal { "|\n" } else { ">\n" }.to_owned(), false);
@@ -698,7 +936,7 @@ fn block_string(value: &str, kind: Kind, comment: Option<&str>, indent_at_start:
         if end.ends_with('\n') {
             end.pop();
         }
-        end = append_after(&BLOCK_END_NEWLINES, &end, INDENT);
+        end = append_after(&BLOCK_END_NEWLINES, &end, indent);
     }
     let mut start_with_space = false;
     let mut last_newline = None;
@@ -712,7 +950,7 @@ fn block_string(value: &str, kind: Kind, comment: Option<&str>, indent_at_start:
     let mut start = value[..last_newline.map_or(0, |n| n + 1)].to_owned();
     if !start.is_empty() {
         value = value[start.len()..].to_owned();
-        start = append_after(&NEWLINES, &start, INDENT);
+        start = append_after(&NEWLINES, &start, indent);
     }
     let mut header = format!("{}{chomp}", if start_with_space { "2" } else { "" });
     let mut comment_done = false;
@@ -725,16 +963,16 @@ fn block_string(value: &str, kind: Kind, comment: Option<&str>, indent_at_start:
         let doubled = NEWLINES.replace_all_with(&value, |c| format!("\n{}", c.get(0).unwrap_or_default()));
         let unfolded = MORE_INDENTED
             .replace_all_with(&doubled, |c| format!("{}{}", c.get(1).unwrap_or_default(), c.get(2).unwrap_or_default()));
-        let folded_value = append_after(&NEWLINES, &unfolded, INDENT);
+        let folded_value = append_after(&NEWLINES, &unfolded, indent);
         let track_overflow = kind != Kind::Folded;
         let (body, overflowed) =
-            fold_flow_lines(&format!("{start}{folded_value}{end}"), INDENT, Mode::Block, Some(INDENT.len()), track_overflow);
+            fold_flow_lines(&format!("{start}{folded_value}{end}"), indent, Mode::Block, Some(indent.len()), track_overflow);
         if !overflowed {
-            return (format!(">{header}\n{INDENT}{body}"), comment_done);
+            return (format!(">{header}\n{indent}{body}"), comment_done);
         }
     }
-    let value = append_after(&NEWLINES, &value, INDENT);
-    (format!("|{header}\n{INDENT}{start}{value}{end}"), comment_done)
+    let value = append_after(&NEWLINES, &value, indent);
+    (format!("|{header}\n{indent}{start}{value}{end}"), comment_done)
 }
 
 // ---------------------------------------------------------------------------------------------

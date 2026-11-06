@@ -137,6 +137,7 @@ async fn pump(mut events: mpsc::Receiver<LegEvent>, outgoing: mpsc::Sender<Outgo
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test fixtures inspect and prepare the identity file synchronously")]
 mod tests {
     use std::net::Ipv4Addr;
     use std::time::Duration;

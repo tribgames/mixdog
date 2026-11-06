@@ -177,54 +177,166 @@ pub async fn is_owned(processes: &Processes, pid: Option<u32>, model_path: &str,
     (!model_path.is_empty() && line.contains(model_path)) || port.is_some_and(|p| names_port(&line, p))
 }
 
-/// Ends a stale child by pid: the process tree on Windows (no graceful stop exists for a console
-/// server), SIGTERM then SIGKILL elsewhere.
-pub async fn kill_pid(processes: &Processes, pid: u32, force: bool, cwd: &Path) {
+/// Node's Windows tree kill (`TREE_KILL_SCRIPT`, `child-tree.mjs`), one PowerShell pass. `taskkill
+/// /T` is never used: it follows parent ids with no creation times. A root counts only if it was
+/// created no later than `-AliveAt`, a descendant only if created no earlier than its parent, and
+/// each process is ended through a handle whose start time matches the table.
+const TREE_KILL_SCRIPT: &str = r#"param([int[]]$Pids, [long]$AliveAt, [object[]]$Table, [switch]$List)
+$ErrorActionPreference = 'Stop'
+$limit = [DateTime]::FromFileTimeUtc($AliveAt)
+if ($Table) {
+  $rows = @(foreach ($t in $Table) { [pscustomobject]@{ Id = [int]$t.Id; Parent = [int]$t.Parent; Created = [DateTime]::FromFileTimeUtc([long]$t.Created) } })
+} else {
+  $rows = @(Get-CimInstance Win32_Process -OperationTimeoutSec 10 | Where-Object CreationDate | ForEach-Object { [pscustomobject]@{ Id = [int]$_.ProcessId; Parent = [int]$_.ParentProcessId; Created = $_.CreationDate.ToUniversalTime() } })
+}
+$byId = @{}
+$byParent = @{}
+foreach ($r in $rows) {
+  $byId[$r.Id] = $r
+  if (-not $byParent.ContainsKey($r.Parent)) { $byParent[$r.Parent] = [Collections.Generic.List[object]]::new() }
+  $byParent[$r.Parent].Add($r)
+}
+$members = [Collections.Generic.List[object]]::new()
+foreach ($id in $Pids) {
+  $r = $byId[$id]
+  if ($r -and $r.Created -le $limit -and -not $members.Contains($r)) { $members.Add($r) }
+}
+$roots = $members.Count
+if ($roots -eq 0) { exit 128 }
+for ($i = 0; $i -lt $members.Count; $i++) {
+  $parent = $members[$i]
+  if (-not $byParent.ContainsKey($parent.Id)) { continue }
+  foreach ($child in $byParent[$parent.Id]) {
+    if ($child.Created -ge $parent.Created -and -not $members.Contains($child)) { $members.Add($child) }
+  }
+}
+if ($List) { foreach ($m in $members) { $m.Id }; exit 0 }
+$survived = $false
+for ($i = 0; $i -lt $members.Count; $i++) {
+  $m = $members[$i]
+  try { $p = [Diagnostics.Process]::GetProcessById($m.Id) } catch { continue }
+  try { $same = [math]::Abs(($p.StartTime.ToUniversalTime() - $m.Created).TotalMilliseconds) -lt 1 } catch { $same = $null }
+  if ($same -eq $false) { continue }
+  # A start time that cannot be read proves nothing: the process is left alone,
+  # and a root left alone counts as surviving.
+  if ($null -eq $same) { if ($i -lt $roots) { $survived = $true }; continue }
+  try { $p.Kill() } catch {}
+  if ($i -lt $roots) { try { if (-not $p.WaitForExit(2000)) { $survived = $true } } catch { $survived = $true } }
+}
+if ($survived) { exit 1 }
+exit 0"#;
+
+/// The hard lifetime of one tree-kill pass (`TREE_KILL_DEADLINE_MS`).
+const TREE_KILL_DEADLINE: Duration = Duration::from_secs(15);
+
+/// `fileTime`: epoch milliseconds as a Windows FILETIME.
+fn file_time(ms: i64) -> i128 {
+    i128::from(ms) * 10_000 + 116_444_736_000_000_000
+}
+
+/// `treeKillCommand([pid], { aliveAt })`: the program and arguments of one Windows tree kill.
+pub fn tree_kill_command(pid: u32, alive_at_ms: i64) -> (String, Vec<String>) {
+    use base64::Engine as _;
+    let source = format!("& {{\n{TREE_KILL_SCRIPT}\n}} -Pids @({pid}) -AliveAt {}", file_time(alive_at_ms));
+    let units: Vec<u8> = source.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let root = ["SystemRoot", "WINDIR"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).unwrap_or_else(|| "C:\\Windows".into());
+    (format!("{root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"), strings(&["-NoProfile", "-NonInteractive", "-EncodedCommand", &base64::engine::general_purpose::STANDARD.encode(units)]))
+}
+
+/// Ends a stale child by pid, as Node's `killPid` does: the shared tree kill on Windows (no
+/// graceful stop exists for a console server), SIGTERM or SIGKILL elsewhere. `alive_at_ms`: when
+/// `pid` was last known to be the process meant.
+pub async fn kill_pid(processes: &Processes, pid: u32, force: bool, cwd: &Path, alive_at_ms: i64) {
     #[cfg(windows)]
     {
         let _ = force;
-        let _ = query(processes, "taskkill", &strings(&["/T", "/F", "/PID", &pid.to_string()]), cwd, None).await;
+        let (command, args) = tree_kill_command(pid, alive_at_ms);
+        let mut options = RunOptions::new(cwd);
+        options.timeout = TREE_KILL_DEADLINE;
+        let _ = processes.run(&command, &args, options).await;
     }
     #[cfg(unix)]
     {
-        let _ = (processes, cwd);
+        let _ = (processes, cwd, alive_at_ms);
         // SAFETY: a signal to a pid proven to be our server a moment ago.
         unsafe { libc::kill(pid as i32, if force { libc::SIGKILL } else { libc::SIGTERM }) };
     }
 }
 
-/// Reclaims a child a previous core left behind, when the pid file proves it is ours.
-pub async fn reclaim_stale(processes: &Processes, meta: &Value, model_path: &str, preferred_port: u16, cwd: &Path) {
+/// `os.setPriority(pid, PRIORITY_ABOVE_NORMAL)`: a warm transcription stays fast when every core
+/// is busy. Best-effort; a refusal leaves the default priority.
+pub fn raise_priority(pid: u32) {
+    #[cfg(unix)]
+    {
+        // SAFETY: setpriority on a pid we just spawned; failure is ignored.
+        unsafe { libc::setpriority(libc::PRIO_PROCESS, pid, -7) };
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, OpenProcess, PROCESS_SET_INFORMATION, SetPriorityClass};
+        // SAFETY: the handle is opened, used and closed here.
+        unsafe {
+            let handle = OpenProcess(PROCESS_SET_INFORMATION, 0, pid);
+            if !handle.is_null() {
+                SetPriorityClass(handle, ABOVE_NORMAL_PRIORITY_CLASS);
+                CloseHandle(handle);
+            }
+        }
+    }
+}
+
+/// Reclaims a child a previous core left behind, when the pid file proves it is ours; `true` when
+/// it did (the caller then clears the file).
+pub async fn reclaim_stale(processes: &Processes, meta: &Value, model_path: &str, preferred_port: u16, cwd: &Path) -> bool {
     let pid = meta.get("pid").and_then(Value::as_f64).filter(|p| p.fract() == 0.0 && *p > 0.0 && *p <= f64::from(u32::MAX)).map(|p| p as u32);
     let model = meta.get("modelPath").and_then(Value::as_str).unwrap_or(model_path);
     let port = match meta.get("port") {
         None | Some(Value::Null) => Some(i64::from(preferred_port)),
         Some(other) => other.as_f64().filter(|p| p.fract() == 0.0).map(|p| p as i64),
     };
-    let Some(pid) = pid else { return };
+    let Some(pid) = pid else { return false };
+    // The instants are taken before each proof: the kill may only end what the proof saw.
+    let proven_at = crate::media::store::now_ms();
     if !is_owned(processes, Some(pid), model, port, cwd).await {
-        return;
+        return false;
     }
-    kill_pid(processes, pid, false, cwd).await;
+    kill_pid(processes, pid, false, cwd, proven_at).await;
     tokio::time::sleep(KILL_SETTLE).await;
+    let reproven_at = crate::media::store::now_ms();
     if is_owned(processes, Some(pid), model, port, cwd).await {
-        kill_pid(processes, pid, true, cwd).await;
+        kill_pid(processes, pid, true, cwd, reproven_at).await;
         tokio::time::sleep(KILL_SETTLE).await;
     }
+    true
 }
 
 /// One `OwningProcess` number per line (no localized words).
-fn listener_pids_include(stdout: &str, pid: u32) -> bool {
+pub(crate) fn listener_pids_include(stdout: &str, pid: u32) -> bool {
     stdout.split(['\n']).any(|line| mixdog_js::js_trim(line) == pid.to_string())
 }
 
 /// Whether the process `pid` is the one listening on `host:port`. No evidence reads as not
 /// owned: such a server gets neither readiness nor audio. The query is ended by `cancel` only.
 pub async fn listener_owned(processes: &Processes, host: &str, port: u16, pid: u32, cwd: &Path, cancel: &CancellationToken) -> bool {
+    let os = if cfg!(windows) { Os::Windows } else if cfg!(target_os = "linux") { Os::Linux } else { Os::Other };
+    listener_owned_on(os, processes, host, port, pid, cwd, cancel).await
+}
+
+/// The operating systems whose listener query differs (`process.platform` of Node).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Os {
+    Windows,
+    Linux,
+    Other,
+}
+
+/// [`listener_owned`] for an explicit operating system.
+pub async fn listener_owned_on(os: Os, processes: &Processes, host: &str, port: u16, pid: u32, cwd: &Path, cancel: &CancellationToken) -> bool {
     if pid == 0 {
         return false;
     }
-    if cfg!(windows) {
+    if os == Os::Windows {
         let root = std::env::var("SystemRoot").ok().filter(|r| !r.is_empty()).unwrap_or_else(|| "C:\\Windows".into());
         // The CIM-backed cmdlet lists listeners netstat omits on a large TCP table; a listening
         // row is the one with no remote endpoint.
@@ -236,7 +348,7 @@ pub async fn listener_owned(processes: &Processes, host: &str, port: u16, pid: u
         let out = query(processes, &shell.to_string_lossy(), &strings(&["-NoProfile", "-NonInteractive", "-Command", &script]), cwd, Some(cancel)).await;
         return out.is_some_and(|stdout| listener_pids_include(&stdout, pid));
     }
-    if cfg!(target_os = "linux") {
+    if os == Os::Linux {
         let Some(out) = query(processes, "ss", &strings(&["-H", "-ltnp", &format!("sport = :{port}")]), cwd, Some(cancel)).await else { return false };
         let own = format!("{host}:{port}");
         let marker = JsRegex::new(&format!("\\bpid={pid},"), "");

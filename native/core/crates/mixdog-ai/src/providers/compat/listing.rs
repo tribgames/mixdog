@@ -144,7 +144,18 @@ impl CompatAdapter {
     fn compat_rows(&self, infos: &[CompatModelInfo], publish_names: bool) -> Vec<ModelRecord> {
         let provider = self.codec.profile().id;
         let native: Vec<ModelRecord> = infos.iter().map(|info| native_record(info, publish_names)).collect();
-        let enriched = self.lookup.enrich_listed(provider, native.clone());
+        // A published roster is the lookup's base layer, and a base's display name
+        // is never replaced by the listed row's own `name` (which is only the id).
+        let mut lent = native.clone();
+        if publish_names {
+            for row in &mut lent {
+                row.name = None;
+            }
+        }
+        let mut enriched = self.lookup.enrich_listed(provider, lent);
+        for (row, native) in enriched.iter_mut().zip(&native) {
+            row.name.clone_from(&native.name);
+        }
         self.lookup.sanitize_listed(provider, keep_native(&native, enriched))
     }
 

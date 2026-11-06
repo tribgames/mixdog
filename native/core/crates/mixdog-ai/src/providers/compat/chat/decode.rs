@@ -442,6 +442,7 @@ impl ChatDecoder {
             )));
         }
         out.push(StreamEvent::Completed {
+            pricing_model: None,
             stop: Some(stop_reason(&finish)),
         });
         self.terminal = true;

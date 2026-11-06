@@ -300,14 +300,75 @@ pub struct ProxyPicker {
     pub reasoning_options: Vec<ProxyReasoningOption>,
     pub custom_reasoning: Option<ProxyCustomReasoning>,
 }
+/// The ids a picker model is sent under, in Node's `wire` shape: a bare id
+/// string, or an object of effort level to id (the provider's order is the
+/// object's key order).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProxyWireIds {
+    One(String),
+    Tiers(Vec<(String, String)>),
+}
+
+impl Serialize for ProxyWireIds {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::One(id) => serializer.serialize_str(id),
+            Self::Tiers(tiers) => {
+                let mut map = serializer.serialize_map(Some(tiers.len()))?;
+                for (level, id) in tiers {
+                    map.serialize_entry(level, id)?;
+                }
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ProxyWireIds {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Shape;
+        impl<'de> serde::de::Visitor<'de> for Shape {
+            type Value = ProxyWireIds;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a wire id string or an object of effort level to wire id")
+            }
+            fn visit_str<E: serde::de::Error>(self, id: &str) -> Result<Self::Value, E> {
+                Ok(ProxyWireIds::One(id.to_owned()))
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut tiers = Vec::new();
+                while let Some(entry) = map.next_entry::<String, String>()? {
+                    tiers.push(entry);
+                }
+                Ok(ProxyWireIds::Tiers(tiers))
+            }
+        }
+        deserializer.deserialize_any(Shape)
+    }
+}
+
+/// The schema of [`ProxyWireIds`]' wire form.
+#[derive(JsonSchema)]
+#[serde(untagged)]
+#[allow(dead_code)]
+enum ProxyWireShape {
+    One(String),
+    Tiers(BTreeMap<String, String>),
+}
 /// A model the PC's provider lists, with the first-response budget of its catalog entry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyModel {
     pub id: String,
     pub display_name: Option<String>,
+    /// The row's own `name`, the label when no display name is known.
+    pub name: Option<String>,
     #[ts(type = "number | null")]
     pub context_window: Option<u64>,
+    /// The largest window the listing states for the model.
+    #[ts(type = "number | null")]
+    pub max_context_window: Option<u64>,
     #[ts(type = "number | null")]
     pub max_output_tokens: Option<u64>,
     pub supports_reasoning: Option<bool>,
@@ -323,6 +384,10 @@ pub struct ProxyModel {
     pub created: Option<i64>,
     /// The model a routing alias resolves to.
     pub alias_target: Option<String>,
+    /// The wire id(s) the picker id is sent under.
+    #[schemars(with = "Option<ProxyWireShape>")]
+    #[ts(type = "string | { [level: string]: string } | null")]
+    pub wire: Option<ProxyWireIds>,
     pub picker: ProxyPicker,
     pub first_response_budget: Option<ProxyBudget>,
 }

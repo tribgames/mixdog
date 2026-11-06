@@ -132,10 +132,12 @@ pub struct WebhookAutomation {
     service: Arc<WebhookService>,
     listener: Arc<dyn WebhookListener>,
     listening: Mutex<Option<WorkGuard>>,
+    #[allow(clippy::disallowed_types, reason = "a gate held across the awaited sync on purpose: syncs run one at a time")]
     gate: tokio::sync::Mutex<()>,
 }
 
 impl WebhookAutomation {
+    #[allow(clippy::disallowed_types, reason = "builds the sync gate")]
     pub fn new(settings: Arc<dyn ChannelSettings>, service: Arc<WebhookService>, listener: Arc<dyn WebhookListener>) -> Self {
         Self { settings, service, listener, listening: Mutex::new(None), gate: tokio::sync::Mutex::new(()) }
     }

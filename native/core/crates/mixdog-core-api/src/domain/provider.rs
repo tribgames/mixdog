@@ -513,6 +513,10 @@ pub enum StreamEvent {
     /// never invents one from tool calls or a clean finish.
     Completed {
         stop: Option<StopReason>,
+        /// The catalog model the request bills as when it differs from the
+        /// one sent (Node `send` result `pricingModel`, Cursor pinned
+        /// suffix ids); `None` otherwise.
+        pricing_model: Option<String>,
     },
 }
 
@@ -919,6 +923,9 @@ pub struct ModelRecord {
     /// it when no display name is known.
     pub name: Option<String>,
     pub context_window: Option<u64>,
+    /// The largest window the model can be served with, where the listing
+    /// states one above the served `context_window` (`maxContextWindow`).
+    pub max_context_window: Option<u64>,
     pub max_output_tokens: Option<u64>,
     pub supports_reasoning: Option<bool>,
     /// Reasoning effort levels the model accepts, in the provider's order.
@@ -952,6 +959,7 @@ impl ModelRecord {
             display_name: None,
             name: None,
             context_window: None,
+            max_context_window: None,
             max_output_tokens: None,
             supports_reasoning: None,
             reasoning_levels: Vec::new(),

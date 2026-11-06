@@ -1095,6 +1095,18 @@
         }
       ]
     },
+    "ModelProxyCancelParams": {
+      "description": "Server core → the connection running a `model/proxy/execute` request: the call was given up (cancelled, abandoned); stop spending on it. The connection's answer is no longer read.",
+      "properties": {
+        "requestId": {
+          "$ref": "#/definitions/RequestId"
+        }
+      },
+      "required": [
+        "requestId"
+      ],
+      "type": "object"
+    },
     "ModelProxyRunEventParams": {
       "description": "Local core → Electron: one streamed event of a `modelProxy/run` request.",
       "properties": {
@@ -5703,6 +5715,24 @@
         },
         "params": {
           "$ref": "#/definitions/ModelProxyRunEventParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "model/proxy/cancel"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ModelProxyCancelParams"
         }
       },
       "required": [

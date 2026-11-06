@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 
 use super::setup::{AccessScope, AgentDirectory, AutomationAdmin, AutomationSetup, assert_access};
 
+#[allow(clippy::disallowed_methods, reason = "test fixture loading")]
 fn twin() -> Value {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/channels/automation-setup-twin.json");
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()

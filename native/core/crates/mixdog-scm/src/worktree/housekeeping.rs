@@ -252,11 +252,6 @@ impl Worktrees {
         on_lane(self.scm().lane, cancel, move || remove_tree(&path)).await
     }
 
-    pub(crate) async fn path_gone(&self, path: &Path, cancel: &CancellationToken) -> Result<bool, ScmFailure> {
-        let path = path.to_path_buf();
-        on_lane(self.scm().lane, cancel, move || is_gone(&path)).await
-    }
-
     pub(crate) async fn prune_empty_repo_root(&self, repo_common_dir: &str, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         let key = path_key(Path::new(repo_common_dir));
         if self.all_records(cancel).await?.iter().any(|r| path_key(Path::new(&r.repo_common_dir)) == key) {

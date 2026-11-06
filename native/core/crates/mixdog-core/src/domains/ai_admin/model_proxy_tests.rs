@@ -84,6 +84,36 @@ fn the_senders_scope_and_unresolved_references_stay_home() {
 }
 
 #[test]
+fn a_listed_model_keeps_its_name_window_and_wire_over_the_wire() {
+    let mut listed = p::ModelRecord::new("gpt-5.6-sol");
+    listed.name = Some("gpt-5.6-sol".into());
+    listed.context_window = Some(272_000);
+    listed.max_context_window = Some(1_000_000);
+    for wire in [None, Some(p::WireIds::One("sol-wire".into())), Some(p::WireIds::Tiers(vec![("high".into(), "sol-high".into()), ("low".into(), "sol-low".into())]))] {
+        listed.wire = wire;
+        let text = serde_json::to_string(&model_out(&listed)).unwrap();
+        assert_eq!(model_in(serde_json::from_str(&text).unwrap()), listed);
+    }
+}
+
+#[test]
+fn the_wire_ids_are_nodes_row_shape() {
+    // Node rows carry `wire` as a bare id or as `{ level: id }`.
+    let row = |wire: serde_json::Value| {
+        let mut model = serde_json::to_value(model_out(&p::ModelRecord::new("m"))).unwrap();
+        model["wire"] = wire;
+        model_in(serde_json::from_value(model).unwrap()).wire
+    };
+    assert_eq!(row(json!("m-wire")), Some(p::WireIds::One("m-wire".into())));
+    assert_eq!(row(json!({ "xhigh": "m-x", "low": "m-l" })), Some(p::WireIds::Tiers(vec![("xhigh".into(), "m-x".into()), ("low".into(), "m-l".into())])));
+    let mut listed = p::ModelRecord::new("m");
+    listed.wire = Some(p::WireIds::Tiers(vec![("xhigh".into(), "m-x".into()), ("low".into(), "m-l".into())]));
+    assert_eq!(serde_json::to_value(model_out(&listed)).unwrap()["wire"], json!({ "xhigh": "m-x", "low": "m-l" }));
+    listed.wire = Some(p::WireIds::One("m-wire".into()));
+    assert_eq!(serde_json::to_value(model_out(&listed)).unwrap()["wire"], json!("m-wire"));
+}
+
+#[test]
 fn a_bad_temperature_is_refused() {
     let mut wire = request_out(&request());
     wire.options.temperature = Some(-1.0);

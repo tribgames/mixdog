@@ -128,6 +128,7 @@ pub struct CallDispatch {
     ttl: Duration,
     cache: Arc<Mutex<HashMap<String, Arc<Entry>>>>,
     /// Serializes the binding tool; the guarded state is the one remote-control binding.
+    #[allow(clippy::disallowed_types, reason = "the guard is held across the awaited binding call by design: that is the serialization")]
     binding: tokio::sync::Mutex<Binding>,
 }
 

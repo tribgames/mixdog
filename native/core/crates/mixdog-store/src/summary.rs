@@ -354,5 +354,7 @@ pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> Catalo
         model: str_field("model"),
         source_name: str_field("sourceName"),
         summary: Value::Object(s).to_string(),
+        worker: crate::worker::WorkerKeys::of(h),
+        agent_tag: crate::worker::TagKeys::of(h),
     }
 }

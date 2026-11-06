@@ -63,6 +63,9 @@ async fn a_phone_reporting_its_screen_decides_foreground() {
     let mut paired = runtime.paired_devices();
     paired.sort();
     assert_eq!(paired, [CRED_A, CRED_B]);
+    let mut rows: Vec<_> = runtime.paired_clients().into_iter().map(|row| (row.id, row.name)).collect();
+    rows.sort();
+    assert_eq!(rows, [(CRED_A.to_owned(), "A".to_owned()), (CRED_B.to_owned(), "B".to_owned())]);
 
     let mut phone = relay.pair_phone(&identity, PHONE, CRED_A).await;
     let mut call = |value: Value| phone.send(&value.to_string());

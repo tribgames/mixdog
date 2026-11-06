@@ -19,16 +19,16 @@
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use mixdog_app_protocol::v2::thread::PromptHistoryChange;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
-use mixdog_store::fsio::Access;
-use mixdog_store::fsio::publish_file_with;
-use serde::Serialize;
+use mixdog_statefile::Invalid;
+use mixdog_statefile::Opts;
+use mixdog_statefile::Peek;
 use serde_json::Value;
+use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
 
@@ -162,25 +162,18 @@ pub trait PromptHistoryStore: Send + Sync + 'static {
 
 /// The files of today's store: `<data>/tui-prompt-history/<sha256(cwd key)[..32]>.json`,
 /// `{"version": 1, "entries": [..]}` two-space JSON, owner-only. Appends are written through
-/// at once (today coalesces them for 250 ms); a damaged file is kept aside as
-/// `<file>.corrupt-<ms>` and its `.bak`, when one parses, restored (`readJsonStateSync`).
+/// at once (today coalesces them for 250 ms) under the file's lock (`mixdog-statefile`); a
+/// damaged file is kept aside as `<file>.corrupt-<ms>` and its `.bak`, when one parses,
+/// restored (`readJsonStateSync`) by the next append, while a load answers from that `.bak`
+/// without touching the files (a read lane cannot take the lock).
 pub struct FilePromptHistory {
     dir: PathBuf,
-    /// Read-modify-write of one file at a time (one owner process per data dir).
-    writes: Mutex<()>,
-}
-
-#[derive(Serialize)]
-struct HistoryDoc<'a> {
-    version: u32,
-    entries: &'a [String],
 }
 
 impl FilePromptHistory {
     pub fn new(data_dir: &Path) -> Self {
         Self {
             dir: data_dir.join("tui-prompt-history"),
-            writes: Mutex::new(()),
         }
     }
 
@@ -239,10 +232,8 @@ fn entry_text(value: &Value) -> String {
     trim(&text).to_owned()
 }
 
-/// The entries of a file's bytes; `None` when they are damaged.
-fn parse_entries(bytes: &[u8]) -> Option<Vec<String>> {
-    let text = std::str::from_utf8(bytes).ok()?;
-    let doc: Value = serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(text)).ok()?;
+/// The entries of a parsed file; `None` when they are damaged (no `entries` list).
+fn entries_of(doc: &Value) -> Option<Vec<String>> {
     let entries = doc.get("entries")?.as_array()?;
     Some(
         entries
@@ -253,44 +244,42 @@ fn parse_entries(bytes: &[u8]) -> Option<Vec<String>> {
     )
 }
 
-fn now_ms() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0)
+/// The `validate` of the history file: a document without an `entries` list is damaged.
+fn has_entries(doc: &Value) -> Result<(), Invalid> {
+    entries_of(doc).map(drop).ok_or_else(|| Invalid::Damaged("prompt history has no entries".to_owned()))
 }
 
-/// `readEntries`: a missing or unreadable file is empty; a damaged one is set aside and its
-/// last good copy restored.
-fn read_entries(path: &Path) -> Vec<String> {
-    let Ok(bytes) = std::fs::read(path) else {
-        return Vec::new();
-    };
-    if let Some(entries) = parse_entries(&bytes) {
-        return entries;
-    }
+fn file_opts() -> Opts {
+    Opts { secret: true, ..Opts::default() }
+}
+
+fn backup_of(path: &Path) -> PathBuf {
     let mut name = path.as_os_str().to_owned();
-    let mut stamp = now_ms();
-    let aside = loop {
-        let mut candidate = name.clone();
-        candidate.push(format!(".corrupt-{stamp}"));
-        if !Path::new(&candidate).exists() {
-            break PathBuf::from(candidate);
-        }
-        stamp += 1;
-    };
-    if std::fs::rename(path, &aside).is_err() {
-        return Vec::new();
-    }
     name.push(".bak");
-    let Some((backup, entries)) = std::fs::read(&name)
-        .ok()
-        .and_then(|bytes| parse_entries(&bytes).map(|entries| (bytes, entries)))
-    else {
-        return Vec::new();
+    PathBuf::from(name)
+}
+
+/// `readEntries` for a read lane: a missing or unreadable file is empty; a damaged one answers
+/// with its last good copy, and nothing is moved.
+fn peek_entries(lane: &InLane<InteractiveIo>, path: &Path) -> Vec<String> {
+    let of = |path: &Path| match mixdog_statefile::peek(lane, path, Some(&has_entries)) {
+        Ok(Peek::Value(doc)) => entries_of(&doc),
+        _ => None,
     };
-    let _ = publish_file_with(path, &backup, Access::OwnerOnly);
-    entries
+    match mixdog_statefile::peek(lane, path, Some(&has_entries)) {
+        Ok(Peek::Value(doc)) => entries_of(&doc).unwrap_or_default(),
+        Ok(Peek::Damaged(_)) => of(&backup_of(path)).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// `readEntries` for the writer: a damaged file is set aside under its lock and its last good
+/// copy restored.
+fn recover_entries(lane: &InLane<DurabilityIo>, path: &Path) -> Vec<String> {
+    match mixdog_statefile::read_json(lane, path, Some(&has_entries), &file_opts()) {
+        Ok(Some(doc)) => entries_of(&doc).unwrap_or_default(),
+        _ => Vec::new(),
+    }
 }
 
 fn last_fifty(mut entries: Vec<String>) -> Vec<String> {
@@ -300,33 +289,40 @@ fn last_fifty(mut entries: Vec<String>) -> Vec<String> {
 }
 
 impl PromptHistoryStore for FilePromptHistory {
-    fn load(&self, _lane: &InLane<InteractiveIo>, cwd: &str) -> Vec<String> {
-        self.file(cwd).map(|path| last_fifty(read_entries(&path))).unwrap_or_default()
+    fn load(&self, lane: &InLane<InteractiveIo>, cwd: &str) -> Vec<String> {
+        self.file(cwd).map(|path| last_fifty(peek_entries(lane, &path))).unwrap_or_default()
     }
 
-    fn append(&self, _lane: &InLane<DurabilityIo>, cwd: &str, text: &str) -> Vec<String> {
+    fn append(&self, lane: &InLane<DurabilityIo>, cwd: &str, text: &str) -> Vec<String> {
         let Some(path) = self.file(cwd) else {
             return Vec::new();
         };
+        let before = recover_entries(lane, &path);
         if key(text).is_empty() {
-            return last_fifty(read_entries(&path));
+            return last_fifty(before);
         }
-        let _guard = self.writes.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let next = append_persisted(&read_entries(&path), text);
-        let _ = publish_file_with(&path, &file_bytes(&next), Access::OwnerOnly);
-        next
+        let mut appended = None;
+        let written = mixdog_statefile::update_json::<_, std::convert::Infallible>(
+            lane,
+            &path,
+            |current| {
+                let entries = current.as_ref().and_then(entries_of).unwrap_or_default();
+                let next = append_persisted(&entries, text);
+                let doc = history_doc(&next);
+                appended = Some(next);
+                Ok(Some(doc))
+            },
+            &file_opts(),
+        );
+        // The list is the optimistic in-memory one also when the write failed.
+        let _ = written;
+        appended.unwrap_or_else(|| append_persisted(&before, text))
     }
 }
 
-/// `buildPayload(entries)`: `JSON.stringify({version: 1, entries}, null, 2) + "\n"`.
-fn file_bytes(entries: &[String]) -> Vec<u8> {
-    let mut bytes = serde_json::to_vec_pretty(&HistoryDoc {
-        version: 1,
-        entries,
-    })
-    .expect("strings serialize");
-    bytes.push(b'\n');
-    bytes
+/// `buildPayload(entries)`: `{version: 1, entries}`, written as `JSON.stringify(.., null, 2)`.
+fn history_doc(entries: &[String]) -> Value {
+    json!({ "version": 1, "entries": entries })
 }
 
 #[cfg(test)]
@@ -335,6 +331,32 @@ mod tests {
 
     fn s(items: &[&str]) -> Vec<String> {
         items.iter().map(|t| (*t).to_owned()).collect()
+    }
+
+    fn recovered(path: &Path) -> Vec<String> {
+        use mixdog_rt::LaneToken;
+        let path = path.to_owned();
+        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+            mixdog_rt::testing::tokens()
+                .durability_io
+                .submit(&tokio_util::sync::CancellationToken::new(), move |lane| recover_entries(lane, &path))
+                .unwrap()
+                .await
+                .unwrap()
+        })
+    }
+
+    fn peeked(path: &Path) -> Vec<String> {
+        use mixdog_rt::LaneToken;
+        let path = path.to_owned();
+        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+            mixdog_rt::testing::tokens()
+                .interactive_io
+                .submit(&tokio_util::sync::CancellationToken::new(), move |lane| peek_entries(lane, &path))
+                .unwrap()
+                .await
+                .unwrap()
+        })
     }
 
     #[test]
@@ -368,20 +390,22 @@ mod tests {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         assert_eq!(name.len(), 32 + ".json".len());
 
-        let bytes = file_bytes(&s(&["a", "b"]));
+        let bytes = mixdog_statefile::json_bytes(&history_doc(&s(&["a", "b"])), &Opts::default());
         assert_eq!(
             String::from_utf8(bytes.clone()).unwrap(),
             "{\n  \"version\": 1,\n  \"entries\": [\n    \"a\",\n    \"b\"\n  ]\n}\n"
         );
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, br#"{"entries": [" x ", "", null, 0, 7, true]}"#).unwrap();
-        assert_eq!(read_entries(&path), s(&["x", "7", "true"]));
+        assert_eq!(recovered(&path), s(&["x", "7", "true"]));
 
         std::fs::write(&path, b"{torn").unwrap();
-        let mut bak = path.as_os_str().to_owned();
-        bak.push(".bak");
+        let bak = backup_of(&path);
         std::fs::write(&bak, &bytes).unwrap();
-        assert_eq!(read_entries(&path), s(&["a", "b"]));
+        // A read lane answers from the copy and moves nothing.
+        assert_eq!(peeked(&path), s(&["a", "b"]));
+        assert_eq!(std::fs::read(&path).unwrap(), b"{torn");
+        assert_eq!(recovered(&path), s(&["a", "b"]));
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
         let kept = std::fs::read_dir(path.parent().unwrap())
             .unwrap()

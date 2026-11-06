@@ -20,6 +20,8 @@
 //! directory's sharded map, whose shard locks guard O(1) work only.
 
 mod actor;
+mod agent_host;
+mod completions;
 mod control;
 mod directory;
 mod durability;

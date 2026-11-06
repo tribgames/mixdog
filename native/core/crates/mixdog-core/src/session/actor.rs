@@ -110,7 +110,9 @@ use super::user_facts::RowFacts;
 use super::user_facts::user_facts;
 use super::run::RunPort;
 use super::run::SteerInput;
+use super::run::SteerMode;
 use super::run::within_priority;
+use super::completions;
 use super::seams::EncodedRecord;
 use super::seams::Shown;
 use super::seams::RunOutcome;
@@ -233,6 +235,8 @@ pub(crate) struct SessionActor {
     ops: OpTable,
     run: Option<RunSlot>,
     steer_marked: Vec<QueuedId>,
+    /// Completions a wake drained that still wait for their own turns, oldest first.
+    wake_tail: Vec<String>,
     generation: u64,
     pending: bool,
     indeterminate: bool,
@@ -311,6 +315,7 @@ impl SessionActor {
             ops: OpTable::default(),
             run: None,
             steer_marked: Vec::new(),
+            wake_tail: Vec::new(),
             generation: 0,
             pending: false,
             indeterminate: false,
@@ -657,7 +662,7 @@ impl SessionActor {
                         "thread/queue/changed",
                         &ThreadQueueChangedParams {
                             thread_id: thread.clone(),
-                            queued: self.acked.queue.iter().map(|q| q.display.clone()).collect(),
+                            queued: self.acked.queued_rows(),
                         },
                     ));
                 }
@@ -1079,18 +1084,46 @@ impl SessionActor {
     }
 
     /// The next queued entry becomes a run (P X9: busy → queued, follow-ups run in order).
+    ///
+    /// A completion no turn took is a wake of its own, oldest first, with the completion as the
+    /// turn's input, never an empty user turn (`notification-bus.mjs:69-76` replays a wake
+    /// suppressed while one was in flight; `ask-queue.mjs:87-101` runs each notification as its
+    /// own turn). Without wakes, completions wait for the next turn to take them.
     fn start_next_queued(&mut self) {
         if self.run.is_some() {
             return;
         }
-        let Some(next) = self.projected.queue.first().cloned() else {
+        // The wake's remaining completions run first, each its own turn (`ask-queue.mjs` `tail`).
+        while !self.wake_tail.is_empty() {
+            let qid = self.wake_tail.remove(0);
+            if let Some(next) = self.projected.queue.iter().find(|q| q.qid == qid).cloned() {
+                self.start_completion(next);
+                return;
+            }
+        }
+        let wake = self.completion_wake();
+        let Some(next) = self
+            .projected
+            .queue
+            .iter()
+            .find(|q| wake || !completions::is_notification(&q.entry))
+            .cloned()
+        else {
             return;
         };
-        let input = TurnInput {
-            prompt: serde_json::from_value(next.entry["message"].clone())
-                .unwrap_or(PromptContent::Text(String::new())),
-            options: serde_json::from_value(next.entry["options"].clone()).ok(),
-        };
+        if completions::is_notification(&next.entry) {
+            // A wake drains every queued completion: the oldest runs now, the rest follow as
+            // turns of their own, so no boundary of this chain takes them.
+            self.wake_tail = self
+                .projected
+                .queue
+                .iter()
+                .filter(|q| completions::is_notification(&q.entry) && q.qid != next.qid)
+                .map(|q| q.qid.clone())
+                .collect();
+            self.start_completion(next);
+            return;
+        }
         self.accept_record(
             dequeue(&next.qid),
             Class::Control,
@@ -1098,7 +1131,34 @@ impl SessionActor {
             Vec::new(),
             Vec::new(),
         );
+        let input = TurnInput {
+            prompt: serde_json::from_value(next.entry["message"].clone())
+                .unwrap_or(PromptContent::Text(String::new())),
+            options: serde_json::from_value(next.entry["options"].clone()).ok(),
+        };
         self.start_run(input, None, None, None);
+    }
+
+    /// A queued completion as a turn's input row, stored as a task notification.
+    fn start_completion(&mut self, next: super::state::Queued) {
+        self.accept_record(
+            dequeue(&next.qid),
+            Class::Control,
+            Display::None,
+            Vec::new(),
+            Vec::new(),
+        );
+        let input = TurnInput {
+            prompt: PromptContent::Text(completions::text(&next.entry)),
+            options: None,
+        };
+        self.start_run_with(input, completions::input_row(&next.entry), None, None, None);
+    }
+
+    /// A route saved while a turn runs is held for the next turn (`pendingRoute`, written
+    /// with Node's `session.heldRoute`).
+    fn route_held(&self) -> bool {
+        self.acked.header.get("pendingRoute").is_some_and(Value::is_object)
     }
 
     // ───────────── producers ─────────────
@@ -1237,7 +1297,7 @@ impl SessionActor {
                     let _ = reply.send(Vec::new());
                     return;
                 }
-                let durable: Vec<SteerInput> = self
+                let mut durable: Vec<SteerInput> = self
                     .steer_marked
                     .iter()
                     .filter_map(|qid| {
@@ -1250,11 +1310,33 @@ impl SessionActor {
                             .map(|q| SteerInput {
                                 queued_id: qid.clone(),
                                 entry: q.entry.clone(),
+                                mode: SteerMode::Prompt,
+                                execution: None,
                             })
                     })
                     .collect();
                 self.steer_marked
                     .retain(|qid| !durable.iter().any(|s| &s.queued_id == qid));
+                // `if (turn.session?.heldRoute) return out;` (`ask-turn-steering-drain.mjs:48`).
+                if !self.route_held() {
+                    durable.extend(
+                        self.acked
+                            .queue
+                            .iter()
+                            // Durable and not already taken (its dequeue may be unacked).
+                            .filter(|q| {
+                                completions::is_notification(&q.entry)
+                                    && !self.wake_tail.contains(&q.qid)
+                                    && self.projected.queue.iter().any(|p| p.qid == q.qid)
+                            })
+                            .map(|q| SteerInput {
+                                queued_id: QueuedId::from(q.qid.as_str()),
+                                entry: q.entry.clone(),
+                                mode: SteerMode::TaskNotification,
+                                execution: completions::execution(&q.entry),
+                            }),
+                    );
+                }
                 for steer in &durable {
                     self.accept_record(
                         dequeue(steer.queued_id.as_str()),
@@ -1445,6 +1527,7 @@ impl SessionActor {
             "thread/rewind" => self.rewind(&req),
             "thread/clear" => self.clear(&req),
             "thread/name/set" => self.name_set(&req),
+            "thread/header/patch" => self.header_patch(&req),
             _ => Err(invalid("method", "a session-actor method")),
         };
         match result {
@@ -1706,49 +1789,68 @@ impl SessionActor {
         })
     }
 
-    /// The completion text as today's `task-notification` user row (`meta.source`, with the
-    /// execution provenance the transcript turns into a card), in the running turn if any; it
-    /// releases the turn's passive wait.
-    ///
-    /// An idle thread is woken instead: the completion becomes a turn's input
-    /// (`createCompletionWakeScheduler`, `notification-bus.mjs:80-96`).
-    fn task_notification(&mut self, task_id: String, status: String, text: String, live: bool) {
-        let mut body = json!({
-            "role": "user",
-            "content": text,
-            "meta": {
-                "source": "task-notification",
-                "execution": { "taskId": task_id, "status": status },
-            },
+    /// `thread/header/patch {set, unset}`: the core's own header writes (held routes, worker
+    /// rows), one `meta` record answered once durable. Internal callers only: a connection
+    /// never writes header keys directly.
+    fn header_patch(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
+        if matches!(req.ctx.caller, Caller::Connection(_)) {
+            return Err(invalid("method", "an internal method"));
+        }
+        let set = match req.params.get("set") {
+            None | Some(Value::Null) => serde_json::Map::new(),
+            Some(Value::Object(set)) => set.clone(),
+            Some(_) => return Err(invalid("set", "an object of header keys")),
+        };
+        let unset: Vec<String> = match req.params.get("unset") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(value) => serde_json::from_value(value.clone())
+                .map_err(|_| invalid("unset", "a list of header keys"))?,
+        };
+        let value = json!({});
+        let record = Record::Meta(MetaRecord {
+            op: self.op_ref(req, Some(&value))?,
+            change: Slot::Inline(HeaderChange { set, unset }),
         });
-        if live && self.run.is_none() && self.completion_wake() {
-            // The queued completion is the woken turn's input, never an empty user turn
-            // (`ask-queue.mjs:87-101`).
-            let input = TurnInput {
-                prompt: PromptContent::Text(text),
-                options: None,
-            };
-            self.start_run_with(input, body, None, None, None);
+        Ok(Plan {
+            kind: PlanKind::Records(
+                vec![(record, Class::Normal, Display::None, Vec::new())],
+                Vec::new(),
+            ),
+            value,
+            after: None,
+            prompt: None,
+        })
+    }
+
+    /// A detached job's completion joins the queue as today's completion entry
+    /// (`enqueuePendingMessage`) and ends the running turn's passive wait; the turn takes it at
+    /// its next model-call boundary ([`RunPort::take_steers`]). An idle thread is woken: the
+    /// completion starts a turn (`createCompletionWakeScheduler`, `notification-bus.mjs:80-96`),
+    /// unless the thread was opened only for it (Node wakes only the live session).
+    fn task_notification(&mut self, task_id: String, status: String, text: String, live: bool) {
+        let Some((qid, entry)) =
+            completions::entry(&task_id, &status, &text, self.deps.clock.now_ms())
+        else {
+            return;
+        };
+        // The same completion queued twice is one entry (`pendingIdStillQueued`).
+        if self.projected.queue.iter().any(|q| q.qid == qid) {
             return;
         }
-        let facts = self.user_facts(&mut body);
-        let item = Record::Item(ItemRecord {
-            iid: id(&new_id()),
-            turn: self.run.as_ref().map(|run| id(run.turn.as_str())),
-            role: Some(Text::try_from("user").expect("short")),
-            form: Form::Message,
-            model: true,
-            visible: facts.visible,
-            archive: None,
+        let record = Record::Queue(QueueRecord {
+            qid: id(&qid),
+            action: QueueAction::Enqueue,
+            reason: None,
             op: None,
-            prompt: facts.prompt.map(Slot::Inline),
-            refs: Vec::new().try_into().expect("empty list fits"),
-            body: Slot::Inline(body),
+            entry: Some(Slot::Inline(entry)),
         });
-        self.accept_record(item, Class::Normal, Display::None, Vec::new(), Vec::new());
+        self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
         self.deps
             .wakes
             .interrupt(&self.id, WakeReason::Notification, Some(task_id));
+        if live && self.run.is_none() {
+            self.start_next_queued();
+        }
     }
 
     // ───────────── runs ─────────────

@@ -35,7 +35,6 @@ pub use seams::LocalCatalogRefresh;
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -644,41 +643,25 @@ fn read_file(_lane: &InLane<InteractiveIo>, path: &Path) -> Result<Doc, ConfigEr
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Doc::new()),
         Err(error) => return Err(error.into()),
     };
-    match serde_json::from_slice(&bytes) {
+    match mixdog_statefile::parse_json_text(&bytes) {
         Ok(Value::Object(doc)) => Ok(doc),
         Ok(_) => Err(ConfigError::Parse("the top level is not an object".into())),
         Err(error) => Err(ConfigError::Parse(error.to_string())),
     }
 }
 
-/// Write to a fresh sibling, flush it whole, then rename over the file.
-#[allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "an io-durability job body: the proof says it runs there"
-)]
-fn persist(_lane: &InLane<DurabilityIo>, path: &Path, doc: &Doc) -> Result<(), ConfigError> {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(format!(".{}.{}.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
-    let tmp = path.with_file_name(name);
-    let mut bytes = serde_json::to_vec_pretty(doc).map_err(|e| ConfigError::Parse(e.to_string()))?;
-    bytes.push(b'\n');
-    let written = (|| {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)
-    })();
-    if written.is_err() {
-        let _ = fs::remove_file(&tmp);
+/// `writeJsonAtomicSync(configPath(), data, { fsyncDir: true, mode: 0o600, secret: true })`
+/// under `<config>.lock`, the lock Node's own config writers take (`mixdog-statefile`).
+fn persist(lane: &InLane<DurabilityIo>, path: &Path, doc: &Doc) -> Result<(), ConfigError> {
+    let opts = mixdog_statefile::Opts { fsync_dir: true, secret: true, ..mixdog_statefile::Opts::default() };
+    let written = mixdog_statefile::with_lock(lane, path, &mixdog_statefile::LockOpts::default(), || {
+        mixdog_statefile::write_json(lane, path, &Value::Object(doc.clone()), &opts)
+    });
+    match written {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(error)) => Err(std::io::Error::other(error.to_string()).into()),
+        Err(error) => Err(std::io::Error::other(error.to_string()).into()),
     }
-    written?;
-    #[cfg(unix)]
-    if let Some(dir) = path.parent() {
-        fs::File::open(dir)?.sync_all()?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

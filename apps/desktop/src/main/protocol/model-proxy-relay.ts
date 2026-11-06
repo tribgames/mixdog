@@ -24,21 +24,34 @@ interface RunResult {
   result: { result?: string; failure?: unknown } & Record<string, unknown>;
 }
 
-/** Run ids are scoped by the local core's asking connection, which every server relay shares. */
-let relays = 0;
+/** Run ids are scoped by the local core's asking connection, which every server relay shares; a request id of a
+ *  later server connection may repeat one of an earlier, so every run gets its own. */
+let runCount = 0;
 
-/** Starts serving `server`'s proxied model calls on `local`. Returns the stop; runs in flight are left to finish. */
+/** Starts serving `server`'s proxied model calls on `local`. Returns the stop, which abandons the calls in flight
+ *  as Node's `dispose` does (model-proxy-host.ts:1110-1114). */
 export function relayModelProxy(
   server: Pick<ProtocolConnection, 'onEvent' | 'respond' | 'notify'>,
   local: Pick<ProtocolConnection, 'call' | 'notify' | 'onEvent'>
 ): () => void {
-  const prefix = `proxy${relays++}:`;
   // The run each server request started, and the request each run belongs to.
   const runs = new Map<string, string>();
   const requests = new Map<string, RequestId>();
 
+  // The server has failed these calls once its link is gone (the lease of Node's host, replaced by connection
+  // liveness, §12.4): finishing them would only spend for nothing. Stopped, forgotten and left unanswered, as
+  // `abandonAll` does (model-proxy-host.ts:803-809, :814-822).
+  const abandonAll = (): void => {
+    const abandoned = [...runs.values()];
+    runs.clear();
+    requests.clear();
+    for (const runId of abandoned) local.notify(RUN_CANCEL, { runId });
+  };
+
   const stopServer = server.onEvent((event: ConnectionClientEvent) => {
-    if (event.type === 'serverRequest') {
+    if (event.type === 'status') {
+      if ((event as { status: { state: string } }).status.state !== 'ready') abandonAll();
+    } else if (event.type === 'serverRequest') {
       const { id, method, params } = (event as { request: { id: RequestId; method: string; params: unknown } }).request;
       if (method === EXECUTE) execute(id, params as ExecuteParams);
     } else if (event.type === 'notification') {
@@ -62,15 +75,20 @@ export function relayModelProxy(
 
   function execute(id: RequestId, params: ExecuteParams): void {
     const key = JSON.stringify(id);
-    const runId = `${prefix}${key}`;
+    const runId = `proxy${runCount++}`;
     runs.set(key, runId);
     requests.set(runId, id);
+    // An abandoned run is no longer in `runs`: its answer is not sent.
+    const live = (): boolean => runs.get(key) === runId;
     local
       .call(RUN, { runId, call: params.call })
       .then(
         (answer) => {
+          if (!live()) return;
           const { result } = answer as RunResult;
-          // The error vocabulary of the server has no place for a failure: it is the data of the error.
+          // The error vocabulary of the server has no place for a failure: it is the data of the error. Node
+          // answers a failed call with the error record (name, message, props) and no numeric code
+          // (model-proxy-host.ts:896-910), so -32000 and the failure's message stand in.
           if (result.result === 'failed') {
             const failure = result.failure as { message?: string } | undefined;
             server.respond(id, { error: { code: -32000, message: failure?.message ?? 'The model call failed.', data: result.failure } });
@@ -79,10 +97,12 @@ export function relayModelProxy(
           }
         },
         (error: unknown) => {
+          if (!live()) return;
           server.respond(id, { error: { code: -32000, message: error instanceof Error ? error.message : String(error) } });
         }
       )
       .finally(() => {
+        if (!live()) return;
         runs.delete(key);
         requests.delete(runId);
       });
@@ -90,6 +110,7 @@ export function relayModelProxy(
 
   return () => {
     stopServer();
+    abandonAll();
     stopLocal();
   };
 }

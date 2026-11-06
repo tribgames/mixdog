@@ -674,20 +674,15 @@ impl CursorDecoder {
             cache_write_tokens: 0,
             cache_write_1h_tokens: 0,
             reasoning_tokens: 0,
-            raw: Some({
-                let mut raw = json!({
-                    "completion_tokens": self.output_tokens,
-                    "input_tokens_known": false,
-                    "cache_tokens_known": false,
-                    "context_tokens": self.context_tokens,
-                });
-                if let Some(pricing) = &self.pricing_model {
-                    raw["pricingModel"] = json!(pricing);
-                }
-                raw
-            }),
+            raw: Some(json!({
+                "completion_tokens": self.output_tokens,
+                "input_tokens_known": false,
+                "cache_tokens_known": false,
+                "context_tokens": self.context_tokens,
+            })),
         }));
         events.push(StreamEvent::Completed {
+            pricing_model: self.pricing_model.clone(),
             stop: Some(if tool_use { StopReason::ToolUse } else { StopReason::EndTurn }),
         });
         events
@@ -790,6 +785,19 @@ impl WireDecoder for CursorDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pinned suffix id's catalog model rides the terminal event, not the usage.
+    #[test]
+    fn the_pricing_model_rides_the_completed_event() {
+        let mut decoder = CursorDecoder::new(BlobStore::default(), Vec::new(), None)
+            .with_pricing_model(Some("zen-3".to_owned()));
+        let events = decoder.finalize();
+        assert!(matches!(
+            events.last(),
+            Some(StreamEvent::Completed { pricing_model: Some(model), .. }) if model == "zen-3"
+        ));
+        assert!(events.iter().all(|e| !matches!(e, StreamEvent::Usage(u) if u.raw.as_ref().is_some_and(|r| r.get("pricingModel").is_some()))));
+    }
 
     #[test]
     fn think_tags_split_reasoning_from_content() {
