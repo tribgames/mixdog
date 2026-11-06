@@ -496,7 +496,7 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
 }
 
 /// `clearGatewaySessionRoute`: an id the store never keys is refused; a session with no route
-/// writes the store back as read (`{}` when there was none).
+/// leaves the store untouched (Node's mutator answers `undefined`), so no file appears.
 #[tokio::test]
 async fn a_gateway_route_clear_keeps_what_node_keeps() {
     use crate::session::gateway_routes::clear_session_route;
@@ -512,12 +512,8 @@ async fn a_gateway_route_clear_keeps_what_node_keeps() {
         let target = path.clone();
         let job = maintenance.submit(&CancellationToken::new(), move |lane| clear_session_route(lane, &target, id, 5));
         assert_eq!(job.expect("lane").await.expect("ran"), Ok(cleared), "{id}");
-        if !cleared {
-            assert!(!path.exists());
-        }
+        assert!(!path.exists(), "{id}");
     }
-    // `JSON.stringify(cur)` and its newline (`writeJsonAtomicSync`).
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}\n");
 }
 
 #[test]

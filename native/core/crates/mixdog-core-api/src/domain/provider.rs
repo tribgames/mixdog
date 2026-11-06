@@ -458,6 +458,10 @@ pub struct Usage {
     /// The generation tokens the provider reported; `None` when it reported
     /// none (missing is not zero, an explicit 0 stays `Some(0)`).
     pub reasoning_tokens: Option<u64>,
+    /// `reasoningTokensComplete === false`: an aggregate in which some calls reported reasoning
+    /// and some did not, so `reasoning_tokens` is a reported subtotal. Stored inverted so that a
+    /// decoded figure reads as complete by default; read it through [`Usage::reasoning_complete`].
+    pub reasoning_incomplete: bool,
     /// The provider's usage object verbatim (ledger detail, service tier).
     pub raw: Option<JsonValue>,
     /// What the provider billed for the request, when it reports it (xAI
@@ -466,12 +470,21 @@ pub struct Usage {
 }
 
 impl Usage {
-    /// `combineReasoningUsage`'s count: `None` only when neither side reported.
-    pub fn sum_reasoning(a: Option<u64>, b: Option<u64>) -> Option<u64> {
-        match (a, b) {
+    /// `reasoningUsage(usage).reasoningTokensComplete` for a usage that carries its figure:
+    /// a figure is present and was not marked incomplete.
+    pub fn reasoning_complete(&self) -> bool {
+        self.reasoning_tokens.is_some() && !self.reasoning_incomplete
+    }
+
+    /// `combineReasoningUsage(self, other)`: the count is `None` only when neither side reported,
+    /// and the result is complete only when both sides are.
+    pub fn combine_reasoning(&mut self, other: &Usage) {
+        let complete = self.reasoning_complete() && other.reasoning_complete();
+        self.reasoning_tokens = match (self.reasoning_tokens, other.reasoning_tokens) {
             (None, None) => None,
             (a, b) => Some(a.unwrap_or(0) + b.unwrap_or(0)),
-        }
+        };
+        self.reasoning_incomplete = !complete;
     }
 }
 
@@ -1072,4 +1085,46 @@ pub trait ModelListing: Send + Sync {
     /// One fetch: no retry, no cache, no fallback list. Refresh and caching
     /// belong to the catalog; a failure is a typed error, never an empty list.
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError>;
+}
+
+#[cfg(test)]
+mod reasoning_usage_tests {
+    use super::Usage;
+
+    fn reported(n: Option<u64>) -> Usage {
+        Usage { reasoning_tokens: n, ..Usage::default() }
+    }
+
+    /// `combineReasoningUsage` (`reasoning-usage.mjs`): the count is null only when neither side
+    /// reported, and the aggregate is complete only when both sides are.
+    #[test]
+    fn a_mixed_aggregate_keeps_the_subtotal_and_is_incomplete() {
+        let mut total = reported(Some(5));
+        total.combine_reasoning(&reported(None));
+        assert_eq!((total.reasoning_tokens, total.reasoning_complete()), (Some(5), false));
+        // Incomplete stays incomplete however many complete calls follow.
+        total.combine_reasoning(&reported(Some(2)));
+        assert_eq!((total.reasoning_tokens, total.reasoning_complete()), (Some(7), false));
+    }
+
+    #[test]
+    fn calls_that_all_reported_stay_complete_and_a_reported_zero_is_a_figure() {
+        let mut total = reported(Some(0));
+        assert!(total.reasoning_complete());
+        total.combine_reasoning(&reported(Some(0)));
+        assert_eq!((total.reasoning_tokens, total.reasoning_complete()), (Some(0), true));
+        total.combine_reasoning(&reported(Some(3)));
+        assert_eq!((total.reasoning_tokens, total.reasoning_complete()), (Some(3), true));
+    }
+
+    #[test]
+    fn nothing_reported_on_either_side_is_no_figure_and_not_complete() {
+        let mut total = reported(None);
+        total.combine_reasoning(&reported(None));
+        assert_eq!((total.reasoning_tokens, total.reasoning_complete()), (None, false));
+        // A side already marked incomplete makes the result incomplete.
+        let mut flagged = Usage { reasoning_incomplete: true, ..reported(Some(4)) };
+        flagged.combine_reasoning(&reported(Some(1)));
+        assert_eq!((flagged.reasoning_tokens, flagged.reasoning_complete()), (Some(5), false));
+    }
 }

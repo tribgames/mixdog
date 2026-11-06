@@ -144,9 +144,9 @@
       "sha256": "06db5ffc1f6955e7893c19cc18ac5b2dda1f7e301e174126964d899070bf0d24"
     },
     {
-      "bytes": 3981680,
+      "bytes": 4257645,
       "path": "settings/turn-auto-effort-twin.json",
-      "sha256": "36f1eba6add3d8c39c313f26553b0e1b029ad1ce194980ddfab3206fedc3e733"
+      "sha256": "7290a76e6b3a26f4826301d7843e038f9465ff507d99acc8bafce443a97cbe82"
     },
     {
       "bytes": 2251,
@@ -165,12 +165,12 @@
     }
   ],
   "product": {
-    "appsSha256": "1ba13ae4c6213282aa4baf8e39dd32a65446dfddf9d3fe560f802a85d7e64ec3",
-    "commit": "11afa441943398624c0a26744b1891610e94e1a4",
+    "appsSha256": "04b921c4ae348576f68a0a015207ce668e374e6d3cae8c8fdeff8ff229de0afa",
+    "commit": "bd2393f2a2269ff69713d0cc5cb286835b3bf9bc",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9240,
+    "files": 9241,
     "refComparison": {
-      "closestCommit": "11afa441943398624c0a26744b1891610e94e1a4",
+      "closestCommit": "bd2393f2a2269ff69713d0cc5cb286835b3bf9bc",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -182,5 +182,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 19953533
+  "totalBytes": 20229498
 }

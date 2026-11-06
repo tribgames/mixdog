@@ -329,6 +329,7 @@ fn usage_out(u: &p::Usage) -> w::ProxyUsage {
         cache_write_tokens: u.cache_write_tokens,
         cache_write_1h_tokens: u.cache_write_1h_tokens,
         reasoning_tokens: u.reasoning_tokens,
+        reasoning_incomplete: u.reasoning_incomplete,
         raw: u.raw.clone(),
         cost_ticks: u.cost.map(|c| c.0),
     }
@@ -342,6 +343,7 @@ fn usage_in(u: w::ProxyUsage) -> p::Usage {
         cache_write_tokens: u.cache_write_tokens,
         cache_write_1h_tokens: u.cache_write_1h_tokens,
         reasoning_tokens: u.reasoning_tokens,
+        reasoning_incomplete: u.reasoning_incomplete,
         raw: u.raw,
         cost: u.cost_ticks.map(p::UsdTicks),
     }

@@ -440,6 +440,10 @@ async fn a_deadline_warning_during_the_settlement_marks_the_reminder() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_goal_reminder_marks_the_sessions_pending_reminder() {
     let rig = Rig::new();
+    // The active Goal continues as a turn, and a turn that completes carries the pending
+    // reminder and clears it (`acknowledgePendingGoalReminder`): the first run stays open, so the
+    // marks are what the header holds.
+    let gate = holding(&rig);
     let spy = Spy::new(&rig);
     let directory = directory(&rig, &spy);
     let handle = start_thread(&directory).await;
@@ -458,6 +462,44 @@ async fn a_goal_reminder_marks_the_sessions_pending_reminder() {
     assert_eq!(header.get("goalReminderRevision"), Some(&json!(2)));
     assert!(header.get("updatedAt").and_then(Value::as_i64).is_some());
     assert_eq!(spy.resets(), 2, "each mark resets the continuation rules");
+    gate.notify_one();
+}
+
+/// A turn takes the pending Goal reminder into its tail (`snapshotPendingGoalReminder`) and the
+/// marker goes once that turn completed (`acknowledgePendingGoalReminder`); a mark made while a
+/// turn runs is not that turn's, so it survives the turn's end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_completed_turn_carries_the_pending_reminder_and_clears_it() {
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let seen: Arc<Mutex<Vec<Option<(u64, String)>>>> = Arc::default();
+    let (open, first, reminders) = (gate.clone(), Arc::new(std::sync::atomic::AtomicBool::new(true)), seen.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, first, reminders) = (open.clone(), first.clone(), reminders.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            lock(&reminders).push(run.goal_reminder.as_ref().map(|reminder| (reminder.revision, reminder.content.clone())));
+            if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                open.notified().await;
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let spy = Spy::new(&rig);
+    let directory = directory(&rig, &spy);
+    let handle = start_thread(&directory).await;
+    handle.request(request("thread/goal/set", json!({ "threadId": handle.id, "opId": "g-1", "goal": "Ship the feature" }), "g-1")).await.expect("set");
+    let edit = request("thread/goal/control", json!({ "threadId": handle.id, "opId": "g-2", "action": "edit", "args": { "objective": "Ship it" } }), "g-2");
+    handle.request(edit).await.expect("edit");
+    // The edit marks the reminder and the active Goal's continuation turn takes it; the turn is
+    // held open, so the marker stays until the turn is accepted.
+    let carried = eventually(|| lock(&seen).iter().flatten().next().cloned()).await;
+    assert_eq!(carried.0, 1);
+    assert!(carried.1.contains("The user changed this Goal's objective."), "{}", carried.1);
+    let pending = |handle: &SessionHandle| handle.cell.header.load().get("pendingGoalReminder").cloned();
+    assert_eq!(pending(&handle).map(|pending| pending["revision"].clone()), Some(json!(1)));
+    gate.notify_one();
+    eventually(|| pending(&handle).is_none().then_some(())).await;
 }
 
 /// `canDeliverSteeringEntry`: the terminal boundary of a running turn steers the queued closeout

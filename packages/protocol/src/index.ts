@@ -2960,7 +2960,11 @@ export type ProxyUsage = { inputTokens: number, outputTokens: number, cacheReadT
 /**
  * Absent when the provider reported none; an explicit 0 stays 0.
  */
-reasoningTokens: number | null, raw: JsonValue | null, costTicks: number | null, };
+reasoningTokens: number | null, 
+/**
+ * `reasoningTokensComplete === false` on an aggregate.
+ */
+reasoningIncomplete: boolean, raw: JsonValue | null, costTicks: number | null, };
 
 export type ProxyWire = "chat" | "responses" | "messages" | "gemini";
 

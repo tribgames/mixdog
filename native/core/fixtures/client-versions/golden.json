@@ -1,0 +1,1536 @@
+{
+  "base": 1800000000000,
+  "helpers": {
+    "cursorBuild": [
+      {
+        "input": "https://downloads.cursor.com/lab/2026.11.02-abcdef0/linux/x64/a.tar.gz",
+        "result": "cli-2026.11.02-abcdef0"
+      },
+      {
+        "input": "downloads.cursor.com/lab/2026.11.02-ABCDEF0/",
+        "result": null
+      },
+      {
+        "input": "no build here",
+        "result": null
+      },
+      {
+        "input": "https://downloads.cursor.com/lab/2026.11.02-abc/x/",
+        "result": null
+      }
+    ],
+    "cursorNewer": [
+      {
+        "current": "cli-2026.10.22-27dcf5f",
+        "next": "cli-2026.11.02-aaaaaaa",
+        "result": true
+      },
+      {
+        "current": "cli-2026.10.22-27dcf5f",
+        "next": "cli-2026.10.22-27dcf5f",
+        "result": false
+      },
+      {
+        "current": "cli-2026.10.22-27dcf5f",
+        "next": "cli-2026.10.22-bbbbbbb",
+        "result": true
+      },
+      {
+        "current": "cli-2026.10.22-27dcf5f",
+        "next": "cli-2026.10.21-ccccccc",
+        "result": false
+      },
+      {
+        "current": "cli-2026.10.22-27dcf5f",
+        "next": "cli-latest",
+        "result": false
+      },
+      {
+        "current": "custom",
+        "next": "cli-2026.11.02-aaaaaaa",
+        "result": false
+      }
+    ],
+    "manifest": [
+      {
+        "input": "version: 2.20.3 # latest\n",
+        "result": "2.20.3"
+      },
+      {
+        "input": "version: '2.1.0'\n",
+        "result": "2.1.0"
+      },
+      {
+        "input": "version: \"3.0.0\"",
+        "result": "3.0.0"
+      },
+      {
+        "input": "x: 1\nversion: 1.2.3\nversion: 9.9.9\n",
+        "result": "1.2.3"
+      },
+      {
+        "input": "version: nope\nversion: 1.2.3\n",
+        "result": null
+      },
+      {
+        "input": "  version :   4.5.6  \r\n",
+        "result": "4.5.6"
+      },
+      {
+        "input": "version: 1.2\n",
+        "result": null
+      },
+      {
+        "input": "versions: 1.2.3\n",
+        "result": null
+      },
+      {
+        "input": "version: \"\"\n",
+        "result": null
+      }
+    ],
+    "maxSemver": [
+      {
+        "candidates": [
+          "1.0.0",
+          "1.0.1"
+        ],
+        "result": "1.0.1"
+      },
+      {
+        "candidates": [
+          "1.10.0",
+          "1.9.9",
+          "1.2.0"
+        ],
+        "result": "1.10.0"
+      },
+      {
+        "candidates": [
+          " 2.0.0 ",
+          "x",
+          null
+        ],
+        "result": "2.0.0"
+      },
+      {
+        "candidates": [
+          null,
+          ""
+        ],
+        "result": null
+      },
+      {
+        "candidates": [
+          "1.0",
+          "01.0.0"
+        ],
+        "result": "01.0.0"
+      },
+      {
+        "candidates": [
+          "0.166.0",
+          "0.166.0"
+        ],
+        "result": "0.166.0"
+      }
+    ],
+    "npmLatest": [
+      {
+        "input": "{\"version\":\"1.2.3\"}",
+        "result": "1.2.3"
+      },
+      {
+        "input": "{\"version\":\" 1.2.3 \"}",
+        "result": "1.2.3"
+      },
+      {
+        "input": "{\"version\":\"1.2\"}",
+        "result": null
+      },
+      {
+        "input": "{\"version\":0}",
+        "result": null
+      },
+      {
+        "input": "{\"version\":null}",
+        "result": null
+      },
+      {
+        "input": "{\"version\":123}",
+        "result": null
+      },
+      {
+        "input": "{}",
+        "result": null
+      },
+      {
+        "input": "[]",
+        "result": null
+      }
+    ]
+  },
+  "scenarios": [
+    {
+      "env": {},
+      "name": "codex-day-cache",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.170.0\"}",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 3600000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": []
+        },
+        {
+          "at": 86340000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": []
+        },
+        {
+          "at": 86460000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.171.2\"}",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 86520000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": []
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.170.0",
+          "version": "0.170.0"
+        },
+        {
+          "at": 3600000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [],
+          "header": "0.170.0",
+          "version": "0.170.0"
+        },
+        {
+          "at": 86340000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [],
+          "header": "0.170.0",
+          "version": "0.170.0"
+        },
+        {
+          "at": 86460000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.171.2",
+          "version": "0.171.2"
+        },
+        {
+          "at": 86520000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [],
+          "header": "0.171.2",
+          "version": "0.171.2"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "codex-concurrent-warms-share-one-fetch",
+      "steps": [
+        {
+          "at": 0,
+          "concurrent": 3,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.170.0\"}",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.170.0",
+          "version": "0.170.0"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "codex-never-below-the-floor",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.100.0\"}",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.166.0",
+          "version": "0.166.0"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "codex-failure-waits-ten-minutes",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "fail": true
+            }
+          ]
+        },
+        {
+          "at": 300000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": []
+        },
+        {
+          "at": 660000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.180.0\"}",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.166.0",
+          "version": "0.166.0"
+        },
+        {
+          "at": 300000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [],
+          "header": "0.166.0",
+          "version": "0.166.0"
+        },
+        {
+          "at": 660000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.180.0",
+          "version": "0.180.0"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "codex-stale-refresh-failure-keeps-the-value",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.170.0\"}",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 86460000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "fail": true
+            }
+          ]
+        },
+        {
+          "at": 86700000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": []
+        },
+        {
+          "at": 87120000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{}",
+              "status": 503
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.170.0",
+          "version": "0.170.0"
+        },
+        {
+          "at": 86460000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.170.0",
+          "version": "0.170.0"
+        },
+        {
+          "at": 86700000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [],
+          "header": "0.170.0",
+          "version": "0.170.0"
+        },
+        {
+          "at": 87120000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.170.0",
+          "version": "0.170.0"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "codex-unrecognised-answers-are-ignored",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"latest\"}",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 660000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"1.2\"}",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 1320000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "not json",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 1980000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.190.1\"}",
+              "status": 404
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.166.0",
+          "version": "0.166.0"
+        },
+        {
+          "at": 660000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.166.0",
+          "version": "0.166.0"
+        },
+        {
+          "at": 1320000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.166.0",
+          "version": "0.166.0"
+        },
+        {
+          "at": 1980000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.166.0",
+          "version": "0.166.0"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "codex-remembered-across-restart",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.175.0\"}",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 60000,
+          "do": "restart"
+        },
+        {
+          "at": 60000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "fail": true
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.175.0",
+          "version": "0.175.0"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "restart",
+          "fetched": []
+        },
+        {
+          "at": 60000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.175.0",
+          "version": "0.175.0"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_DISABLE_LIVE_CLI_VERSIONS": "1"
+      },
+      "name": "codex-disabled",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.175.0\"}",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 60000,
+          "do": "restart"
+        },
+        {
+          "at": 60000,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.175.0\"}",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [],
+          "header": "0.166.0",
+          "version": "0.166.0"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "restart",
+          "fetched": []
+        },
+        {
+          "at": 60000,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [],
+          "header": "0.166.0",
+          "version": "0.166.0"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_CODEX_VERSION": " 0.150.0 "
+      },
+      "name": "codex-pinned-version-header",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.175.0\"}",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "codex",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@openai/codex/latest"
+            }
+          ],
+          "header": "0.150.0",
+          "version": "0.175.0"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "grok-live-and-learned",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "grok",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"1.0.80\"}",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 60000,
+          "do": "learn",
+          "text": "client outdated"
+        },
+        {
+          "at": 60000,
+          "do": "learn",
+          "text": "426: minimum version 1.0.95 required"
+        },
+        {
+          "at": 60000,
+          "do": "learn",
+          "text": "minimum version 1.0.90"
+        },
+        {
+          "at": 60000,
+          "do": "learn",
+          "text": "Upgrade to 1.1.0 now"
+        },
+        {
+          "at": 60000,
+          "do": "learn",
+          "text": "at least 1.1.0"
+        },
+        {
+          "at": 60000,
+          "do": "learn",
+          "text": null
+        },
+        {
+          "at": 86520000,
+          "dialect": "grok",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"1.0.82\"}",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "grok",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@xai-official/grok/latest"
+            }
+          ],
+          "version": "1.0.80"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "learn",
+          "fetched": [],
+          "learned": false,
+          "version": "1.0.80"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "learn",
+          "fetched": [],
+          "learned": true,
+          "version": "1.0.95"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "learn",
+          "fetched": [],
+          "learned": false,
+          "version": "1.0.95"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "learn",
+          "fetched": [],
+          "learned": true,
+          "version": "1.1.0"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "learn",
+          "fetched": [],
+          "learned": false,
+          "version": "1.1.0"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "learn",
+          "fetched": [],
+          "learned": false,
+          "version": "1.1.0"
+        },
+        {
+          "at": 86520000,
+          "dialect": "grok",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@xai-official/grok/latest"
+            }
+          ],
+          "version": "1.1.0"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "grok-npm-below-the-floor",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "grok",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"0.9.0\"}",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "grok",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@xai-official/grok/latest"
+            }
+          ],
+          "version": "1.0.70"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "grok-remembered-across-restart",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "grok",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"1.0.99\"}",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 60000,
+          "do": "restart"
+        },
+        {
+          "at": 60000,
+          "dialect": "grok",
+          "do": "warm",
+          "net": [
+            {
+              "fail": true
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "grok",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@xai-official/grok/latest"
+            }
+          ],
+          "version": "1.0.99"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "restart",
+          "fetched": []
+        },
+        {
+          "at": 60000,
+          "dialect": "grok",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://registry.npmjs.org/@xai-official/grok/latest"
+            }
+          ],
+          "version": "1.0.99"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_GROK_CLIENT_VERSION": " 1.0.50 "
+      },
+      "name": "grok-env-override",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "grok",
+          "do": "warm",
+          "net": [
+            {
+              "body": "{\"version\":\"1.0.99\"}",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 60000,
+          "do": "learn",
+          "text": "minimum version 1.0.95"
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "grok",
+          "do": "warm",
+          "fetched": [],
+          "version": "1.0.50"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "learn",
+          "fetched": [],
+          "learned": false,
+          "version": "1.0.50"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "cursor-build-from-the-installer",
+      "steps": [
+        {
+          "at": 0,
+          "concurrent": 2,
+          "dialect": "cursor",
+          "do": "warm",
+          "net": [
+            {
+              "body": "DOWNLOAD_URL=\"https://downloads.cursor.com/lab/2099.09.28-64d2043/${OS}/${ARCH}/agent-cli-package.tar.gz\"",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 3600000,
+          "dialect": "cursor",
+          "do": "warm",
+          "net": []
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "cursor",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://cursor.com/install"
+            }
+          ],
+          "version": "cli-2099.09.28-64d2043"
+        },
+        {
+          "at": 3600000,
+          "dialect": "cursor",
+          "do": "warm",
+          "fetched": [],
+          "version": "cli-2099.09.28-64d2043"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "cursor-older-build-never-replaces-the-floor",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "cursor",
+          "do": "warm",
+          "net": [
+            {
+              "body": "DOWNLOAD_URL=\"https://downloads.cursor.com/lab/2020.01.01-aaaaaaa/${OS}/${ARCH}/agent-cli-package.tar.gz\"",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "cursor",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://cursor.com/install"
+            }
+          ],
+          "version": "cli-2026.10.22-27dcf5f"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "cursor-format-change-and-failures",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "cursor",
+          "do": "warm",
+          "net": [
+            {
+              "body": "#!/bin/sh\necho new installer layout",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 660000,
+          "dialect": "cursor",
+          "do": "warm",
+          "net": [
+            {
+              "body": "x",
+              "status": 503
+            }
+          ]
+        },
+        {
+          "at": 1320000,
+          "dialect": "cursor",
+          "do": "warm",
+          "net": [
+            {
+              "fail": true
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "cursor",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://cursor.com/install"
+            }
+          ],
+          "version": "cli-2026.10.22-27dcf5f"
+        },
+        {
+          "at": 660000,
+          "dialect": "cursor",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://cursor.com/install"
+            }
+          ],
+          "version": "cli-2026.10.22-27dcf5f"
+        },
+        {
+          "at": 1320000,
+          "dialect": "cursor",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {},
+              "url": "https://cursor.com/install"
+            }
+          ],
+          "version": "cli-2026.10.22-27dcf5f"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_CURSOR_CLIENT_VERSION": "cli-custom"
+      },
+      "name": "cursor-env-override",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "cursor",
+          "do": "warm",
+          "net": [
+            {
+              "body": "DOWNLOAD_URL=\"https://downloads.cursor.com/lab/2099.09.28-64d2043/${OS}/${ARCH}/agent-cli-package.tar.gz\"",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "cursor",
+          "do": "warm",
+          "fetched": [],
+          "version": "cli-custom"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "antigravity-once-per-process",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": [
+            {
+              "body": "version: 2.25.0\npath: Antigravity.dmg\n",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 2592000000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": []
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {
+                "cache-control": "no-cache",
+                "user-agent": "electron-builder"
+              },
+              "url": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml"
+            }
+          ],
+          "version": "2.25.0"
+        },
+        {
+          "at": 2592000000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [],
+          "version": "2.25.0"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "antigravity-failure-holds-ten-minutes",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": [
+            {
+              "fail": true
+            }
+          ]
+        },
+        {
+          "at": 300000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": []
+        },
+        {
+          "at": 660000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": [
+            {
+              "body": "version: 2.30.1\npath: Antigravity.dmg\n",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {
+                "cache-control": "no-cache",
+                "user-agent": "electron-builder"
+              },
+              "url": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml"
+            }
+          ],
+          "version": "2.19.1"
+        },
+        {
+          "at": 300000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [],
+          "version": "2.19.1"
+        },
+        {
+          "at": 660000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {
+                "cache-control": "no-cache",
+                "user-agent": "electron-builder"
+              },
+              "url": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml"
+            }
+          ],
+          "version": "2.30.1"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "antigravity-http-error-and-bad-manifest",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": [
+            {
+              "body": "version: 2.40.0\n",
+              "status": 500
+            }
+          ]
+        },
+        {
+          "at": 660000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": [
+            {
+              "body": "version: next\n",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 1320000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": [
+            {
+              "body": "name: x\n",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 1980000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": [
+            {
+              "body": "files:\n  - url: a\nversion: '2.41.7' # latest\n",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {
+                "cache-control": "no-cache",
+                "user-agent": "electron-builder"
+              },
+              "url": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml"
+            }
+          ],
+          "version": "2.19.1"
+        },
+        {
+          "at": 660000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {
+                "cache-control": "no-cache",
+                "user-agent": "electron-builder"
+              },
+              "url": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml"
+            }
+          ],
+          "version": "2.19.1"
+        },
+        {
+          "at": 1320000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {
+                "cache-control": "no-cache",
+                "user-agent": "electron-builder"
+              },
+              "url": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml"
+            }
+          ],
+          "version": "2.19.1"
+        },
+        {
+          "at": 1980000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {
+                "cache-control": "no-cache",
+                "user-agent": "electron-builder"
+              },
+              "url": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml"
+            }
+          ],
+          "version": "2.41.7"
+        }
+      ]
+    },
+    {
+      "env": {},
+      "name": "antigravity-remembered-across-restart",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": [
+            {
+              "body": "version: 2.25.0\npath: Antigravity.dmg\n",
+              "status": 200
+            }
+          ]
+        },
+        {
+          "at": 60000,
+          "do": "restart"
+        },
+        {
+          "at": 60000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": [
+            {
+              "fail": true
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {
+                "cache-control": "no-cache",
+                "user-agent": "electron-builder"
+              },
+              "url": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml"
+            }
+          ],
+          "version": "2.25.0"
+        },
+        {
+          "at": 60000,
+          "dialect": null,
+          "do": "restart",
+          "fetched": []
+        },
+        {
+          "at": 60000,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [
+            {
+              "headers": {
+                "cache-control": "no-cache",
+                "user-agent": "electron-builder"
+              },
+              "url": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml"
+            }
+          ],
+          "version": "2.25.0"
+        }
+      ]
+    },
+    {
+      "env": {
+        "MIXDOG_ANTIGRAVITY_VERSION": " 9.9.9 "
+      },
+      "name": "antigravity-env-override",
+      "steps": [
+        {
+          "at": 0,
+          "dialect": "antigravity",
+          "do": "warm",
+          "net": [
+            {
+              "body": "version: 2.25.0\npath: Antigravity.dmg\n",
+              "status": 200
+            }
+          ]
+        }
+      ],
+      "trace": [
+        {
+          "at": 0,
+          "dialect": "antigravity",
+          "do": "warm",
+          "fetched": [],
+          "version": "9.9.9"
+        }
+      ]
+    }
+  ]
+}

@@ -290,6 +290,17 @@ impl SessionDirectory {
         self.handle(id).map(|handle| handle.cell.progress.borrow().live(now, jobs)).unwrap_or_default()
     }
 
+    /// A session's header: the live one of a loaded thread, else the stored record read on the io
+    /// lane. `None` when the session is unknown or deleted.
+    pub async fn stored_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
+        if let Some(handle) = self.handle(id) {
+            return Some(handle.cell.header.load_full().as_ref().clone());
+        }
+        let deps = &self.inner.deps;
+        let (store, thread) = (deps.store.clone(), id.clone());
+        deps.lanes.io.submit(&CancellationToken::new(), move |lane| store.read_header(lane, &thread)).ok()?.await.ok()?.ok()
+    }
+
     /// The ids of every loaded thread (the threads this process hosts).
     pub fn loaded_ids(&self) -> Vec<ThreadId> {
         self.inner

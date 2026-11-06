@@ -236,6 +236,10 @@ pub trait ThreadStore: Send + Sync + 'static {
     fn read_head(&self, lane: &InLane<InteractiveIo>, id: &ThreadId)
     -> Result<HeadRead, CoreError>;
 
+    /// A stored session's whole header (its folded record), read without opening the thread:
+    /// `threadNotFound` for an unknown or deleted one.
+    fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError>;
+
     /// J2.
     fn read_window(
         &self,

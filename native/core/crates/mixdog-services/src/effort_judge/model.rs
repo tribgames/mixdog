@@ -17,7 +17,7 @@ use ort::value::Tensor;
 use crate::effort_judge::error::JudgeError;
 use crate::lane::on_lane;
 use crate::model_install::InstallError;
-use crate::effort_judge::input::step_judge_text;
+use crate::effort_judge::input::{InputFormat, TurnInput, pack_ids, step_judge_text, turn_text};
 use crate::effort_judge::tokenizer::BpeTokenizer;
 use crate::memory::embed::engine::ort_environment;
 use crate::memory::embed::install::holds_data;
@@ -72,6 +72,7 @@ struct Calibration {
     temperature: f64,
     max_tokens: usize,
     steps: bool,
+    input_format: InputFormat,
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs inside the load job on the lane")]
@@ -80,7 +81,8 @@ fn calibration(dir: &Path) -> Calibration {
         std::fs::read(dir.join("calibration.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let temperature = raw["temperature"].as_f64().filter(|t| *t > 0.0).unwrap_or(1.0);
     let max_tokens = raw["maxTokens"].as_f64().filter(|n| *n > 2.0).map_or(DEFAULT_MAX_TOKENS, |n| n as usize);
-    Calibration { temperature, max_tokens, steps: raw["steps"].as_f64() == Some(1.0) }
+    let input_format = InputFormat::named(raw["inputFormat"].as_str().unwrap_or_default());
+    Calibration { temperature, max_tokens, steps: raw["steps"].as_f64() == Some(1.0), input_format }
 }
 
 /// `effortJudgeSupportsSteps`: whether `calibration.json` in `dir` says `steps: 1`.
@@ -96,6 +98,7 @@ pub struct JudgeModel {
     temperature: f64,
     max_tokens: usize,
     steps: bool,
+    input_format: InputFormat,
 }
 
 fn run_error(error: impl std::fmt::Display) -> JudgeError {
@@ -126,8 +129,9 @@ impl JudgeModel {
             temperature: settings.temperature,
             max_tokens: settings.max_tokens,
             steps: settings.steps,
+            input_format: settings.input_format,
         };
-        let warm = model.ids_of_text("step 1\nrequest: warm up");
+        let warm = model.turn_ids(&TurnInput { request: "warm up".into(), ..TurnInput::default() });
         model.run(&warm).map_err(|e| JudgeError::Load(e.to_string()))?;
         Ok(model)
     }
@@ -142,6 +146,19 @@ impl JudgeModel {
     /// `<bos> step text <eos>` for one step, cut to the token budget.
     pub fn step_ids(&self, input: &StepInput) -> Vec<i64> {
         self.ids_of_text(&step_judge_text(input))
+    }
+
+    /// `<bos> turn text <eos>` in the layout the model was trained on, cut to the token budget.
+    pub fn turn_ids(&self, input: &TurnInput) -> Vec<i64> {
+        if self.input_format == InputFormat::Pack {
+            return pack_ids(&self.tokenizer, input, self.max_tokens).into_iter().map(i64::from).collect();
+        }
+        self.ids_of_text(&turn_text(self.input_format, input))
+    }
+
+    /// Calibrated probabilities over the four levels for a turn (`inputs` are already clipped).
+    pub fn turn_probs(&self, input: &TurnInput) -> Result<Vec<f64>, JudgeError> {
+        self.run(&self.turn_ids(input))
     }
 
     fn run(&self, ids: &[i64]) -> Result<Vec<f64>, JudgeError> {

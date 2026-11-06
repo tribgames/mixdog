@@ -125,6 +125,7 @@ pub fn usage_from(raw: &JsonValue, cost: CostField) -> Usage {
         reasoning_tokens: get(&["completion_tokens_details", "reasoning_tokens"])
             .or(get(&["output_tokens_details", "reasoning_tokens"]))
             .map(to_u64),
+        reasoning_incomplete: false,
         raw: Some(raw.clone()),
         cost: reported_cost(raw, cost),
     }

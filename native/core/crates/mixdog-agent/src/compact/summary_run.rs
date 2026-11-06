@@ -154,13 +154,20 @@ pub struct Generated {
 
 fn add_usage(total: Option<Usage>, add: Option<&Usage>) -> Option<Usage> {
     let Some(add) = add else { return total };
+    let first = total.is_none();
     let mut total = total.unwrap_or_default();
     total.input_tokens += add.input_tokens;
     total.output_tokens += add.output_tokens;
     total.cache_read_tokens += add.cache_read_tokens;
     total.cache_write_tokens += add.cache_write_tokens;
     total.cache_write_1h_tokens += add.cache_write_1h_tokens;
-    total.reasoning_tokens = Usage::sum_reasoning(total.reasoning_tokens, add.reasoning_tokens);
+    if first {
+        // The first figure is the aggregate so far, not a combination with nothing.
+        total.reasoning_tokens = add.reasoning_tokens;
+        total.reasoning_incomplete = add.reasoning_incomplete;
+    } else {
+        total.combine_reasoning(add);
+    }
     Some(total)
 }
 

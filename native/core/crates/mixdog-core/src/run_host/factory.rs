@@ -1000,8 +1000,9 @@ mod tests {
     }
 
     struct NoStamps;
+    #[async_trait::async_trait]
     impl super::super::unattended::RunStamps for NoStamps {
-        fn stamp_of(&self, _: &ThreadId) -> Option<Value> {
+        async fn stamp_of(&self, _: &ThreadId) -> Option<Value> {
             None
         }
     }
@@ -1083,11 +1084,12 @@ mod tests {
     }
 
     struct NoBots;
+    #[async_trait::async_trait]
     impl super::super::route_chain::BotRoutes for NoBots {
-        fn bot_route(&self, _: &str) -> Option<Option<Value>> {
+        async fn bot_route(&self, _: &str) -> Option<Option<Value>> {
             None
         }
-        fn stored_bot_route(&self, _: &str) -> Option<Value> {
+        async fn stored_bot_route(&self, _: &str) -> Option<Value> {
             None
         }
     }

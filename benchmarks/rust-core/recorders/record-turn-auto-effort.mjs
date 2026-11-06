@@ -3,14 +3,19 @@
 // `autoEffortMode`, `autoEffortBaseSetting`, `autoEffortStepsEnabled` over the environment and an
 // agent config; `clampAutoEffortBase` (providers/auto-effort.mjs) over raw settings and ladders; and
 // `resolveTurnAutoEffort` over modes, routes, ladders, prompts and judge answers. The judge client
-// is replaced by a scripted one (its answer per case); everything else is Node's own code, and the
-// decision log and the empty-ladder warning are captured instead of written.
+// is replaced by a scripted one (its answer per case); everything else is Node's own code. The real
+// `recordEffortDecision` writes the decision log: each turn gets a fresh directory, the destination is
+// chosen by MIXDOG_EFFORT_DECISIONS_LOG or MIXDOG_DATA_DIR, the clock Node reads (`Date`) is fixed per
+// turn, and the file's path (relative to that directory) and bytes are recorded. The empty-ladder
+// warning is captured from stderr.
 //
 //   node benchmarks/rust-core/recorders/record-turn-auto-effort.mjs [--tree <dir>]
 //
 // Needs Node's module mocks; the script restarts itself with the flag.
 import { spawnSync } from 'node:child_process';
 import { mock } from 'node:test';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, importFrom, parseArgs, refreshSetManifest, resolveTree, writeJson } from './lib/common.mjs';
@@ -31,7 +36,6 @@ const JUDGE = 'src/runtime/effort-judge/judge-client.mjs';
 const judgeOriginal = await import(url(JUDGE));
 let answer = null;
 const judgeCalls = [];
-const decisions = [];
 mock.module(url(JUDGE), {
   namedExports: {
     ...judgeOriginal,
@@ -39,7 +43,6 @@ mock.module(url(JUDGE), {
       judgeCalls.push(input);
       return answer;
     },
-    recordEffortDecision: (entry) => decisions.push(entry),
   },
 });
 const auto = await import(`${url('src/runtime/agent/orchestrator/session/manager/ask-turn-auto-effort.mjs')}?recorded`);
@@ -58,7 +61,7 @@ const rnd = () => {
 };
 const pick = (list) => list[Math.floor(rnd() * list.length)];
 
-const ENV = ['MIXDOG_AUTO_EFFORT', 'MIXDOG_FEATURE_AUTO_EFFORT', 'MIXDOG_AUTO_EFFORT_STEPS'];
+const ENV = ['MIXDOG_AUTO_EFFORT', 'MIXDOG_FEATURE_AUTO_EFFORT', 'MIXDOG_AUTO_EFFORT_STEPS', 'MIXDOG_EFFORT_DECISIONS_LOG', 'MIXDOG_DATA_DIR'];
 const setEnv = (env) => {
   for (const name of ENV) delete process.env[name];
   for (const [name, value] of Object.entries(env)) if (value !== undefined) process.env[name] = value;
@@ -221,6 +224,16 @@ process.stderr.write = (chunk, ...rest) => {
   return true;
 };
 
+mock.timers.enable({ apis: ['Date'], now: 0 });
+const clockOf = (i) => 1_760_000_000_000 + i * 86_400_000 + (i % 997);
+// Where a turn's log goes: the override, the data directory, or an empty override that falls through.
+const LOG_MODES = ['override', 'override', 'data', 'data', 'empty-override'];
+const logEnv = (mode, root) => {
+  if (mode === 'override') return { MIXDOG_EFFORT_DECISIONS_LOG: join(root, 'redirected', 'log.jsonl') };
+  if (mode === 'data') return { MIXDOG_DATA_DIR: root };
+  return { MIXDOG_EFFORT_DECISIONS_LOG: '', MIXDOG_DATA_DIR: root };
+};
+const logRel = (mode) => (mode === 'override' ? 'redirected/log.jsonl' : 'effort-judge/decisions.jsonl');
 const turns = [];
 const TURNS = 2600;
 for (let i = 0; i < TURNS; i += 1) {
@@ -242,17 +255,24 @@ for (let i = 0; i < TURNS; i += 1) {
   const promptSource = rnd() < 0.85 ? undefined : pick(PROMPT_SOURCES);
   const provider = route.noProvider ? null : makeProvider(route.provider, route.row, route.protocol);
   const chosenAnswer = pick(ANSWERS);
-  setEnv(env);
+  const logMode = pick(LOG_MODES);
+  const root = mkdtempSync(join(tmpdir(), 'auto-effort-'));
+  setEnv({ ...env, ...logEnv(logMode, root) });
+  const clock = clockOf(i);
+  mock.timers.setTime(clock);
   answer = chosenAnswer;
   judgeCalls.length = 0;
-  decisions.length = 0;
   writes.length = 0;
   const configured = turnEffortConfigurationMode(session, provider);
   const options = effortOptionsFor(session.provider, autoEffortModel(session.provider, provider, session.model));
   const input = promptSource === undefined ? { prompt } : { prompt, promptSource };
   const result = await auto.resolveTurnAutoEffort({ sessionId: `s${i}`, session, provider, input, config: agent });
+  const rel = logRel(logMode);
+  const bytes = existsSync(join(root, rel)) ? readFileSync(join(root, rel), 'utf8') : null;
+  rmSync(root, { recursive: true, force: true });
   turns.push({
     env,
+    log: { mode: logMode, path: rel, bytes, clock },
     agent: stripUndefined(agent),
     route: {
       provider: route.provider,
@@ -270,12 +290,35 @@ for (let i = 0; i < TURNS; i += 1) {
     options,
     result: result === null ? null : stripUndefined(result),
     judged: judgeCalls.map((call) => stripUndefined(call)),
-    decisions: decisions.map(({ at, ...rest }) => stripUndefined(rest)),
     warnings: [...writes],
   });
 }
 process.stderr.write = realWrite;
+
+// Three appends of the real writer with the destination switched between them.
+const appends = [];
+for (let n = 0; n < 40; n += 1) {
+  const root = mkdtempSync(join(tmpdir(), 'auto-effort-'));
+  const steps = [];
+  for (let k = 0; k < 3; k += 1) {
+    const mode = pick(LOG_MODES);
+    const clock = clockOf(n * 3 + k);
+    const entry = { at: new Date(clock).toISOString(), sessionId: `a${n}`, k, text: pick(['plain', 'quo"te', 'ünï 😀', 'nl\nx']) };
+    setEnv(logEnv(mode, root));
+    mock.timers.setTime(clock);
+    judgeOriginal.recordEffortDecision(entry);
+    // As text: writeJson sorts object keys, and the entry's own key order is part of the bytes.
+    steps.push({ mode, entry: JSON.stringify(entry) });
+  }
+  const files = {};
+  for (const rel of ['redirected/log.jsonl', 'effort-judge/decisions.jsonl']) {
+    files[rel] = existsSync(join(root, rel)) ? readFileSync(join(root, rel), 'utf8') : null;
+  }
+  rmSync(root, { recursive: true, force: true });
+  appends.push({ steps, files });
+}
 setEnv({});
+mock.timers.reset();
 
 writeJson(join(FIXTURES_ROOT, 'desktop', 'settings', 'turn-auto-effort-twin.json'), {
   domain: 'turn-auto-effort-twin',
@@ -283,7 +326,9 @@ writeJson(join(FIXTURES_ROOT, 'desktop', 'settings', 'turn-auto-effort-twin.json
   sources,
   clamps,
   turns,
+  appends,
 });
 refreshSetManifest(join(FIXTURES_ROOT, 'desktop'), tree);
 const decided = turns.filter((t) => t.result).length;
-console.log(`recorded ${sources.length} source cases, ${clamps.length} clamps, ${turns.length} turns (${decided} decided)`);
+const logged = turns.filter((t) => t.log.bytes !== null).length;
+console.log(`recorded ${sources.length} source cases, ${clamps.length} clamps, ${turns.length} turns (${decided} decided, ${logged} logged), ${appends.length} append sequences`);

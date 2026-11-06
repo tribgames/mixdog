@@ -60,7 +60,8 @@ pub fn snapshot(header: &Header, goal: Option<Goal>, todo: &mixdog_tools::state:
     let marked = text(header.get("pendingGoalReminder").and_then(|pending| pending.get("reason")));
     let status = |goal: &Option<Goal>| goal.as_ref().map(|goal| text(goal.get("status")));
     // A Goal that left the stalled states is told afresh if it stalls again.
-    if goal.is_none() || status(&goal).as_deref() == Some("active") {
+    // (`delete session.goalStalledNotice` changes nothing when it was never set.)
+    if (goal.is_none() || status(&goal).as_deref() == Some("active")) && header.contains_key("goalStalledNotice") {
         unset(&mut change, "goalStalledNotice");
     }
     // A stalled Goal is told once, when it stalls; compaction does not re-inject it.
@@ -194,5 +195,10 @@ mod tests {
         // An active Goal needs no notice and forgets the stall.
         let (none, forget) = snapshot(&told, Some(goal("active")), &TodoList::default(), 4);
         assert!(none.is_none() && forget.unset.contains(&"goalStalledNotice".to_owned()));
+        // A header with nothing to forget or mark is left as it is: no record per turn.
+        let (none, nothing) = snapshot(&object(json!({})), Some(goal("active")), &TodoList::default(), 4);
+        assert!(none.is_none() && nothing.set.is_empty() && nothing.unset.is_empty());
+        let (none, nothing) = snapshot(&object(json!({})), None, &TodoList::default(), 4);
+        assert!(none.is_none() && nothing.set.is_empty() && nothing.unset.is_empty());
     }
 }

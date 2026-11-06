@@ -1,9 +1,9 @@
 //! Real implementations of three `TurnPath` inputs over process services:
 //!
 //! - [`BotRouteStore`]: the hop's `bots` (`BotRoutes`), Node's `agent-store.mjs`
-//!   (`readBotRoute`, `readMixyRoute`, `storedBotRoute`). Node reads these synchronously through a
-//!   file-watching cache on route paths; the trait is synchronous, so this reads the two small
-//!   `agent.json` files directly, each time, with the same last-good-copy fallback.
+//!   (`readBotRoute`, `readMixyRoute`, `storedBotRoute`). Node reads these through a file-watching
+//!   cache on route paths that invalidates on every change; this reads the small `agent.json`
+//!   files afresh on each call, on the IO lane, with the same last-good-copy fallback.
 //! - [`CatalogCeilings`]: `OutputCeilingSource`, Node's `provider.escalatedMaxTokens(model, opts)`
 //!   (`anthropic-max-tokens.mjs` `resolveAnthropicEscalatedMaxTokens`). Only the two Anthropic
 //!   providers define it; every other provider answers `null`. The turn's `opts` never carry
@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mixdog_ai::catalog::CatalogService;
+use mixdog_rt::{CancellationToken, InteractiveIo, LaneToken};
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value};
 
@@ -26,16 +27,32 @@ const MIXY_BOT_ID: &str = "mixy";
 /// Mixy's runtime id (`MIXY_AGENT_ID`).
 const MIXY_RUNTIME_ID: &str = "lead";
 
-/// The hop's `bots`: where a bot's own route lives.
+/// The hop's `bots`: where a bot's own route lives. Every call reads the files afresh on the
+/// interactive IO lane, which is what Node's watcher cache amounts to (it invalidates on every
+/// change), so there is no cache here.
 pub struct BotRouteStore {
-    data_dir: PathBuf,
+    reads: Arc<BotReads>,
+    io: InteractiveIo,
 }
 
 impl BotRouteStore {
-    pub fn new(data_dir: impl Into<PathBuf>) -> Self {
-        Self { data_dir: data_dir.into() }
+    pub fn new(data_dir: impl Into<PathBuf>, io: InteractiveIo) -> Self {
+        Self { reads: Arc::new(BotReads { data_dir: data_dir.into() }), io }
     }
 
+    /// One lane job; a lane that cannot run it answers as a store with nothing in it.
+    async fn on_lane<T: Send + 'static>(&self, read: impl FnOnce(&BotReads) -> T + Send + 'static) -> Option<T> {
+        let reads = self.reads.clone();
+        self.io.submit(&CancellationToken::new(), move |_lane| read(&reads)).ok()?.await.ok()
+    }
+}
+
+/// The blocking reads; they only run as the body of a lane job.
+struct BotReads {
+    data_dir: PathBuf,
+}
+
+impl BotReads {
     fn bot_dir(&self, id: &str) -> PathBuf {
         self.data_dir.join(BOTS_DIR).join(id)
     }
@@ -58,18 +75,31 @@ impl BotRouteStore {
     }
 }
 
-impl BotRoutes for BotRouteStore {
-    /// `readBotRoute`: `None` when `agent_id` is no store bot, `Some(None)` for a bot without a route.
+impl BotReads {
     fn bot_route(&self, agent_id: &str) -> Option<Option<Value>> {
         self.is_store_bot(agent_id).then(|| self.route_in(agent_id))
     }
 
-    /// `storedBotRoute`: Mixy (runtime id `lead`) reads `bots/mixy`.
     fn stored_bot_route(&self, agent_id: &str) -> Option<Value> {
         if self.data_dir.as_os_str().is_empty() {
             return None;
         }
         if agent_id == MIXY_RUNTIME_ID { self.route_in(MIXY_BOT_ID) } else { self.bot_route(agent_id).flatten() }
+    }
+}
+
+#[async_trait::async_trait]
+impl BotRoutes for BotRouteStore {
+    /// `readBotRoute`: `None` when `agent_id` is no store bot, `Some(None)` for a bot without a route.
+    async fn bot_route(&self, agent_id: &str) -> Option<Option<Value>> {
+        let id = agent_id.to_owned();
+        self.on_lane(move |reads| reads.bot_route(&id)).await.flatten()
+    }
+
+    /// `storedBotRoute`: Mixy (runtime id `lead`) reads `bots/mixy`.
+    async fn stored_bot_route(&self, agent_id: &str) -> Option<Value> {
+        let id = agent_id.to_owned();
+        self.on_lane(move |reads| reads.stored_bot_route(&id)).await.flatten()
     }
 }
 
@@ -79,7 +109,7 @@ fn is_complete(route: &Value) -> bool {
 }
 
 /// A JSON object file; a missing or damaged one falls back to its last good copy (`.bak`).
-#[allow(clippy::disallowed_methods, reason = "the BotRoutes trait is synchronous; Node reads these files synchronously too")]
+#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
 fn read_object(file: &Path) -> Option<Map<String, Value>> {
     let parse = |path: &Path| match mixdog_statefile::parse_json_text(&std::fs::read(path).ok()?) {
         Ok(Value::Object(map)) => Some(map),
@@ -160,44 +190,61 @@ mod tests {
         std::fs::write(path, body).unwrap();
     }
 
-    #[test]
-    fn a_bots_route_lives_in_its_folder_once_the_split_ran() {
-        let dir = tempfile::tempdir().unwrap();
-        let data = dir.path();
-        let store = BotRouteStore::new(data);
-        write(data.join("bots/botty/agent.json"), r#"{"route":{"provider":"xai","model":"grok-4","fallbacks":[{"provider":"a","model":"b"}]},"x":1}"#);
-        // Before the split nobody is a store bot: the config decides.
-        assert_eq!(store.bot_route("botty"), None);
-        write(data.join("bots/migration.json"), r#"{"version":1,"bots":["moved"]}"#);
-        assert_eq!(store.bot_route("botty"), Some(Some(json!({"provider":"xai","model":"grok-4","fallbacks":[{"provider":"a","model":"b"}]}))));
-        // A bot the split moved but without a folder has no route; an unknown id is no bot.
-        assert_eq!(store.bot_route("moved"), Some(None));
-        assert_eq!(store.bot_route("stranger"), None);
-        // A route without a model is not a route.
-        write(data.join("bots/half/agent.json"), r#"{"route":{"provider":"xai"}}"#);
-        assert_eq!(store.bot_route("half"), Some(None));
-        // Mixy is no ordinary bot; the Lead's runtime id reads Mixy's folder.
-        write(data.join("bots/mixy/agent.json"), r#"{"route":{"provider":"openai","model":"gpt-5"}}"#);
-        assert_eq!(store.bot_route("mixy"), None);
-        assert_eq!(store.stored_bot_route("lead"), Some(json!({"provider":"openai","model":"gpt-5"})));
-        assert_eq!(store.stored_bot_route("botty").unwrap()["model"], "grok-4");
-        assert_eq!(store.stored_bot_route("stranger"), None);
+    fn io() -> InteractiveIo {
+        mixdog_rt::testing::tokens().interactive_io
     }
 
-    #[test]
-    fn a_damaged_agent_json_reads_from_its_last_good_copy() {
+    #[tokio::test]
+    async fn a_bots_route_lives_in_its_folder_once_the_split_ran() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        let store = BotRouteStore::new(data, io());
+        write(data.join("bots/botty/agent.json"), r#"{"route":{"provider":"xai","model":"grok-4","fallbacks":[{"provider":"a","model":"b"}]},"x":1}"#);
+        // Before the split nobody is a store bot: the config decides.
+        assert_eq!(store.bot_route("botty").await, None);
+        write(data.join("bots/migration.json"), r#"{"version":1,"bots":["moved"]}"#);
+        assert_eq!(store.bot_route("botty").await, Some(Some(json!({"provider":"xai","model":"grok-4","fallbacks":[{"provider":"a","model":"b"}]}))));
+        // A bot the split moved but without a folder has no route; an unknown id is no bot.
+        assert_eq!(store.bot_route("moved").await, Some(None));
+        assert_eq!(store.bot_route("stranger").await, None);
+        // A route without a model is not a route.
+        write(data.join("bots/half/agent.json"), r#"{"route":{"provider":"xai"}}"#);
+        assert_eq!(store.bot_route("half").await, Some(None));
+        // Mixy is no ordinary bot; the Lead's runtime id reads Mixy's folder.
+        write(data.join("bots/mixy/agent.json"), r#"{"route":{"provider":"openai","model":"gpt-5"}}"#);
+        assert_eq!(store.bot_route("mixy").await, None);
+        assert_eq!(store.stored_bot_route("lead").await, Some(json!({"provider":"openai","model":"gpt-5"})));
+        assert_eq!(store.stored_bot_route("botty").await.unwrap()["model"], "grok-4");
+        assert_eq!(store.stored_bot_route("stranger").await, None);
+    }
+
+    /// Node's watcher cache invalidates on every change, so an edit is seen by the next read.
+    #[tokio::test]
+    async fn an_edit_is_seen_by_the_next_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        write(data.join("bots/migration.json"), r#"{"version":1}"#);
+        write(data.join("bots/botty/agent.json"), r#"{"route":{"provider":"p","model":"one"}}"#);
+        let store = BotRouteStore::new(data, io());
+        assert_eq!(store.stored_bot_route("botty").await.unwrap()["model"], "one");
+        write(data.join("bots/botty/agent.json"), r#"{"route":{"provider":"p","model":"two"}}"#);
+        assert_eq!(store.stored_bot_route("botty").await.unwrap()["model"], "two");
+    }
+
+    #[tokio::test]
+    async fn a_damaged_agent_json_reads_from_its_last_good_copy() {
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path();
         write(data.join("bots/migration.json"), r#"{"version":1}"#);
         write(data.join("bots/botty/agent.json"), "{ not json");
         write(data.join("bots/botty/agent.json.bak"), r#"{"route":{"provider":"p","model":"m"}}"#);
-        assert_eq!(BotRouteStore::new(data).bot_route("botty"), Some(Some(json!({"provider":"p","model":"m"}))));
+        assert_eq!(BotRouteStore::new(data, io()).bot_route("botty").await, Some(Some(json!({"provider":"p","model":"m"}))));
     }
 
-    #[test]
-    fn no_data_dir_means_no_bots() {
-        let store = BotRouteStore::new("");
-        assert_eq!((store.bot_route("botty"), store.stored_bot_route("lead")), (None, None));
+    #[tokio::test]
+    async fn no_data_dir_means_no_bots() {
+        let store = BotRouteStore::new("", io());
+        assert_eq!((store.bot_route("botty").await, store.stored_bot_route("lead").await), (None, None));
     }
 
     #[test]

@@ -259,7 +259,8 @@ async fn contact_ids_answer_nodes_contact_rule_from_the_definitions() {
     for id in ["ann", " ANN ", "cat", "dan", "bob", "worker", "lead", "maintainer", "nobody", ""] {
         answers.push(contacts.is_contact_bot(id).await);
     }
-    assert_eq!(answers, [true, true, true, true, false, false, false, false, false, false]);
+    // `" ANN "` names no folder: the read is by the id as given (`join(dataDir, 'agents', id)`).
+    assert_eq!(answers, [true, false, true, true, false, false, false, false, false, false]);
     // Every call reads the definition afresh: a change shows at once, with no refresh.
     std::fs::write(dir.path().join("agents/bob/AGENT.md"), "---\nkind: bot\n---\nBody\n").unwrap();
     assert!(contacts.is_contact_bot("bob").await);

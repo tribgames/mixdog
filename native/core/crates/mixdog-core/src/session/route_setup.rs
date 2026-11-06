@@ -61,7 +61,7 @@ impl SessionRouteSetup {
         self.load(id).filter(|session| session.get("closed") != Some(&Value::Bool(true)))
     }
 
-    fn facts(&self, session: &Value, config: &Obj) -> SessionFacts {
+    async fn facts(&self, session: &Value, config: &Obj) -> SessionFacts {
         let mut current = Obj::new();
         for key in ["provider", "model"] {
             if let Some(value) = session.get(key) {
@@ -73,7 +73,7 @@ impl SessionRouteSetup {
             acting_agent: acting_agent_of(session),
             current,
             hopped: route_fallback_hopped(session),
-            primary: primary_route(session, config, &*self.bots),
+            primary: primary_route(session, config, &*self.bots).await,
         }
     }
 }
@@ -116,19 +116,20 @@ fn route_fields(input: Option<&Obj>) -> Result<Obj, PortError> {
 #[async_trait]
 impl RouteSetupSessions for SessionRouteSetup {
     /// `chainReceipt`: nothing for a caller without its own `agent`.
-    fn caller_chain(&self, thread: &ThreadId, config: &Obj) -> Option<CallerChain> {
+    async fn caller_chain(&self, thread: &ThreadId, config: &Obj) -> Option<CallerChain> {
         let caller = self.load(thread.as_str())?;
         if !truthy(caller.get("agent")) {
             return None;
         }
-        let position = route_fallback_position(&caller, config, &*self.bots);
-        let source = session_chain_source(&caller, config, &*self.bots);
+        let position = route_fallback_position(&caller, config, &*self.bots).await;
+        let source = session_chain_source(&caller, config, &*self.bots).await;
         let primary = session_route_primary(&caller);
         Some(CallerChain { position, source_is_primary: same_route_model(source.as_ref(), Some(&primary)) })
     }
 
     async fn session(&self, id: &str, config: &Obj) -> Option<SessionFacts> {
-        self.open(id).map(|session| self.facts(&session, config))
+        let session = self.open(id)?;
+        Some(self.facts(&session, config).await)
     }
 
     /// The agent's chats held here (home, room seats), then its home thread.
@@ -146,7 +147,11 @@ impl RouteSetupSessions for SessionRouteSetup {
         {
             sessions.push(stored);
         }
-        sessions.iter().map(|session| self.facts(session, config)).collect()
+        let mut facts = Vec::with_capacity(sessions.len());
+        for session in &sessions {
+            facts.push(self.facts(session, config).await);
+        }
+        facts
     }
 
     /// `routeControl`: one route method on another session, through the configure lane.
@@ -193,11 +198,12 @@ mod tests {
     use crate::session::testing::Rig;
 
     struct NoBots;
+    #[async_trait]
     impl BotRoutes for NoBots {
-        fn bot_route(&self, _: &str) -> Option<Option<Value>> {
+        async fn bot_route(&self, _: &str) -> Option<Option<Value>> {
             None
         }
-        fn stored_bot_route(&self, _: &str) -> Option<Value> {
+        async fn stored_bot_route(&self, _: &str) -> Option<Value> {
             None
         }
     }
@@ -242,7 +248,7 @@ mod tests {
         assert!(setup.session("sess_missing", &config).await.is_none());
         let ids: Vec<String> = setup.agent_sessions("scout", &config).await.into_iter().map(|s| s.id).collect();
         assert_eq!(ids, ["sess_home_scout"]);
-        assert!(setup.caller_chain(&ThreadId::from("sess_home_scout"), &config).is_none(), "no own agent, no chain");
+        assert!(setup.caller_chain(&ThreadId::from("sess_home_scout"), &config).await.is_none(), "no own agent, no chain");
 
         let caller = ThreadId::from("sess_lead");
         let route = obj(json!({ "provider": "anthropic", "model": "claude-x", "fast": null, "extra": 1 }));
