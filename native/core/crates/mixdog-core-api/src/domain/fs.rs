@@ -31,6 +31,12 @@ pub struct FileStat {
     pub kind: EntryKind,
     pub len: u64,
     pub modified: Option<SystemTime>,
+    /// Node's `ctimeMs`: the inode change time on Unix, the NTFS change time on Windows.
+    pub ctime: Option<SystemTime>,
+    /// Node's `ino`: the inode on Unix, the file index on Windows.
+    pub inode: u128,
+    /// Node's `dev`: the device on Unix, the volume serial number on Windows.
+    pub device: u64,
     pub readonly: bool,
 }
 

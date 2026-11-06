@@ -219,13 +219,13 @@ mod through_the_registry {
 
     use mixdog_core_api::domain::keepalive::{KeepaliveSchedule, TransportKind};
     use mixdog_core_api::domain::provider::{
-        ErrorResponse, ModelRequest, ModelStream, ProviderAdapter, RequestOptions, StreamEvent, WireCodec, WireDecoder, WireRequest,
+        ErrorResponse, ModelRequest, ModelStream, ProviderAdapter, RequestOptions, SendEnd, StreamEvent, WireCodec, WireDecoder, WireRequest,
     };
     use mixdog_core_api::domain::retry::RetryPolicy;
     use mixdog_protocol::ProviderId;
 
     use super::*;
-    use crate::registry::accounted::AccountingDeps;
+    use crate::registry::accounted::{AccountingDeps, SendScope};
     use crate::registry::providers::{ProviderBuilder, ProviderRegistry};
 
     struct NoCodec;
@@ -262,7 +262,8 @@ mod through_the_registry {
         id: ProviderId,
         policy: RetryPolicy,
         keepalive: KeepaliveSchedule,
-        script: Mutex<Option<Script>>,
+        /// One script per attempt, in order.
+        script: Mutex<VecDeque<Script>>,
     }
 
     #[async_trait]
@@ -280,12 +281,12 @@ mod through_the_registry {
             &self.keepalive
         }
         async fn attempt(&self, _: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-            let script = self.script.lock().unwrap().take().unwrap();
+            let script = self.script.lock().unwrap().pop_front().unwrap();
             Ok(Box::new(Scripted(Mutex::new(script.into()))))
         }
     }
 
-    struct Builder(Mutex<Option<Script>>);
+    struct Builder(Mutex<Vec<Script>>);
 
     #[async_trait]
     impl ProviderBuilder for Builder {
@@ -294,7 +295,7 @@ mod through_the_registry {
                 id: ProviderId::from(name),
                 policy: RetryPolicy::codex_default(),
                 keepalive: KeepaliveSchedule::SPEC,
-                script: Mutex::new(self.0.lock().unwrap().take()),
+                script: Mutex::new(std::mem::take(&mut *self.0.lock().unwrap()).into()),
             }))
         }
         async fn custom_key_ids(&self, _: &str) -> Vec<String> {
@@ -348,7 +349,7 @@ mod through_the_registry {
             deps.now = Arc::new(move || started_at + if calls.fetch_add(1, Ordering::SeqCst) == 0 { 0 } else { stream_ms });
             deps.new_id = Arc::new(|| "<req>".into());
             deps.account = Arc::new(|_| "default".into());
-            let registry = ProviderRegistry::new(Arc::new(Builder(Mutex::new(Some(script))))).with_accounting(deps);
+            let registry = ProviderRegistry::new(Arc::new(Builder(Mutex::new(vec![script])))).with_accounting(deps);
             let provider = case["provider"].as_str().unwrap();
             registry.init_providers(&crate::service::admin_route::ensure_provider_enabled(&Map::new(), provider)).await.unwrap();
             let adapter = registry.get(provider).await.unwrap();
@@ -384,5 +385,162 @@ mod through_the_registry {
             replayed += 1;
         }
         assert_eq!(replayed, 7);
+    }
+
+    /// The host's scope: the request's own, plus the session this one runs for.
+    struct OwnerScope(Option<String>);
+    impl crate::registry::accounted::SendScope for OwnerScope {
+        fn of(&self, provider: &str, request: &ModelRequest) -> crate::registry::accounted::Scope {
+            let mut scope = crate::registry::accounted::RequestScope.of(provider, request);
+            scope.owner_session_id = self.0.clone();
+            scope
+        }
+    }
+
+    /// The registry-path adapter for a golden case, with one script per attempt.
+    async fn adapter_for(case: &Value, scripts: Vec<Script>) -> (Arc<dyn ProviderAdapter>, Arc<Collect>) {
+        let started_at = case["startedAt"].as_i64().unwrap();
+        let stream_ms = case["end"].get("streamMs").and_then(Value::as_i64).unwrap_or(1500);
+        let sink = Arc::new(Collect::default());
+        let ledger: Arc<dyn UsageSink> = sink.clone();
+        let calls = Arc::new(AtomicI64::new(0));
+        let mut deps = AccountingDeps::new(Arc::new(Unpriced), Arc::new(move || Some(ledger.clone())));
+        deps.now = Arc::new(move || started_at + if calls.fetch_add(1, Ordering::SeqCst) == 0 { 0 } else { stream_ms });
+        deps.new_id = Arc::new(|| "<req>".into());
+        deps.account = Arc::new(|_| "default".into());
+        deps.scope = Arc::new(OwnerScope(case.get("ownerSessionId").and_then(Value::as_str).map(str::to_owned)));
+        let registry = ProviderRegistry::new(Arc::new(Builder(Mutex::new(scripts)))).with_accounting(deps);
+        let provider = case["provider"].as_str().unwrap();
+        registry.init_providers(&crate::service::admin_route::ensure_provider_enabled(&Map::new(), provider)).await.unwrap();
+        (registry.get(provider).await.unwrap(), sink)
+    }
+
+    fn request_for(case: &Value, group: Option<&str>) -> Arc<ModelRequest> {
+        Arc::new(ModelRequest {
+            model: case["model"].as_str().unwrap().into(),
+            messages: Vec::new(),
+            tools: Vec::new(),
+            options: RequestOptions {
+                session_id: Some(case["sessionId"].as_str().unwrap_or("session-1").into()),
+                request_kind: Some("lead".into()),
+                send_group: group.map(str::to_owned),
+                ..RequestOptions::default()
+            },
+        })
+    }
+
+    fn rows_of_sink(sink: &Collect) -> Vec<Value> {
+        sink.0.lock().unwrap().iter().map(|row| serde_json::to_value(row).unwrap()).collect()
+    }
+
+    /// Attempts of one send group (the loop's retries of a billed failure) land in one ledger
+    /// row: the retried attempts as abandoned rows, the send's own row with `attempts` and the
+    /// `retried` status, exactly Node's rows for the same send. Nothing is written until the
+    /// group's last attempt ends.
+    #[tokio::test]
+    async fn the_retried_attempts_of_one_send_group_fold_into_nodes_rows() {
+        let _ = mixdog_js::time::set_process_zone(Tz::UTC);
+        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let mut replayed = 0;
+        for case in golden["cases"].as_array().unwrap() {
+            let end = &case["end"];
+            let Some(abandoned) = case.get("abandoned").and_then(Value::as_array) else { continue };
+            if ["model", "responseId", "fallback", "generationMs"].iter().any(|k| end.get(k).is_some()) {
+                continue;
+            }
+            let billed = |attempt: &Value| {
+                let mut error = ProviderError::new(ErrorKind::Overloaded, DeliveryState::Accepted);
+                error.partial_usage = Some(Box::new(usage_of(&attempt["usage"])));
+                error.partial_model = attempt.get("model").and_then(Value::as_str).map(Box::from);
+                Err(error)
+            };
+            let mut scripts: Vec<Script> = abandoned.iter().map(|a| vec![billed(a)]).collect();
+            let usage = end.get("usage").map(usage_of);
+            scripts.push(match end["kind"].as_str().unwrap() {
+                "completed" => usage
+                    .clone()
+                    .map(StreamEvent::Usage)
+                    .into_iter()
+                    .chain([StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None }])
+                    .map(Ok)
+                    .collect(),
+                "cancelled" => usage.clone().map(StreamEvent::Usage).into_iter().map(Ok).collect(),
+                _ => {
+                    let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Ambiguous);
+                    error.partial_usage = usage.map(Box::new);
+                    vec![Err(error)]
+                }
+            });
+            let (adapter, sink) = adapter_for(case, scripts).await;
+            for _ in abandoned {
+                let mut stream = adapter.attempt(request_for(case, Some("g1"))).await.unwrap();
+                assert!(matches!(stream.next().await, Some(Err(_))), "{}", case["name"]);
+                assert!(sink.0.lock().unwrap().is_empty(), "{}: a retried attempt writes nothing yet", case["name"]);
+            }
+            let mut stream = adapter.attempt(request_for(case, Some("g1"))).await.unwrap();
+            match end["kind"].as_str().unwrap() {
+                "completed" => while stream.next().await.is_some() {},
+                "failed" => {
+                    assert!(matches!(stream.next().await, Some(Err(_))));
+                    assert!(sink.0.lock().unwrap().is_empty(), "the last failure waits for the loop's verdict");
+                    adapter.settle_send("g1", SendEnd::Surfaced).await;
+                }
+                _ => {
+                    // The user cancelled mid-stream: the dropped stream records what it showed.
+                    if end.get("usage").is_some() {
+                        stream.next().await;
+                    }
+                    drop(stream);
+                    for _ in 0..100 {
+                        tokio::task::yield_now().await;
+                    }
+                }
+            }
+            assert_eq!(&rows_of_sink(&sink), case["rows"].as_array().unwrap(), "{}", case["name"]);
+            replayed += 1;
+        }
+        assert_eq!(replayed, 3);
+    }
+
+    /// Node writes no request row for a send aborted before it produced anything
+    /// (`cancelled without usage`): nothing for an attempt dropped before its stream exists, nothing
+    /// for a stream dropped before it showed usage, and a cancel of a group that was between
+    /// attempts records only the retried attempt's billed usage.
+    #[tokio::test]
+    async fn a_send_aborted_before_any_usage_writes_no_request_row() {
+        let _ = mixdog_js::time::set_process_zone(Tz::UTC);
+        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let cases = golden["cases"].as_array().unwrap();
+        let quiet = cases.iter().find(|c| c["name"] == "cancelled without usage").unwrap();
+        assert_eq!(quiet["rows"], json!([]));
+
+        // Before the stream exists: the attempt future is dropped while the provider connects.
+        let (adapter, sink) = adapter_for(quiet, vec![vec![]]).await;
+        let pending = tokio::time::timeout(std::time::Duration::from_millis(1), async {
+            std::future::pending::<()>().await;
+            adapter.attempt(request_for(quiet, None)).await
+        })
+        .await;
+        assert!(pending.is_err());
+        // After the stream exists, before any usage.
+        let mut stream = adapter.attempt(request_for(quiet, None)).await.unwrap();
+        drop(stream.next());
+        drop(stream);
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(rows_of_sink(&sink), Vec::<Value>::new());
+
+        // Between attempts: the cancel records the retried attempt's usage and no request row.
+        let retried = cases.iter().find(|c| c["name"] == "cancelled after an abandoned attempt").unwrap();
+        let mut error = ProviderError::new(ErrorKind::Overloaded, DeliveryState::Accepted);
+        error.partial_usage = Some(Box::new(usage_of(&retried["abandoned"][0]["usage"])));
+        let (adapter, sink) = adapter_for(retried, vec![vec![Err(error)]]).await;
+        let mut stream = adapter.attempt(request_for(retried, Some("g1"))).await.unwrap();
+        assert!(matches!(stream.next().await, Some(Err(_))));
+        adapter.settle_send("g1", SendEnd::Cancelled).await;
+        let rows = rows_of_sink(&sink);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0], retried["rows"][0]);
     }
 }

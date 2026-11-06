@@ -1,6 +1,8 @@
 //! Contract gates: protocol.md §14.1 (schema/TS golden + table-driven method
 //! rows), §14.2 (envelope), DS-ALL-1 and DS-DUP-1 (DS §14, §16).
 
+#![allow(clippy::disallowed_methods, reason = "test setup: reads goldens and writes its own sample files on the test thread")]
+
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::path::PathBuf;

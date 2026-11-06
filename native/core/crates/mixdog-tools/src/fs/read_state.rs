@@ -137,7 +137,7 @@ fn covers_all_lines(s: &Snapshot, line_count: u64) -> bool {
     covered >= line_count
 }
 
-fn is_mutation(source: &str) -> bool {
+pub fn is_mutation_source(source: &str) -> bool {
     source == "edit" || source.starts_with("apply_patch_")
 }
 
@@ -302,14 +302,14 @@ impl ReadState {
         let Some(identity) = version else { return };
         let mut inner = self.lock();
         let files = &mut self.touch(&mut inner, scope).files;
-        let mutation = is_mutation(&meta.source);
+        let mutation = is_mutation_source(&meta.source);
         let incoming = meta.ranges.clone().unwrap_or_else(|| vec![LineRange::WHOLE]);
         let fresh_large = identity.size > CACHEABLE_BYTES && !mutation;
         let replace = meta.replace_existing || fresh_large;
         let prior = files.iter().find(|(p, _)| p == path).map(|(_, s)| s.clone());
         let existing = if replace { None } else { prior.clone() };
         let same_file = existing.as_ref().filter(|e| same_version(&identity, &e.version));
-        let undelivered_mutation = same_file.is_some_and(|e| is_mutation(&e.source) && e.body_delivered != Some(true));
+        let undelivered_mutation = same_file.is_some_and(|e| is_mutation_source(&e.source) && e.body_delivered != Some(true));
         let retained: Vec<LineRange> = match same_file {
             Some(e) if !undelivered_mutation => e.ranges.clone(),
             _ => Vec::new(),
@@ -347,6 +347,19 @@ impl ReadState {
         }
         drop(inner);
         self.schedule_persist(scope);
+    }
+
+    /// `releaseReadSnapshotScope(scope, { deletePersisted: true })`: a deleted session forgets its
+    /// snapshots, in memory and in the store (the `read_cache` purge hook).
+    pub fn forget_session(&self, scope: &str) {
+        {
+            let mut inner = self.lock();
+            inner.scopes.retain(|s| s.key != scope);
+            inner.hydrated.retain(|k| k != scope);
+        }
+        if let Some(persist) = &self.persist {
+            persist.save(scope, None);
+        }
     }
 
     /// `clearReadSnapshotForPath`: the path's cached answers and every session's snapshot of it.
@@ -454,7 +467,7 @@ fn resolve_body_delivered(
     identity: &FileVersion,
     incoming_is_grep: bool,
 ) -> Option<bool> {
-    if is_mutation(&meta.source) {
+    if is_mutation_source(&meta.source) {
         let prior_paged_full = prior
             .and_then(|p| p.file_line_count.filter(|c| *c > 0).map(|c| covers_all_lines(p, c)))
             .unwrap_or(false);
@@ -462,7 +475,7 @@ fn resolve_body_delivered(
             (Some(p), Some(pre)) => same_version(pre, &p.version),
             _ => false,
         };
-        let prior_ranges_are_reads = prior.map_or(true, |p| !is_mutation(&p.source));
+        let prior_ranges_are_reads = prior.map_or(true, |p| !is_mutation_source(&p.source));
         return Some(
             prior_current
                 && prior.is_some_and(|p| {

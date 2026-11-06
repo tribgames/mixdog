@@ -159,6 +159,13 @@ function makeCalls(known) {
     else args = { action: 'read_definition', definitionKind: 'agent', name: pick(known) };
     calls.push({ caller: pick(Object.keys(CALLERS)), args });
   }
+  // A name that is not text is read as `String(name)`: only absent and null are no name.
+  const first = known[0];
+  for (const name of [123, 0, true, false, [first], [first, 'x'], {}, null, undefined, [], '']) {
+    const args = { action: 'read_definition', definitionKind: 'agent' };
+    if (name !== undefined) args.name = name;
+    calls.push({ caller: Object.keys(CALLERS)[0], args });
+  }
   return calls;
 }
 

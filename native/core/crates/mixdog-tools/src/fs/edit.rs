@@ -19,6 +19,9 @@ use mixdog_protocol::JsonValue;
 
 use super::common::*;
 use super::patch_review::committed_edit;
+use super::patch_review::note_edit;
+use super::read_state::FileVersion;
+use super::read_state::ReadState;
 use super::edit_plan::SAME_STRINGS;
 use super::edit_plan::apply;
 use super::edit_plan::dialect;
@@ -29,13 +32,23 @@ const STALE_DURING_EDIT: &str = "changed on disk during the edit; read it again"
 
 pub struct EditTool {
     spec: ToolSpec,
+    /// What the session remembers of its files; an edit tells it what it wrote.
+    state: Option<std::sync::Arc<ReadState>>,
 }
 
 impl EditTool {
     pub fn new() -> Self {
         Self {
             spec: spec(EDIT_SPEC, "Replace exact text in one file.", false, Some("fs-write")),
+            state: None,
         }
+    }
+
+    /// The read state shared with `read`, keyed by the call's thread.
+    #[must_use]
+    pub fn with_state(mut self, state: std::sync::Arc<ReadState>) -> Self {
+        self.state = Some(state);
+        self
     }
 }
 
@@ -108,11 +121,15 @@ impl Tool for EditTool {
         let full = abs.as_path().display().to_string();
 
         let _locked = lock_edit_target(ctx, &abs).await?;
+        let pre = match &self.state {
+            Some(_) => ctx.files.stat(ctx.io.interactive, abs.clone()).await.ok().and_then(|s| FileVersion::new(s.modified, s.len)),
+            None => None,
+        };
         let existing = guarded(ctx, "edit", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await?;
         let bytes = match existing {
             Ok(b) => b.bytes,
             Err(e) if e.kind == FsErrorKind::NotFound && old.is_empty() => {
-                return create(ctx, &abs, &shown, &full, new).await;
+                return create(ctx, self.state.as_deref(), &abs, &shown, &full, new).await;
             }
             Err(e) if e.kind == FsErrorKind::NotFound => {
                 return Err(unreadable(&full, "target is missing or inaccessible"));
@@ -143,6 +160,9 @@ impl Tool for EditTool {
             }
             let after = encode_text(new, codec);
             write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::ContentEquals(bytes.clone())).await?;
+            if let Some(state) = &self.state {
+                note_edit(ctx, state, &abs, pre, &after).await;
+            }
             return Ok(committed_edit(ctx, &abs, Some(bytes), after, text_output(format!("Updated {shown} (filled empty file)"))).await);
         }
         let (old, new) = dialect(&content, is_markdown(&abs), old.to_owned(), new.to_owned(), replace_all);
@@ -152,6 +172,9 @@ impl Tool for EditTool {
         let (next, applied) = apply(&content, &old, &new, replace_all, codec.encoding == Encoding::Utf8)?;
         let after = encode_text(&next, codec);
         write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::ContentEquals(bytes.clone())).await?;
+        if let Some(state) = &self.state {
+            note_edit(ctx, state, &abs, pre, &after).await;
+        }
         let text = text_output(format!("Updated {shown} ({applied} replacement{})", if applied == 1 { "" } else { "s" }));
         Ok(committed_edit(ctx, &abs, Some(bytes), after, text).await)
     }
@@ -183,12 +206,15 @@ async fn write_checked(
     }
 }
 
-async fn create(ctx: &ToolContext, abs: &AbsPath, shown: &str, full: &str, new: &str) -> ToolOutcome {
+async fn create(ctx: &ToolContext, state: Option<&ReadState>, abs: &AbsPath, shown: &str, full: &str, new: &str) -> ToolOutcome {
     if let Some(parent) = abs.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
         if let Err(e) = guarded(ctx, "edit", ctx.files.create_dir(ctx.io.durability, parent, true)).await? {
             return Err(fs_failure(&e, full));
         }
     }
     write_checked(ctx, abs, full, new.as_bytes().to_vec(), WritePrecondition::Absent).await?;
+    if let Some(state) = state {
+        note_edit(ctx, state, abs, None, new.as_bytes()).await;
+    }
     Ok(committed_edit(ctx, abs, None, new.as_bytes().to_vec(), text_output(format!("Created {shown} ({} bytes)", new.len()))).await)
 }

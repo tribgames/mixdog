@@ -24,7 +24,9 @@ use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::ImageSource;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::provider::ToolDefinition;
+use mixdog_core_api::domain::tool::CallOptions;
 use mixdog_core_api::domain::tool::ImageData;
+use mixdog_core_api::domain::tool::ToolNotify;
 use mixdog_core_api::domain::tool::ProgressSink;
 use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::domain::tool::Tool;
@@ -166,6 +168,10 @@ pub struct ToolEnv {
     pub progress: Arc<dyn ProgressSink>,
     /// The per-call deadline of a tool (read-only I/O), if any.
     pub deadline_of: Option<DeadlineFn>,
+    /// A worker turn's own completion hook (`AgentTurn.hooks.notify`, Node `notifyFn`): every
+    /// call carries it in its options, and background work the call leaves running reports its
+    /// completion through it before falling back to the owner's default delivery.
+    pub notify: Option<ToolNotify>,
 }
 
 // ---------------------------------------------------------------------------
@@ -577,7 +583,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         approvals: Arc::clone(&env.tool_env.approvals),
         files: Arc::clone(&env.tool_env.files),
         processes: Arc::clone(&env.tool_env.processes),
-        options: Default::default(),
+        options: CallOptions { notify: env.tool_env.notify.clone(), ..CallOptions::default() },
         review: None,
     };
     // Node: arguments are coerced to the declared schema before the tool sees

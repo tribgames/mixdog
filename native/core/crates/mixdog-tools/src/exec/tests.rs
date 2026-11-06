@@ -1,5 +1,3 @@
-#![allow(clippy::disallowed_methods, reason = "tests read and write their fixture files on the test thread")]
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -205,6 +203,10 @@ impl ElevationGate for RefuseElevation {
 }
 
 fn rig_with(elevation: Arc<dyn ElevationGate>) -> Rig {
+    rig_full(elevation, None)
+}
+
+fn rig_full(elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>) -> Rig {
     let review = Arc::new(super::settle::RecordingReview::default());
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
@@ -218,7 +220,7 @@ fn rig_with(elevation: Arc<dyn ElevationGate>) -> Rig {
         spill_dir: dir.path().join("l"),
         data_dir: Some(dir.path().join("data")),
         skill_launcher_dir: None,
-        notifier: None,
+        notifier,
         survivors: None,
         wake: WakeHub::new(),
         policy: Arc::new(crate::policy::exec::NodeCommandPolicy),
@@ -697,6 +699,91 @@ async fn held_command_moves_to_background_and_task_cancels_it() {
     let read = body(rig.task.call(&c, serde_json::json!({"action": "read", "task_id": "task-c1"})).await);
     assert!(read.contains("status: cancelled\nexit_code: 137\n"), "{read}");
     assert!(read.ends_with("\n\n(no new output)"), "{read}");
+}
+
+/// The owner's default delivery: what reached `TaskNotifier::finished`.
+#[derive(Default)]
+struct OwnerNotices(std::sync::Mutex<Vec<(String, String)>>);
+
+#[async_trait]
+impl TaskNotifier for OwnerNotices {
+    async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, _: String) {
+        self.0.lock().unwrap().push((owner.as_str().to_owned(), format!("{surface}/{task_id}/{status}")));
+    }
+}
+
+/// Starts a background command with `notify` in its call options and cancels it through `task`,
+/// the end the detached job reports.
+async fn background_end(notify: Option<ToolNotify>, owner: &Arc<OwnerNotices>) {
+    let rig = rig_full(Arc::new(OsPromptElevation), Some(owner.clone()));
+    let mut start = ctx(&rig, "c1");
+    start.options.notify = notify;
+    rig.shell.call(&start, serde_json::json!({"command": "sleep 100", "background": true})).await.unwrap();
+    rig.task.call(&ctx(&rig, "c2"), serde_json::json!({"action": "cancel", "task_id": "task-c1"})).await.unwrap();
+    for _ in 0..200 {
+        if rig.runtime.get(&ThreadId::from("t"), "task-c1").is_some_and(|j| j.status() != JobStatus::Running) {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+}
+
+/// Node `notifyToolCompletion`: the launching call's `notifyFn` takes the completion first, with
+/// the meta that files it; the owner's default delivery is not used when it accepts.
+#[tokio::test]
+async fn a_background_end_goes_to_the_calls_notify_hook_first() {
+    let owner = Arc::new(OwnerNotices::default());
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let hook = {
+        let seen = seen.clone();
+        ToolNotify(Arc::new(move |text: &str, meta: &JsonValue| {
+            seen.lock().unwrap().push((text.to_owned(), meta.clone()));
+            true
+        }))
+    };
+    background_end(Some(hook), &owner).await;
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert!(seen[0].0.contains("task-c1"), "{}", seen[0].0);
+    assert_eq!(seen[0].1["execution_surface"], "shell");
+    assert_eq!(seen[0].1["execution_id"], "task-c1");
+    assert_eq!(seen[0].1["status"], "cancelled");
+    assert_eq!(seen[0].1["type"], "shell_task_result");
+    assert!(owner.0.lock().unwrap().is_empty());
+    // The whole meta is the one Node handed its hook for a cancelled job.
+    let golden = completion_meta_golden();
+    let cancelled = golden["cases"].as_array().unwrap().iter().find(|c| c["name"] == "cancelled").unwrap();
+    assert_eq!(seen[0].1, cancelled["received"]["meta"]);
+}
+
+fn completion_meta_golden() -> JsonValue {
+    serde_json::from_str(include_str!("testdata/shell_completion_meta.json")).unwrap()
+}
+
+/// `shellCompletionInstruction` for every end Node recorded (completed, a non-zero exit that stays
+/// completed, cancelled, timed out, a signal death, no exit status).
+#[test]
+fn the_completion_instruction_is_nodes_for_each_kind_of_end() {
+    let golden = completion_meta_golden();
+    for case in golden["cases"].as_array().unwrap() {
+        let meta = &case["received"]["meta"];
+        let code = case["detail"]["exitCode"].as_i64().map(|c| c as i32);
+        // A signal death leaves no exit code in the job's facts, whatever the detail says.
+        let code = if case["detail"]["signal"].is_null() { code } else { None };
+        assert_eq!(super::jobs::completion_instruction(meta["status"].as_str().unwrap(), code), meta["instruction"], "{}", case["name"]);
+    }
+}
+
+/// A hook that declines (`false`) falls through to the owner, as Node's `enqueueFallback` does; a
+/// call without a hook goes straight to the owner.
+#[tokio::test]
+async fn a_declined_or_missing_hook_falls_back_to_the_owner() {
+    let owner = Arc::new(OwnerNotices::default());
+    let declined = ToolNotify(Arc::new(|_: &str, _: &JsonValue| false));
+    background_end(Some(declined), &owner).await;
+    background_end(None, &owner).await;
+    assert_eq!(*owner.0.lock().unwrap(), vec![("t".to_owned(), "shell/task-c1/cancelled".to_owned()); 2]);
 }
 
 #[tokio::test]

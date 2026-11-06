@@ -1,0 +1,157 @@
+{
+  "cases": [
+    {
+      "detail": {
+        "command": "echo hi",
+        "exitCode": 0,
+        "finishedAt": "2026-01-02T03:04:07.178Z",
+        "startedAt": "2026-01-02T03:04:05.678Z",
+        "status": "completed",
+        "stderrPath": "/tmp/l/task-c1.stderr.log",
+        "stderrPreview": "",
+        "stdoutPath": "/tmp/l/task-c1.stdout.log",
+        "stdoutPreview": "hi\n"
+      },
+      "name": "completed",
+      "received": {
+        "meta": {
+          "caller_session_id": "t",
+          "execution_id": "task-c1",
+          "execution_surface": "shell",
+          "instruction": "Shell task completed (exit 0)",
+          "status": "completed",
+          "type": "shell_task_result"
+        },
+        "text": "<task-notification>\n<task-id>task-c1</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0): echo hi</summary>\n<output-file>/tmp/l/task-c1.stdout.log</output-file>\n<result>\nexit code: 0, duration: 1.5s\n</result>\n</task-notification>"
+      }
+    },
+    {
+      "detail": {
+        "command": "echo hi",
+        "exitCode": 3,
+        "finishedAt": "2026-01-02T03:04:07.178Z",
+        "startedAt": "2026-01-02T03:04:05.678Z",
+        "status": "failed",
+        "stderrPath": "/tmp/l/task-c1.stderr.log",
+        "stderrPreview": "",
+        "stdoutPath": "/tmp/l/task-c1.stdout.log",
+        "stdoutPreview": "hi\n"
+      },
+      "name": "non-zero exit",
+      "received": {
+        "meta": {
+          "caller_session_id": "t",
+          "execution_id": "task-c1",
+          "execution_surface": "shell",
+          "instruction": "Shell task completed (exit 3)",
+          "status": "completed",
+          "type": "shell_task_result"
+        },
+        "text": "<task-notification>\n<task-id>task-c1</task-id>\n<status>completed</status>\n<exit-code>3</exit-code>\n<summary>Shell task completed (exit 3): echo hi</summary>\n<output-file>/tmp/l/task-c1.stdout.log</output-file>\n<result>\nexit code: 3, duration: 1.5s\n</result>\n</task-notification>"
+      }
+    },
+    {
+      "detail": {
+        "command": "echo hi",
+        "exitCode": 137,
+        "finishedAt": "2026-01-02T03:04:07.178Z",
+        "killed": true,
+        "startedAt": "2026-01-02T03:04:05.678Z",
+        "status": "cancelled",
+        "stderrPath": "/tmp/l/task-c1.stderr.log",
+        "stderrPreview": "",
+        "stdoutPath": "/tmp/l/task-c1.stdout.log",
+        "stdoutPreview": "hi\n"
+      },
+      "name": "cancelled",
+      "received": {
+        "meta": {
+          "caller_session_id": "t",
+          "execution_id": "task-c1",
+          "execution_surface": "shell",
+          "instruction": "Shell task was cancelled (exit 137)",
+          "status": "cancelled",
+          "type": "shell_task_result"
+        },
+        "text": "<task-notification>\n<task-id>task-c1</task-id>\n<status>cancelled</status>\n<exit-code>137</exit-code>\n<summary>Shell task was cancelled (exit 137): echo hi</summary>\n<output-file>/tmp/l/task-c1.stdout.log</output-file>\n<result>\nexit code: 137, duration: 1.5s\n</result>\n</task-notification>"
+      }
+    },
+    {
+      "detail": {
+        "command": "echo hi",
+        "exitCode": 124,
+        "finishedAt": "2026-01-02T03:04:07.178Z",
+        "startedAt": "2026-01-02T03:04:05.678Z",
+        "status": "failed",
+        "stderrPath": "/tmp/l/task-c1.stderr.log",
+        "stderrPreview": "",
+        "stdoutPath": "/tmp/l/task-c1.stdout.log",
+        "stdoutPreview": "hi\n",
+        "timedOut": true
+      },
+      "name": "timed out",
+      "received": {
+        "meta": {
+          "caller_session_id": "t",
+          "execution_id": "task-c1",
+          "execution_surface": "shell",
+          "instruction": "Shell task failed (exit 124)",
+          "status": "failed",
+          "type": "shell_task_result"
+        },
+        "text": "<task-notification>\n<task-id>task-c1</task-id>\n<status>failed</status>\n<exit-code>124</exit-code>\n<summary>Shell task failed (exit 124): echo hi</summary>\n<output-file>/tmp/l/task-c1.stdout.log</output-file>\n<result>\nexit code: 124, duration: 1.5s\n</result>\n<error>timed out before completing (exit 124)</error>\n</task-notification>"
+      }
+    },
+    {
+      "detail": {
+        "command": "echo hi",
+        "exitCode": null,
+        "finishedAt": "2026-01-02T03:04:07.178Z",
+        "signal": "SIGSEGV",
+        "startedAt": "2026-01-02T03:04:05.678Z",
+        "status": "failed",
+        "stderrPath": "/tmp/l/task-c1.stderr.log",
+        "stderrPreview": "",
+        "stdoutPath": "/tmp/l/task-c1.stdout.log",
+        "stdoutPreview": "hi\n"
+      },
+      "name": "signal death",
+      "received": {
+        "meta": {
+          "caller_session_id": "t",
+          "execution_id": "task-c1",
+          "execution_surface": "shell",
+          "instruction": "Shell task failed (exit n/a)",
+          "status": "failed",
+          "type": "shell_task_result"
+        },
+        "text": "<task-notification>\n<task-id>task-c1</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit n/a): echo hi</summary>\n<output-file>/tmp/l/task-c1.stdout.log</output-file>\n<result>\nduration: 1.5s\n</result>\n<error>terminated by signal SIGSEGV</error>\n</task-notification>"
+      }
+    },
+    {
+      "detail": {
+        "command": "echo hi",
+        "exitCode": null,
+        "finishedAt": "2026-01-02T03:04:07.178Z",
+        "startedAt": "2026-01-02T03:04:05.678Z",
+        "status": "failed",
+        "stderrPath": "/tmp/l/task-c1.stderr.log",
+        "stderrPreview": "",
+        "stdoutPath": "/tmp/l/task-c1.stdout.log",
+        "stdoutPreview": "hi\n"
+      },
+      "name": "no exit status",
+      "received": {
+        "meta": {
+          "caller_session_id": "t",
+          "execution_id": "task-c1",
+          "execution_surface": "shell",
+          "instruction": "Shell task failed (exit n/a)",
+          "status": "failed",
+          "type": "shell_task_result"
+        },
+        "text": "<task-notification>\n<task-id>task-c1</task-id>\n<status>failed</status>\n<summary>Shell task failed (exit n/a): echo hi</summary>\n<output-file>/tmp/l/task-c1.stdout.log</output-file>\n<result>\nduration: 1.5s\n</result>\n<error>ended without an exit status</error>\n</task-notification>"
+      }
+    }
+  ]
+}

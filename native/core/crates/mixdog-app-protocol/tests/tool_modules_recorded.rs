@@ -3,6 +3,8 @@
 //! (`record-local-provider-status.mjs`). Every value must deserialize and serialize back to the
 //! same JSON, so a field the type lacks, drops or renames fails here.
 
+#![allow(clippy::disallowed_methods, reason = "test-only: reads recorded fixtures synchronously")]
+
 use std::path::PathBuf;
 
 use mixdog_protocol::LocalProviderModule;

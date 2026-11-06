@@ -102,21 +102,28 @@ pub struct StatVersion {
     pub dev: u64,
 }
 
-#[cfg(unix)]
 pub fn stat_version(path: &Path) -> io::Result<StatVersion> {
+    stat_with_version(path).map(|(_, version)| version)
+}
+
+/// `fs.stat` and `fileVersion` of `path` from one call: the one `metadata` on Unix, the one handle
+/// open on Windows.
+#[cfg(unix)]
+pub fn stat_with_version(path: &Path) -> io::Result<(Metadata, StatVersion)> {
     use std::os::unix::fs::MetadataExt;
     let m = std::fs::metadata(path)?;
-    Ok(StatVersion {
+    let version = StatVersion {
         mtime_ns: i128::from(m.mtime()) * 1_000_000_000 + i128::from(m.mtime_nsec()),
         ctime_ns: i128::from(m.ctime()) * 1_000_000_000 + i128::from(m.ctime_nsec()),
         size: m.len(),
         ino: u128::from(m.ino()),
         dev: m.dev(),
-    })
+    };
+    Ok((m, version))
 }
 
 #[cfg(windows)]
-pub fn stat_version(path: &Path) -> io::Result<StatVersion> {
+pub fn stat_with_version(path: &Path) -> io::Result<(Metadata, StatVersion)> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::FILE_BASIC_INFO;
     use windows_sys::Win32::Storage::FileSystem::FileBasicInfo;
@@ -145,7 +152,9 @@ pub fn stat_version(path: &Path) -> io::Result<StatVersion> {
     }
     // 100 ns ticks since 1601-01-01 to ns since the Unix epoch.
     let ticks = |t: i64| (i128::from(t) - 116_444_736_000_000_000) * 100;
-    Ok(StatVersion { mtime_ns: ticks(info.LastWriteTime), ctime_ns: ticks(info.ChangeTime), size: file.metadata()?.len(), ino: id.index, dev: id.volume })
+    let meta = file.metadata()?;
+    let version = StatVersion { mtime_ns: ticks(info.LastWriteTime), ctime_ns: ticks(info.ChangeTime), size: meta.len(), ino: id.index, dev: id.volume };
+    Ok((meta, version))
 }
 
 /// Whether two paths name the same file for write serialization. Node's write-lock key is the

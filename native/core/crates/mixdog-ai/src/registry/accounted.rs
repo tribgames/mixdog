@@ -13,12 +13,13 @@
 //! the loop makes is a send of its own with its own row; Node's provider-local retries sit inside
 //! one send and so inside one row (`attempts`, the `retried` status).
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::provider::{
-    DeliveryState, ModelListing, ModelRequest, ModelStream, ProviderAdapter, ProviderError, RequestOptions, StreamEvent, TransportFault,
+    DeliveryState, ModelListing, ModelRequest, ModelStream, ProviderAdapter, ProviderError, RequestOptions, SendEnd, StreamEvent, TransportFault,
     Usage, WireCodec, WireRouting,
 };
 use mixdog_core_api::domain::retry::RetryPolicy;
@@ -87,18 +88,49 @@ fn input_excludes_cache(provider: &str) -> bool {
     matches!(provider, "anthropic" | "anthropic-oauth")
 }
 
+/// The accounting of a logical send between its attempts, with the failure of the last one
+/// held back: the next attempt of the group makes it an abandoned attempt of the same row, and
+/// `settle_send` makes it the send's own failed row.
+struct Held {
+    accounting: SendAccounting,
+    failed: Option<ProviderError>,
+}
+
+type Groups = Arc<Mutex<HashMap<String, Held>>>;
+
+/// `noteErrorUsage`: an attempt that is retried abandons the usage the provider billed for it.
+fn note_failed(accounting: &mut SendAccounting, failed: Option<ProviderError>) {
+    if let Some(error) = failed
+        && let Some(usage) = error.partial_usage.as_deref()
+    {
+        accounting.note_abandoned(usage, error.partial_model.as_deref().map(str::to_owned));
+    }
+}
+
 pub struct AccountedAdapter {
     inner: Arc<dyn ProviderAdapter>,
     name: String,
     deps: Arc<AccountingDeps>,
+    groups: Groups,
 }
 
 impl AccountedAdapter {
     pub fn wrap(inner: Arc<dyn ProviderAdapter>, name: &str, deps: Arc<AccountingDeps>) -> Arc<dyn ProviderAdapter> {
-        Arc::new(Self { inner, name: name.to_owned(), deps })
+        Arc::new(Self { inner, name: name.to_owned(), deps, groups: Groups::default() })
     }
 
-    fn begin(&self, request: &ModelRequest) -> (SendAccounting, i64) {
+    /// The accounting this attempt belongs to: its group's, while a group is open, else a new send's.
+    fn open(&self, request: &ModelRequest) -> SendAccounting {
+        if let Some(group) = request.options.send_group.as_deref()
+            && let Some(Held { mut accounting, failed }) = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group)
+        {
+            note_failed(&mut accounting, failed);
+            return accounting;
+        }
+        self.begin(request)
+    }
+
+    fn begin(&self, request: &ModelRequest) -> SendAccounting {
         let deps = &self.deps;
         let provider = self.name.as_str();
         let scope = deps.scope.of(provider, request);
@@ -124,7 +156,7 @@ impl AccountedAdapter {
         };
         let accounting = SendAccounting::new(identity, Arc::clone(&deps.pricing), (deps.ledger)())
             .with_sources(Arc::clone(&deps.now), Arc::clone(&deps.new_id));
-        (accounting, started_at)
+        accounting
     }
 }
 
@@ -150,17 +182,50 @@ impl ProviderAdapter for AccountedAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let (accounting, started_at) = self.begin(&request);
+        let accounting = self.open(&request);
+        let group = request.options.send_group.clone().map(|id| (id, Arc::clone(&self.groups)));
         match self.inner.attempt(request).await {
             Ok(stream) => Ok(Box::new(AccountedStream {
                 inner: stream,
-                open: Some(Open { accounting, usage: None, started_at }),
+                open: Some(Open { accounting, usage: None }),
+                group,
                 now: Arc::clone(&self.deps.now),
             })),
             Err(error) => {
-                accounting.finish(Outcome::Failed(&error)).await;
+                fail(accounting, group, error.clone()).await;
                 Err(error)
             }
+        }
+    }
+
+    async fn settle_send(&self, group: &str, end: SendEnd) {
+        let held = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group);
+        let Some(Held { mut accounting, failed }) = held else { return };
+        match end {
+            SendEnd::Surfaced => {
+                if let Some(error) = failed {
+                    accounting.finish(Outcome::Failed(&error)).await;
+                }
+            }
+            // The cancel ended a send whose last failure was already retried (its usage noted):
+            // only the abandoned attempts are recorded, never a request row of their own.
+            SendEnd::Cancelled => {
+                note_failed(&mut accounting, failed);
+                accounting.finish(Outcome::Cancelled { reported: None }).await;
+            }
+        }
+    }
+}
+
+/// An attempt failed: inside a group the failure is held for the loop's verdict (a retry makes it
+/// an abandoned attempt, `settle_send` its row); alone it is the send's failed row.
+async fn fail(accounting: SendAccounting, group: Option<(String, Groups)>, error: ProviderError) {
+    match group {
+        Some((id, groups)) => {
+            groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id, Held { accounting, failed: Some(error) });
+        }
+        None => {
+            accounting.finish(Outcome::Failed(&error)).await;
         }
     }
 }
@@ -170,14 +235,13 @@ struct Open {
     accounting: SendAccounting,
     /// The last usage the stream showed (`StreamEvent::Usage` replaces).
     usage: Option<Usage>,
-    #[allow(dead_code)]
-    started_at: i64,
 }
 
 struct AccountedStream {
     inner: Box<dyn ModelStream>,
     /// `None` once the row is written.
     open: Option<Open>,
+    group: Option<(String, Groups)>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
 
@@ -205,14 +269,14 @@ impl ModelStream for AccountedStream {
             Some(Ok(event)) => Some(Ok(event)),
             Some(Err(error)) => {
                 let open = self.open.take()?;
-                open.accounting.finish(Outcome::Failed(&error)).await;
+                fail(open.accounting, self.group.take(), error.clone()).await;
                 Some(Err(error))
             }
             None => {
                 // A stream may only end with its terminal event: the consumer fails it the same way.
                 let open = self.open.take()?;
                 let error = ProviderError::transport(TransportFault::TruncatedStream, self.inner.delivery());
-                open.accounting.finish(Outcome::Failed(&error)).await;
+                fail(open.accounting, self.group.take(), error).await;
                 None
             }
         }

@@ -11,6 +11,12 @@ use mixdog_core_api::turn_review::ReviewContent;
 
 use super::patch_guard::Snapshot;
 use super::patch_guard::capture;
+use super::read::content_hash_of;
+use super::read_state::FileVersion;
+use super::read_state::ReadState;
+use super::read_state::SnapshotMeta;
+use super::read_state::covers_full_file;
+use super::read_state::hash_text;
 
 fn text_of(path: &AbsPath) -> String {
     path.as_path().to_string_lossy().into_owned()
@@ -58,11 +64,17 @@ fn content(snapshot: Option<&Snapshot>) -> ReviewContent {
 
 /// A committed `apply_patch`: `before` are the pre-patch snapshots, `paths` only the targets the
 /// apply actually mutated, `renames` the (source, destination) pairs of V4A moves.
-pub(super) async fn committed_patch(ctx: &ToolContext, before: &[Snapshot], paths: &[AbsPath], renames: &[(AbsPath, AbsPath)]) {
-    if ctx.review.is_none() || before.is_empty() {
+pub(super) async fn committed_patch(ctx: &ToolContext, state: Option<&ReadState>, before: &[Snapshot], paths: &[AbsPath], renames: &[(AbsPath, AbsPath)]) {
+    if (ctx.review.is_none() && state.is_none()) || before.is_empty() {
         return;
     }
     let Ok(Ok(after)) = capture(ctx, paths, &std::collections::HashSet::new()).await else { return };
+    if let Some(state) = state {
+        note_patch(ctx, state, before, &after);
+    }
+    if ctx.review.is_none() {
+        return;
+    }
     let key = |p: &AbsPath| mixdog_scm::locks::path_key(p.as_path());
     let mut changes = Vec::new();
     let mut renamed = std::collections::HashSet::new();
@@ -80,4 +92,55 @@ pub(super) async fn committed_patch(ctx: &ToolContext, before: &[Snapshot], path
         changes.push(CallChange { path: text_of(path), new_path: None, before: content(find(before, path)), after: content(find(&after, path)) });
     }
     record(ctx, changes).await;
+}
+fn state_key(path: &AbsPath) -> String {
+    super::common::fwd(path.as_path())
+}
+
+/// What the read state learns from a committed patch (`recordNativeSnapshots`): a deleted file is
+/// forgotten; a written one is recorded as patched. The patch inherits "the session holds the body"
+/// only when the session had read exactly the bytes the patch started from.
+fn note_patch(ctx: &ToolContext, state: &ReadState, before: &[Snapshot], after: &[Snapshot]) {
+    let scope = ctx.thread_id.to_string();
+    for snap in after {
+        let key = state_key(&snap.path);
+        if snap.bytes().is_none() && snap.version().is_none() {
+            state.forget_path(&key);
+            continue;
+        }
+        state.invalidate(&[key.as_str()]);
+        let Some(version) = snap.version() else { continue };
+        let prior = state.snapshot(Some(&scope), &key);
+        let started = find(before, &snap.path);
+        let proven = match (prior, started.and_then(Snapshot::bytes)) {
+            (Some(prior), Some(bytes)) => {
+                prior.content_hash.is_some()
+                    && (prior.body_delivered == Some(true) || covers_full_file(&prior))
+                    && content_hash_of(bytes) == prior.content_hash
+            }
+            _ => false,
+        };
+        let meta = SnapshotMeta {
+            pre_mutation: if proven { started.and_then(Snapshot::version) } else { None },
+            content_hash: snap.bytes().and_then(content_hash_of),
+            ..SnapshotMeta::new("apply_patch_native")
+        };
+        state.record(Some(&scope), &key, Some(version), meta);
+    }
+}
+
+/// What the read state learns from a committed `edit` (`recordEditSnapshot`): cached answers about
+/// the file are dropped and the session's snapshot becomes the edit, which keeps "the body was
+/// delivered" only when the edit started from the file as the session last saw it.
+pub(super) async fn note_edit(ctx: &ToolContext, state: &ReadState, abs: &AbsPath, pre: Option<FileVersion>, written: &[u8]) {
+    let key = state_key(abs);
+    state.invalidate(&[key.as_str()]);
+    let Ok(stat) = ctx.files.stat(ctx.io.interactive, abs.clone()).await else { return };
+    let meta = SnapshotMeta {
+        replace_existing: true,
+        pre_mutation: pre,
+        content_hash: content_hash_of(written).or_else(|| Some(hash_text(""))),
+        ..SnapshotMeta::new("edit")
+    };
+    state.record(Some(&ctx.thread_id.to_string()), &key, FileVersion::new(stat.modified, stat.len), meta);
 }

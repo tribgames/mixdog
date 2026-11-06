@@ -509,6 +509,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods, reason = "test: gives a real thread time to block on the held publish lock")]
     fn an_account_change_cannot_land_inside_a_publish() {
         let catalog = Arc::new(ProviderCatalog::new(CatalogSnapshot::default()));
         let publishing = catalog.publish_lock.lock().unwrap();

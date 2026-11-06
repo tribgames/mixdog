@@ -23,6 +23,7 @@ use mixdog_core_api::domain::process::ProcessExit;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_core_api::domain::tool::ToolContext;
+use mixdog_core_api::domain::tool::ToolNotify;
 use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_protocol::ProcessHandle;
 use mixdog_protocol::ThreadId;
@@ -377,8 +378,18 @@ pub struct Job {
     /// A task tracking the survivors of a finished command: it has no process of its own, no
     /// logs, and ends when the last survivor exits.
     pub survivors: bool,
+    /// The launching call's completion hook (a worker turn's own queue), tried before the owner's
+    /// default delivery.
+    pub notify: Option<ToolNotify>,
     state: Mutex<JobState>,
     settled: watch::Sender<bool>,
+}
+
+/// `shellCompletionInstruction` (`taskCompletionSummary` of the shell surface): the completion's
+/// one-line statement, `Shell task <outcome> (exit <code|n/a>)`.
+pub(super) fn completion_instruction(status: &str, exit_code: Option<i32>) -> String {
+    let outcome = if status == "cancelled" { "was cancelled" } else { status };
+    format!("Shell task {outcome} (exit {})", exit_code.map_or("n/a".to_owned(), |c| c.to_string()))
 }
 
 /// `normalizeOutputPath`: paths are shown with forward slashes.
@@ -822,6 +833,32 @@ impl Job {
         }
     }
 
+    /// A detached job's end (`notifyToolCompletion`): the launching call's hook first, and only a
+    /// declined delivery (`false`) falls back to the owner's notifier. The meta is the completion's
+    /// identity the receiver files it under.
+    async fn report_finished(&self, notifier: Option<&dyn TaskNotifier>, status: &str, notification: String) {
+        if let Some(notify) = &self.notify {
+            let exit_code = {
+                let state = self.state();
+                state.exit.and_then(|exit| self.facts_of(&state, &exit).exit_code)
+            };
+            let meta = serde_json::json!({
+                "type": "shell_task_result",
+                "execution_surface": "shell",
+                "execution_id": self.id,
+                "status": status,
+                "instruction": completion_instruction(status, exit_code),
+                "caller_session_id": self.owner.as_str(),
+            });
+            if notify.deliver(&notification, &meta) {
+                return;
+            }
+        }
+        if let Some(notifier) = notifier {
+            notifier.finished(&self.owner, "shell", &self.id, status, notification).await;
+        }
+    }
+
     /// `renderShellCompletionNotice` for the survivors task.
     fn survivors_notification(&self, status: &str) -> String {
         let flat = mixdog_js::js_words(&self.command).collect::<Vec<_>>().join(" ");
@@ -936,6 +973,7 @@ impl ExecRuntime {
         owner: ThreadId,
         time_limit_ms: u64,
         review: Option<Arc<dyn TurnReviewApi>>,
+        notify: Option<ToolNotify>,
         cancel: &CancellationToken,
     ) -> Result<Arc<Job>, ProcessError> {
         let handle = request.handle.clone();
@@ -962,6 +1000,7 @@ impl ExecRuntime {
             stderr_log,
             wait_hits: AtomicU32::new(0),
             survivors: false,
+            notify,
             state: Mutex::new(JobState::new(oem)),
             settled,
         });
@@ -1025,6 +1064,7 @@ impl ExecRuntime {
             stderr_log: job.stderr_log.clone(),
             wait_hits: AtomicU32::new(0),
             survivors: true,
+            notify: job.notify.clone(),
             state: Mutex::new(JobState::new(self.config.oem)),
             settled,
         });
@@ -1065,10 +1105,8 @@ impl ExecRuntime {
         let _ = self.config.tasks.finish(&job.id, TaskOutcome { status, exit_code: None });
         // The tracked task's end, like `completeBackgroundTask`: its folder may have changed.
         super::settle::note_command_settled(job.review.as_ref(), &job.cwd);
-        if let Some(notifier) = &self.config.notifier {
-            let word = if cancelled { "cancelled" } else { "completed" };
-            notifier.finished(&job.owner, "shell", &job.id, word, job.survivors_notification(word)).await;
-        }
+        let word = if cancelled { "cancelled" } else { "completed" };
+        job.report_finished(self.config.notifier.as_deref(), word, job.survivors_notification(word)).await;
         job.settled.send_replace(true);
     }
 
@@ -1137,10 +1175,7 @@ async fn collect(
         super::settle::note_command_settled(job.review.as_ref(), &job.cwd);
         let output = job.read_output(ReadOptions { terminal: true, ..ReadOptions::default() });
         job.state().completion_output = Some(output.clone());
-        if let Some(notifier) = &runtime.config.notifier {
-            let status = job.status();
-            notifier.finished(&job.owner, "shell", &job.id, status.as_str(), job.notification(&output)).await;
-        }
+        job.report_finished(runtime.config.notifier.as_deref(), job.status().as_str(), job.notification(&output)).await;
     }
     job.settled.send_replace(true);
 }

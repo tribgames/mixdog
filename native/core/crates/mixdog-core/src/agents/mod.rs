@@ -403,7 +403,8 @@ impl AgentDefinitions {
                 route: own.or_else(|| self.main()).unwrap_or(Value::Null),
                 kind: None,
                 disabled: self.routes.is_disabled(id),
-                avatar: self.avatar_of(id).await?,
+                // The fixed services carry no avatar in the listing.
+                avatar: Value::Null,
                 definition: self.load(id).await?,
             });
         }

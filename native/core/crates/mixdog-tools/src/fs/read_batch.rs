@@ -8,6 +8,9 @@ use std::collections::HashMap;
 
 use mixdog_core_api::domain::tool::ToolPart;
 
+use super::read_state::LineRange;
+use super::read_state::merge_ranges;
+
 /// Windows of one file whose gap is at most this many lines share one disk read.
 const COALESCE_GAP_LINES: u64 = 256;
 /// Rows of a line window before the model-facing marker form: `<n>→<row>`.
@@ -203,10 +206,11 @@ fn row_number(line: &str) -> Option<(u64, &str)> {
 }
 
 /// `windowMarker` with no total.
-fn marker(from: u64, to: u64, next: Option<u64>) -> String {
+fn marker(from: u64, to: u64, total: Option<u64>, next: Option<u64>) -> String {
+    let of = total.map(|t| format!(" of {t}")).unwrap_or_default();
     match next {
-        Some(n) => format!("[lines {from}-{to}; offset:{n} for more]"),
-        None => format!("[lines {from}-{to}]"),
+        Some(n) => format!("[lines {from}-{to}{of}; offset:{n} for more]"),
+        None => format!("[lines {from}-{to}{of}]"),
     }
 }
 
@@ -260,12 +264,50 @@ pub(super) fn slice_read_body(body: &str, off: u64, lim: u64, base: u64) -> Stri
     let emitted_start = kept_first.unwrap_or(first_line);
     let emitted_last = kept_last.map_or(requested_last, |k| requested_last.min(k));
     let more = total.map_or(true, |t| emitted_last < t);
-    let footer = marker(emitted_start, emitted_last, more.then_some(emitted_last + base));
+    let footer = marker(emitted_start, emitted_last, total, more.then_some(emitted_last + base));
     let mut out = kept.join("\n");
     if !kept.is_empty() {
         out.push('\n');
     }
     out + &footer
+}
+
+/// `renderedBatchReadRanges`: the line numbers a body shows, as ranges; else the footer's range.
+pub(super) fn rendered_ranges(body: &str) -> Vec<LineRange> {
+    let rows: Vec<LineRange> = body
+        .split('\n')
+        .filter_map(|l| row_number(l).map(|(n, _)| n))
+        .filter(|n| *n > 0 && *n < (1 << 53))
+        .map(|n| LineRange { start: n, end: Some(n) })
+        .collect();
+    if !rows.is_empty() {
+        return merge_ranges(&rows);
+    }
+    static FOOTER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    regex(&FOOTER, r"\[lines\s+(\d+)-(\d+)\s+of\s+\d+")
+        .captures(body)
+        .and_then(|c| Some(LineRange { start: c[1].parse().ok()?, end: Some(c[2].parse().ok()?) }))
+        .map(|r| merge_ranges(&[r]))
+        .unwrap_or_default()
+}
+
+/// The parts of `a` that lie inside `b`.
+pub(super) fn intersect_ranges(a: &[LineRange], b: &[LineRange]) -> Vec<LineRange> {
+    let mut out = Vec::new();
+    for x in a {
+        for y in b {
+            let start = x.start.max(y.start);
+            let end = match (x.end, y.end) {
+                (Some(p), Some(q)) => Some(p.min(q)),
+                (Some(p), None) | (None, Some(p)) => Some(p),
+                (None, None) => None,
+            };
+            if end.map_or(true, |e| e >= start) {
+                out.push(LineRange { start, end });
+            }
+        }
+    }
+    merge_ranges(&out)
 }
 
 /// `readRowsForModel`: numbered rows become one `[lines a-b]` marker per consecutive run, followed

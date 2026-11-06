@@ -53,6 +53,9 @@ pub struct AssembleInput<'a> {
     pub slot: Option<Arc<dyn mixdog_agent::env::Yielder>>,
     /// The trusted text a routine's skill is selected from (`AgentTurn.skill_selection`).
     pub skill_selection: Option<String>,
+    /// The worker turn's own completion hook (`AgentTurn.hooks.notify`): `assemble` puts it on the
+    /// `ToolEnv`, so it reaches every tool call. `None` for a turn no job owns.
+    pub notify: Option<mixdog_core_api::domain::tool::ToolNotify>,
 }
 
 /// What the policy gate needs from the run it gates, which exists only after assembly.
@@ -417,12 +420,16 @@ impl RunObserver for PortObserver {
 
 async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, .. } = run;
-    let (slot, skill_selection, on_tool_result) = match agent_turn {
-        Some(turn) => (turn.slot, turn.skill_selection, Some(turn.hooks.on_tool_result)),
-        None => (None, None, None),
+    let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
+        Some(turn) => {
+            let hook = turn.hooks.notify;
+            let notify = mixdog_core_api::domain::tool::ToolNotify(Arc::new(move |text, meta| hook(text, meta)));
+            (turn.slot, turn.skill_selection, Some(turn.hooks.on_tool_result), Some(notify))
+        }
+        None => (None, None, None, None),
     };
     let surface_now = surface.borrow().clone();
-    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection }).await {
+    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, notify }).await {
         Ok(assembled) => assembled,
         Err(error) => return RunOutcome::Failed(error),
     };
@@ -681,6 +688,7 @@ mod tests {
                     processes: Arc::new(MockProcessManager::default()),
                     progress: Arc::new(MockProgress::default()),
                     deadline_of: None,
+                    notify: input.notify.clone(),
                 },
                 gate: Box::new(|_| Arc::new(AllowAll)),
                 worktree: self.workspace.to_string_lossy().into_owned(),

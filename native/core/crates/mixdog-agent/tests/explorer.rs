@@ -207,6 +207,7 @@ fn tool_env() -> ToolEnv {
         processes: Arc::new(MockProcessManager::default()),
         progress: Arc::new(MockProgress::default()),
         deadline_of: None,
+        notify: None,
     }
 }
 
