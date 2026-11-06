@@ -12,11 +12,12 @@
 //! returned failure), `finish` after the Goal settled, `supersede` / `cancel_on_user_input` /
 //! `cancel_resume` for every cancel; one guard per session actor.
 
-use std::sync::Mutex;
-use std::sync::PoisonError;
+use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use mixdog_js::value_to_string;
+use mixdog_js::{js_trim, value_to_string};
+use mixdog_rt::KeyedChains;
 use serde_json::{Map, Value, json};
 
 use crate::goal::js::truthy;
@@ -133,25 +134,95 @@ pub fn latest_quota_failure(items: &[Value]) -> Option<QuotaFailure> {
     None
 }
 
+/// `failedTurnRetryPrompt`: what retrying the turn submits — its prompt when it produced no
+/// output, the continuation instruction when it did, `None` when the prompt carried no text (a
+/// media-only prompt cannot be replayed).
+pub fn failed_turn_retry_prompt(items: &[Value], turn_key: &str) -> Option<String> {
+    const CHROME: [&str; 4] = ["user", "turndone", "statusdone", "notice"];
+    let keys = transcript_turn_keys(items);
+    let (mut prompt, mut sampled, mut has_attachments) = (String::new(), false, false);
+    for (index, item) in items.iter().enumerate() {
+        if keys[index] != turn_key {
+            continue;
+        }
+        if is_kind(item, "user") && prompt.is_empty() {
+            prompt = match item.get("text") {
+                None | Some(Value::Null) => String::new(),
+                Some(text) => js_trim(&value_to_string(text)).to_owned(),
+            };
+            has_attachments = item.get("images").and_then(Value::as_array).is_some_and(|images| !images.is_empty());
+        }
+        let kind = item.get("kind").filter(|kind| truthy(Some(kind))).map(value_to_string).unwrap_or_default();
+        if !CHROME.contains(&kind.as_str()) {
+            sampled = true;
+        }
+    }
+    if prompt.is_empty() {
+        return sampled.then(|| RETRY_CONTINUE_INSTRUCTION.to_owned());
+    }
+    // Transcript rows keep only attachment metadata, so a text-only replay would drop the
+    // attachments and the rewind would delete the original row.
+    if has_attachments && !sampled {
+        return None;
+    }
+    Some(if sampled { RETRY_CONTINUE_INSTRUCTION.to_owned() } else { prompt })
+}
+
+pub const RETRY_CONTINUE_INSTRUCTION: &str = "Continue from where you left off.";
+
+/// What the session knows when a turn closes on quota, for `beginQuotaSettlement`.
+#[derive(Clone, Debug, Default)]
+pub struct ResumeContext {
+    /// `quotaAutoResumeEnabled()`.
+    pub auto_resume: bool,
+    /// `retainedRetryInput()` found the failed user message in the model history.
+    pub retained_retry: bool,
+    /// `runtime.goalStatus()?.id` is set and the runtime can reactivate a usage-limited Goal.
+    pub goal_reactivatable: bool,
+    /// `sessionRoute()`.
+    pub route_provider: String,
+    pub route_model: String,
+}
+
+/// What `beginQuotaSettlement` did about the failure.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Begin {
+    /// No failure to settle, no known reset, the setting off, or a cancel landed first.
+    Nothing,
+    /// The resume was queued; its entry.
+    Queued(Box<crate::quota_resume::Entry>),
+    /// The turn has nothing to replay: the session shows "This turn cannot be resumed
+    /// automatically. Send a new message to continue." as a transcript warning.
+    NotResumable,
+}
+
 struct Settlement {
     session_id: String,
     turn_key: String,
     epoch: u64,
 }
 
+/// One session's settlement guard. Everything that changes a session's resume state — queueing,
+/// the Goal note, every cancel — runs one at a time per session id, so no cancel lands between
+/// the epoch check and the write it guards (Node does both synchronously).
 pub struct QuotaSettlement {
     quota: GoalQuotaResume,
+    chains: Arc<KeyedChains>,
     epoch: AtomicU64,
     settlement: Mutex<Option<Settlement>>,
 }
 
 impl QuotaSettlement {
     pub fn new(quota: GoalQuotaResume) -> Self {
-        Self { quota, epoch: AtomicU64::new(0), settlement: Mutex::new(None) }
+        Self { quota, chains: KeyedChains::new(), epoch: AtomicU64::new(0), settlement: Mutex::new(None) }
     }
 
     fn slot(&self) -> std::sync::MutexGuard<'_, Option<Settlement>> {
         self.settlement.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::SeqCst)
     }
 
     /// Whether a failed turn is settling (the session's retry gate, `retryBlocked`).
@@ -159,58 +230,100 @@ impl QuotaSettlement {
         self.slot().is_some()
     }
 
-    /// `beginQuotaSettlement`'s recording half: the turn that ended on quota is remembered with
-    /// the epoch it ended under. The failure comes back for the caller to queue the resume from.
-    pub fn begin(&self, session_id: &str, items: &[Value]) -> Option<QuotaFailure> {
-        let failure = latest_quota_failure(items);
-        let mut slot = self.slot();
-        *slot = None;
-        let failure = failure.filter(|_| !session_id.is_empty())?;
-        *slot = Some(Settlement {
-            session_id: session_id.to_owned(),
-            turn_key: failure.turn_key.clone(),
-            epoch: self.epoch.load(Ordering::SeqCst),
-        });
-        Some(failure)
+    /// `hasResumeInput`.
+    fn has_resume_input(&self, session_id: &str, items: &[Value], turn_key: &str, context: &ResumeContext) -> bool {
+        if context.retained_retry || failed_turn_retry_prompt(items, turn_key).is_some() {
+            return true;
+        }
+        !turn_key.starts_with("turn:")
+            && (!self.quota.suspended(session_id, turn_key).is_empty() || context.goal_reactivatable)
     }
 
-    /// `finishQuotaSettlement` after the Goal settled: records the Goal the failure suspended,
+    /// `beginQuotaSettlement`, at turn close with the failed turndone: remembers the turn with
+    /// the epoch it ended under and, with a known reset and the setting on, queues its resume.
+    pub async fn begin(&self, session_id: &str, items: &[Value], context: &ResumeContext) -> Result<Begin, QuotaError> {
+        let failure = latest_quota_failure(items).filter(|_| !session_id.is_empty());
+        let mut slot = self.slot();
+        *slot = None;
+        let Some(failure) = failure else { return Ok(Begin::Nothing) };
+        let epoch = self.epoch();
+        *slot = Some(Settlement { session_id: session_id.to_owned(), turn_key: failure.turn_key.clone(), epoch });
+        drop(slot);
+        if failure.reset_at.is_none() || !context.auto_resume {
+            return Ok(Begin::Nothing);
+        }
+        if !self.has_resume_input(session_id, items, &failure.turn_key, context) {
+            return Ok(Begin::NotResumable);
+        }
+        let request = failure.schedule_request(session_id, &context.route_provider, &context.route_model);
+        let _turn = self.chains.acquire(session_id).await;
+        if self.epoch() != epoch {
+            return Ok(Begin::Nothing);
+        }
+        Ok(Begin::Queued(Box::new(self.quota.schedule(&request).await?)))
+    }
+
+    /// `finishQuotaSettlement` after the Goal settled: records the Goal this failure suspended,
     /// unless a superseding cancel landed since the turn closed.
     pub async fn finish(&self, before: Option<&Goal>, settled: Option<&Goal>) -> Result<bool, QuotaError> {
         self.finish_goal(&suspended_goal_id(before, settled)).await
     }
 
-    /// [`finish`](Self::finish) for a Goal id already decided.
+    /// [`finish`](Self::finish) for a Goal id already decided. The epoch is read again once the
+    /// session's turn is held: a cancel raises the epoch before it queues, so a cancel that
+    /// arrived while this waited is seen, and one that arrives later clears the note after it.
     pub async fn finish_goal(&self, goal_id: &str) -> Result<bool, QuotaError> {
         let current = self.slot().take();
-        let Some(current) = current.filter(|c| c.epoch == self.epoch.load(Ordering::SeqCst)) else {
+        let Some(current) = current.filter(|c| c.epoch == self.epoch() && !goal_id.is_empty()) else {
             return Ok(false);
         };
+        let _turn = self.chains.acquire(&current.session_id).await;
+        if current.epoch != self.epoch() {
+            return Ok(false);
+        }
         self.quota.note_goal(&current.session_id, &current.turn_key, goal_id).await
     }
 
-    /// `cancelFor`: a cancel that supersedes the turn — the resume and the Goal note both go.
-    async fn cancel_for(&self, session_id: &str) -> Result<(), QuotaError> {
+    /// `cancelFor`: the epoch rises now, when the cancel is made; the resume and the Goal note
+    /// go when the session's turn comes.
+    fn cancel_for(&self, session_id: &str) -> impl Future<Output = Result<(), QuotaError>> + '_ {
         self.epoch.fetch_add(1, Ordering::SeqCst);
-        self.quota.cancel(session_id).await
+        let session_id = session_id.to_owned();
+        async move {
+            let _turn = self.chains.acquire(&session_id).await;
+            self.quota.cancel(&session_id).await
+        }
     }
 
     /// `cancelQuotaResumeOnUserInput`: new user input supersedes the stopped turn.
-    pub async fn cancel_on_user_input(&self, session_id: &str) -> Result<(), QuotaError> {
-        if session_id.is_empty() {
-            return Ok(());
+    pub fn cancel_on_user_input(&self, session_id: &str) -> impl Future<Output = Result<(), QuotaError>> + '_ {
+        let cancel = (!session_id.is_empty()).then(|| self.cancel_for(session_id));
+        async move {
+            match cancel {
+                Some(cancel) => cancel.await,
+                None => Ok(()),
+            }
         }
-        self.cancel_for(session_id).await
     }
 
     /// `supersedeQuotaResume`: a session clear or delete supersedes the wait.
-    pub async fn supersede(&self, session_id: &str) -> Result<(), QuotaError> {
-        self.cancel_on_user_input(session_id).await
+    pub fn supersede(&self, session_id: &str) -> impl Future<Output = Result<(), QuotaError>> + '_ {
+        self.cancel_on_user_input(session_id)
     }
 
     /// `cancelQuotaResume`: the explicit cancel drops the pending resume and keeps the Goal note.
-    pub async fn cancel_resume(&self, session_id: &str) -> Result<bool, QuotaError> {
+    pub fn cancel_resume(&self, session_id: &str) -> impl Future<Output = Result<bool, QuotaError>> + '_ {
         self.epoch.fetch_add(1, Ordering::SeqCst);
-        self.quota.cancel_entry(session_id).await
+        let session_id = session_id.to_owned();
+        async move {
+            let _turn = self.chains.acquire(&session_id).await;
+            self.quota.cancel_entry(&session_id).await
+        }
+    }
+
+    /// The session's turn, held by a test to stage a cancel against a waiting settlement.
+    #[cfg(test)]
+    pub(crate) async fn hold(&self, session_id: &str) -> mixdog_rt::ChainGuard {
+        self.chains.acquire(session_id).await
     }
 }

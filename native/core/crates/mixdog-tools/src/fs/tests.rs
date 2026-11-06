@@ -491,15 +491,16 @@ async fn committed_writes_join_the_turn_review_and_carry_the_card_diff() {
     review.calls.lock().unwrap().clear();
     let gone = serde_json::json!({ "patch": "*** Delete File: bin.dat\n*** Update File: old.txt\n@@\n-keep\n+KEEP\n" });
     ApplyPatchTool::new().call(&ctx, gone).await.unwrap();
-    let calls = review.calls.lock().unwrap();
-    let changes = &calls[0].3;
-    assert_eq!(changes.len(), 2);
-    let bin = changes.iter().find(|c| c.path == path("bin.dat")).unwrap();
-    assert_eq!(bin.before, ReviewContent::Omitted { size: 6, reason: Some("binary".to_owned()) });
-    assert_eq!(bin.after, ReviewContent::Absent);
-    let old = changes.iter().find(|c| c.path == path("old.txt")).unwrap();
-    assert_eq!((&old.before, &old.after), (&ReviewContent::bytes(&b"keep\nme\n"[..]), &ReviewContent::bytes(&b"KEEP\nme\n"[..])));
-    drop(calls);
+    {
+        let calls = review.calls.lock().unwrap();
+        let changes = &calls[0].3;
+        assert_eq!(changes.len(), 2);
+        let bin = changes.iter().find(|c| c.path == path("bin.dat")).unwrap();
+        assert_eq!(bin.before, ReviewContent::Omitted { size: 6, reason: Some("binary".to_owned()) });
+        assert_eq!(bin.after, ReviewContent::Absent);
+        let old = changes.iter().find(|c| c.path == path("old.txt")).unwrap();
+        assert_eq!((&old.before, &old.after), (&ReviewContent::bytes(&b"keep\nme\n"[..]), &ReviewContent::bytes(&b"KEEP\nme\n"[..])));
+    }
 
     // `edit` records its write too: a replacement, then a created file.
     review.calls.lock().unwrap().clear();
@@ -926,8 +927,18 @@ async fn reading_an_image_matches_the_recorded_node_cases() {
     let tool = ReadTool::new(None, Some(Arc::new(RecordedResizer(resizes))));
     for case in &cases {
         let name = case["name"].as_str().unwrap();
-        let out = tool.call(&ctx, schema_args("read", case["input"].clone())).await.unwrap();
         let want = case["content"].as_array().unwrap();
+        let outcome = tool.call(&ctx, schema_args("read", case["input"].clone())).await;
+        // A failed single image read is an error result (Node's isError); a batch is never one.
+        assert_eq!(outcome.is_err(), case["isError"].as_bool().unwrap(), "{name}");
+        let out = match outcome {
+            Ok(out) => out,
+            Err(error) => {
+                assert!(matches!(error.code, ToolErrorCode::Failed { .. }), "{name}");
+                assert_eq!(error.message_for_model, want[0]["text"].as_str().unwrap(), "{name}");
+                continue;
+            }
+        };
         assert_eq!(out.parts.len(), want.len(), "{name}");
         for (part, want) in out.parts.iter().zip(want) {
             match part {
@@ -974,7 +985,8 @@ async fn an_image_without_a_resizer_keeps_the_inline_cap_and_a_failed_host_is_an
     let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), seeds).await;
 
     let bare = ReadTool::new(None, None);
-    let (_, refused) = text_of(bare.call(&ctx, serde_json::json!({ "file_path": "big.png" })).await);
+    let (is_error, refused) = text_of(bare.call(&ctx, serde_json::json!({ "file_path": "big.png" })).await);
+    assert!(is_error);
     assert_eq!(
         refused,
         format!(
@@ -991,4 +1003,123 @@ async fn an_image_without_a_resizer_keeps_the_inline_cap_and_a_failed_host_is_an
     let dead = ReadTool::new(None, Some(Arc::new(DeadHost)));
     let error = dead.call(&ctx, serde_json::json!({ "file_path": "big.png" })).await.unwrap_err();
     assert!(matches!(error.code, ToolErrorCode::Unavailable { .. }), "{error:?}");
+}
+/// Node's `read`, text and batch forms, replayed from `batch_cases.json`: the workspace is rebuilt
+/// from its recipes (mtimes fixed, so a glob orders as it did) and every case's arguments must
+/// give the recorded string or structured content.
+#[tokio::test]
+async fn reading_text_and_batches_matches_the_recorded_node_cases() {
+    use sha2::Digest;
+
+    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = AbsPath::new(dir.path().join("ws")).unwrap();
+    std::fs::create_dir_all(root.as_path()).unwrap();
+    let mut files = Vec::new();
+    let recipes = doc["files"].as_object().unwrap();
+    for (rel, f) in recipes {
+        let bytes = if let Some(p) = f.get("png") {
+            let rgb: Vec<u8> = p["rgb"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u8).collect();
+            flat_png(p["width"].as_u64().unwrap() as u32, p["height"].as_u64().unwrap() as u32, [rgb[0], rgb[1], rgb[2]])
+        } else if let Some(h) = f.get("hex") {
+            let h = h.as_str().unwrap();
+            (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect()
+        } else if let Some(r) = f.get("rows") {
+            let (count, width) = (r[0].as_u64().unwrap(), r[1].as_u64().unwrap() as usize);
+            let mut s = String::new();
+            for n in 1..=count {
+                let mut row = format!("row-{n}");
+                while row.len() < width {
+                    row.push('.');
+                }
+                s.push_str(&row);
+                s.push('\n');
+            }
+            s.into_bytes()
+        } else {
+            f["text"].as_str().unwrap().as_bytes().to_vec()
+        };
+        files.push((rel.clone(), bytes));
+    }
+    let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), files).await;
+    // Same fixed mtimes as the recorder: file n, in recipe order, is n seconds past the epoch base.
+    for (n, rel) in recipes.keys().enumerate() {
+        let at = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_700_000_000_000 + n as u64 * 1000);
+        std::fs::File::options().write(true).open(root.as_path().join(rel)).unwrap().set_modified(at).unwrap();
+    }
+    let hash = |bytes: &[u8]| format!("{:x}", sha2::Sha256::digest(bytes));
+    let resized = {
+        let mut v = Vec::new();
+        for case in doc["cases"].as_array().unwrap() {
+            for block in case["result"]["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "image") {
+                v.push(block.clone());
+            }
+        }
+        v
+    };
+    assert!(!resized.is_empty());
+    let png = flat_png(30, 20, [10, 20, 30]);
+    let block = &resized[0];
+    let image = mixdog_core_api::domain::ext::ResizedImage {
+        data_base64: "A".repeat(block["base64Length"].as_u64().unwrap() as usize),
+        mime: block["mimeType"].as_str().unwrap().to_owned(),
+        original_w: 30,
+        original_h: 20,
+        display_w: block["width"].as_u64().unwrap() as u32,
+        display_h: block["height"].as_u64().unwrap() as u32,
+    };
+    struct Fixed(String, mixdog_core_api::domain::ext::ResizedImage);
+    #[async_trait::async_trait]
+    impl mixdog_core_api::domain::ext::ImageResizer for Fixed {
+        async fn resize(
+            &self,
+            _t: &ThreadId,
+            bytes: &[u8],
+            _e: &str,
+        ) -> Result<Option<mixdog_core_api::domain::ext::ResizedImage>, mixdog_core_api::domain::ext::ImageResizeError> {
+            use sha2::Digest;
+            assert_eq!(format!("{:x}", sha2::Sha256::digest(bytes)), self.0);
+            Ok(Some(self.1.clone()))
+        }
+    }
+    let tool = ReadTool::new(None, Some(Arc::new(Fixed(hash(&png), image))));
+    let mut failures = Vec::new();
+    for case in doc["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let outcome = tool.call(&ctx, case["input"].clone()).await;
+        let want = &case["result"];
+        let cwd = root.as_path().to_string_lossy().replace('\\', "/");
+        let fix = |s: &str| s.replace("C:/Users/tempe/.mixdog/data/scratch/s.c95c85c6f484dcc3/mixdog-batch-golden-GNr6yz/ws", &cwd);
+        let got: Vec<(String, String)> = match &outcome {
+            Ok(out) => out
+                .parts
+                .iter()
+                .map(|p| match p {
+                    ToolPart::Text(t) => ("text".to_owned(), t.clone()),
+                    ToolPart::Image { mime, data: ImageData::Bytes(b) } => ("image".to_owned(), format!("{mime}:{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b).len())),
+                    other => ("other".to_owned(), format!("{other:?}")),
+                })
+                .collect(),
+            Err(e) => vec![("text".to_owned(), e.message_for_model.clone())],
+        };
+        let expected: Vec<(String, String)> = match want.get("text").and_then(JsonValue::as_str) {
+            Some(t) => vec![("text".to_owned(), fix(t))],
+            None => want["content"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|b| {
+                    if b["type"] == "image" {
+                        ("image".to_owned(), format!("{}:{}", b["mimeType"].as_str().unwrap(), b["base64Length"]))
+                    } else {
+                        ("text".to_owned(), fix(b["text"].as_str().unwrap()))
+                    }
+                })
+                .collect(),
+        };
+        if got != expected {
+            failures.push(format!("{name}\n  want {expected:?}\n  got  {got:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), doc["cases"].as_array().unwrap().len(), failures.join("\n"));
 }

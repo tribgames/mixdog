@@ -60,6 +60,11 @@ impl GoalQuotaResume {
         self.store.cancel(session_id, None).await
     }
 
+    /// `scheduleQuotaResumeEntry`.
+    pub async fn schedule(&self, request: &serde_json::Value) -> Result<crate::quota_resume::Entry, QuotaError> {
+        self.store.schedule(request).await
+    }
+
     /// `quotaSuspendedGoal`.
     pub fn suspended(&self, session_id: &str, turn_key: &str) -> String {
         self.store.suspended_goal(session_id, turn_key)

@@ -14,7 +14,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use mixdog_agent::compact::execution_tail::MessageRows;
 use mixdog_agent::env::{
     Clock, Compactor, Reactions, ResultReuse, RouteFallback, RunEnv, RunEvent, RunObserver, SkillSelector, Stage, TailReminder, TextRetraction, Retracted, Ticket, ToolGate,
     ToolHooks, TranscriptSink, TurnGuards,
@@ -49,6 +48,11 @@ pub struct AssembleInput<'a> {
     pub port: &'a RunPort,
     /// The session's live tool surface (the gate reads it per call).
     pub surface_rx: tokio::sync::watch::Receiver<Arc<SessionSurface>>,
+    /// The agent lane's admission lease of an agent-owned turn (`TurnRequest.slot`), held for the
+    /// whole turn; `RunConfig.slot`.
+    pub slot: Option<Arc<dyn mixdog_agent::env::Yielder>>,
+    /// The trusted text a routine's skill is selected from (`AgentTurn.skill_selection`).
+    pub skill_selection: Option<String>,
 }
 
 /// What the policy gate needs from the run it gates, which exists only after assembly.
@@ -90,6 +94,8 @@ pub struct Assembled {
     pub hooks: Option<Arc<dyn ToolHooks>>,
     pub reuse: Option<Arc<dyn ResultReuse>>,
     pub reactions: Option<Arc<dyn Reactions>>,
+    /// Clears the session's react targets when the turn ends, however it ends.
+    pub reaction_scope: Option<super::reactions::ReactionScope>,
     /// The run's stored bodies, empty: the factory registers the turn's context and commits in
     /// it; `reactions` reads its message facts from the same value.
     pub rows: Arc<StoredRows>,
@@ -156,6 +162,8 @@ struct PortSink {
     iids: Mutex<HashMap<String, ItemId>>,
     clock: Arc<dyn Clock>,
     blobs: Arc<dyn mixdog_protocol::message_class::user_text::Blobs + Send + Sync>,
+    /// A worker's turn hook (`onToolResult`): called with each tool result the turn gains.
+    on_tool_result: Option<Arc<dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -170,6 +178,7 @@ impl PortSink {
         streaming: Arc<Mutex<Option<ItemId>>>,
         clock: Arc<dyn Clock>,
         blobs: Arc<dyn mixdog_protocol::message_class::user_text::Blobs + Send + Sync>,
+        on_tool_result: Option<Arc<dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync>>,
     ) -> Arc<Self> {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
         let (done_tx, done) = watch::channel(0u64);
@@ -189,7 +198,7 @@ impl PortSink {
                 done_tx.send_replace(n);
             }
         }));
-        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs })
+        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result })
     }
 
     /// The input row and the context before it: known ids, and the turn's first live message.
@@ -234,6 +243,11 @@ impl TranscriptSink for PortSink {
             (true, None)
         };
         self.rows.record(message, row.clone());
+        if message.role() == Role::Tool {
+            if let Some(hook) = &self.on_tool_result {
+                hook(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage { ui_diff: message.ui_diff.clone() });
+            }
+        }
         {
             let mut turn = lock(&self.turn);
             turn.push(message.clone());
@@ -280,8 +294,9 @@ enum Shown {
     Started(ThreadItem),
     Delta(ItemId, String),
     ReasoningDelta(ItemId, String),
+    ReasoningDone(ItemId, String),
     Notice(String),
-    Usage(u32, mixdog_core_api::domain::provider::Usage),
+    Usage(crate::session::UsageReport),
     Compact(mixdog_agent::env::CompactEvent),
 }
 
@@ -293,18 +308,21 @@ struct PortObserver {
     streaming: Arc<Mutex<Option<ItemId>>>,
     /// The Reasoning item the thinking text streams into, until the model moves on to text,
     /// tool calls or its usage report.
-    reasoning: Mutex<Option<ItemId>>,
+    reasoning: Mutex<Option<(ItemId, String)>>,
 }
 
 impl PortObserver {
     fn reasoning(&self, text: String) {
         let id = {
             let mut open = lock(&self.reasoning);
-            match open.as_ref() {
-                Some(id) => id.clone(),
+            match open.as_mut() {
+                Some((id, all)) => {
+                    all.push_str(&text);
+                    id.clone()
+                }
                 None => {
                     let id = new_item_id();
-                    *open = Some(id.clone());
+                    *open = Some((id.clone(), text.clone()));
                     let item = ThreadItem::Reasoning { id: id.clone(), summary: Vec::new(), content: Vec::new(), meta: ItemMeta::default() };
                     let _ = self.out.send(Shown::Started(item));
                     id
@@ -314,6 +332,14 @@ impl PortObserver {
         let _ = self.out.send(Shown::ReasoningDelta(id, text));
     }
 
+    /// The model moved on (text, tool calls, usage) or the run ended: the open Reasoning item is
+    /// complete, with all its thinking text.
+    fn end_reasoning(&self) {
+        let done = lock(&self.reasoning).take();
+        if let Some((id, text)) = done {
+            let _ = self.out.send(Shown::ReasoningDone(id, text));
+        }
+    }
     fn text(&self, text: String) {
         let id = {
             let mut shown = lock(&self.streaming);
@@ -340,7 +366,7 @@ impl RunObserver for PortObserver {
             RunEvent::Stage(Stage::WaitingOnProvider) => self.progress.stream_delta(StreamKind::Keepalive),
             RunEvent::Stage(Stage::ApprovalWait { waiting }) => self.progress.approval_wait(waiting),
             RunEvent::TextDelta(text) => {
-                lock(&self.reasoning).take();
+                self.end_reasoning();
                 self.progress.stream_delta(StreamKind::Text);
                 self.text(text);
             }
@@ -351,9 +377,9 @@ impl RunObserver for PortObserver {
             RunEvent::Stage(Stage::Notice { message }) => {
                 let _ = self.out.send(Shown::Notice(message));
             }
-            RunEvent::Usage { iteration, usage, .. } => {
-                lock(&self.reasoning).take();
-                let _ = self.out.send(Shown::Usage(iteration, usage));
+            RunEvent::Usage { iteration, usage, delta } => {
+                self.end_reasoning();
+                let _ = self.out.send(Shown::Usage(crate::session::UsageReport::from_event(iteration, usage, delta)));
             }
             RunEvent::Compact(event) => {
                 let _ = self.out.send(Shown::Compact(event));
@@ -368,7 +394,7 @@ impl RunObserver for PortObserver {
                 let _ = self.out.send(Shown::Section(crate::session::Section::Route(route)));
             }
             RunEvent::ToolCalls { calls, .. } => {
-                lock(&self.reasoning).take();
+                self.end_reasoning();
                 self.progress.stage("tool_running");
                 for call in &calls {
                     self.progress.tool_call(Some(&call.name));
@@ -390,14 +416,18 @@ impl RunObserver for PortObserver {
 // ---- the turn ----------------------------------------------------------------------------------------
 
 async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
-    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, .. } = run;
+    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, .. } = run;
+    let (slot, skill_selection, on_tool_result) = match agent_turn {
+        Some(turn) => (turn.slot, turn.skill_selection, Some(turn.hooks.on_tool_result)),
+        None => (None, None, None),
+    };
     let surface_now = surface.borrow().clone();
-    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone() }).await {
+    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection }).await {
         Ok(assembled) => assembled,
         Err(error) => return RunOutcome::Failed(error),
     };
     let Assembled {
-        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, rows, tail, step_judge, artifacts, images, blobs, carry,
+        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, step_judge, artifacts, images, blobs, carry,
     } = assembled;
     // The turn's workspace is final: take the baseline in the background; no tool runs before it.
     review.start(&worktree);
@@ -412,7 +442,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     };
     let live = LiveTurnPublisher::new(turn_messages);
     let streaming = Arc::new(Mutex::new(None));
-    let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), clock.clone(), blobs);
+    let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), clock.clone(), blobs, on_tool_result);
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
     let mut messages: Vec<AgentMessage> = crate::prompt::blocks::request_system_messages(&header)
         .into_iter()
@@ -449,13 +479,15 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
                 Shown::Started(item) => shown_port.item_started(item).await,
                 Shown::Delta(id, text) => shown_port.delta(id, text).await,
                 Shown::ReasoningDelta(id, text) => shown_port.reasoning_delta(id, text).await,
+                Shown::ReasoningDone(id, text) => shown_port.reasoning_completed(id, text).await,
                 Shown::Notice(text) => shown_port.notice(text).await,
-                Shown::Usage(iteration, usage) => shown_port.usage(iteration, usage).await,
+                Shown::Usage(report) => shown_port.usage(report).await,
                 Shown::Compact(event) => shown_port.compact_event(event).await,
             };
         }
     }));
     let observer = Arc::new(PortObserver { progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None) });
+    let closing = observer.clone();
 
     config.thread_id = thread.clone();
     config.turn_id = turn.clone();
@@ -484,6 +516,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
         images,
     };
     let result = Run::new(env, cancel.clone(), provider, tools, tool_env, config, messages, carry).run().await;
+    closing.end_reasoning();
     match result {
         Ok(output) => {
             // The loop ends on the terminal answer without committing it (Node's turn commit does):
@@ -661,6 +694,7 @@ mod tests {
                 hooks: None,
                 reuse: None,
                 reactions: None,
+                reaction_scope: None,
                 rows: Arc::default(),
                 tail: None,
                 step_judge: None,

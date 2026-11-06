@@ -435,6 +435,7 @@ impl GrantStore for FileGrantStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "tests inspect and seed the store files on the test thread")]
 mod tests {
     use mixdog_core_api::domain::approval::ActionKind;
 

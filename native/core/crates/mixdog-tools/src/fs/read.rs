@@ -29,6 +29,7 @@ use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use super::read_batch::*;
 use super::search::glob_files;
 
 const READ_SPEC: &str = include_str!("specs/read.json");
@@ -37,7 +38,16 @@ const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 const IMAGE_MAX_BYTES: usize = 3_750_000;
 /// The hard API ceiling on an inline image's base64 length (`API_IMAGE_MAX_BASE64_SIZE`).
 const IMAGE_MAX_BASE64: usize = 5 * 1024 * 1024;
-const DEFAULT_LINES: u64 = 500;
+const GUARD_DEFAULT_LIMIT: u64 = 500;
+const MAX_WINDOW: i64 = 100_000;
+const PUBLIC_BATCH_LIMIT: usize = 10;
+/// A file over this many bytes is streamed, not buffered (`READ_STREAM_RANGE_MIN_BYTES`).
+const READ_STREAM_RANGE_MIN_BYTES: u64 = 128 * 1024;
+/// One line is collected up to this many bytes (`READ_MAX_LINE_COLLECT_BYTES`).
+const READ_MAX_LINE_COLLECT_BYTES: usize = OUTPUT_MAX_BYTES;
+const READ_MAX_OUTPUT_BYTES: usize = OUTPUT_MAX_BYTES;
+/// A glob survey shares this many output bytes.
+const SURVEY_BUDGET: usize = 10 * 1024;
 const GLOB_SURVEY_LINES: u64 = 25;
 const GLOB_SURVEY_FILES: usize = 10;
 const MAX_RENDERED_LINE_CHARS: usize = 2_000;
@@ -67,17 +77,18 @@ impl ReadTool {
     }
 }
 
+/// One requested window; `offset` is 0-based.
 struct Entry {
     path: String,
-    offset: Option<u64>,
-    limit: Option<u64>,
+    offset: u64,
+    limit: u64,
 }
 
 /// One entry's result: text, or text plus media parts.
 #[derive(Default)]
 struct Body {
     parts: Vec<ToolPart>,
-    /// An image read's result (Node's structured { content }), which a batch keeps as blocks.
+    /// An image read's result (Node's structured `{ content }`), which a batch keeps as blocks.
     rich: bool,
 }
 
@@ -95,40 +106,110 @@ impl Body {
         }
     }
     fn failed(&self) -> bool {
-        self.first_text().starts_with("Error:")
-    }
-    fn absent(&self) -> bool {
-        self.first_text().trim_start().starts_with("[path absent]")
+        is_error_text(self.first_text())
     }
 }
 
-fn parse_entries(args: &JsonValue) -> Result<Vec<Entry>, ToolError> {
-    let top_offset = arg_u64(args, "offset");
-    let top_limit = arg_u64(args, "limit");
-    let raw = args
-        .get("file_path")
-        .ok_or_else(|| invalid("file_path", "required", "Error: read requires file_path"))?;
-    let mk = |path: &str, offset: Option<u64>, limit: Option<u64>| Entry {
-        path: path.to_owned(),
-        offset: offset.or(top_offset),
-        limit: limit.or(top_limit),
+/// How a window is read: alone, or as one child of a batch under its share of the output budget.
+#[derive(Clone, Copy)]
+enum Mode {
+    Single,
+    Child { max_output: usize },
+}
+
+/// The public arguments, normalized the way `normalizePublicReadTargets` does: every window is
+/// explicit, with a 0-based offset.
+struct Public {
+    single: bool,
+    entries: Vec<Entry>,
+    /// Distinct files past the per-call cap, named to the caller.
+    skipped: Vec<String>,
+    pages: Option<String>,
+}
+
+const WINDOW_RANGE_TEXT: &str = "offset must be an integer >= 1 and limit an integer from 1 to 100000";
+
+/// A JSON number that is an integer (JS `Number.isInteger`).
+fn as_int(v: &JsonValue) -> Option<i64> {
+    v.as_i64().or_else(|| v.as_f64().filter(|f| f.is_finite() && f.fract() == 0.0 && f.abs() < 9.007_199_254_740_992e15).map(|f| f as i64))
+}
+
+/// `windowValue`/`limitValue`: the value, or the fallback when it is absent (or, for a limit, 0).
+/// `None` is a value that is not an integer.
+fn window_value(v: Option<&JsonValue>, fallback: i64, zero_is_unset: bool) -> Option<i64> {
+    match v {
+        None => Some(fallback),
+        Some(v) => as_int(v).map(|n| if zero_is_unset && n == 0 { fallback } else { n }),
+    }
+}
+
+fn valid_window(offset: Option<i64>, limit: Option<i64>) -> Option<(u64, u64)> {
+    match (offset, limit) {
+        (Some(o), Some(l)) if o >= 1 && (1..=MAX_WINDOW).contains(&l) => Some(((o - 1) as u64, l as u64)),
+        _ => None,
+    }
+}
+
+fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
+    let bad = |field: &str, reason: &str, text: String| invalid(field, reason, format!("Error: {text}"));
+    let Some(raw) = args.get("file_path") else {
+        return Err(invalid("file_path", "required", "Error: read requires \"path\" (or alias file_path)."));
     };
-    Ok(match raw {
-        JsonValue::String(s) => vec![mk(s, None, None)],
-        JsonValue::Array(items) => items
-            .iter()
-            .filter_map(|v| match v {
-                JsonValue::String(s) => Some(mk(s, None, None)),
-                JsonValue::Object(o) => Some(mk(
-                    o.get("file_path")?.as_str()?,
-                    o.get("offset").and_then(JsonValue::as_u64),
-                    o.get("limit").and_then(JsonValue::as_u64),
-                )),
-                _ => None,
-            })
-            .collect(),
-        _ => return Err(invalid("file_path", "type", "Error: read requires file_path")),
-    })
+    let (targets, batch): (Vec<&JsonValue>, bool) = match raw {
+        JsonValue::Array(items) => (items.iter().collect(), true),
+        JsonValue::String(_) => (vec![raw], false),
+        _ => return Err(bad("file_path", "type", "read arg \"file_path\" must be a path string or an array of targets".to_owned())),
+    };
+    if targets.is_empty() {
+        return Err(bad("file_path", "empty", "read arg \"file_path\" must contain at least 1 target".to_owned()));
+    }
+    let range = || bad("offset", "range", format!("read {WINDOW_RANGE_TEXT}"));
+    let default_offset = window_value(args.get("offset"), 1, false);
+    let default_limit = window_value(args.get("limit"), GUARD_DEFAULT_LIMIT as i64, true);
+    if valid_window(default_offset, default_limit).is_none() {
+        return Err(range());
+    }
+    let mut entries = Vec::new();
+    for (index, target) in targets.iter().enumerate() {
+        let shape = || bad("file_path", "target", format!("read target {} must be a path string or {{file_path, offset?, limit?}}", index + 1));
+        let (path, offset, limit) = match target {
+            JsonValue::String(s) => (s.as_str(), None, None),
+            JsonValue::Object(o) => {
+                if o.keys().any(|k| !matches!(k.as_str(), "file_path" | "offset" | "limit")) {
+                    return Err(shape());
+                }
+                match o.get("file_path").and_then(JsonValue::as_str) {
+                    Some(p) => (p, o.get("offset"), o.get("limit")),
+                    None => return Err(shape()),
+                }
+            }
+            _ => return Err(shape()),
+        };
+        if path.trim().is_empty() {
+            return Err(shape());
+        }
+        let offset = window_value(offset, default_offset.expect("validated"), false);
+        let limit = window_value(limit, default_limit.expect("validated"), true);
+        let Some((offset, limit)) = valid_window(offset, limit) else {
+            return Err(bad("offset", "range", format!("read target {} {WINDOW_RANGE_TEXT}", index + 1)));
+        };
+        entries.push(Entry { path: path.to_owned(), offset, limit });
+    }
+    // The cap counts distinct files, not windows; files past it are named to the caller.
+    let mut kept: Vec<String> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    for e in &entries {
+        if kept.contains(&e.path) {
+            continue;
+        }
+        if kept.len() < PUBLIC_BATCH_LIMIT {
+            kept.push(e.path.clone());
+        } else if !skipped.contains(&e.path) {
+            skipped.push(e.path.clone());
+        }
+    }
+    entries.retain(|e| kept.contains(&e.path));
+    Ok(Public { single: !batch, entries, skipped, pages: arg_str(args, "pages").map(str::to_owned) })
 }
 
 #[async_trait]
@@ -138,112 +219,222 @@ impl Tool for ReadTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let pages = arg_str(&args, "pages").map(str::to_owned);
-        let mut entries = parse_entries(&args)?;
-        let single = matches!(args.get("file_path"), Some(JsonValue::String(_)));
-        if single && has_glob_magic(&entries[0].path) {
-            let survey = self.glob_survey(ctx, &entries[0]).await?;
-            entries = survey;
-            return self.batch(ctx, entries, pages.as_deref(), true).await;
+        let mut public = parse_public(&args)?;
+        for e in &mut public.entries {
+            e.path = strip_line_coordinate(ctx, &e.path).await?;
         }
-        if single {
-            let e = &entries[0];
-            let body = self.read_one(ctx, e, pages.as_deref(), DEFAULT_LINES).await?;
-            return Ok(ToolOutput {
-                parts: body.parts,
-                ..ToolOutput::default()
-            });
+        if public.single {
+            let e = &public.entries[0];
+            if has_glob_magic(&e.path) && !exists(ctx, &e.path).await {
+                if let Some((results, capped)) = self.survey(ctx, e, SURVEY_BUDGET).await? {
+                    return Ok(ToolOutput { parts: survey_parts(&results, capped), ..ToolOutput::default() });
+                }
+            }
+            let body = self.read_one(ctx, e, public.pages.as_deref(), Mode::Single).await?;
+            // An image read's empty, corrupt and over-cap answers are Node's `isError` results; in a
+            // batch the same body marks only its own entry (`[error]`).
+            if body.rich && body.failed() {
+                let reason = body.first_text().to_owned();
+                return Err(fail(ToolErrorCode::Failed { reason: reason.clone() }, reason));
+            }
+            return Ok(ToolOutput { parts: body.parts, ..ToolOutput::default() });
         }
-        self.batch(ctx, entries, pages.as_deref(), false).await
+        let results = self.pipeline(ctx, public.entries, true, READ_MAX_OUTPUT_BYTES).await?;
+        if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
+            return Ok(ToolOutput { parts: render_rich(&results), ..ToolOutput::default() });
+        }
+        let mut text = render_text(&results);
+        if !public.skipped.is_empty() {
+            text.push_str(&format!(
+                "\n[skipped {} more file(s) over the per-call limit: {} — read them in another call]",
+                public.skipped.len(),
+                public.skipped.join(", ")
+            ));
+        }
+        Ok(ToolOutput { parts: vec![ToolPart::Text(rows_for_model(&text))], ..ToolOutput::default() })
     }
 }
 
+const GLOB_CAP_NOTE: &str = "[glob expansion capped at 10 files (newest first); narrow the pattern for the rest]";
+
+/// The aggregate of a glob survey: the batch, then the cap note when more files matched.
+fn survey_parts(results: &[Resolved], capped: bool) -> Vec<ToolPart> {
+    if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
+        let mut parts = render_rich(results);
+        if capped {
+            parts.push(ToolPart::Text(GLOB_CAP_NOTE.to_owned()));
+        }
+        return parts;
+    }
+    let mut text = render_text(results);
+    if capped {
+        text.push_str(&format!("\n{GLOB_CAP_NOTE}"));
+    }
+    vec![ToolPart::Text(rows_for_model(&text))]
+}
+
+async fn exists(ctx: &ToolContext, raw: &str) -> bool {
+    let Ok(abs) = resolve_path(&ctx.cwd, raw) else { return false };
+    ctx.files.stat(ctx.io.interactive, abs).await.is_ok()
+}
+
+/// `normaliseReadLineWindowArgs`' path half: `file.rs:12` / `file.rs#L12-20` names `file.rs` when
+/// only that exists. The window itself is already explicit.
+async fn strip_line_coordinate(ctx: &ToolContext, raw: &str) -> Result<String, ToolError> {
+    static HASH: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static COLON: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let hash = HASH.get_or_init(|| regex::Regex::new(r"(?i)^(.+?)#L(\d+)(?:-L?(\d+))?(?:\b.*)?$").expect("a fixed pattern"));
+    let colon = COLON.get_or_init(|| regex::Regex::new(r"^(.+):(\d+)(?:-(\d+))?(?::.*)?$").expect("a fixed pattern"));
+    let text = raw.trim();
+    let Some(m) = hash.captures(text).or_else(|| colon.captures(text)) else { return Ok(raw.to_owned()) };
+    let positive = |s: &str| s.parse::<u64>().ok().filter(|n| *n > 0);
+    let Some(line_no) = positive(&m[2]) else { return Ok(raw.to_owned()) };
+    if m[1].is_empty() || exists(ctx, raw).await || !exists(ctx, &m[1]).await {
+        return Ok(raw.to_owned());
+    }
+    if let Some(end) = m.get(3).and_then(|e| positive(e.as_str())).filter(|end| *end < line_no) {
+        let text = format!(
+            "Error: inverted range in path \"{raw}\" — end ({end}) precedes start ({line_no}); use file:{end}-{line_no} or remove the range"
+        );
+        return Err(invalid("file_path", "range", text));
+    }
+    Ok(m[1].to_owned())
+}
+
+type Pipeline<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<Resolved>, ToolError>> + Send + 'a>>;
+
 impl ReadTool {
-    async fn glob_survey(&self, ctx: &ToolContext, e: &Entry) -> Result<Vec<Entry>, ToolError> {
+    /// `readGlobSurvey`: a magic path that names nothing becomes the batch of its newest matches.
+    /// `None` when it matches nothing, so the raw pattern gets the single-read answer.
+    async fn survey(&self, ctx: &ToolContext, e: &Entry, cap: usize) -> Result<Option<(Vec<Resolved>, bool)>, ToolError> {
         let (root, pattern) = split_glob(&e.path);
         let root = resolve_path(&ctx.cwd, &root)?;
         let (mut files, _) = glob_files(ctx, &root, &[pattern], false).await?;
+        if files.is_empty() {
+            return Ok(None);
+        }
         files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let capped = files.len() > GLOB_SURVEY_FILES;
         files.truncate(GLOB_SURVEY_FILES);
-        Ok(files
+        let entries = files
             .into_iter()
-            .map(|(p, _)| Entry {
-                path: fwd(p.as_path()),
-                offset: e.offset,
-                limit: e.limit.or(Some(GLOB_SURVEY_LINES)),
-            })
-            .collect())
+            .map(|(p, _)| Entry { path: fwd(p.as_path()), offset: e.offset, limit: e.limit.min(GLOB_SURVEY_LINES) })
+            .collect();
+        Ok(Some((self.pipeline(ctx, entries, false, cap).await?, capped)))
     }
 
-    async fn batch(
-        &self,
-        ctx: &ToolContext,
-        entries: Vec<Entry>,
-        pages: Option<&str>,
-        survey: bool,
-    ) -> ToolOutcome {
-        let mut results: Vec<(String, Body)> = Vec::new();
-        for e in &entries {
-            let default = if survey { GLOB_SURVEY_LINES } else { DEFAULT_LINES };
-            let body = self.read_one(ctx, e, pages, default).await?;
-            let shown = match resolve_path(&ctx.cwd, &e.path) {
-                Ok(p) => display_path(p.as_path(), &ctx.cwd),
-                Err(_) => e.path.clone(),
+    /// The batch machinery (`executeBatchRead`): shape the entries, split the output budget over
+    /// the distinct disk reads, read each, and cut every caller's window back out of its read.
+    /// `object` entries come from the public form and are merged and coalesced; the survey's
+    /// are read as they stand.
+    fn pipeline<'a>(&'a self, ctx: &'a ToolContext, entries: Vec<Entry>, object: bool, cap: usize) -> Pipeline<'a> {
+        Box::pin(async move {
+            let key = |p: &str| match resolve_path(&ctx.cwd, p) {
+                Ok(abs) => fwd(abs.as_path()),
+                Err(_) => p.to_owned(),
             };
-            results.push((shown, body));
-        }
-        let failed = results.iter().filter(|(_, b)| b.failed()).count();
-        let header = if failed > 0 {
-            format!("read {} ({failed} failed)", results.len())
-        } else {
-            format!("read {}", results.len())
-        };
-        if results.iter().any(|(_, b)| b.rich) {
-            return Ok(ToolOutput { parts: rich_batch(&header, &results), ..ToolOutput::default() });
-        }
-        let mut parts = Vec::new();
-        let mut seen: Vec<(usize, String, String)> = Vec::new();
-        let mut text = header;
-        for (i, (path, body)) in results.iter().enumerate() {
-            let status = if body.failed() {
-                "error"
-            } else if body.absent() {
-                "absent"
+            let shown = |p: &str| match resolve_path(&ctx.cwd, p) {
+                Ok(abs) => display_path(abs.as_path(), &ctx.cwd),
+                Err(_) => p.to_owned(),
+            };
+            let wentries: Vec<WEntry> = entries.into_iter().map(|e| WEntry { path: e.path, offset: e.offset, limit: e.limit }).collect();
+            let (slots, firsts, map) = if object {
+                let slots = coalesce(merge_overlapping(wentries, &key), &key);
+                let (firsts, map) = dedupe(&slots);
+                (slots, firsts, map)
             } else {
-                "ok"
+                let slots: Vec<Slot> = wentries.into_iter().map(|entry| Slot { entry, union: None, slice: None }).collect();
+                let mut seen: Vec<String> = Vec::new();
+                let (mut firsts, mut map) = (Vec::new(), Vec::new());
+                for (i, s) in slots.iter().enumerate() {
+                    let k = format!("{}|{}|{}", key(&s.entry.path), s.entry.offset, s.entry.limit);
+                    let at = seen.iter().position(|x| *x == k).unwrap_or_else(|| {
+                        seen.push(k);
+                        firsts.push(i);
+                        firsts.len() - 1
+                    });
+                    map.push(at);
+                }
+                (slots, firsts, map)
             };
-            let first = body.first_text().to_owned();
-            text.push_str("\n\n");
-            if let Some((idx, _, _)) = seen.iter().find(|(_, p, b)| p == path && *b == first) {
-                text.push_str(&format!(
-                    "{path} [{status}] [= entry #{}, identical result omitted]",
-                    idx + 1
-                ));
-                continue;
+            // The budget is split over all the disk reads first; they then run in path, then
+            // window, order.
+            let header_paths: Vec<&str> = if object {
+                firsts.iter().map(|i| slots[*i].entry.path.as_str()).collect()
+            } else {
+                slots.iter().map(|s| s.entry.path.as_str()).collect()
+            };
+            let mut needs = Vec::with_capacity(firsts.len());
+            for i in &firsts {
+                let slot = &slots[*i];
+                let size = match resolve_path(&ctx.cwd, &slot.entry.path) {
+                    Ok(abs) => match ctx.files.stat(ctx.io.interactive, abs).await {
+                        Ok(st) if matches!(st.kind, EntryKind::File) => Some(st.len),
+                        _ => None,
+                    },
+                    Err(_) => None,
+                };
+                needs.push(estimate_bytes(size, slot.disk().1));
             }
-            seen.push((i, path.clone(), first.clone()));
-            text.push_str(&format!("{path} [{status}]\n{first}"));
-            if body.parts.len() > 1 {
-                parts.push(ToolPart::Text(std::mem::take(&mut text)));
-                parts.extend(body.parts.iter().skip(1).cloned());
+            let allocated = allocate_budgets(&needs, body_budget(&header_paths, cap));
+            let mut order: Vec<usize> = (0..firsts.len()).collect();
+            order.sort_by(|a, b| {
+                let (x, y) = (&slots[firsts[*a]].entry, &slots[firsts[*b]].entry);
+                x.path.cmp(&y.path).then(x.offset.cmp(&y.offset)).then(a.cmp(b))
+            });
+            let mut bodies: Vec<Option<CBody>> = vec![None; firsts.len()];
+            for at in order {
+                let slot = &slots[firsts[at]];
+                let (offset, limit) = slot.disk();
+                let budget = allocated[at].max(256.0) as usize;
+                let child = Entry { path: slot.entry.path.clone(), offset, limit };
+                bodies[at] = Some(self.child(ctx, &child, READ_MAX_OUTPUT_BYTES.min(budget)).await?);
             }
-        }
-        if !text.is_empty() {
-            parts.push(ToolPart::Text(text));
-        }
-        Ok(ToolOutput {
-            parts,
-            ..ToolOutput::default()
+            Ok(slots
+                .iter()
+                .enumerate()
+                .map(|(i, slot)| {
+                    let producer = map[i];
+                    let body = bodies[producer].clone().expect("every read ran");
+                    let body = match (&body, slot.slice) {
+                        (CBody::Str(s), Some((offset, limit))) => CBody::Str(slice_read_body(s, offset, limit, 1)),
+                        _ => body,
+                    };
+                    let path = if object { shown(&slots[firsts[producer]].entry.path) } else { shown(&slot.entry.path) };
+                    Resolved { path, body, producer }
+                })
+                .collect())
         })
     }
 
-    async fn read_one(
-        &self,
-        ctx: &ToolContext,
-        e: &Entry,
-        pages: Option<&str>,
-        default_lines: u64,
-    ) -> Result<Body, ToolError> {
+    /// One batch entry through the child `read`: a failure is pasted into the aggregate as that
+    /// entry's text, never aborting the batch.
+    async fn child(&self, ctx: &ToolContext, e: &Entry, max_output: usize) -> Result<CBody, ToolError> {
+        if has_glob_magic(&e.path) && !exists(ctx, &e.path).await {
+            if let Some((results, capped)) = self.survey(ctx, e, max_output.min(SURVEY_BUDGET)).await? {
+                let mut text = render_text(&results);
+                if capped {
+                    text.push_str(&format!("\n{GLOB_CAP_NOTE}"));
+                }
+                return Ok(CBody::Str(text));
+            }
+        }
+        match self.read_one(ctx, e, None, Mode::Child { max_output }).await {
+            Ok(body) => {
+                let plain = body.parts.len() == 1 && matches!(body.parts[0], ToolPart::Text(_));
+                if body.rich || !plain {
+                    let failed = body.failed();
+                    Ok(CBody::Rich { parts: body.parts, failed })
+                } else {
+                    Ok(CBody::Str(body.first_text().to_owned()))
+                }
+            }
+            Err(err) if matches!(err.code, ToolErrorCode::Cancelled | ToolErrorCode::DeadlineExceeded { .. }) => Err(err),
+            Err(err) => Ok(CBody::Str(err.message_for_model)),
+        }
+    }
+
+    async fn read_one(&self, ctx: &ToolContext, e: &Entry, pages: Option<&str>, mode: Mode) -> Result<Body, ToolError> {
         let raw = e.path.trim();
         if let Some(reason) = path_string_guard(raw) {
             return Ok(Body::text(format!("Error: {reason}: {raw}")));
@@ -307,12 +498,14 @@ impl ReadTool {
         let Ok((text, _)) = decode_text(&bytes) else {
             return Ok(Body::text(binary_preview(&shown, &bytes)));
         };
-        Ok(Body::text(render_window(
-            &text,
-            e.offset.unwrap_or(0),
-            e.limit.unwrap_or(default_lines),
-            &shown,
-        )))
+        // A batch child, and any file over 128 KiB, streams its window (no total in the footer).
+        Ok(Body::text(match mode {
+            Mode::Child { max_output } => stream_window(&text, stat.len, e.offset, e.limit, max_output),
+            Mode::Single if stat.len > READ_STREAM_RANGE_MIN_BYTES => {
+                rows_for_model(&stream_window(&text, stat.len, e.offset, e.limit, READ_MAX_OUTPUT_BYTES))
+            }
+            Mode::Single => rows_for_model(&buffered_window(&text, e.offset, e.limit, &shown, READ_MAX_OUTPUT_BYTES)),
+        }))
     }
 
     async fn extract_document(
@@ -569,33 +762,6 @@ fn path_string_guard(raw: &str) -> Option<&'static str> {
     None
 }
 
-/// `renderRichBatch`: a batch holding an image result stays structured. The header, then per
-/// entry its path [status] line and its blocks as they are; an identical repeat collapses to a
-/// reference.
-fn rich_batch(header: &str, results: &[(String, Body)]) -> Vec<ToolPart> {
-    let mut parts = vec![ToolPart::Text(header.to_owned())];
-    let mut seen: Vec<(usize, &str, &str)> = Vec::new();
-    for (i, (path, body)) in results.iter().enumerate() {
-        let status = if body.failed() {
-            "error"
-        } else if body.absent() {
-            "absent"
-        } else {
-            "ok"
-        };
-        let first = body.first_text();
-        let entry_header = format!("{path} [{status}]");
-        if let Some((idx, _, _)) = seen.iter().find(|(_, p, b)| *p == path && *b == first) {
-            parts.push(ToolPart::Text(format!("{entry_header} [= entry #{}, identical result omitted]", idx + 1)));
-            continue;
-        }
-        seen.push((i, path, first));
-        parts.push(ToolPart::Text(entry_header));
-        parts.extend(body.parts.iter().cloned());
-    }
-    parts
-}
-
 /// The image type of a path by its extension (`imageMimeForPath`).
 fn image_ext(raw: &str) -> Option<&'static str> {
     match Path::new(raw).extension()?.to_string_lossy().to_lowercase().as_str() {
@@ -680,49 +846,104 @@ fn clip_line(line: &str) -> String {
     format!("{head} ... [line truncated: {} chars total] ... {tail}", chars.len())
 }
 
-/// Renders lines `[offset, offset+limit)` (0-based offset) with run marker and footer.
-fn render_window(text: &str, offset: u64, limit: u64, shown: &str) -> String {
+/// `renderReadLine`: the row number, then the line clipped as the read display clips it.
+fn render_read_line(number: u64, line: &str) -> String {
+    format!("{number}→{}", clip_line(line))
+}
+
+/// The buffered read of a window (`renderReadWindow`): numbered rows with the total in the footer,
+/// cut by bytes (mid-row, as Node cuts) when they pass the output cap.
+fn buffered_window(text: &str, offset: u64, limit: u64, shown: &str, max: usize) -> String {
     if text.is_empty() {
-        return format!("<system-reminder>File exists but has empty contents: {}</system-reminder>",
-            shown.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"));
+        return format!(
+            "<system-reminder>File exists but has empty contents: {}</system-reminder>",
+            shown.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+        );
     }
     let mut lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
+    if let Some(first) = lines.first_mut() {
+        *first = first.strip_prefix('\u{feff}').unwrap_or(first);
+    }
     if lines.last() == Some(&"") {
         lines.pop();
     }
     let total = lines.len() as u64;
-    if offset >= total {
+    let end = (offset + limit).min(total);
+    let sliced: &[&str] = if offset < end { &lines[offset as usize..end as usize] } else { &[] };
+    if sliced.is_empty() && offset >= total {
         return format!("(no lines in range; file has {total} lines)");
     }
-    let end = (offset + limit).min(total);
-    let mut rows = Vec::new();
-    let mut bytes = 0usize;
-    let mut capped = false;
-    for line in &lines[offset as usize..end as usize] {
-        let row = clip_line(line);
+    let rendered = sliced
+        .iter()
+        .enumerate()
+        .map(|(i, l)| render_read_line(offset + i as u64 + 1, l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (out, footer) = if rendered.len() > max {
+        let slice = byte_prefix(&rendered, max).to_owned();
+        let shown_lines = slice.matches('\n').count() as u64;
+        let emitted_end = offset + shown_lines;
+        let next = (emitted_end < total).then_some(emitted_end + 1);
+        (slice, window_marker("lines", offset + 1, emitted_end, Some(total), next, Some(max)))
+    } else {
+        let emitted_end = offset + sliced.len() as u64;
+        let next = (emitted_end < total).then_some(emitted_end + 1);
+        (rendered, window_marker("lines", offset + 1, emitted_end, Some(total), next, None))
+    };
+    format!("{out}{}{footer}", if out.is_empty() { "" } else { "\n" })
+}
+
+/// The streamed read of a window (`createReadLineCollector`): rows until the limit or until the
+/// body budget, with a footer that knows no total.
+fn stream_window(text: &str, file_size: u64, offset: u64, limit: u64, max_output: usize) -> String {
+    let body_bytes = (max_output - (max_output / 3).min(384)).max(1);
+    let mut lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
+    if let Some(first) = lines.first_mut() {
+        *first = first.strip_prefix('\u{feff}').unwrap_or(first);
+    }
+    if lines.last() == Some(&"") {
+        lines.pop();
+    }
+    let total = lines.len() as u64;
+    let mut collected: Vec<String> = Vec::new();
+    let (mut bytes, mut last_emitted) = (0_usize, 0_u64);
+    let (mut truncated, mut stopped_at_limit) = (false, false);
+    for (idx, line) in lines.iter().enumerate().skip(offset as usize) {
+        // A line is collected up to 50 KiB; the display clips it further.
+        let line = if line.len() > READ_MAX_LINE_COLLECT_BYTES {
+            String::from_utf8_lossy(&line.as_bytes()[..READ_MAX_LINE_COLLECT_BYTES]).into_owned()
+        } else {
+            (*line).to_owned()
+        };
+        let row = render_read_line(idx as u64 + 1, &line);
         bytes += row.len() + 1;
-        if bytes > OUTPUT_MAX_BYTES {
-            capped = true;
+        if bytes > body_bytes {
+            truncated = true;
             break;
         }
-        rows.push(row);
+        collected.push(row);
+        last_emitted = idx as u64 + 1;
+        if collected.len() as u64 >= limit {
+            stopped_at_limit = true;
+            break;
+        }
     }
-    if rows.is_empty() {
-        // A single line over the cap: keep its prefix so the window is never empty.
-        rows.push(byte_prefix(&clip_line(lines[offset as usize]), OUTPUT_MAX_BYTES).to_owned());
-        capped = true;
+    let mut out = collected.join("\n");
+    if truncated {
+        let next = if last_emitted == 0 { offset } else { last_emitted } + 1;
+        let of_file = if file_size > 0 { format!("{} KB file", (file_size as f64 / 1024.0).round().max(1.0) as u64) } else { String::new() };
+        out.push_str(&format!("\n\n{}", cap_marker(&format_cap_size(max_output), &of_file, Some(next), "")));
+    } else if stopped_at_limit {
+        let shown = collected.len() as u64;
+        out.push_str(&format!(
+            "{}{}",
+            if out.is_empty() { "" } else { "\n" },
+            window_marker("lines", offset + 1, offset + shown, None, Some(offset + shown + 1), None)
+        ));
+    } else if out.is_empty() && offset >= total {
+        out = format!("(no lines in range; file has {total} lines)");
     }
-    let emitted_end = offset + rows.len() as u64;
-    let next = (emitted_end < total).then_some(emitted_end);
-    let footer = window_marker(
-        "lines",
-        offset + 1,
-        emitted_end,
-        Some(total),
-        next,
-        capped.then_some(OUTPUT_MAX_BYTES),
-    );
-    format!("[lines {}-{}]\n{}\n{footer}", offset + 1, emitted_end, rows.join("\n"))
+    out
 }
 
 /// Splits a glob path into its literal directory prefix and the pattern.

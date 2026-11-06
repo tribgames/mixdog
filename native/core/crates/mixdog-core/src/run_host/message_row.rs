@@ -167,13 +167,28 @@ fn part_of(part: &Value) -> Result<ContentPart, String> {
     }
 }
 
+fn is_envelope(envelope: &Map<String, Value>) -> bool {
+    envelope.get("content").is_some_and(|c| c.is_array() || c.is_string())
+}
+
+/// `content` written into a tool result's envelope, in the shape the envelope already has: a
+/// text body stays a string in a string envelope and is a one-part list in a list envelope (what
+/// Node's compaction rewrites write).
+fn envelope_body(content: &Content, was: &Value) -> Value {
+    match (content, was) {
+        (Content::Text(_), Value::String(_)) => content_row(content),
+        (Content::Text(text), _) => json!([{ "type": "text", "text": text }]),
+        (Content::Parts(_), _) => content_row(content),
+    }
+}
+
 fn content_of(content: Option<&Value>) -> Result<Content, String> {
     match content {
         Some(Value::String(text)) => Ok(Content::Text(text.clone())),
         None | Some(Value::Null) => Ok(Content::Text(String::new())),
         Some(Value::Array(parts)) => Ok(Content::Parts(parts.iter().map(part_of).collect::<Result<_, _>>()?)),
-        // A tool result's envelope: `{content: [parts]}`.
-        Some(Value::Object(envelope)) if envelope.get("content").is_some_and(Value::is_array) => content_of(envelope.get("content")),
+        // A tool result's envelope: `{content: [parts]}`, or `{content: "text"}`.
+        Some(Value::Object(envelope)) if is_envelope(envelope) => content_of(envelope.get("content")),
         Some(other) => Err(format!("content of shape {other}")),
     }
 }
@@ -241,10 +256,11 @@ fn mode_name(mode: EffortMode) -> &'static str {
     match mode {
         EffortMode::Responses => "responses",
         EffortMode::Anthropic => "anthropic",
+        EffortMode::Custom => "custom",
     }
 }
 
-fn effort_value(e: &EffortSnapshot) -> Value {
+pub(crate) fn effort_value(e: &EffortSnapshot) -> Value {
     json!({ "version": 1, "provider": e.provider, "model": e.model, "mode": mode_name(e.mode), "initialEffort": e.initial_effort, "effort": e.effort })
 }
 
@@ -344,20 +360,39 @@ fn set_or_remove(row: &mut Row, key: &str, value: Option<Value>) {
 }
 
 /// `meta` with the message's facts written over `base`.
-fn meta_row(m: &AgentMessage, base: Option<&Value>) -> Option<Value> {
+///
+/// With `was` (the message the base row decodes to) only the fields that differ from it are
+/// written, so every other key of the base stays as stored (an empty `submissionIds` among them).
+fn meta_row(m: &AgentMessage, base: Option<&Value>, was: Option<&AgentMessage>) -> Option<Value> {
     let mut meta = match base {
         Some(Value::Object(o)) => o.clone(),
         _ => Map::new(),
     };
-    set_or_remove(&mut meta, "source", m.source.map(|s| json!(source_name(s))));
-    set_or_remove(&mut meta, "attempt", m.attempt.map(|n| json!(n)));
-    set_or_remove(&mut meta, "submissionIds", (!m.submission_ids.is_empty()).then(|| json!(m.submission_ids)));
-    if let Some(id) = &m.message_id {
-        let mut transcript = meta.get("transcript").and_then(Value::as_object).cloned().unwrap_or_default();
-        transcript.insert("messageId".into(), json!(id));
-        meta.insert("transcript".into(), Value::Object(transcript));
+    let changed = |same: &dyn Fn(&AgentMessage) -> bool| was.is_none_or(|w| !same(w));
+    if changed(&|w| w.source == m.source) {
+        set_or_remove(&mut meta, "source", m.source.map(|s| json!(source_name(s))));
     }
-    set_or_remove(&mut meta, "effortConfiguration", m.effort.as_ref().map(effort_value));
+    if changed(&|w| w.attempt == m.attempt) {
+        set_or_remove(&mut meta, "attempt", m.attempt.map(|n| json!(n)));
+    }
+    if changed(&|w| w.submission_ids == m.submission_ids) {
+        set_or_remove(&mut meta, "submissionIds", (!m.submission_ids.is_empty()).then(|| json!(m.submission_ids)));
+    }
+    if changed(&|w| w.message_id == m.message_id) {
+        let mut transcript = meta.get("transcript").and_then(Value::as_object).cloned().unwrap_or_default();
+        match &m.message_id {
+            Some(id) => {
+                transcript.insert("messageId".into(), json!(id));
+            }
+            None => {
+                transcript.shift_remove("messageId");
+            }
+        }
+        set_or_remove(&mut meta, "transcript", (!transcript.is_empty()).then(|| Value::Object(transcript)));
+    }
+    if changed(&|w| w.effort == m.effort) {
+        set_or_remove(&mut meta, "effortConfiguration", m.effort.as_ref().map(effort_value));
+    }
     // A bare `hook` / `skill` source with nothing else is the string form.
     if base.is_none_or(Value::is_string) && meta.len() == 1 && matches!(m.source, Some(Source::Hook | Source::Skill)) {
         return Some(json!(source_name(m.source.unwrap_or(Source::Hook))));
@@ -401,7 +436,7 @@ fn fresh_row(m: &AgentMessage) -> Row {
     set_or_remove(&mut row, "stopReason", m.stop_reason.as_ref().map(|s| json!(stop_name(s))));
     set_or_remove(&mut row, "toolKind", m.tool_kind.map(|k| json!(kind_name(k))));
     set_or_remove(&mut row, "uiDiff", m.ui_diff.as_ref().map(|v| json!(v)));
-    set_or_remove(&mut row, "meta", meta_row(m, None));
+    set_or_remove(&mut row, "meta", meta_row(m, None, None));
     row
 }
 
@@ -419,8 +454,9 @@ pub fn row_of(message: &AgentMessage) -> Value {
     if m.content != w.content {
         let body = content_row(&m.content);
         match row.get_mut("content") {
-            Some(Value::Object(envelope)) if envelope.get("content").is_some_and(Value::is_array) => {
-                envelope.insert("content".into(), body);
+            Some(Value::Object(envelope)) if is_envelope(envelope) => {
+                let was = envelope.get("content").cloned().unwrap_or(Value::Null);
+                envelope.insert("content".into(), envelope_body(&m.content, &was));
             }
             _ => {
                 row.insert("content".into(), body);
@@ -467,7 +503,7 @@ pub fn row_of(message: &AgentMessage) -> Value {
         set_or_remove(&mut row, "uiDiff", message.ui_diff.as_ref().map(|v| json!(v)));
     }
     if (message.source, message.attempt, &message.submission_ids, &message.message_id, &message.effort) != (was.source, was.attempt, &was.submission_ids, &was.message_id, &was.effort) {
-        set_or_remove(&mut row, "meta", meta_row(message, base.get("meta")));
+        set_or_remove(&mut row, "meta", meta_row(message, base.get("meta"), Some(&was)));
     }
     Value::Object(row)
 }
@@ -590,7 +626,8 @@ mod tests {
                 let mut want = row.as_object().unwrap().clone();
                 match want.get_mut("content") {
                     Some(Value::Object(envelope)) => {
-                        envelope.insert("content".into(), json!("edited"));
+                        let text = envelope.get("content").is_some_and(Value::is_string);
+                        envelope.insert("content".into(), if text { json!("edited") } else { json!([{ "type": "text", "text": "edited" }]) });
                     }
                     _ => {
                         want.insert("content".into(), json!("edited"));
@@ -679,4 +716,38 @@ mod tests {
         }
         assert!(messages > 0);
     }
-}
+
+    #[test]
+    fn an_edited_tool_envelope_keeps_a_shape_the_reader_takes() {
+        for (stored, want) in [
+            (json!({ "content": [{ "type": "text", "text": "old" }] }), json!({ "content": [{ "type": "text", "text": "new" }] })),
+            (json!({ "content": "old" }), json!({ "content": "new" })),
+        ] {
+            let row = json!({ "role": "tool", "toolCallId": "c1", "content": stored });
+            let mut message = message_of(&row).unwrap();
+            message.message.content = Content::Text("new".into());
+            let back = row_of(&message);
+            assert_eq!(back["content"], want);
+            // A list envelope reads back as its one text part; a string envelope as text.
+            let read = message_of(&back).unwrap().message.content;
+            assert_eq!(read, if want["content"].is_array() { Content::Parts(vec![ContentPart::Text("new".into(), None)]) } else { Content::Text("new".into()) });
+        }
+    }
+
+    #[test]
+    fn changing_one_meta_field_keeps_the_rest_as_stored() {
+        let row = json!({ "role": "user", "content": "hi", "meta": { "attempt": 1, "submissionIds": [] } });
+        let mut message = message_of(&row).unwrap();
+        message.attempt = Some(2);
+        assert_eq!(row_of(&message)["meta"], json!({ "attempt": 2, "submissionIds": [] }));
+    }
+
+    #[test]
+    fn clearing_the_message_id_removes_it_from_the_row() {
+        let row = json!({ "role": "user", "content": "hi", "meta": { "transcript": { "messageId": "m1", "appliedSkills": ["a"] } } });
+        let mut message = message_of(&row).unwrap();
+        message.message_id = None;
+        let back = row_of(&message);
+        assert_eq!(back["meta"], json!({ "transcript": { "appliedSkills": ["a"] } }));
+        assert_eq!(message_of(&back).unwrap().message_id, None);
+    }}

@@ -101,6 +101,8 @@ pub enum ComposeError {
     Catalog(CatalogError),
     #[error("writing the skill launchers: {0}")]
     Launcher(std::io::Error),
+    #[error("resolving the default shell: {0}")]
+    Shell(std::io::Error),
     #[error("preparing the effort judge model: {0}")]
     EffortJudge(mixdog_services::model_install::InstallError),
     #[error("starting the extension host: {0}")]
@@ -450,7 +452,9 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
     // The listing sources are built from the full provider config; the config domain supplies it
     // when it lands, until then only the models.dev metadata is refreshed.
     let catalog = build_catalog(tokens, data_dir, Vec::new()).await.map_err(ComposeError::Catalog)?;
-    let (exec, exec_events) = build_exec(tokens, data_dir, skill_launcher_dir, skill_runtime, ext_host.clone());
+    let shell_path =
+        crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.map_err(ComposeError::Shell)?;
+    let (exec, exec_events) = build_exec(tokens, data_dir, skill_launcher_dir, shell_path, skill_runtime, ext_host.clone());
     let id = FeedId::from("app");
     let epoch = FeedEpoch::from(new_instance_id());
     let app_feed = Arc::new(CoreFeed::new(

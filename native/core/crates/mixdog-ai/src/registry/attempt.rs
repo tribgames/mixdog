@@ -5,7 +5,7 @@
 
 use mixdog_core_api::domain::provider::StreamEvent;
 
-use super::accounting::SendAccounting;
+use super::accounting::{Outcome, Recorded, SendAccounting};
 use crate::broker::AttemptSink;
 
 /// What the consumer of a send hears.
@@ -38,6 +38,21 @@ impl<F: FnMut(Attempted) + Send> RecordingSink<F> {
     /// The send's accounting, for `finish` once the broker returns.
     pub fn accounting(&mut self) -> Option<&mut SendAccounting> {
         self.accounting.as_mut()
+    }
+
+    /// Closes the send's accounting and puts the duration it measured on the held terminal
+    /// `StreamEvent::Completed.request_ms` (Node's `usageDurationMs`), so the report built from
+    /// `events()`/`into_events()` carries it. A send that recorded no duration (failed, cancelled,
+    /// no ledger) leaves the event as the provider sent it. `None` when there is no accounting.
+    pub async fn finish_accounting(&mut self, outcome: Outcome<'_>) -> Option<Recorded> {
+        let recorded = self.accounting.as_mut()?.finish(outcome).await;
+        if let Some(ms) = recorded.request_ms
+            && let Some(StreamEvent::Completed { request_ms, .. }) =
+                self.events.iter_mut().rev().find(|event| matches!(event, StreamEvent::Completed { .. }))
+        {
+            *request_ms = Some(ms);
+        }
+        Some(recorded)
     }
 
     /// The events of the attempt that is current (the last one after a send).

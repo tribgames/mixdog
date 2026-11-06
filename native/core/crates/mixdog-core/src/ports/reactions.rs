@@ -20,19 +20,19 @@ use mixdog_tools::state::react::{ReactResult, ReactSeat, Reactions};
 use serde_json::{Value, json};
 
 use super::threads::port_error;
-use crate::run_host::reactions::LoopReactions;
+use crate::run_host::reactions::ReactionTargets;
 use crate::rooms::ids::{agent_id_of_home_session, room_member_of_session, room_session_id};
 use crate::session::SessionDirectory;
 
 pub struct SessionReactions {
     directory: Arc<SessionDirectory>,
-    /// Where a successful reaction records the message it hit, for the loop to mark
-    /// (`noteReactionTarget`).
-    targets: Arc<LoopReactions>,
+    /// Where a successful reaction records the message it hit (`noteReactionTarget`): the one
+    /// process-wide table every turn's `LoopReactions` takes from.
+    targets: Arc<ReactionTargets>,
 }
 
 impl SessionReactions {
-    pub fn new(directory: Arc<SessionDirectory>, targets: Arc<LoopReactions>) -> Self {
+    pub fn new(directory: Arc<SessionDirectory>, targets: Arc<ReactionTargets>) -> Self {
         Self { directory, targets }
     }
 }
@@ -58,12 +58,12 @@ fn refusal(error: CoreError) -> PortError {
 
 /// `noteReactionTarget`: a set (never a removal) records the message the session's reply says it
 /// landed on.
-fn note_hit(targets: &LoopReactions, call_id: &str, set: bool, room: bool, reply: &Value) {
+fn note_hit(targets: &ReactionTargets, session_id: &str, call_id: &str, set: bool, room: bool, reply: &Value) {
     if !set {
         return;
     }
     if let Some(message_id) = reply.get("messageId").and_then(Value::as_str) {
-        targets.note_target(call_id, message_id, room);
+        targets.note(session_id, call_id, message_id, room);
     }
 }
 
@@ -102,7 +102,7 @@ impl Reactions for SessionReactions {
             .map_err(refusal)?;
         match reply {
             Reply::Value(value) => {
-                note_hit(&self.targets, call.as_str(), emoji.is_some(), room.is_some(), &value);
+                note_hit(&self.targets, thread.as_str(), call.as_str(), emoji.is_some(), room.is_some(), &value);
                 Ok(ReactResult { changed: value.get("changed").and_then(Value::as_bool).unwrap_or(false) })
             }
             Reply::Subscribe(_) => Err(PortError::Failed {
@@ -118,20 +118,37 @@ mod tests {
     use mixdog_agent::env::Reactions as _;
 
     use super::*;
-    use crate::run_host::reactions::NoMessageFacts;
+    use crate::run_host::reactions::{LoopReactions, NoMessageFacts};
 
     #[test]
     fn a_set_notes_the_hit_message_and_a_removal_or_a_reply_without_one_notes_nothing() {
-        let targets = LoopReactions::new(Arc::new(NoMessageFacts), |_| false);
+        let targets = ReactionTargets::new();
         let reply = json!({ "changed": true, "messageId": "m7" });
-        note_hit(&targets, "c1", false, false, &reply);
-        note_hit(&targets, "c2", true, false, &json!({ "changed": true }));
+        note_hit(&targets, "s", "c1", false, false, &reply);
+        note_hit(&targets, "s", "c2", true, false, &json!({ "changed": true }));
         assert_eq!(targets.held(), 0);
-        note_hit(&targets, "c3", true, true, &reply);
-        let hit = targets.take_target("c3").unwrap();
+        note_hit(&targets, "s", "c3", true, true, &reply);
+        let hit = targets.take("s", "c3").unwrap();
         assert_eq!((hit.message_id.as_str(), hit.room), ("m7", true));
     }
 
+    /// The react tool's target reaches the turn that is running: the tool holds the session's
+    /// table from construction, each turn builds its own `LoopReactions` over the same table
+    /// afterwards, and the one that took the call finds the record; a turn of another session
+    /// does not.
+    #[test]
+    fn the_react_tools_target_reaches_the_running_turn() {
+        let table = Arc::new(ReactionTargets::new());
+        let tool_side = table.clone();
+        let facts = || Arc::new(NoMessageFacts);
+        let turn = LoopReactions::new("sess_home_bench", table.clone(), facts(), |_| false);
+        let other_turn = LoopReactions::new("sess_desktop_x", table, facts(), |_| false);
+        note_hit(&tool_side, "sess_home_bench", "call_1", true, false, &json!({ "changed": true, "messageId": "m7" }));
+        assert!(other_turn.take_target("call_1").is_none());
+        let hit = turn.take_target("call_1").unwrap();
+        assert_eq!((hit.message_id.as_str(), hit.room), ("m7", false));
+        assert!(turn.take_target("call_1").is_none(), "consumed once");
+    }
     /// The seat is derived from the id alone, so it needs no thread to be loaded.
     #[test]
     fn a_home_and_a_room_seat_name_their_bot_and_other_threads_have_none() {

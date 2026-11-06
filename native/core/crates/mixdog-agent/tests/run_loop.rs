@@ -1033,6 +1033,26 @@ async fn a_calls_usage_event_carries_what_nodes_usage_delta_needs() {
 }
 
 #[tokio::test]
+async fn a_usage_event_reports_the_ledgers_time_and_each_reasoning_figure_as_nodes_does() {
+    let usage = |reasoning, raw| mixdog_core_api::domain::provider::Usage { input_tokens: 10, reasoning_tokens: reasoning, raw, ..Default::default() };
+    let timed = |ms| Step::Event(StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: Some(ms) });
+    let h = Harness::new(vec![
+        // A reported zero stays 0 and wins over the raw usage; the ledger's time is used.
+        turn(vec![Step::Event(StreamEvent::Usage(usage(Some(0), Some(json!({ "thinking_tokens": 7 }))))), call("c1", "echo", json!({})), timed(750)]),
+        // A missing figure falls back to the raw usage; an untimed send falls back to the loop's clock.
+        turn(vec![Step::Event(StreamEvent::Usage(usage(None, Some(json!({ "thoughtsTokenCount": 4 }))))), call("c2", "echo", json!({})), done(StopReason::ToolUse)]),
+        // A reported figure is a count even when 0, so none and a raw zero differ from missing.
+        turn(vec![Step::Event(StreamEvent::Usage(usage(None, Some(json!({ "thinking_tokens": 0 }))))), text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    let deltas: Vec<UsageDelta> = h.observer.events().into_iter().filter_map(|e| if let RunEvent::Usage { delta, .. } = e { Some(delta) } else { None }).collect();
+    assert_eq!(deltas.len(), 3);
+    assert_eq!((deltas[0].reasoning_tokens, deltas[0].reasoning_tokens_complete, deltas[0].request_ms), (Some(0), true, 750));
+    assert_eq!((deltas[1].reasoning_tokens, deltas[1].reasoning_tokens_complete, deltas[1].request_ms), (Some(4), true, 0));
+    assert_eq!((deltas[2].reasoning_tokens, deltas[2].reasoning_tokens_complete), (Some(0), true));
+}
+
+#[tokio::test]
 async fn a_context_overflow_compacts_reactively_and_replays_once() {
     let mut h = Harness::new(vec![
         Attempt::Reject(ProviderError::new(ErrorKind::ContextOverflow, DeliveryState::Accepted)),

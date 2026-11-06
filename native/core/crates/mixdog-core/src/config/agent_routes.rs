@@ -84,10 +84,19 @@ impl AgentRoutes {
     }
 
     /// The route the config holds for `id`, whichever store the agent's own route lives in:
-    /// `agentRouteFromConfig(config, id)` without the bot store. The agent editor reads Mixy's
-    /// id `lead` this way, since her own route is in her folder under another id.
+    /// `agentRouteFromConfig(config, id)` without the bot store. The id is the editor's (a role
+    /// alias such as `maint` is `maintainer`), and a route that names a preset resolves to that
+    /// preset's route. The agent editor reads Mixy's id `lead` this way, since her own route is
+    /// in her folder under another id.
     pub fn config_route(&self, id: &str) -> Option<Value> {
-        self.config.agent().get("agents").and_then(|agents| agents.get(id)).filter(|route| is_complete(route)).cloned()
+        let id = crate::domains::ai_admin::agent_route_service::agent_editor_id(id);
+        if id.is_empty() {
+            return None;
+        }
+        let agent = self.config.agent();
+        let candidate = agent.get("agents")?.get(&id).filter(|route| crate::workflow::ids::truthy(Some(*route)))?;
+        let effective = crate::workflow::presets::effective(&agent);
+        crate::workflow::presets::route_of_candidate(&effective.config, candidate).ok().flatten()
     }
 
     /// Whether the agent is switched off (`isAgentDisabled`).
@@ -97,11 +106,23 @@ impl AgentRoutes {
 
     /// Switches the agent on or off, keeping its stored model (`saveDisabled`).
     pub async fn set_disabled(&self, id: &str, disabled: bool) -> Result<(), ConfigError> {
+        self.write_disabled(id, disabled, true).await
+    }
+
+    /// A newly created agent starts enabled (the editor's `saveConfigAndAdopt(withAgentDisabled(..))`):
+    /// unlike `set_disabled` it leaves the rest of the stored routes as they are.
+    pub async fn start_enabled(&self, id: &str) -> Result<(), ConfigError> {
+        self.write_disabled(id, false, false).await
+    }
+
+    async fn write_disabled(&self, id: &str, disabled: bool, scrub: bool) -> Result<(), ConfigError> {
         let id = agent_id_key(id);
         self.config
             .update_agent(move |agent| {
                 with_disabled(agent, &id, disabled);
-                canonicalize(agent);
+                if scrub {
+                    canonicalize(agent);
+                }
                 Ok(())
             })
             .await

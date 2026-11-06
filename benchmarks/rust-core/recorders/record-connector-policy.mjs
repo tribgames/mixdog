@@ -114,6 +114,20 @@ for (let i = 0; i < 400; i += 1) {
   checks.push({ before: plain(before), after: plain(after), approved, ...attempt(() => withApprovedConnectorToolChange(approved, run)) });
 }
 
+// Accounts that share a number (`gmail-2`, `gmail-02`) rank by the order the policy lists them in,
+// so the stored policy's insertion order decides what a save may widen.
+for (const accounts of [['gmail-2', 'gmail-02'], ['gmail-02', 'gmail-2'], ['gmail-3', 'gmail-03', 'gmail-003'], ['gmail-03', 'gmail-3']]) {
+  for (const [first, second] of [['disabled', 'auto'], ['auto', 'disabled'], ['needs_approval', 'auto']]) {
+    const before = { off: [], tools: Object.fromEntries(accounts.map((id, n) => [id, { send: n === 0 ? first : second }])) };
+    for (const after of [{ off: [], tools: { gmail: { send: 'auto' } } }, { off: [], tools: { gmail: { send: 'needs_approval' } } }, { off: [], tools: { ...before.tools, gmail: { send: 'auto' } } }]) {
+      const approved = chance(0.5) ? null : { server: 'gmail', tool: 'send', from: 'disabled', to: 'auto' };
+      const run = () => assertConnectorPolicyNotWidened(plain(before), plain(after));
+      checks.push({ before: plain(before), after: plain(after), approved, ...attempt(() => (approved ? withApprovedConnectorToolChange(approved, run) : run())) });
+      checks.push({ before: plain(before), after: plain(after), approved: null, ...attempt(run) });
+    }
+  }
+}
+
 writeFileSync(
   `${FIXTURES_ROOT}/desktop/settings/connector-policy-twin.json`,
   `${JSON.stringify({ domain: 'connector-policy-twin', recorder: 'benchmarks/rust-core/recorders/record-connector-policy.mjs', stored, checks }, null, 1)}\n`

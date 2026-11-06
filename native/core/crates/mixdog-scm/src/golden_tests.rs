@@ -1,6 +1,12 @@
 //! Golden twin (DS-SCM-1/2): the scripted repository of the Node recorder, read and mutated
 //! through the engine, against `fixtures/desktop/git/corpus.json`.
 
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "tests build their fixture repositories and run git on the test thread"
+)]
+
 use std::path::Path;
 use std::process::Command;
 

@@ -79,7 +79,7 @@ function definitionFiles(id, { shipped }) {
   const manifest = {};
   if (chance(0.5)) manifest.name = pick([`Manifest ${id}`, '  spaced   name  ', '']);
   if (chance(0.4)) manifest.description = `manifest ${id}`;
-  if (manifestKind === 'avatar') manifest.avatar = { kind: 'mascot', color: '#5b9bff' };
+  if (manifestKind === 'avatar') manifest.avatar = pick([{ kind: 'mascot', species: 'corgi', color: '#5b9bff' }, { kind: 'mascot', species: 'mixy', accessory: 'bow', color: '#ef6fb0' }, { kind: 'mascot', color: '#5b9bff' }, { kind: 'mascot', color: 'nope' }, { kind: 'custom', states: { idle: 'idle-0123456789abcdef.png' } }, { kind: 'custom', states: {} }, 'plain']);
   if (manifestKind === 'entry') {
     manifest.entry = 'docs/MAIN.md';
     entry = 'docs/MAIN.md';
@@ -218,6 +218,7 @@ async function record(world) {
       routeConfigured: row.routeConfigured,
       kind: row.kind ?? null,
       disabled: row.disabled,
+      avatar: row.avatar ?? null,
       hasDefinition: Boolean(row.definition),
     }));
     const contacts = editor
@@ -225,7 +226,7 @@ async function record(world) {
       .filter((row) => row.custom === true && row.disabled !== true && isContactAgentId(row.id, row.kind))
       .map((row) => ({ id: row.id, route: row.route ?? null }));
     const status = editor.getLeadStatus();
-    const lead = { created: status.created, name: status.name, route: status.route };
+    const lead = { created: status.created, name: status.name, avatar: status.avatar ?? null, route: status.route };
     return {
       name: world.name,
       shipped: world.shipped,
@@ -242,7 +243,7 @@ async function record(world) {
         rows,
         contacts,
         presence: editor.agentDefinitionPresence(queries),
-        archived: Object.fromEntries(Object.entries(editor.archivedAgentIdentities(queries)).map(([id, who]) => [id, who ? who.name : null])),
+        archived: Object.fromEntries(Object.entries(editor.archivedAgentIdentities(queries)).map(([id, who]) => [id, who ? { name: who.name, avatar: who.avatar ?? null } : null])),
         lead,
         leadHomeRoute: editor.getLeadHomeRoute() ?? null,
         mixyExists: await mixyExists({ created: status.created, name: status.name, homeChatted: evidence.lead.chatted }, async () => world.owns),

@@ -133,6 +133,20 @@ impl EffortProjection {
     }
 }
 
+/// The projection as `RequestOptions.effort_projection` carries it (the one field both the
+/// Responses and the Messages adapters read), and back.
+impl From<EffortProjection> for mixdog_core_api::domain::provider::EffortProjection {
+    fn from(projection: EffortProjection) -> Self {
+        Self { initial_effort: projection.initial_effort, updates: projection.updates }
+    }
+}
+
+impl From<&mixdog_core_api::domain::provider::EffortProjection> for EffortProjection {
+    fn from(projection: &mixdog_core_api::domain::provider::EffortProjection) -> Self {
+        Self { initial_effort: projection.initial_effort.clone(), updates: projection.updates.clone() }
+    }
+}
+
 /// What an endpoint rejected for one provider and model
 /// (`effort-rejections.json`): levels it refused, and the list it named.
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
@@ -155,7 +169,7 @@ impl RejectionEntry {
 }
 
 /// The reasoning facts of a JSON row as `customEffortLevels` reads them.
-fn reasoning_row(model: &Value) -> ReasoningRow {
+pub fn reasoning_row(model: &Value) -> ReasoningRow {
     let effort_option = model.get("reasoningOptions").and_then(Value::as_array).and_then(|options| {
         options
             .iter()

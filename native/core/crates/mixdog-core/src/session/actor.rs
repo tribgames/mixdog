@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 
 use mixdog_agent::agent_tool::flow::seams::TurnOutcome;
+use mixdog_agent::agent_tool::flow::seams::TurnResult;
 use mixdog_agent::agent_tool::flow::seams::TurnStart;
 use mixdog_tools::exec::WakeReason;
 use mixdog_app_protocol::v2::thread::HistoryResetReason;
@@ -242,6 +243,8 @@ struct RunSlot {
     input: watch::Sender<InputState>,
     /// The run's input never became durable: no terminal record follows.
     start_failed: bool,
+    /// A worker's turn: told the run's final result, then its outcome.
+    agent: Option<(Option<Arc<dyn Fn(&TurnResult) + Send + Sync>>, oneshot::Sender<RunOutcome>)>,
     /// The run's `onSensitiveValuesMarked` subscription (`ask-turn-state.mjs:104`).
     _marks: Box<dyn Send>,
 }
@@ -1413,6 +1416,13 @@ impl SessionActor {
                 _ => None,
             },
         };
+        // A worker's turn hears the final result first (`onTerminalResult`), then its outcome.
+        if let Some((terminal, done)) = slot.agent {
+            if let (Some(terminal), RunOutcome::Completed(result)) = (terminal, &outcome) {
+                terminal(result);
+            }
+            let _ = done.send(outcome.clone());
+        }
         for listener in self.cell.turn_listeners() {
             listener.turn_settled(settled.clone());
         }
@@ -1682,6 +1692,20 @@ impl SessionActor {
                 if let Some(reset) = self.provider_state_change(None) {
                     self.accept_record(reset, Class::Normal, Display::None, Vec::new(), Vec::new());
                 }
+                // `compaction.compactCount`: one more compaction, the epoch of the thread's
+                // window (`compaction-runner.mjs:505`).
+                let mut state = self.projected.header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
+                let count = state.get("compactCount").and_then(Value::as_u64).unwrap_or(0);
+                state.insert("compactCount".into(), json!(count + 1));
+                let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new() };
+                change.set.insert("compaction".into(), Value::Object(state));
+                self.accept_record(
+                    Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }),
+                    Class::Normal,
+                    Display::None,
+                    Vec::new(),
+                    Vec::new(),
+                );
                 let record = Record::Compacted(CompactedRecord {
                     cid: id(&new_id()),
                     summary_iid: None,
@@ -1817,8 +1841,9 @@ impl SessionActor {
                 let item = super::transcript::notice_item(&new_id(), turn.as_str(), &text, "info");
                 self.show_live(turn, item, None);
             }
-            RunShown::Usage { iteration, usage } => {
-                let usage = super::live_rows::usage_delta(self.id.as_str(), iteration, &usage, self.deps.clock.now_ms());
+            RunShown::Reasoning(item) => self.show_live(turn, item, None),
+            RunShown::Usage(report) => {
+                let usage = super::live_rows::usage_delta(self.id.as_str(), &report, self.deps.clock.now_ms());
                 let note = Note::new(
                     "thread/tokenUsage/updated",
                     &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage },
@@ -2117,7 +2142,13 @@ impl SessionActor {
             "enqueuedAt": self.deps.clock.now_ms(),
         });
         if let Some(options) = &params.input.options {
-            entry["options"] = serde_json::to_value(options).expect("protocol types serialize");
+            // The entry's priority is its own top-level field, as Node's queue entries carry it
+            // (`within_priority`); the options keep the rest.
+            let mut options = options.clone();
+            if let Some(priority) = options.priority.take() {
+                entry["priority"] = serde_json::to_value(priority).expect("protocol types serialize");
+            }
+            entry["options"] = serde_json::to_value(&options).expect("protocol types serialize");
         }
         let record = Record::Queue(QueueRecord {
             qid: id(&qid),
@@ -2583,6 +2614,16 @@ impl SessionActor {
         wake: bool,
     ) {
         let turn = TurnId::from(new_id());
+        // A worker's turn (`SessionTurns`): its input row carries the handoff content and the
+        // submission it answers, as `askSession` stamps them (`askTurns.started` submissionIds).
+        let agent = if wake { None } else { self.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).take() };
+        if let Some(agent) = &agent {
+            body["content"] = agent.content.clone();
+            let submission = &agent.turn.hooks.submission_id;
+            if !submission.is_empty() {
+                body["meta"]["transcript"]["submissionIds"] = json!([submission]);
+            }
+        }
         let facts = self.user_facts(&mut body);
         let mut op_ref = op_ref;
         let value = json!({ "kind": "started", "turnId": turn });
@@ -2639,6 +2680,10 @@ impl SessionActor {
                 let _ = jobs.send(JobDone::SensitiveMarked);
             }),
         );
+        let (agent_turn, agent) = match agent {
+            Some(start) => (Some(start.turn.clone()), Some((start.turn.hooks.on_terminal_result.clone(), start.done))),
+            None => (None, None),
+        };
         self.run = Some(RunSlot {
             turn: turn.clone(),
             input_item: input_iid.clone(),
@@ -2647,6 +2692,7 @@ impl SessionActor {
             cancel: cancel.clone(),
             input: input_tx,
             start_failed: false,
+            agent,
             _marks: marks,
         });
         // `onGoalTurnStarted`: the turn takes the Goal's open clock segment.
@@ -2686,6 +2732,7 @@ impl SessionActor {
         // `stageToolAvailability`).
         self.refresh_surface();
         let future = self.deps.runs.start(RunStart {
+            agent_turn,
             thread: self.id.clone(),
             turn: turn.clone(),
             input,

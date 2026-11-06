@@ -11,6 +11,7 @@ use mixdog_core_api::domain::provider::{
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 
+use super::super::route_fallback::{RouteDecision, RouteHop};
 use super::*;
 
 const GOLDEN: &str = include_str!("../../../../fixtures/hop-host/golden.json");
@@ -38,7 +39,11 @@ struct Script {
     route: Option<WireRoute>,
     fails: bool,
     asked: Mutex<Vec<(String, WireRouteContext)>>,
+    /// Every observable call, in order, for the whole-hop replay.
+    calls: Option<Calls>,
 }
+
+type Calls = Arc<Mutex<Vec<Value>>>;
 
 struct Gateway {
     id: ProviderId,
@@ -73,6 +78,9 @@ impl ProviderAdapter for Gateway {
 impl WireRouting for Gateway {
     async fn resolve_wire_route(&self, model: &str, context: &WireRouteContext) -> Result<Option<WireRoute>, ProviderError> {
         self.script.asked.lock().unwrap().push((model.to_owned(), context.clone()));
+        if let Some(calls) = &self.script.calls {
+            calls.lock().unwrap().push(json!({ "call": "resolveWireRoute", "model": model, "agent": context.agent, "legacy": context.legacy }));
+        }
         if self.script.fails {
             return Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent));
         }
@@ -82,12 +90,19 @@ impl WireRouting for Gateway {
 
 struct Builder {
     script: Arc<Script>,
+    /// `gemini` cannot be built.
+    fail_init: bool,
+    /// `gemini` is not a provider this registry has.
+    ghost: bool,
 }
 
 #[async_trait]
 impl ProviderBuilder for Builder {
-    async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        if name == "broken" {
+    async fn build(&self, name: &str, config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+        if let Some(calls) = &self.script.calls {
+            calls.lock().unwrap().push(json!({ "call": "initProviders", "provider": name, "config": config }));
+        }
+        if name == "broken" || (self.fail_init && name == "gemini") {
             return Err("cannot build".into());
         }
         Ok(Arc::new(Gateway {
@@ -100,8 +115,8 @@ impl ProviderBuilder for Builder {
     async fn custom_key_ids(&self, _: &str) -> Vec<String> {
         Vec::new()
     }
-    fn available(&self, _: &str) -> bool {
-        true
+    fn available(&self, name: &str) -> bool {
+        !(self.ghost && name == "gemini")
     }
     async fn oauth_credentials_usable(&self, _: &str) -> bool {
         false
@@ -181,7 +196,7 @@ async fn catalog() -> Arc<CatalogService> {
 }
 
 async fn harness(script: Arc<Script>, header: Value) -> (RegistryHopHost, Arc<Session>) {
-    let registry = Arc::new(ProviderRegistry::new(Arc::new(Builder { script })));
+    let registry = Arc::new(ProviderRegistry::new(Arc::new(Builder { script, fail_init: false, ghost: false })));
     let session = Arc::new(Session { header: header.as_object().cloned().unwrap(), log: Mutex::default(), pins: Mutex::default(), fail: Mutex::new("") });
     let deps = HopDeps {
         registry,
@@ -225,7 +240,7 @@ async fn the_wire_pin_is_the_one_node_makes() {
             profile_id: r["profileId"].as_str().unwrap().into(),
         });
         let provider = session["provider"].as_str().unwrap();
-        let routing = Arc::new(Script { routing: script["noRouting"] != true, route, fails: script["throws"] == true, asked: Mutex::default() });
+        let routing = Arc::new(Script { routing: script["noRouting"] != true, route, fails: script["throws"] == true, asked: Mutex::default(), calls: None });
         let (host, written) = harness(routing.clone(), session.clone()).await;
         host.deps.registry.init_providers(&ensure_provider_enabled(&Obj::new(), provider)).await.unwrap();
         host.apply_hop(route_of(session), write()).await.unwrap().expect("updated");
@@ -303,5 +318,131 @@ async fn a_failed_step_escapes_the_hop_as_node_throws_it() {
         let expect: Result<bool, &str> = expect;
         assert_eq!(got.map(|u| u.is_some()), expect.map_err(String::from), "{fail}");
         assert_eq!(*session.log.lock().unwrap(), log, "{fail}");
+    }
+}
+/// The session of a replayed hop: a header that moves as Node's does, and a log in Node's call
+/// shapes (`record-hop-host.mjs`, `advances`).
+struct Replay {
+    header: Mutex<Header>,
+    calls: Calls,
+    script: Value,
+}
+
+impl Replay {
+    fn fails(&self, key: &str) -> bool {
+        self.script[key] == true
+    }
+    fn note(&self, call: Value) {
+        self.calls.lock().unwrap().push(call);
+    }
+    fn set(&self, field: &str, value: Value) {
+        self.note(json!({ "call": "set", "field": field, "value": value }));
+        self.header.lock().unwrap().insert(field.to_owned(), value);
+    }
+}
+
+#[async_trait]
+impl HopSession for Replay {
+    fn header(&self) -> Option<Arc<Header>> {
+        Some(Arc::new(self.header.lock().unwrap().clone()))
+    }
+    async fn write_hop(&self, route: Obj, write: &HopWrite) -> Result<Option<Header>, PortError> {
+        if write.checkpoint_route_changed {
+            let mut checkpoint = self.header.lock().unwrap()["activeTurnCheckpoint"].clone();
+            checkpoint["routeChanged"] = json!(true);
+            self.note(json!({ "call": "checkpoint", "value": checkpoint }));
+        }
+        self.note(json!({ "call": "updateSessionRoute", "route": route, "crossProvider": true }));
+        if self.fails("writeError") {
+            return Err(PortError::Failed { capability: "session".into(), message: "session store is read-only".into() });
+        }
+        if self.fails("closed") {
+            return Ok(None);
+        }
+        {
+            let mut header = self.header.lock().unwrap();
+            header.insert("provider".into(), route["provider"].clone());
+            header.insert("model".into(), route["model"].clone());
+            header.insert("wireRoute".into(), Value::Null);
+        }
+        self.set("routeFallbacks", json!(write.chain));
+        if let Some(primary) = &write.primary {
+            self.set("routeFallbackPrimary", primary.clone());
+        }
+        self.set("routeFallbackIndex", json!(write.index));
+        self.set("routeFallbackFailures", json!(write.failures));
+        Ok(Some(self.header.lock().unwrap().clone()))
+    }
+    async fn write_wire_pin(&self, pin: Value) -> Result<(), PortError> {
+        self.set("wireRoute", pin);
+        if self.fails("pinError") {
+            return Err(PortError::Failed { capability: "session".into(), message: "session store is read-only".into() });
+        }
+        Ok(())
+    }
+    async fn rebuild_tool_surface(&self, provider: &str) -> Result<(), PortError> {
+        self.note(json!({ "call": "rebuildToolSurface", "provider": provider }));
+        if self.fails("rebuildError") {
+            return Err(PortError::Failed { capability: "tools".into(), message: "surface rebuild failed".into() });
+        }
+        Ok(())
+    }
+}
+
+/// Node's real `advanceAgentRoute`, recorded over stand-ins for the registry, the session store
+/// and the tool surface, replayed over the registry and a session double: the same calls with the
+/// same arguments in the same order, and the same outcome (a switch with its notice, or the
+/// error that escapes). `presentErrorText` is WP-AI-CORE's: the failure line carries its recorded
+/// text.
+#[tokio::test]
+async fn the_whole_hop_makes_the_calls_and_ends_as_node_does() {
+    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    for case in golden["advances"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let script = &case["script"];
+        let calls: Calls = Arc::default();
+        let routing = Arc::new(Script {
+            routing: true,
+            route: Some(WireRoute { wire: "chat".into(), source: "default".into(), profile_id: "gemini:chat".into() }),
+            fails: script["resolveError"] == true,
+            asked: Mutex::default(),
+            calls: Some(calls.clone()),
+        });
+        let registry = Arc::new(ProviderRegistry::new(Arc::new(Builder {
+            script: routing,
+            fail_init: script["initError"] == true,
+            ghost: script["missing"] == true,
+        })));
+        // A registry that holds no provider at all refuses any init; the missing provider is
+        // one the registry does not know among others it does.
+        registry.init_providers(&ensure_provider_enabled(&Obj::new(), "xai")).await.unwrap();
+        calls.lock().unwrap().clear();
+        let header = case["session"].as_object().cloned().unwrap();
+        let session = Arc::new(Replay { header: Mutex::new(header), calls: calls.clone(), script: script.clone() });
+        let deps = HopDeps {
+            registry,
+            catalog: catalog().await,
+            config: Arc::new(Obj::new),
+            bots: Arc::new(NoBots),
+            errors: Arc::new(|_| "Provider is rate-limited.".to_owned()),
+            wiring: Arc::new(NoWiring),
+        };
+        let hop = RouteHop::new(Arc::new(RegistryHopHost { deps, session }));
+        let mut error = ProviderError::new(ErrorKind::RateLimited, DeliveryState::Accepted);
+        error.status = Some(429);
+        error.message = "slow down".to_owned();
+        let outcome = match hop.decide(error, None).await {
+            RouteDecision::Switch(s) => json!({ "switched": true, "provider": s.provider.id().as_str(), "model": s.model, "notice": s.notice }),
+            RouteDecision::Fail(message) => json!({ "threw": message }),
+            RouteDecision::Surface(_) => json!({ "switched": false }),
+        };
+        let mut want: Vec<Value> = case["calls"].as_array().unwrap().clone();
+        if script["missing"] == true {
+            // `available()` is false for it, so the registry builds nothing to observe.
+            want.retain(|c| c["call"] != "initProviders");
+        }
+        let got = calls.lock().unwrap().clone();
+        assert_eq!(got, want, "{name}: calls");
+        assert_eq!(outcome, case["outcome"], "{name}: outcome");
     }
 }

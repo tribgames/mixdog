@@ -119,6 +119,19 @@ impl SessionHandle {
         self.cell.clone()
     }
 
+    /// The session's "Allow for this session" grants (`SessionGate`'s `session_grants`).
+    pub fn grants(&self) -> Arc<mixdog_tools::policy::SessionGrants> {
+        self.cell.grants.clone()
+    }
+
+    /// `RequestThread.window`: `compaction.compactCount` of the acked header, 0 until the first
+    /// compaction (`compactCount`, `store-summary-fields.mjs:70`: a safe non-negative integer).
+    pub fn thread_window(&self) -> u64 {
+        let header = self.cell.header.load();
+        let count = header.get("compaction").and_then(|c| c.get("compactCount")).and_then(Value::as_u64);
+        count.filter(|n| *n <= (1u64 << 53) - 1).unwrap_or(0)
+    }
+
     /// The session's tool-policy surface, republished by the actor whenever it changes.
     pub fn surface(&self) -> watch::Receiver<Arc<SessionSurface>> {
         self.cell.surface.clone()

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_agent::env::{Clock, Compactor, RouteFallback, SkillSelector, TurnGuards, Yielder};
+use mixdog_agent::env::{Clock, Compactor, RouteFallback, SkillSelector, TurnGuards};
 use mixdog_agent::todo::{TodoGuards, TodoView};
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{RunCarry, RunConfig};
@@ -25,6 +25,8 @@ use mixdog_core_api::domain::tool::{ProgressSink, SurfaceKind, Tool, ToolIo};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::TurnError;
 use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_services::effort_judge::judge::{EffortJudge, EffortJudgeModel};
+use mixdog_agent::step_effort::StepEffortJudge;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::policy::{ConnectorPermissions, SessionGrants, ToolPolicy, ToolResolver};
 use serde_json::{json, Value};
@@ -32,7 +34,7 @@ use serde_json::{json, Value};
 use super::artifact::ToolResultArtifacts;
 use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
-use super::reactions::LoopReactions;
+use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
 use super::result_reuse::ToolResultReuse;
 use super::route_fallback::{HopHost, RouteHop};
 use crate::ports::gate::{GateEnv, LiveHeader, SessionGate};
@@ -56,8 +58,6 @@ pub struct RunSettings {
     pub step_auto_effort: Option<mixdog_agent::step_effort::StepAutoEffort>,
     pub text_only: Option<mixdog_agent::text_only::TextOnlyInput>,
     pub attachments: Option<Arc<dyn mixdog_agent::attachments::AttachmentText>>,
-    /// `RequestThread.window`: 0 until the first compaction, one more per compaction.
-    pub thread_window: u64,
     pub model_max_output_tokens: Option<u32>,
 }
 
@@ -67,11 +67,6 @@ pub trait SessionSeams: Send + Sync + 'static {
     /// (`McpHub::tools`), filtered by the surface. Owner: WP-TOOLS-ORCH (built-in registry),
     /// WP-MCP (merge).
     fn tools(&self, thread: &ThreadId, header: &Header, surface: &mixdog_tools::policy::SessionSurface) -> SessionTools;
-    /// The session's latest acked header, readable without waiting. Owner: WP-SESSION (the cell).
-    fn live_header(&self, thread: &ThreadId) -> Arc<dyn LiveHeader>;
-    /// The session's "Allow for this session" grants, one per session. Owner: WP-SESSION (the
-    /// cell holds them); `SessionGrants::default()` is the empty set.
-    fn grants(&self, thread: &ThreadId) -> Arc<SessionGrants>;
     /// `getHiddenAgent(agent)`. Owner: WP-CONFIG (agent store).
     fn hidden_agent(&self, agent: Option<&str>) -> bool;
     /// The todo list, goal and background work as the turn guards read them. Owner:
@@ -87,19 +82,20 @@ pub trait SessionSeams: Send + Sync + 'static {
     /// What the route hop reads and writes (`HopHost`). Owner: WP-AI-SVC (registry, wires) with
     /// WP-SESSION (the header write).
     fn hop_host(&self, thread: &ThreadId, header: &Header) -> Option<Arc<dyn HopHost>>;
-    /// Explicit skill selection for typed steering. Owner: WP-MCP (skills domain).
-    fn skills(&self) -> Option<Arc<dyn SkillSelector>>;
+    /// Explicit skill selection for typed steering, over the turn's trusted selection text (`AgentTurn.skill_selection`,
+    /// `prepareExplicitSkills` `selection`). Owner: WP-MCP (skills domain).
+    fn skills(&self, selection: Option<&str>) -> Option<Arc<dyn SkillSelector>>;
     /// The route's, settings' and agent's `RunConfig` fields. Owner: WP-AGENT (limits, compaction
     /// settings, effort wiring, text-only), WP-CONFIG (settings).
     fn run_settings(&self, thread: &ThreadId, header: &Header) -> RunSettings;
     /// The tail reminder's language and role. Owner: WP-RUN-HOST (`rules_lead::build_lead_language`
     /// over the system locale) with WP-CONFIG for the role.
     fn tail_context(&self, header: &Header) -> mixdog_agent::tail_rules::TailContext;
-    /// The agent lane's slot for an agent-owned turn (`ResourceAdmission::acquire_in`), held for the
-    /// whole turn. Owner: WP-AGENT (the job that owns the turn acquires it).
-    fn slot(&self, thread: &ThreadId, header: &Header) -> Option<Arc<dyn Yielder>>;
-    /// The auto-effort step judge. Owner: WP-AGENT (StepEffortJudge has no implementation).
-    fn step_judge(&self) -> Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>;
+    /// What the turn's route says about its efforts, for the step judge's ladder
+    /// (`effortOptionsFor(provider, autoEffortModel(..))`, and a custom route's row, protocol and
+    /// base URL). The host picks the ladder and builds the judge over its `EffortJudgeModel`.
+    /// Owner: WP-AI-SVC (catalog rows, registry, custom config). `None`: the route has no facts.
+    fn step_ladder_facts(&self, thread: &ThreadId, header: &Header, auto: &mixdog_agent::step_effort::StepAutoEffort) -> Option<super::step_judge::StepLadderFacts>;
     /// Tool-result image compaction. Owner: WP-AGENT (ImageCompactor has no implementation).
     fn image_compactor(&self) -> Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>;
     /// The install's plugin root (`rules/`, `output-styles/`): `mixdog_store::paths::Paths::plugin_root`.
@@ -124,6 +120,14 @@ pub struct HostServices {
     pub resolver: Arc<dyn ToolResolver>,
     pub gate_env: Arc<dyn GateEnv>,
     pub blobs: Arc<dyn Blobs + Send + Sync>,
+    /// The process-wide react targets: the same value the react tool (`ports::reactions::SessionReactions`)
+    /// records into.
+    pub reaction_targets: Arc<ReactionTargets>,
+    /// The session directory: each session's live header, grants and thread window. Boot builds it with
+    /// `Arc::new_cyclic` since the directory owns the run factory that owns these services.
+    pub directory: std::sync::Weak<crate::session::SessionDirectory>,
+    /// The shared effort-judge model; each run's judge is built over it with the run's ladder.
+    pub effort_judge: Arc<EffortJudgeModel>,
     pub seams: Arc<dyn SessionSeams>,
     /// Runs the git and shell-tools probes of a composition (one per daemon process).
     pub probes: Arc<super::prewarm::StartupProbes>,
@@ -197,6 +201,7 @@ impl RunParts for HostRunParts {
             progress: s.progress.clone(),
             deadline_of: None,
         };
+        let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         let guards: Arc<dyn TurnGuards> = Arc::new(TodoGuards::new(seams.todo_view(thread, header), hidden));
 
         let mut config = RunConfig::new(thread.clone(), input.turn.clone(), model);
@@ -207,7 +212,7 @@ impl RunParts for HostRunParts {
         options.prompt_cache_key = Some(text(header, "promptCacheKey").to_owned()).filter(|k| !k.is_empty());
         options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
         options.model_max_output_tokens = settings.model_max_output_tokens;
-        options.thread = Some(RequestThread { id: thread.clone(), window: settings.thread_window, turn: Some(input.turn.clone()) });
+        options.thread = Some(RequestThread { id: thread.clone(), window: directory.thread_window(thread), turn: Some(input.turn.clone()) });
         options.provider_state = input.port.provider_state().await;
         config.hidden_agent = hidden;
         config.agent_mode = settings.agent_mode;
@@ -216,17 +221,28 @@ impl RunParts for HostRunParts {
         config.escalated_max_output_tokens = settings.escalated_max_output_tokens;
         config.read_body_required = settings.read_body_required;
         config.effort = settings.effort;
-        config.step_auto_effort = settings.step_auto_effort;
+        // The judge is built only when auto effort is on for the turn (`stepAutoEffort`), over the
+        // shared model and the ladder of this run's route.
+        // Step judging needs a calibration made for steps (`calibration.json` `steps === 1`).
+        let step_auto_effort = match settings.step_auto_effort {
+            Some(auto) if s.effort_judge.supports_steps().await => Some(auto),
+            _ => None,
+        };
+        let step_judge = step_auto_effort.as_ref().and_then(|auto| {
+            let ladder = super::step_judge::ladder_for(provider_id, auto, seams.step_ladder_facts(thread, header, auto)?)?;
+            Some(Arc::new(EffortJudge::new(s.effort_judge.clone(), ladder)) as Arc<dyn StepEffortJudge>)
+        });
+        config.step_auto_effort = step_auto_effort;
         config.text_only = settings.text_only;
         config.attachments = settings.attachments;
-        config.slot = seams.slot(thread, header);
+        config.slot = input.slot;
 
         // The gate needs the observer and the token, which the factory makes after this: it is
         // built from them.
         let gate: GateBuilder = {
             let (policy, connectors, resolver) = (s.policy.clone(), s.connectors.clone(), s.resolver.clone());
-            let grants = seams.grants(thread);
-            let session = Arc::new(SessionGate::new(thread.clone(), seams.live_header(thread), input.surface_rx.clone(), s.gate_env.clone()));
+            let grants = directory.grants(thread);
+            let session = Arc::new(SessionGate::new(thread.clone(), directory.live_header(thread), input.surface_rx.clone(), s.gate_env.clone()));
             let (thread, cwd) = (thread.clone(), cwd.clone());
             Box::new(move |context: GateContext| {
                 Arc::new(mixdog_agent::env::PolicyGate::new(mixdog_agent::env::PolicyGateParts {
@@ -261,12 +277,13 @@ impl RunParts for HostRunParts {
             guards,
             compactor: seams.compactor(thread, header),
             route: seams.hop_host(thread, header).map(|host| Arc::new(RouteHop::new(host)) as Arc<dyn RouteFallback>),
-            skills: seams.skills(),
+            skills: seams.skills(input.skill_selection.as_deref()),
             hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),
-            reuse: Some(Arc::new(ToolResultReuse::new(session_id, &cwd, read_body, s.clock.clone()))),
-            reactions: Some(Arc::new(LoopReactions::new(rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
+            reuse: Some(Arc::new(ToolResultReuse::new(s.io, session_id, &cwd, read_body, s.clock.clone()))),
+            reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
+            reaction_scope: Some(ReactionScope::new(s.reaction_targets.clone(), session_id)),
             tail: Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context: seams.tail_context(header) })),
-            step_judge: seams.step_judge(),
+            step_judge,
             artifacts: Some(Arc::new(ToolResultArtifacts::new(s.io, &seams.data_dir(), session_id))),
             images: seams.image_compactor(),
             blobs: s.blobs.clone(),

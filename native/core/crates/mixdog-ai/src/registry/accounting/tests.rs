@@ -170,6 +170,38 @@ async fn a_completed_send_reports_the_time_its_row_measured() {
     assert_eq!(unrecorded.finish(Outcome::Completed(Completed::default())).await.request_ms, None);
 }
 
+/// The duration the row measured lands on the terminal `Completed` the report is built from;
+/// a send that measured none leaves the provider's event alone.
+#[tokio::test]
+async fn the_sink_stamps_the_measured_time_on_the_terminal_event() {
+    use crate::broker::AttemptSink;
+    use crate::registry::attempt::RecordingSink;
+    use mixdog_core_api::domain::provider::StreamEvent;
+
+    let case = json!({ "provider": "openai", "model": "gpt-5" });
+    let completed = || StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None };
+    let now = Arc::new(std::sync::atomic::AtomicI64::new(10_000));
+    let clock = Arc::clone(&now);
+    let accounting = SendAccounting::new(identity(&case, 10_000), Arc::new(Unpriced), Some(Arc::new(Collect::default())))
+        .with_sources(Arc::new(move || clock.load(std::sync::atomic::Ordering::SeqCst)), Arc::new(|| "<random>".into()));
+    let mut sink = RecordingSink::collecting().with_accounting(accounting);
+    sink.event(StreamEvent::TextDelta("hi".into()));
+    sink.event(completed());
+    now.store(12_345, std::sync::atomic::Ordering::SeqCst);
+    let recorded = sink.finish_accounting(Outcome::Completed(Completed { stream_ended_at: 12_000, ..Completed::default() })).await;
+    assert_eq!(recorded.and_then(|r| r.request_ms), Some(2_345));
+    assert_eq!(
+        sink.events(),
+        [StreamEvent::TextDelta("hi".into()), StreamEvent::Completed { stop: None, pricing_model: None, request_ms: Some(2_345) }]
+    );
+
+    let mut unledgered = RecordingSink::collecting().with_accounting(SendAccounting::new(identity(&case, 10_000), Arc::new(Unpriced), None));
+    unledgered.event(completed());
+    unledgered.finish_accounting(Outcome::Completed(Completed::default())).await;
+    assert_eq!(unledgered.events(), [completed()]);
+    assert!(RecordingSink::collecting().finish_accounting(Outcome::Completed(Completed::default())).await.is_none());
+}
+
 #[test]
 fn a_status_follows_failed_then_substituted_then_retried() {
     assert_eq!(usage_request_status(true, true, 3), "failed");
@@ -179,4 +211,178 @@ fn a_status_follows_failed_then_substituted_then_retried() {
     assert!(!served_model_substituted("openai", "gpt-5", "openai/gpt-5-2026-01-01", false));
     assert!(served_model_substituted("openai", "gpt-5", "gpt-5-mini", false));
     assert!(!served_model_substituted("gemini-x", "a", "b", true));
+}
+
+mod through_the_registry {
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    use mixdog_core_api::domain::keepalive::{KeepaliveSchedule, TransportKind};
+    use mixdog_core_api::domain::provider::{
+        ErrorResponse, ModelRequest, ModelStream, ProviderAdapter, RequestOptions, StreamEvent, WireCodec, WireDecoder, WireRequest,
+    };
+    use mixdog_core_api::domain::retry::RetryPolicy;
+    use mixdog_protocol::ProviderId;
+
+    use super::*;
+    use crate::registry::accounted::AccountingDeps;
+    use crate::registry::providers::{ProviderBuilder, ProviderRegistry};
+
+    struct NoCodec;
+    impl WireCodec for NoCodec {
+        fn transport(&self) -> TransportKind {
+            TransportKind::Http1
+        }
+        fn encode(&self, _: &ModelRequest) -> Result<WireRequest, ProviderError> {
+            unreachable!()
+        }
+        fn decoder(&self, _: &ModelRequest) -> Box<dyn WireDecoder> {
+            unreachable!()
+        }
+        fn classify(&self, _: &ErrorResponse) -> ProviderError {
+            unreachable!()
+        }
+    }
+
+    type Script = Vec<Result<StreamEvent, ProviderError>>;
+
+    struct Scripted(Mutex<VecDeque<Result<StreamEvent, ProviderError>>>);
+
+    #[async_trait]
+    impl ModelStream for Scripted {
+        async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+            self.0.lock().unwrap().pop_front()
+        }
+        fn delivery(&self) -> DeliveryState {
+            DeliveryState::Accepted
+        }
+    }
+
+    struct Provider {
+        id: ProviderId,
+        policy: RetryPolicy,
+        keepalive: KeepaliveSchedule,
+        script: Mutex<Option<Script>>,
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for Provider {
+        fn id(&self) -> &ProviderId {
+            &self.id
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            &NoCodec
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            &self.policy
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            &self.keepalive
+        }
+        async fn attempt(&self, _: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            let script = self.script.lock().unwrap().take().unwrap();
+            Ok(Box::new(Scripted(Mutex::new(script.into()))))
+        }
+    }
+
+    struct Builder(Mutex<Option<Script>>);
+
+    #[async_trait]
+    impl ProviderBuilder for Builder {
+        async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            Ok(Arc::new(Provider {
+                id: ProviderId::from(name),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                script: Mutex::new(self.0.lock().unwrap().take()),
+            }))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn available(&self, _: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> bool {
+            false
+        }
+    }
+
+    /// A send as the turn makes it: through the provider the registry hands out. The ledger row is
+    /// Node's for the same send, and it is written before the terminal event is released.
+    #[tokio::test]
+    async fn a_registry_send_writes_nodes_row_before_it_releases_completed_with_the_duration() {
+        let _ = mixdog_js::time::set_process_zone(Tz::UTC);
+        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let mut replayed = 0;
+        for case in golden["cases"].as_array().unwrap() {
+            let end = &case["end"];
+            let plain = ["model", "responseId", "fallback", "generationMs"].iter().all(|k| end.get(k).is_none())
+                && case.get("abandoned").is_none()
+                && case.get("ownerSessionId").is_none()
+                && case["provider"] != "anthropic"
+                && end["kind"] != "cancelled";
+            if !plain {
+                continue;
+            }
+            let started_at = case["startedAt"].as_i64().unwrap();
+            let stream_ms = end.get("streamMs").and_then(Value::as_i64).unwrap_or(1500);
+            let usage = end.get("usage").map(usage_of);
+            let script: Script = if end["kind"] == "completed" {
+                usage
+                    .clone()
+                    .map(StreamEvent::Usage)
+                    .into_iter()
+                    .chain([StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None }])
+                    .map(Ok)
+                    .collect()
+            } else {
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Ambiguous);
+                error.partial_usage = usage.map(Box::new);
+                vec![Err(error)]
+            };
+            let sink = Arc::new(Collect::default());
+            let ledger: Arc<dyn UsageSink> = sink.clone();
+            let calls = Arc::new(AtomicI64::new(0));
+            let mut deps = AccountingDeps::new(Arc::new(Unpriced), Arc::new(move || Some(ledger.clone())));
+            deps.now = Arc::new(move || started_at + if calls.fetch_add(1, Ordering::SeqCst) == 0 { 0 } else { stream_ms });
+            deps.new_id = Arc::new(|| "<req>".into());
+            deps.account = Arc::new(|_| "default".into());
+            let registry = ProviderRegistry::new(Arc::new(Builder(Mutex::new(Some(script))))).with_accounting(deps);
+            let provider = case["provider"].as_str().unwrap();
+            registry.init_providers(&crate::service::admin_route::ensure_provider_enabled(&Map::new(), provider)).await.unwrap();
+            let adapter = registry.get(provider).await.unwrap();
+            let request = ModelRequest {
+                model: case["model"].as_str().unwrap().into(),
+                messages: Vec::new(),
+                tools: Vec::new(),
+                options: RequestOptions {
+                    session_id: Some(case["sessionId"].as_str().unwrap_or("session-1").into()),
+                    request_kind: Some("lead".into()),
+                    ..RequestOptions::default()
+                },
+            };
+            let mut stream = adapter.attempt(Arc::new(request)).await.unwrap();
+            let mut released = None;
+            while let Some(step) = stream.next().await {
+                match step {
+                    Ok(StreamEvent::Completed { request_ms, .. }) => {
+                        assert_eq!(sink.0.lock().unwrap().len(), 1, "{}: the row is written before Completed", case["name"]);
+                        released = Some(request_ms);
+                    }
+                    Ok(_) => assert!(sink.0.lock().unwrap().is_empty(), "{}", case["name"]),
+                    Err(_) => assert_eq!(sink.0.lock().unwrap().len(), 1, "{}", case["name"]),
+                }
+            }
+            let rows: Vec<Value> = sink.0.lock().unwrap().iter().map(|row| serde_json::to_value(row).unwrap()).collect();
+            assert_eq!(&rows, case["rows"].as_array().unwrap(), "{}", case["name"]);
+            if end["kind"] == "completed" {
+                assert_eq!(released, Some(Some(stream_ms as u64)), "{}: Completed carries the ledger's duration", case["name"]);
+            } else {
+                assert_eq!(released, None);
+            }
+            replayed += 1;
+        }
+        assert_eq!(replayed, 7);
+    }
 }

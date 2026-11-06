@@ -141,15 +141,8 @@ async fn posix_shell_tools(io: &ToolIo, processes: &dyn ProcessManager, path_env
 pub struct StartupProbes {
     io: ToolIo,
     processes: Arc<dyn ProcessManager>,
-    /// The observations this host has recorded: a request for one of them is a refresh.
+    /// The shell-tools PATHs observed (the other answers are asked of the observations themselves).
     recorded: Mutex<HashSet<String>>,
-}
-
-fn key(request: &ProbeRequest) -> String {
-    match request {
-        ProbeRequest::ChangeState { root } => format!("c:{root}"),
-        ProbeRequest::Ignored { directory, names } => format!("i:{directory}\0{}", names.join("\0")),
-    }
 }
 
 impl StartupProbes {
@@ -182,14 +175,13 @@ impl StartupProbes {
                 observed.record_ignored(directory, names.clone(), ignored, prewarm);
             }
         }
-        self.recorded().insert(key(request));
     }
 
     /// Records the answers of what a composition asked for and never had one: those are the cold
     /// first uses, which Node probes at once. The requests that refresh a recorded answer are
     /// returned for [`Self::refresh`]. `true` when anything was recorded.
     pub async fn settle(&self, observed: &StartupObservations, requests: Vec<ProbeRequest>) -> (bool, Vec<ProbeRequest>) {
-        let (cold, refresh): (Vec<_>, Vec<_>) = requests.into_iter().partition(|r| !self.recorded().contains(&key(r)));
+        let (cold, refresh): (Vec<_>, Vec<_>) = requests.into_iter().partition(|r| !observed.answers(r));
         futures::future::join_all(cold.iter().map(|request| self.run(observed, request, true))).await;
         (!cold.is_empty(), refresh)
     }

@@ -372,9 +372,16 @@ impl Folders {
         probe(&self.shipped_dir(&id).join("AGENT.md")).presence()
     }
 
-    /// `archivedIdentities` for one id: the name a deleted agent left, `None` when it is not
-    /// archived.
-    pub(super) fn archived_name(&self, lane: &Lane, agent_id: &str) -> Option<String> {
+    /// `avatarOf`: the avatar of the manifest in effect (the user copy's, else the shipped one),
+    /// `Null` when it has none.
+    pub(super) fn avatar_of(&self, lane: &Lane, id: &str) -> Value {
+        let dir = if self.has_user_file(lane, id) { self.user_dir(lane, id) } else { self.shipped_dir(id) };
+        manifest_of(&dir).get("avatar").and_then(super::avatar::normalize_agent_avatar).unwrap_or(Value::Null)
+    }
+
+    /// `archivedIdentities` for one id: the name and face a deleted agent left, `None` when it
+    /// is not archived.
+    pub(super) fn archived_identity(&self, lane: &Lane, agent_id: &str) -> Option<ArchivedIdentity> {
         let id = agent_editor_id(agent_id);
         if id.is_empty() || id != agent_id {
             return None;
@@ -383,8 +390,10 @@ impl Folders {
         if !dir.join(DELETED_MARKER).exists() {
             return None;
         }
-        let name = one_line(manifest_of(&dir).get("name"));
-        Some(if name.is_empty() { id } else { name })
+        let manifest = manifest_of(&dir);
+        let name = one_line(manifest.get("name"));
+        let avatar = manifest.get("avatar").and_then(super::avatar::normalize_agent_avatar).unwrap_or(Value::Null);
+        Some(ArchivedIdentity { name: if name.is_empty() { id } else { name }, avatar })
     }
 
     /// Mixy's identity folder: `bots/mixy` once the store is active, `agents/lead` before.
@@ -405,4 +414,11 @@ impl Probe {
             _ => Presence::Unknown,
         }
     }
+}
+
+/// What a deleted agent left: its name and face (`Null` without one).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArchivedIdentity {
+    pub name: String,
+    pub avatar: Value,
 }

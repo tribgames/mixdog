@@ -427,8 +427,27 @@ pub trait EffortPrewarm: Send + Sync + 'static {
     fn prewarm(&self, thread: &ThreadId, header: &Header);
 }
 
+/// What a worker's turn carries into its run (`TurnRequest` of the agent tool's flow): set only
+/// for a turn a job owns or a follow-up it sends. The session itself calls
+/// `hooks.on_terminal_result` with the run's final result (before the turn settles); the run
+/// calls `hooks.on_tool_result` per tool result and `hooks.notify` for the worker's own tool
+/// completions.
+#[derive(Clone)]
+pub struct AgentTurn {
+    pub kind: mixdog_agent::agent_tool::flow::seams::TurnKind,
+    pub hooks: mixdog_agent::agent_tool::flow::seams::TurnHooks,
+    /// The job's admitted slot, handed back during provider requests (`RunConfig.slot`).
+    pub slot: Option<Arc<dyn mixdog_agent::env::Yielder>>,
+    /// `ask`'s `context` option.
+    pub context: Option<Value>,
+    /// The trusted text a routine's skill is selected from.
+    pub skill_selection: Option<String>,
+}
+
 /// What the actor hands a new run.
 pub struct RunStart {
+    /// `Some` for a worker's turn started by `agent_registry::SessionTurns`.
+    pub agent_turn: Option<AgentTurn>,
     pub thread: ThreadId,
     pub turn: TurnId,
     pub input: TurnInput,

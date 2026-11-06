@@ -282,7 +282,7 @@ impl HostedSearchSender for ProviderSearchSender {
             }
             Err(SendError::Cancelled) => None,
         };
-        if let Some(accounting) = sink.accounting() {
+        if sink.accounting().is_some() {
             let outcome = match (&sent, &outcome_error) {
                 (Ok(_), _) => Outcome::Completed(Completed {
                     facts: usage.as_ref().map(Facts::from),
@@ -294,7 +294,7 @@ impl HostedSearchSender for ProviderSearchSender {
                 (Err(_), Some(error)) => Outcome::Failed(error),
                 (Err(_), None) => return Err(plain("web search failed")),
             };
-            let _ = accounting.finish(outcome).await;
+            let _ = sink.finish_accounting(outcome).await;
         }
         match sent {
             Err(SendError::Cancelled) => Err(plain("This operation was aborted")),

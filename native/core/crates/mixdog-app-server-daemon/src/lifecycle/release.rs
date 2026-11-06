@@ -1,6 +1,10 @@
 //! `runtime/last-exit.json` (LR §5.3 step 4, §6.1 terminate).
 
-#![allow(clippy::disallowed_methods, reason = "the release record is written once, by the exiting thread, with no runtime left")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the release record is written once, by the exiting thread, with no runtime left"
+)]
 
 use std::io::Write;
 use std::path::Path;

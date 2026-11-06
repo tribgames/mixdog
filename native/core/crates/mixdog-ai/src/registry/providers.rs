@@ -23,6 +23,8 @@ use std::sync::PoisonError;
 use async_trait::async_trait;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use serde_json::Map;
+
+use super::accounted::{AccountedAdapter, AccountingDeps};
 use serde_json::Value;
 
 /// Error code of an init that has no enabled provider.
@@ -114,6 +116,8 @@ struct Plan {
 
 pub struct ProviderRegistry {
     builder: Arc<dyn ProviderBuilder>,
+    /// Set: every provider this registry hands out sends through the usage ledger.
+    accounting: Option<Arc<AccountingDeps>>,
     state: Mutex<State>,
     /// Every mutation runs under this lock, so two applies never interleave.
     apply: tokio::sync::Semaphore,
@@ -147,7 +151,20 @@ fn canonical(name: &str) -> &str {
 
 impl ProviderRegistry {
     pub fn new(builder: Arc<dyn ProviderBuilder>) -> Self {
-        Self { builder, state: Mutex::new(State::default()), apply: tokio::sync::Semaphore::new(1) }
+        Self { builder, accounting: None, state: Mutex::new(State::default()), apply: tokio::sync::Semaphore::new(1) }
+    }
+
+    /// Makes every provider built from here on an accounted one (`accountProviderSend`).
+    pub fn with_accounting(mut self, accounting: AccountingDeps) -> Self {
+        self.accounting = Some(Arc::new(accounting));
+        self
+    }
+
+    fn accounted(&self, name: &str, adapter: Arc<dyn ProviderAdapter>) -> Arc<dyn ProviderAdapter> {
+        match &self.accounting {
+            Some(deps) => AccountedAdapter::wrap(adapter, name, Arc::clone(deps)),
+            None => adapter,
+        }
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -240,7 +257,10 @@ impl ProviderRegistry {
         let mut built = Vec::new();
         for (name, cfg, sig) in self.pending(&plan) {
             match self.builder.build(&name, &cfg).await {
-                Ok(adapter) => built.push((name, Ok((adapter, sig)))),
+                Ok(adapter) => {
+                    let adapter = self.accounted(&name, adapter);
+                    built.push((name, Ok((adapter, sig))));
+                }
                 Err(msg) => {
                     let error = format!("[provider] Failed to init \"{name}\": {msg}");
                     // One invalid custom provider is isolated: skipped and
@@ -335,7 +355,7 @@ impl ProviderRegistry {
             return None;
         }
         let empty = Value::Object(Map::new());
-        let adapter = self.builder.build(name, &empty).await.ok()?;
+        let adapter = self.accounted(name, self.builder.build(name, &empty).await.ok()?);
         // Both gates again after the await (Node): the credential may have been
         // removed, or the provider disabled, while the build was in flight. The
         // disable check and the registration share one lock, so a `disable`

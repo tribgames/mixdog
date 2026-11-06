@@ -639,7 +639,8 @@ impl Run {
             model: if response.model.is_empty() { self.model.clone() } else { response.model.clone() },
             requested_model: self.model.clone(),
             delta_tool_calls: response.tool_calls.len() as u64,
-            request_ms: (self.env.clock.now_ms() - self.request_started_ms).max(0) as u64,
+            // The ledger's duration when the send was accounted; else the loop's own clock.
+            request_ms: response.request_ms.unwrap_or_else(|| (self.env.clock.now_ms() - self.request_started_ms).max(0) as u64),
             delta_prompt: response.usage.input_tokens,
             send_tools: self.last_request.as_ref().map(|r| r.tools.clone()).unwrap_or_default(),
             reasoning_tokens,

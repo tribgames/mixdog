@@ -183,7 +183,8 @@ pub(super) struct SavePlan {
 }
 
 /// `resolveSaveTarget` and the facts of the save.
-pub(super) fn plan_save(folders: &Folders, lane: &Lane, payload: &Map<String, Value>) -> Result<SavePlan, String> {
+/// `fixed` is the id the save was queued under: the target is resolved once, before queuing.
+pub(super) fn plan_save(folders: &Folders, lane: &Lane, payload: &Map<String, Value>, fixed: Option<&str>) -> Result<SavePlan, String> {
     let given = agent_editor_id(&clean(payload.get("id")));
     if payload.contains_key("id") && given.is_empty() {
         return Err("agent id must contain letters/numbers (dashes and dots allowed)".into());
@@ -203,7 +204,9 @@ pub(super) fn plan_save(folders: &Folders, lane: &Lane, payload: &Map<String, Va
         .and_then(Value::as_array)
         .map(|bots| bots.iter().filter_map(Value::as_str).map(str::to_owned).collect())
         .unwrap_or_default();
-    let id = if given.is_empty() {
+    let id = if let Some(fixed) = fixed {
+        fixed.to_owned()
+    } else if given.is_empty() {
         available_workflow_id(&agent_id_from_name(&name), |candidate| {
             folders.load(lane, candidate).is_some()
                 || is_archived(&folders.user_dir(lane, candidate))
@@ -345,12 +348,16 @@ fn write_agent_files(
             None => front.push((key.clone(), value.clone())),
         }
     }
+    // Both are JavaScript objects there: integer-like keys come first, ascending.
+    let front: Map<String, Value> = front.into_iter().collect();
+    let front: Vec<(String, Value)> = mixdog_js::js_object_keys(&front).into_iter().map(|key| (key.clone(), front[key].clone())).collect();
     write_text(lane, &dir.join("AGENT.md"), &frontmatter_doc(&front, &definition.body), &definition_write())?;
     // loadAgentDefinition prefers the manifest for name/description.
     let mut json: Map<String, Value> = meta.into_iter().collect();
     for (key, value) in manifest {
         json.insert(key.clone(), value.clone());
     }
+    let json: Map<String, Value> = mixdog_js::js_object_keys(&json).into_iter().map(|key| (key.clone(), json[key].clone())).collect();
     write_manifest(lane, &dir.join("agent.json"), &json)?;
     remove_file(&dir.join(PURGING_MARKER));
     remove_file(&dir.join(DELETED_MARKER));

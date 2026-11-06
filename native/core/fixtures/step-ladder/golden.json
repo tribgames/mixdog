@@ -1,0 +1,264 @@
+{
+  "cases": [
+    {
+      "anthropicLevels": null,
+      "model": "gpt-5",
+      "options": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "provider": "openai",
+      "row": null
+    },
+    {
+      "anthropicLevels": null,
+      "model": "gpt-5",
+      "options": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "provider": "openai",
+      "row": {}
+    },
+    {
+      "anthropicLevels": null,
+      "model": "gpt-5",
+      "options": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "provider": "openai",
+      "row": {
+        "family": "gpt-5"
+      }
+    },
+    {
+      "anthropicLevels": null,
+      "model": "o3",
+      "options": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider": "openai",
+      "row": {
+        "reasoningLevels": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    },
+    {
+      "anthropicLevels": null,
+      "model": "gpt-5",
+      "options": [
+        "minimal",
+        "low",
+        "high"
+      ],
+      "provider": "openai",
+      "row": {
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "minimal",
+              "low",
+              "high",
+              "bogus"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "anthropicLevels": null,
+      "model": "gpt-5.5",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "provider": "openai-oauth",
+      "row": {
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "anthropicLevels": null,
+      "model": "gemini-2.5-pro",
+      "options": [
+        "low",
+        "high"
+      ],
+      "provider": "gemini",
+      "row": {
+        "reasoningLevels": [
+          "low",
+          "high"
+        ]
+      }
+    },
+    {
+      "anthropicLevels": null,
+      "model": "gemini-2.5-pro",
+      "options": [],
+      "provider": "gemini",
+      "row": {}
+    },
+    {
+      "anthropicLevels": null,
+      "model": "grok-4",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "provider": "xai",
+      "row": {
+        "family": "grok"
+      }
+    },
+    {
+      "anthropicLevels": null,
+      "model": "deepseek-v4-pro",
+      "options": [],
+      "provider": "deepseek",
+      "row": {}
+    },
+    {
+      "anthropicLevels": null,
+      "model": "m1",
+      "options": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider": "custom-acme",
+      "row": {
+        "customReasoning": true,
+        "reasoningLevels": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    },
+    {
+      "anthropicLevels": null,
+      "model": "m1",
+      "options": [],
+      "provider": "custom-acme",
+      "row": {
+        "customReasoning": true,
+        "reasoningLevels": []
+      }
+    },
+    {
+      "anthropicLevels": null,
+      "model": "m1",
+      "options": [],
+      "provider": "custom-acme",
+      "row": {
+        "customReasoning": true
+      }
+    },
+    {
+      "anthropicLevels": null,
+      "model": "m1",
+      "options": [
+        "none",
+        "low",
+        "high"
+      ],
+      "provider": "custom-acme",
+      "row": {
+        "customReasoning": true,
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "none",
+              "low",
+              "high"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "anthropicLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "model": "claude-opus-4-8",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "provider": "anthropic",
+      "row": {
+        "reasoningLevels": [
+          "low"
+        ]
+      }
+    },
+    {
+      "anthropicLevels": [],
+      "model": "claude-sonnet-4-5",
+      "options": [],
+      "provider": "anthropic",
+      "row": null
+    },
+    {
+      "anthropicLevels": [],
+      "model": "claude-3-5-haiku",
+      "options": [],
+      "provider": "anthropic-oauth",
+      "row": null
+    },
+    {
+      "anthropicLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "model": "claude-opus-5",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "provider": "anthropic",
+      "row": null
+    }
+  ]
+}

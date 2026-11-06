@@ -37026,6 +37026,1928 @@
     "to": "needs_approval"
    },
    "error": "The tool already has this permission or more; nothing changed."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "disabled"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": {
+    "server": "gmail",
+    "tool": "send",
+    "from": "disabled",
+    "to": "auto"
+   },
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "disabled"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "disabled"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": {
+    "server": "gmail",
+    "tool": "send",
+    "from": "disabled",
+    "to": "auto"
+   },
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "disabled"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "disabled"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "disabled"
+     },
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "disabled"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "disabled"
+     },
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail-02": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": {
+    "server": "gmail",
+    "tool": "send",
+    "from": "disabled",
+    "to": "auto"
+   },
+   "error": "The tool already has this permission or more; nothing changed."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail-02": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail-02": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": {
+    "server": "gmail",
+    "tool": "send",
+    "from": "disabled",
+    "to": "auto"
+   },
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail-02": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail-02": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail-02": {
+      "send": "disabled"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail-02": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail-02": {
+      "send": "disabled"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "needs_approval"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "needs_approval"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "needs_approval"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "needs_approval"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "needs_approval"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "needs_approval"
+     },
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "needs_approval"
+     },
+     "gmail-02": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-2": {
+      "send": "needs_approval"
+     },
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "disabled"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "disabled"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "disabled"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "disabled"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "disabled"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "disabled"
+     },
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": {
+    "server": "gmail",
+    "tool": "send",
+    "from": "disabled",
+    "to": "auto"
+   },
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "disabled"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "disabled"
+     },
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail-2": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail-2": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail-2": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail-2": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail-2": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail-2": {
+      "send": "disabled"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": {
+    "server": "gmail",
+    "tool": "send",
+    "from": "disabled",
+    "to": "auto"
+   },
+   "error": "The tool already has this permission or more; nothing changed."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail-2": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "auto"
+     },
+     "gmail-2": {
+      "send": "disabled"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "needs_approval"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "needs_approval"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "needs_approval"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "needs_approval"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "needs_approval"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "needs_approval"
+     },
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "needs_approval"
+     },
+     "gmail-2": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-02": {
+      "send": "needs_approval"
+     },
+     "gmail-2": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "disabled"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "disabled"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "disabled"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "disabled"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "disabled"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "disabled"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "disabled"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "disabled"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-003": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-003": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-003": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-003": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-003": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-003": {
+      "send": "disabled"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": {
+    "server": "gmail",
+    "tool": "send",
+    "from": "disabled",
+    "to": "auto"
+   },
+   "error": "The tool already has this permission or more; nothing changed."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-003": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-003": {
+      "send": "disabled"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "needs_approval"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": {
+    "server": "gmail",
+    "tool": "send",
+    "from": "disabled",
+    "to": "auto"
+   },
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "needs_approval"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "needs_approval"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "needs_approval"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "needs_approval"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "needs_approval"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "needs_approval"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-3": {
+      "send": "needs_approval"
+     },
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-003": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "disabled"
+     },
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-3": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-3": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-3": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": {
+    "server": "gmail",
+    "tool": "send",
+    "from": "disabled",
+    "to": "auto"
+   },
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-3": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-3": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-3": {
+      "send": "disabled"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-3": {
+      "send": "disabled"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "auto"
+     },
+     "gmail-3": {
+      "send": "disabled"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "needs_approval"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": {
+    "server": "gmail",
+    "tool": "send",
+    "from": "disabled",
+    "to": "auto"
+   },
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "needs_approval"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "needs_approval"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "needs_approval"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send": "needs_approval"
+     }
+    }
+   },
+   "approved": null,
+   "ok": null
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "needs_approval"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "needs_approval"
+     },
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
+  },
+  {
+   "before": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "needs_approval"
+     },
+     "gmail-3": {
+      "send": "auto"
+     }
+    }
+   },
+   "after": {
+    "off": [],
+    "tools": {
+     "gmail-03": {
+      "send": "needs_approval"
+     },
+     "gmail-3": {
+      "send": "auto"
+     },
+     "gmail": {
+      "send": "auto"
+     }
+    }
+   },
+   "approved": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop."
   }
  ]
 }

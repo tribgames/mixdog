@@ -7,7 +7,6 @@ use std::sync::LazyLock;
 use mixdog_agent::env::CompactEvent;
 use mixdog_agent::env::CompactStatus;
 use mixdog_agent::env::CompactTrigger;
-use mixdog_core_api::domain::provider::Usage;
 use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
@@ -207,20 +206,45 @@ pub(crate) fn compact_event_detail(event: &CompactEvent) -> String {
     parts.join(" · ")
 }
 
-/// `usageDeltaEvent` of one model call, with the fields the call reports here.
-pub(crate) fn usage_delta(session_id: &str, iteration: u32, usage: &Usage, ts: i64) -> Value {
+/// `usageDeltaEvent` of one model call, in Node's key order. The provider facts Rust's `Usage`
+/// does not carry read as Node's defaults: the prompt and its cache split are known, and the
+/// context figures are the billed ones (`contextInputTokens ?? inputTokens`).
+pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts: i64) -> Value {
+    let usage = &report.usage;
+    let tools: Vec<Value> = report
+        .send_tools
+        .iter()
+        .map(|tool| {
+            let mut out = json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema });
+            if tool.defer_loading {
+                out["deferLoading"] = Value::Bool(true);
+            }
+            out
+        })
+        .collect();
     json!({
         "sessionId": session_id,
-        "iterationIndex": iteration,
+        "iterationIndex": report.iteration,
         "source": "provider_send",
+        "requestedModel": report.requested_model,
+        "model": report.model,
         "deltaInput": usage.input_tokens,
         "deltaOutput": usage.output_tokens,
+        "deltaToolCalls": report.delta_tool_calls,
+        "reasoningTokens": report.reasoning_tokens,
+        "reasoningTokensComplete": report.reasoning_tokens_complete,
+        "deltaPrompt": report.delta_prompt,
+        "requestMs": report.request_ms,
+        "promptKnown": true,
         "deltaCachedRead": usage.cache_read_tokens,
         "deltaCacheWrite": usage.cache_write_tokens,
         "contextInputTokens": usage.input_tokens,
         "contextOutputTokens": usage.output_tokens,
+        "contextPromptTokens": report.delta_prompt,
         "contextCachedReadTokens": usage.cache_read_tokens,
         "contextCacheWriteTokens": usage.cache_write_tokens,
+        "contextMeasuredTokens": null,
+        "sendTools": tools,
         "ts": ts,
     })
 }

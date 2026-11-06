@@ -96,25 +96,32 @@ struct View {
 /// One connector's tools and the permission each holds, `None` for a value that is no permission.
 type Tools = Vec<(String, Option<Permission>)>;
 
+/// A `tools` object as a view reads it: connector id → tool → permission, each level in
+/// JavaScript's key order.
+fn view_tools(tools: Option<&Value>) -> Vec<(String, Tools)> {
+    entries(tools)
+        .into_iter()
+        .map(|(id, own)| (id.clone(), entries(Some(own)).into_iter().map(|(tool, p)| (tool.clone(), p.as_str().and_then(Permission::parse))).collect()))
+        .collect()
+}
+
+/// `parseConnectorPolicy(before).tools`: `toolOverrides` of the stored value.
+fn stored_tools(before: Option<&Value>) -> Map<String, Value> {
+    tool_overrides(before.and_then(|v| v.get("tools")))
+}
+
 impl View {
-    fn of_policy(policy: &Policy) -> Self {
-        Self {
-            off: policy.off.clone(),
-            tools: policy.tools.iter().map(|(id, own)| (id.clone(), own.iter().map(|(t, p)| (t.clone(), Some(*p))).collect())).collect(),
-        }
+    /// The stored policy `before` as `parseConnectorPolicy` reads it: its `off` is the parsed
+    /// set, its tools are `toolOverrides` of the stored value (trimmed names, valid permissions
+    /// only), in the order the value holds them.
+    fn of_stored(policy: &Policy, before: Option<&Value>) -> Self {
+        Self { off: policy.off.clone(), tools: view_tools(Some(&Value::Object(stored_tools(before)))) }
     }
 
     fn raw(value: Option<&Value>) -> Self {
         let value = value.filter(|v| !v.is_null());
         let off = value.and_then(|v| v.get("off")).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
-        let tools = entries(value.and_then(|v| v.get("tools")))
-            .into_iter()
-            .map(|(id, own)| {
-                let own = entries(Some(own)).into_iter().map(|(tool, p)| (tool.clone(), p.as_str().and_then(Permission::parse))).collect();
-                (id.clone(), own)
-            })
-            .collect();
-        Self { off, tools }
+        Self { off, tools: view_tools(value.and_then(|v| v.get("tools"))) }
     }
 
     /// `connectorToolEntries`: the valid entries for `tool` under connector `group` or any of its
@@ -153,7 +160,7 @@ fn widens(before: Option<&Value>, after: Option<&Value>) -> bool {
     if old.allow.is_some() {
         return true;
     }
-    let (old, next) = (View::of_policy(&old), View::raw(after));
+    let (old, next) = (View::of_stored(&old, before), View::raw(after));
     if old.off.iter().any(|server| !next.off.contains(server)) {
         return true;
     }
@@ -193,10 +200,10 @@ pub struct ApprovedToolChange {
 
 /// `pinTool(policy, group, tool)`: the approved tool's entries (the connector's, and any
 /// account's) pinned to one value in a policy, so a comparison judges every other tool and switch.
-fn pinned(policy: &Policy, group: &str, tool: &str) -> Value {
+fn pinned(policy: &Policy, before: Option<&Value>, group: &str, tool: &str) -> Value {
     let mut tools = Map::new();
-    for (id, own) in &policy.tools {
-        let mut entry: Map<String, Value> = own.iter().map(|(t, p)| (t.clone(), Value::String(p.name().into()))).collect();
+    for (id, own) in entries(Some(&Value::Object(stored_tools(before)))) {
+        let mut entry = own.as_object().cloned().unwrap_or_default();
         if group_id(id) == group {
             entry.insert(tool.into(), Value::String("disabled".into()));
         }
@@ -248,11 +255,11 @@ fn assert_approved(before: Option<&Value>, after: Option<&Value>, change: &Appro
     if old.allow.is_some() || landed.and_then(Value::as_str) != Some(change.to.name()) {
         return Err(NO_WIDEN.into());
     }
-    if widens(Some(&pinned(&old, &group, &change.tool)), Some(&pinned_raw(after, &group, &change.tool))) {
+    if widens(Some(&pinned(&old, before, &group, &change.tool)), Some(&pinned_raw(after, &group, &change.tool))) {
         return Err(NO_WIDEN.into());
     }
     // No override: it asks at least (as `connectorPolicyWidens` reads it).
-    let was = View::of_policy(&old).account_rank(&change.server, &group, &change.tool, 1);
+    let was = View::of_stored(&old, before).account_rank(&change.server, &group, &change.tool, 1);
     if was < rank(change.from) {
         return Err("A newer restriction on this tool landed meanwhile; it was kept.".into());
     }

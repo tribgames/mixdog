@@ -55,7 +55,9 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
-    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    // A worker thread drives the spawned pool tasks while the test thread blocks on the handle, as
+    // the release thread does in production.
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(1).build().unwrap();
     let sections = Arc::new(Sections::default());
     let cancel = Arc::new(CancelRegistry::default());
     let barriers = Arc::new(AtomicU32::new(0));

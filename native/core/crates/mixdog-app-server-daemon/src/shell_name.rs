@@ -9,12 +9,16 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_rt::LaneToken;
+use tokio_util::sync::CancellationToken;
+
 const PWSH: &str = "pwsh.exe";
 const WINDOWS_POWERSHELL: &str = "powershell.exe";
 const POSIX_BASH_PATHS: [&str; 4] = ["/bin/bash", "/usr/bin/bash", "/usr/local/bin/bash", "/opt/homebrew/bin/bash"];
 
 /// `firstExistingPathFromPath`: the working directory first, then each `PATH` entry (trimmed,
 /// surrounding quotes removed, duplicates dropped; case-insensitive on Windows).
+#[allow(clippy::disallowed_methods, reason = "runs only inside the lane job of `resolve_program_current_on`")]
 fn first_on_path(command: &str, windows: bool, cwd: Option<&Path>, path: Option<&OsStr>) -> Option<PathBuf> {
     let raw = path.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     let delimiter = if windows { ';' } else { ':' };
@@ -36,6 +40,7 @@ fn first_on_path(command: &str, windows: bool, cwd: Option<&Path>, path: Option<
 }
 
 /// `pwshFromKnownWindowsRoots`: newest major first, then the Store alias.
+#[allow(clippy::disallowed_methods, reason = "runs only inside the lane job of `resolve_program_current_on`")]
 fn known_root_pwsh(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
     let bases = [
         env("ProgramW6432"),
@@ -60,7 +65,9 @@ fn known_root_pwsh(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
 }
 
 /// The shell's program: the path `resolveShell` returns. `cwd` and `path` are the working
-/// directory and `PATH` searched; `env` reads one environment variable.
+/// directory and `PATH` searched; `env` reads one environment variable. Probes the file system:
+/// it runs in the lane job of [`resolve_program_current_on`].
+#[allow(clippy::disallowed_methods, reason = "runs only inside the lane job of `resolve_program_current_on`")]
 pub fn resolve_program(
     windows: bool,
     cwd: Option<&Path>,
@@ -100,22 +107,23 @@ pub fn name_of(program: &str) -> String {
     Path::new(program).file_name().map_or_else(|| program.to_owned(), |name| name.to_string_lossy().into_owned())
 }
 
-/// The program for this process.
-pub fn resolve_program_current() -> String {
-    resolve_program(
-        cfg!(windows),
-        std::env::current_dir().ok().as_deref(),
-        std::env::var_os("PATH").as_deref(),
-        &|name| std::env::var(name).ok(),
-    )
-}
-
-/// The program name for this process.
-pub fn resolve_current() -> String {
-    name_of(&resolve_program_current())
+/// The program for this process, probed as a job of `lane`.
+pub async fn resolve_program_current_on(lane: impl LaneToken) -> std::io::Result<String> {
+    let job = lane
+        .submit(&CancellationToken::new(), |_lane| {
+            resolve_program(
+                cfg!(windows),
+                std::env::current_dir().ok().as_deref(),
+                std::env::var_os("PATH").as_deref(),
+                &|name| std::env::var(name).ok(),
+            )
+        })
+        .map_err(|_| std::io::Error::other("the lane is full"))?;
+    job.await.map_err(std::io::Error::other)
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "tests write their fixture files on the test thread")]
 mod tests {
     use super::*;
 
