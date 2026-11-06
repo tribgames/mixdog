@@ -44,11 +44,20 @@ impl GoalQuotaResume {
         before: Option<&Goal>,
         settled: Option<&Goal>,
     ) -> Result<bool, QuotaError> {
-        let goal_id = suspended_goal_id(before, settled);
+        self.note_goal(session_id, turn_key, &suspended_goal_id(before, settled)).await
+    }
+
+    /// `noteQuotaSuspendedGoal` for a Goal id already decided (empty records nothing).
+    pub async fn note_goal(&self, session_id: &str, turn_key: &str, goal_id: &str) -> Result<bool, QuotaError> {
         if goal_id.is_empty() {
             return Ok(false);
         }
-        self.store.note_suspended_goal(session_id, turn_key, &goal_id).await
+        self.store.note_suspended_goal(session_id, turn_key, goal_id).await
+    }
+
+    /// `cancelQuotaResume`'s store half: the pending resume goes, the Goal note stays.
+    pub async fn cancel_entry(&self, session_id: &str) -> Result<bool, QuotaError> {
+        self.store.cancel(session_id, None).await
     }
 
     /// `quotaSuspendedGoal`.

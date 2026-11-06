@@ -130,6 +130,9 @@ struct Stat {
     dev: u64,
 }
 
+// Node's `statSync`: one metadata call per path argument. `ResultReuse` is async now, so the host can
+// run this on a lane (`lookup_now`/`store_now` still call it on the calling thread).
+#[allow(clippy::disallowed_methods, reason = "one metadata stat on the calling thread (Node statSync); to move onto a lane")]
 fn stat_tuple(abs: &str) -> Option<Stat> {
     if device_paths::is_unc_path(abs)
         || device_paths::is_windows_device_path(abs)
@@ -816,8 +819,9 @@ fn canonical_scoped(tool: &str, args: &JsonValue) -> Option<JsonValue> {
     }
 }
 
-impl ResultReuse for ToolResultReuse {
-    fn lookup(&self, call: &ToolCall, touch: bool) -> Option<Reused> {
+impl ToolResultReuse {
+    /// `ResultReuse::lookup`, run to completion on the calling thread.
+    pub fn lookup_now(&self, call: &ToolCall, touch: bool) -> Option<Reused> {
         if call.id.starts_with(CURSOR_NATIVE_PREFIX) || self.session_id.is_empty() {
             return None;
         }
@@ -828,12 +832,12 @@ impl ResultReuse for ToolResultReuse {
         }
     }
 
-    fn store(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &mixdog_core_api::domain::tool::ToolOutput) {
+    pub fn store_now(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &mixdog_core_api::domain::tool::ToolOutput) {
         let roots = mixdog_tools::code_graph::dependency_roots(output);
         self.store_with_roots(call, content, tool_use_id, roots.as_deref());
     }
 
-    fn after_call(&self, call: &ToolCall, failed: bool) {
+    pub fn after_call_now(&self, call: &ToolCall, failed: bool) {
         if self.session_id.is_empty() {
             return;
         }
@@ -867,7 +871,23 @@ impl ResultReuse for ToolResultReuse {
     }
 }
 
+#[async_trait::async_trait]
+impl ResultReuse for ToolResultReuse {
+    async fn lookup(&self, call: &ToolCall, touch: bool) -> Option<Reused> {
+        self.lookup_now(call, touch)
+    }
+
+    async fn store(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &mixdog_core_api::domain::tool::ToolOutput) {
+        self.store_now(call, content, tool_use_id, output);
+    }
+
+    async fn after_call(&self, call: &ToolCall, failed: bool) {
+        self.after_call_now(call, failed);
+    }
+}
+
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
 mod tests {
     use serde_json::json;
 
@@ -895,14 +915,14 @@ mod tests {
         std::fs::write(&file, "one").unwrap();
         let r = reuse(dir.path(), 0);
         let c = call("read", json!({"path": "a.txt"}));
-        assert!(r.lookup(&c, true).is_none());
+        assert!(r.lookup_now(&c, true).is_none());
         r.store_with_roots(&c, "one", "t1", None);
-        let hit = r.lookup(&c, true).unwrap();
+        let hit = r.lookup_now(&c, true).unwrap();
         assert_eq!((hit.content.as_str(), hit.first_tool_use_id.as_str()), ("one", "t1"));
         // another offset is another key
-        assert!(r.lookup(&call("read", json!({"path": "a.txt", "offset": 3})), true).is_none());
+        assert!(r.lookup_now(&call("read", json!({"path": "a.txt", "offset": 3})), true).is_none());
         std::fs::write(&file, "two!").unwrap();
-        assert!(r.lookup(&c, true).is_none());
+        assert!(r.lookup_now(&c, true).is_none());
     }
 
     #[test]
@@ -924,10 +944,10 @@ mod tests {
         let list = call("list", json!({"path": "src"}));
         r.store_with_roots(&read, "one", "t1", None);
         r.store_with_roots(&list, "a.txt", "t2", None);
-        assert!(r.lookup(&list, true).is_some());
-        r.after_call(&call("apply_patch", json!({"patch": "--- a/src/a.txt\n+++ b/src/a.txt\n@@\n-x\n+y\n"})), false);
-        assert!(r.lookup(&read, true).is_none());
-        assert!(r.lookup(&list, true).is_none());
+        assert!(r.lookup_now(&list, true).is_some());
+        r.after_call_now(&call("apply_patch", json!({"patch": "--- a/src/a.txt\n+++ b/src/a.txt\n@@\n-x\n+y\n"})), false);
+        assert!(r.lookup_now(&read, true).is_none());
+        assert!(r.lookup_now(&list, true).is_none());
     }
 
     #[test]
@@ -944,9 +964,9 @@ mod tests {
         let c = call("glob", json!({"pattern": "*.rs", "root": "."}));
         r.store_with_roots(&c, "a.rs", "t", None);
         // `root` is an alias of `path`: either spelling is one key
-        assert!(r.lookup(&call("glob", json!({"pattern": "*.rs", "path": "."})), true).is_some());
+        assert!(r.lookup_now(&call("glob", json!({"pattern": "*.rs", "path": "."})), true).is_some());
         *clock.lock().unwrap() = 30_000;
-        assert!(r.lookup(&c, true).is_none());
+        assert!(r.lookup_now(&c, true).is_none());
     }
 
     #[test]
@@ -955,10 +975,10 @@ mod tests {
         let r = reuse(dir.path(), 0);
         let list = call("list", json!({}));
         r.store_with_roots(&list, "x", "t", None);
-        r.after_call(&call("git", json!({"command": "git status"})), false);
-        assert!(r.lookup(&list, true).is_some());
-        r.after_call(&call("shell", json!({"command": "rm x"})), false);
-        assert!(r.lookup(&list, true).is_none());
+        r.after_call_now(&call("git", json!({"command": "git status"})), false);
+        assert!(r.lookup_now(&list, true).is_some());
+        r.after_call_now(&call("shell", json!({"command": "rm x"})), false);
+        assert!(r.lookup_now(&list, true).is_none());
     }
 
     #[test]
@@ -969,16 +989,16 @@ mod tests {
         r.store_with_roots(&stored, "hit", "t", None);
         // alias spellings, numeric strings and `limit` all reach one canonical request
         let same = call("grep", json!({"query": "foo", "root": "src", "limit": "5"}));
-        assert_eq!(r.lookup(&same, true).unwrap().content, "hit");
+        assert_eq!(r.lookup_now(&same, true).unwrap().content, "hit");
         // explicit context is a different request from the automatic window
-        assert!(r.lookup(&call("grep", json!({"pattern": "foo", "path": "src", "head_limit": 5, "context": 2})), true).is_none());
+        assert!(r.lookup_now(&call("grep", json!({"pattern": "foo", "path": "src", "head_limit": 5, "context": 2})), true).is_none());
         // count ignores context flags
         r.store_with_roots(&call("grep", json!({"pattern": "z", "output_mode": "count"})), "n", "t2", None);
-        assert!(r.lookup(&call("grep", json!({"pattern": "z", "mode": "count", "-A": 3})), true).is_some());
+        assert!(r.lookup_now(&call("grep", json!({"pattern": "z", "mode": "count", "-A": 3})), true).is_some());
         // invalid: stored nothing, looked up nothing
         let bad = call("grep", json!({"pattern": "z", "head_limit": -1}));
         r.store_with_roots(&bad, "x", "t3", None);
-        assert!(r.lookup(&bad, true).is_none());
+        assert!(r.lookup_now(&bad, true).is_none());
     }
 
     #[test]

@@ -3,12 +3,12 @@
   "sets": [
     {
       "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
-      "fileCount": 70,
+      "fileCount": 74,
       "manifest": "agent/MANIFEST.json",
-      "manifestSha256": "4101502b5882f5ef8db1c9de851b7bbed94951feb0cb414a4ee3d278561a742d",
+      "manifestSha256": "16c17254daa41261cd75d1391710e3d16a2c2652fec9de2e5c8112feda739619",
       "recorder": "native/core/fixtures/agent/record.mjs",
       "set": "agent",
-      "totalBytes": 1459395
+      "totalBytes": 1957497
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-ai-account.mjs --tree <tree>",
@@ -20,13 +20,13 @@
       "totalBytes": 88086
     },
     {
-      "command": "node benchmarks/rust-core/recorders/record-js-array-sort.mjs",
-      "fileCount": 9,
+      "command": "node benchmarks/rust-core/recorders/record-quota-settlement.mjs --tree <tree>",
+      "fileCount": 10,
       "manifest": "ai-admin/MANIFEST.json",
-      "manifestSha256": "619d614b602fb7bef59559c766cd96fa50de968f4f8530611b7f365973fa4ec7",
-      "recorder": "benchmarks/rust-core/recorders/record-js-array-sort.mjs",
+      "manifestSha256": "3471c0272e9f22ae42dabe3b1ba7febe5fa9ee8e63337edb375909737542783d",
+      "recorder": "benchmarks/rust-core/recorders/record-quota-settlement.mjs",
       "set": "ai-admin",
-      "totalBytes": 29375375
+      "totalBytes": 30965865
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-automation-setup.mjs --tree <tree>",
@@ -108,6 +108,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-goal-runtime.mjs",
       "set": "goal",
       "totalBytes": 1561864
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-hop-host.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "hop-host/MANIFEST.json",
+      "manifestSha256": "a20b7d19afaeb2a042e9e05aec42f9924d4a595b4d333df4850e26506127cd94",
+      "recorder": "benchmarks/rust-core/recorders/record-hop-host.mjs",
+      "set": "hop-host",
+      "totalBytes": 32286
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-hosted-search.mjs --tree <tree>",

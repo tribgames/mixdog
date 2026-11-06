@@ -14,7 +14,6 @@ mod api;
 mod apply;
 mod baselines;
 mod call_diff;
-mod chain;
 mod content;
 mod disk;
 mod freeze;

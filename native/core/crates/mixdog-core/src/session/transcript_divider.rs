@@ -15,7 +15,6 @@ pub const DIVIDER_LABEL: &str = "Conversation compacted";
 /// The divider of compaction `cid`. `at` is the `compacted` record's `at`: a record written
 /// before it existed has none, and its row then has no `at` either (Node sets `at` only
 /// when the time is finite).
-#[allow(dead_code)] // wired by the history page that joins `SqliteStore::dividers`
 pub fn divider_item(cid: &str, at: Option<i64>) -> ThreadItem {
     let mut row = Row::new();
     row.insert("id".into(), json!(format!("divider:{cid}")));

@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use super::chain::Chain;
+use mixdog_rt::SerialChain;
 
 use async_trait::async_trait;
 use indexmap::IndexMap;
@@ -55,7 +55,7 @@ pub(super) struct ShadowSnapshot {
     root: Arc<Root>,
     snap: Mutex<Snap>,
     /// A refresh in flight; a caller waits for it (`refreshing`).
-    gate: Arc<Chain>,
+    gate: Arc<SerialChain>,
 }
 
 impl ShadowSnapshot {
@@ -85,7 +85,7 @@ impl ShadowSnapshot {
                 pending: IndexMap::new(),
                 baseline_files: IndexMap::new(),
             }),
-            gate: Arc::new(Chain::default()),
+            gate: SerialChain::new(),
         }))
     }
 
@@ -129,7 +129,7 @@ impl ShadowSnapshot {
                 pending: IndexMap::new(),
                 baseline_files: files.into_iter().map(|e| (shadow_key(e["path"].as_str().unwrap_or("")), e)).collect(),
             }),
-            gate: Arc::new(Chain::default()),
+            gate: SerialChain::new(),
         };
         let review = snapshot.with_omitted_baselines(review).await;
         snapshot.snap().current_tree = review.current_tree.clone();

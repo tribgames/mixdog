@@ -200,6 +200,7 @@ impl MockDecoder {
             self.terminal = true;
             StreamEvent::Completed {
                 pricing_model: None,
+                request_ms: None,
                 stop: Some(if line == "done" {
                     StopReason::EndTurn
                 } else {

@@ -4,11 +4,15 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use base64::Engine;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::ext::ExtCall;
 use mixdog_core_api::domain::ext::ExtError;
 use mixdog_core_api::domain::ext::ExtFrame;
 use mixdog_core_api::domain::ext::ExtPool;
+use mixdog_core_api::domain::ext::ImageResizeError;
+use mixdog_core_api::domain::ext::ImageResizer;
+use mixdog_core_api::domain::ext::ResizedImage;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FsErrorKind;
 use mixdog_core_api::domain::fs::ReadRange;
@@ -29,7 +33,10 @@ use super::search::glob_files;
 
 const READ_SPEC: &str = include_str!("specs/read.json");
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
+/// Node's inline-view cap, the refusal when there is no resizer (`MAX_IMAGE_BYTES`).
 const IMAGE_MAX_BYTES: usize = 3_750_000;
+/// The hard API ceiling on an inline image's base64 length (`API_IMAGE_MAX_BASE64_SIZE`).
+const IMAGE_MAX_BASE64: usize = 5 * 1024 * 1024;
 const DEFAULT_LINES: u64 = 500;
 const GLOB_SURVEY_LINES: u64 = 25;
 const GLOB_SURVEY_FILES: usize = 10;
@@ -41,10 +48,12 @@ const NEAR_SCAN_ENTRIES: usize = 20_000;
 pub struct ReadTool {
     spec: ToolSpec,
     ext: Option<Arc<dyn ExtPool>>,
+    /// The image resizer; `None` reads as Node without `sharp`.
+    images: Option<Arc<dyn ImageResizer>>,
 }
 
 impl ReadTool {
-    pub fn new(ext: Option<Arc<dyn ExtPool>>) -> Self {
+    pub fn new(ext: Option<Arc<dyn ExtPool>>, images: Option<Arc<dyn ImageResizer>>) -> Self {
         Self {
             spec: spec(
                 READ_SPEC,
@@ -53,6 +62,7 @@ impl ReadTool {
                 None,
             ),
             ext,
+            images,
         }
     }
 }
@@ -64,14 +74,18 @@ struct Entry {
 }
 
 /// One entry's result: text, or text plus media parts.
+#[derive(Default)]
 struct Body {
     parts: Vec<ToolPart>,
+    /// An image read's result (Node's structured { content }), which a batch keeps as blocks.
+    rich: bool,
 }
 
 impl Body {
     fn text(s: impl Into<String>) -> Self {
         Self {
             parts: vec![ToolPart::Text(s.into())],
+            ..Self::default()
         }
     }
     fn first_text(&self) -> &str {
@@ -184,6 +198,9 @@ impl ReadTool {
         } else {
             format!("read {}", results.len())
         };
+        if results.iter().any(|(_, b)| b.rich) {
+            return Ok(ToolOutput { parts: rich_batch(&header, &results), ..ToolOutput::default() });
+        }
         let mut parts = Vec::new();
         let mut seen: Vec<(usize, String, String)> = Vec::new();
         let mut text = header;
@@ -249,6 +266,21 @@ impl ReadTool {
             }
             _ => {}
         }
+        // Node answers an image before any size cap: by its extension, or for a path with none, by
+        // its signature (a stored attachment).
+        if matches!(stat.kind, EntryKind::File) {
+            let by_extension = image_ext(raw);
+            if by_extension.is_some() || (std::path::Path::new(raw).extension().is_none() && stat.len >= 5) {
+                let bytes = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await? {
+                    Ok(b) => b.bytes,
+                    Err(err) => return Err(fs_failure(&err, &shown)),
+                };
+                if let Some(format) = by_extension.or_else(|| sniffed_image(&bytes)) {
+                    let display = if by_extension.is_some() { shown.as_str() } else { raw };
+                    return self.image_body(ctx, display, bytes, format).await;
+                }
+            }
+        }
         if stat.len > MAX_FILE_BYTES {
             return Err(fail(
                 ToolErrorCode::TooLarge {
@@ -269,24 +301,6 @@ impl ReadTool {
             Ok(b) => b.bytes,
             Err(err) => return Err(fs_failure(&err, &shown)),
         };
-        if let Some(mime) = image_mime(&bytes) {
-            return Ok(if bytes.len() > IMAGE_MAX_BYTES {
-                Body::text(format!(
-                    "Error: image {shown} is {} bytes, over the {IMAGE_MAX_BYTES}-byte cap",
-                    bytes.len()
-                ))
-            } else {
-                Body {
-                    parts: vec![
-                        ToolPart::Text(format!("{shown}\nimage, {} bytes", bytes.len())),
-                        ToolPart::Image {
-                            mime: mime.to_owned(),
-                            data: ImageData::Bytes(bytes),
-                        },
-                    ],
-                }
-            });
-        }
         if let Some(method) = document_method(&bytes, raw) {
             return self.extract_document(ctx, method, &abs, pages).await;
         }
@@ -336,6 +350,7 @@ impl ReadTool {
                     } else {
                         Body {
                             parts: vec![ToolPart::Json(v)],
+                            ..Body::default()
                         }
                     });
                 }
@@ -345,6 +360,62 @@ impl ReadTool {
         }
     }
 
+    /// `readImageAsContent`: the resized image behind its metadata line; without a resizer, the
+    /// original under the inline-view cap.
+    async fn image_body(&self, ctx: &ToolContext, display: &str, bytes: Vec<u8>, mime: &'static str) -> Result<Body, ToolError> {
+        let body = self.image_content(ctx, display, bytes, mime).await?;
+        // Every answer of an image read, its refusals too, is a structured result to a batch.
+        Ok(Body { rich: true, ..body })
+    }
+
+    async fn image_content(&self, ctx: &ToolContext, display: &str, bytes: Vec<u8>, mime: &'static str) -> Result<Body, ToolError> {
+        if bytes.is_empty() {
+            return Ok(Body::text(format!("Error: image \"{display}\" is empty (0 bytes).")));
+        }
+        let format = mime.split('/').nth(1).unwrap_or("png");
+        let resized = match &self.images {
+            Some(images) => guarded(ctx, "read", images.resize(&ctx.thread_id, &bytes, format)).await?,
+            None => Ok(None),
+        };
+        match resized {
+            Err(ImageResizeError::Invalid) => Ok(Body::text(format!("Error: image \"{display}\" is invalid or corrupt and was not attached."))),
+            // The host failing is not sharp being absent: the image was never judged.
+            Err(ImageResizeError::Host(e)) => Err(fail(
+                ToolErrorCode::Unavailable { capability: "image resize".to_owned(), reason: format!("the extension host failed: {e:?}") },
+                format!("Error: image \"{display}\" could not be resized: the extension host failed ({e:?})"),
+            )),
+            Ok(Some(image)) => {
+                let Ok(data) = base64::engine::general_purpose::STANDARD.decode(&image.data_base64) else {
+                    return Err(fail(
+                        ToolErrorCode::Unavailable { capability: "image resize".to_owned(), reason: "the resizer returned invalid base64".to_owned() },
+                        format!("Error: image \"{display}\" could not be resized: the resizer returned invalid base64"),
+                    ));
+                };
+                Ok(Body {
+                    parts: vec![
+                        ToolPart::Text(image_metadata(&image, display)),
+                        ToolPart::Image { mime: image.mime, data: ImageData::Bytes(data) },
+                    ],
+                    ..Body::default()
+                })
+            }
+            Ok(None) => {
+                if bytes.len() > IMAGE_MAX_BYTES {
+                    return Ok(Body::text(format!(
+                        "Error: image \"{display}\" is {} bytes, over the {IMAGE_MAX_BYTES}-byte inline-view cap (image resizing unavailable: install the optional \"sharp\" dependency to auto-downsample). Convert/resize before reading.",
+                        bytes.len()
+                    )));
+                }
+                let base64_len = bytes.len().div_ceil(3) * 4;
+                if base64_len > IMAGE_MAX_BASE64 {
+                    return Ok(Body::text(format!(
+                        "Error: image \"{display}\" base64 size {base64_len} exceeds the {IMAGE_MAX_BASE64}-byte API limit (image resizing unavailable). Resize before reading."
+                    )));
+                }
+                Ok(Body { parts: vec![ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes) }], ..Body::default() })
+            }
+        }
+    }
     async fn directory_error(&self, ctx: &ToolContext, abs: &AbsPath, raw: &str) -> String {
         let mut names: Vec<String> = match ctx.files.list_dir(ctx.io.interactive, abs.clone()).await {
             Ok(entries) => entries
@@ -498,20 +569,74 @@ fn path_string_guard(raw: &str) -> Option<&'static str> {
     None
 }
 
-fn image_mime(b: &[u8]) -> Option<&'static str> {
-    if b.starts_with(&[0x89, b'P', b'N', b'G']) {
+/// `renderRichBatch`: a batch holding an image result stays structured. The header, then per
+/// entry its path [status] line and its blocks as they are; an identical repeat collapses to a
+/// reference.
+fn rich_batch(header: &str, results: &[(String, Body)]) -> Vec<ToolPart> {
+    let mut parts = vec![ToolPart::Text(header.to_owned())];
+    let mut seen: Vec<(usize, &str, &str)> = Vec::new();
+    for (i, (path, body)) in results.iter().enumerate() {
+        let status = if body.failed() {
+            "error"
+        } else if body.absent() {
+            "absent"
+        } else {
+            "ok"
+        };
+        let first = body.first_text();
+        let entry_header = format!("{path} [{status}]");
+        if let Some((idx, _, _)) = seen.iter().find(|(_, p, b)| *p == path && *b == first) {
+            parts.push(ToolPart::Text(format!("{entry_header} [= entry #{}, identical result omitted]", idx + 1)));
+            continue;
+        }
+        seen.push((i, path, first));
+        parts.push(ToolPart::Text(entry_header));
+        parts.extend(body.parts.iter().cloned());
+    }
+    parts
+}
+
+/// The image type of a path by its extension (`imageMimeForPath`).
+fn image_ext(raw: &str) -> Option<&'static str> {
+    match Path::new(raw).extension()?.to_string_lossy().to_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        _ => None,
+    }
+}
+
+/// The image type of a path with no extension, by its signature (`SNIFFED_IMAGE_TYPES`).
+fn sniffed_image(head: &[u8]) -> Option<&'static str> {
+    if head.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
         Some("image/png")
-    } else if b.starts_with(&[0xFF, 0xD8, 0xFF]) {
+    } else if head.starts_with(&[0xFF, 0xD8, 0xFF]) {
         Some("image/jpeg")
-    } else if b.starts_with(b"GIF8") {
+    } else if head.starts_with(b"GIF8") {
         Some("image/gif")
-    } else if b.len() > 12 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+    } else if head.len() >= 12 && &head[0..4] == b"RIFF" && &head[8..12] == b"WEBP" {
         Some("image/webp")
     } else {
         None
     }
 }
 
+/// `imageMetadataText`: the line that precedes a resized image.
+fn image_metadata(image: &ResizedImage, source: &str) -> String {
+    let (ow, oh, dw, dh) = (image.original_w, image.original_h, image.display_w, image.display_h);
+    if ow == 0 || oh == 0 || dw == 0 || dh == 0 {
+        return format!("[Image source: {source}]");
+    }
+    let mut parts = vec![format!("source: {source}"), format!("{ow}x{oh}")];
+    if ow != dw || oh != dh {
+        let scale = mixdog_js::math::to_fixed(f64::from(ow) / f64::from(dw), 2);
+        parts.push(format!("displayed at {dw}x{dh}. Multiply coordinates by {scale} to map to the original image."));
+    } else {
+        parts.push(format!("displayed at {dw}x{dh}"));
+    }
+    format!("[Image: {}]", parts.join(", "))
+}
 /// The extension-pool method a file needs: PDF and OOXML by magic bytes, or by
 /// the declared extension when the container itself is damaged.
 fn document_method(bytes: &[u8], raw: &str) -> Option<&'static str> {

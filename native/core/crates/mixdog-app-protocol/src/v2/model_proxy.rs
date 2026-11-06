@@ -509,8 +509,9 @@ pub struct ProxyUsage {
     pub cache_write_tokens: u64,
     #[ts(type = "number")]
     pub cache_write_1h_tokens: u64,
-    #[ts(type = "number")]
-    pub reasoning_tokens: u64,
+    /// Absent when the provider reported none; an explicit 0 stays 0.
+    #[ts(type = "number | null")]
+    pub reasoning_tokens: Option<u64>,
     pub raw: Option<JsonValue>,
     #[ts(type = "number | null")]
     pub cost_ticks: Option<u64>,
@@ -555,7 +556,13 @@ pub enum ProxyEvent {
     ProviderKeepalive,
     ProviderState { state: JsonValue },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
-    Completed { stop: Option<ProxyStop>, pricing_model: Option<String> },
+    /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
+    Completed {
+        stop: Option<ProxyStop>,
+        pricing_model: Option<String>,
+        #[ts(type = "number | null")]
+        request_ms: Option<u64>,
+    },
     /// The attempt failed and a retry begins: everything its events showed is dropped.
     AttemptDiscarded,
     /// A retried attempt reported usage before it died; it is billed once, here.

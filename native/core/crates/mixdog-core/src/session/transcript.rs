@@ -93,6 +93,12 @@ impl StoredRows {
             None => rows.unkeyed.push((message.clone(), body)),
         }
     }
+
+    /// `f` over the stored body of the message whose `meta.transcript.messageId` is `message_id`.
+    pub fn with_body<R>(&self, message_id: &str, f: impl FnOnce(&Value) -> R) -> Option<R> {
+        let rows = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        rows.by_id.get(message_id).map(f)
+    }
 }
 
 impl MessageRows for StoredRows {

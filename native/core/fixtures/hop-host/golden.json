@@ -1,0 +1,1613 @@
+{
+  "display": [
+    {
+      "hint": "",
+      "model": "",
+      "name": ""
+    },
+    {
+      "hint": "GPT 5",
+      "model": "",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "  ",
+      "name": ""
+    },
+    {
+      "hint": "GPT 5",
+      "model": "  ",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "  ",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "  ",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "  ",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "gpt-5",
+      "name": "GPT-5"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gpt-5",
+      "name": "GPT-5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gpt-5",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gpt-5",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gpt-5",
+      "name": "GPT-5"
+    },
+    {
+      "hint": "",
+      "model": "gpt-5.4-2026-01-02",
+      "name": "GPT-5.4"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gpt-5.4-2026-01-02",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gpt-5.4-2026-01-02",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gpt-5.4-2026-01-02",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gpt-5.4-2026-01-02",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "GPT-5.1-Codex-Max",
+      "name": "GPT-5.1-Codex-Max"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "GPT-5.1-Codex-Max",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "GPT-5.1-Codex-Max",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "GPT-5.1-Codex-Max",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "GPT-5.1-Codex-Max",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "gpt-4o",
+      "name": "GPT-4o"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gpt-4o",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gpt-4o",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gpt-4o",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gpt-4o",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "gpt-4o-mini-20240718",
+      "name": "GPT-4o-Mini"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gpt-4o-mini-20240718",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gpt-4o-mini-20240718",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gpt-4o-mini-20240718",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gpt-4o-mini-20240718",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "gpt-",
+      "name": "GPT"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gpt-",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gpt-",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gpt-",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gpt-",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "gpt-image-1",
+      "name": "GPT-Image-1"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gpt-image-1",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gpt-image-1",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gpt-image-1",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gpt-image-1",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "o3",
+      "name": "O3"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "o3",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "o3",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "o3",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "o3",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "o4-mini",
+      "name": "O4 Mini"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "o4-mini",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "o4-mini",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "o4-mini",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "o4-mini",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "o1-preview",
+      "name": "O1 Preview"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "o1-preview",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "o1-preview",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "o1-preview",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "o1-preview",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "codex-mini-latest",
+      "name": "Codex Mini Latest"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "codex-mini-latest",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "codex-mini-latest",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "codex-mini-latest",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "codex-mini-latest",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "deepseek-v4-pro",
+      "name": "DeepSeek V4 Pro"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "deepseek-v4-pro",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "deepseek-v4-pro",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "deepseek-v4-pro",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "deepseek-v4-pro",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "deepseek-chat",
+      "name": "DeepSeek Chat"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "deepseek-chat",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "deepseek-chat",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "deepseek-chat",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "deepseek-chat",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "grok-4-fast",
+      "name": "Grok 4 Fast"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "grok-4-fast",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "grok-4-fast",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "grok-4-fast",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "grok-4-fast",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "grok-build",
+      "name": "Grok Build"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "grok-build",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "grok-build",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "grok-build",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "grok-build",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "claude-opus-4-1",
+      "name": "Claude Opus 4.1"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "claude-opus-4-1",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "claude-opus-4-1",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "claude-opus-4-1",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "claude-opus-4-1",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "claude-sonnet-4-5-20250929",
+      "name": "Claude Sonnet 4.5"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "claude-sonnet-4-5-20250929",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "claude-sonnet-4-5-20250929",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "claude-sonnet-4-5-20250929",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "claude-sonnet-4-5-20250929",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "claude-opus-4-8",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "claude-opus-4-8",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "claude-opus-4-8",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "claude-opus-4-8",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "claude-opus-4-8",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "claude-3-7-sonnet-20250219",
+      "name": "Claude Sonnet 3.7"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "claude-3-7-sonnet-20250219",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "claude-3-7-sonnet-20250219",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "claude-3-7-sonnet-20250219",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "claude-3-7-sonnet-20250219",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "claude-3-5-haiku",
+      "name": "Claude Haiku 3.5"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "claude-3-5-haiku",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "claude-3-5-haiku",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "claude-3-5-haiku",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "claude-3-5-haiku",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "claude-fable-2",
+      "name": "Claude Fable 2"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "claude-fable-2",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "claude-fable-2",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "claude-fable-2",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "claude-fable-2",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "claude-haiku",
+      "name": "claude-haiku"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "claude-haiku",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "claude-haiku",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "claude-haiku",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "claude-haiku",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "gemini-2.5-pro",
+      "name": "Gemini 2.5 Pro"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gemini-2.5-pro",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gemini-2.5-pro",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gemini-2.5-pro",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gemini-2.5-pro",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "gemini-3-flash-preview",
+      "name": "Gemini 3 Flash Preview"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gemini-3-flash-preview",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gemini-3-flash-preview",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gemini-3-flash-preview",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gemini-3-flash-preview",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "gemini-pro",
+      "name": "Gemini Pro"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gemini-pro",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gemini-pro",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gemini-pro",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gemini-pro",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "gemini-",
+      "name": "gemini-"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gemini-",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gemini-",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gemini-",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gemini-",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "kimi-k2.7-code",
+      "name": "Kimi K2.7 Code"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "kimi-k2.7-code",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "kimi-k2.7-code",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "kimi-k2.7-code",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "kimi-k2.7-code",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "qwen3.8-max",
+      "name": "Qwen3.8 Max"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "qwen3.8-max",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "qwen3.8-max",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "qwen3.8-max",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "qwen3.8-max",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "qwen-plus",
+      "name": "qwen-plus"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "qwen-plus",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "qwen-plus",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "qwen-plus",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "qwen-plus",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "mimo-v2-flash",
+      "name": "MiMo V2 Flash"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "mimo-v2-flash",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "mimo-v2-flash",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "mimo-v2-flash",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "mimo-v2-flash",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "muse-spark-1.3-contributor",
+      "name": "Muse Spark 1.3"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "muse-spark-1.3-contributor",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "muse-spark-1.3-contributor",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "muse-spark-1.3-contributor",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "muse-spark-1.3-contributor",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "hy3-preview",
+      "name": "Hy3 Preview"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "hy3-preview",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "hy3-preview",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "hy3-preview",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "hy3-preview",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "glm-5.3-flash",
+      "name": "GLM-5.3-Flash"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "glm-5.3-flash",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "glm-5.3-flash",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "glm-5.3-flash",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "glm-5.3-flash",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "glm-4.6",
+      "name": "GLM-4.6"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "glm-4.6",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "glm-4.6",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "glm-4.6",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "glm-4.6",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "minimax-m3",
+      "name": "MiniMax-M3"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "minimax-m3",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "minimax-m3",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "minimax-m3",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "minimax-m3",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "longcat-flash-chat",
+      "name": "LongCat-Flash-Chat"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "longcat-flash-chat",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "longcat-flash-chat",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "longcat-flash-chat",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "longcat-flash-chat",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "anthropic/claude-opus-4-8",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "anthropic/claude-opus-4-8",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "anthropic/claude-opus-4-8",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "anthropic/claude-opus-4-8",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "anthropic/claude-opus-4-8",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "openai/gpt-5",
+      "name": "GPT-5"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "openai/gpt-5",
+      "name": "GPT-5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "openai/gpt-5",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "openai/gpt-5",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "openai/gpt-5",
+      "name": "GPT-5"
+    },
+    {
+      "hint": "",
+      "model": "openrouter/auto/",
+      "name": "auto"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "openrouter/auto/",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "openrouter/auto/",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "openrouter/auto/",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "openrouter/auto/",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "/",
+      "name": "/"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "/",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "/",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "/",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "/",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "a//b",
+      "name": "b"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "a//b",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "a//b",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "a//b",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "a//b",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "custom-model-x",
+      "name": "custom-model-x"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "custom-model-x",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "custom-model-x",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "custom-model-x",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "custom-model-x",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "Llama-3.1-8B",
+      "name": "Llama-3.1-8B"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "Llama-3.1-8B",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "Llama-3.1-8B",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "Llama-3.1-8B",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "Llama-3.1-8B",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "llama3:8b",
+      "name": "llama3:8b"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "llama3:8b",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "llama3:8b",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "llama3:8b",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "llama3:8b",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "gpt-5.4-2026-01-02-",
+      "name": "GPT-5.4-2026-01-02"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "gpt-5.4-2026-01-02-",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "gpt-5.4-2026-01-02-",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "gpt-5.4-2026-01-02-",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "gpt-5.4-2026-01-02-",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "claude-opus-4-8\n",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "claude-opus-4-8\n",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "claude-opus-4-8\n",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "claude-opus-4-8\n",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "claude-opus-4-8\n",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "ÉCLAIR-1",
+      "name": "ÉCLAIR-1"
+    },
+    {
+      "hint": "GPT 5",
+      "model": "ÉCLAIR-1",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "ÉCLAIR-1",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "ÉCLAIR-1",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "ÉCLAIR-1",
+      "name": "gpt-5"
+    },
+    {
+      "hint": "",
+      "model": "kimi-contributor",
+      "name": "Kimi "
+    },
+    {
+      "hint": "GPT 5",
+      "model": "kimi-contributor",
+      "name": "GPT 5"
+    },
+    {
+      "hint": "My Fast Model",
+      "model": "kimi-contributor",
+      "name": "My Fast Model"
+    },
+    {
+      "hint": "  Claude Opus 4.8  ",
+      "model": "kimi-contributor",
+      "name": "Claude Opus 4.8"
+    },
+    {
+      "hint": "gpt-5",
+      "model": "kimi-contributor",
+      "name": "gpt-5"
+    }
+  ],
+  "pins": [
+    {
+      "answered": false,
+      "asked": [],
+      "name": "no model",
+      "pin": null,
+      "script": {
+        "noRouting": false,
+        "route": null,
+        "throws": false
+      },
+      "session": {
+        "model": "",
+        "provider": "openrouter"
+      },
+      "wrote": false
+    },
+    {
+      "answered": false,
+      "asked": [],
+      "name": "no provider name",
+      "pin": null,
+      "script": {
+        "noRouting": false,
+        "route": null,
+        "throws": false
+      },
+      "session": {
+        "model": "m",
+        "provider": ""
+      },
+      "wrote": false
+    },
+    {
+      "answered": false,
+      "asked": [],
+      "name": "the pin already names this route",
+      "pin": {
+        "model": "m",
+        "profileId": "openrouter:chat",
+        "provider": "openrouter",
+        "source": "default",
+        "wire": "chat"
+      },
+      "script": {
+        "noRouting": false,
+        "route": {
+          "profileId": "openrouter:responses",
+          "source": "family",
+          "wire": "responses"
+        },
+        "throws": false
+      },
+      "session": {
+        "model": "m",
+        "provider": "openrouter",
+        "wireRoute": {
+          "model": "m",
+          "profileId": "openrouter:chat",
+          "provider": "openrouter",
+          "source": "default",
+          "wire": "chat"
+        }
+      },
+      "wrote": false
+    },
+    {
+      "answered": false,
+      "asked": [
+        {
+          "agent": true,
+          "legacy": false,
+          "model": "m"
+        }
+      ],
+      "name": "a pin of another model resolves anew",
+      "pin": {
+        "model": "m",
+        "profileId": "openrouter:responses",
+        "provider": "openrouter",
+        "source": "family",
+        "wire": "responses"
+      },
+      "script": {
+        "noRouting": false,
+        "route": {
+          "profileId": "openrouter:responses",
+          "source": "family",
+          "wire": "responses"
+        },
+        "throws": false
+      },
+      "session": {
+        "model": "m",
+        "provider": "openrouter",
+        "wireRoute": {
+          "model": "other",
+          "profileId": "openrouter:chat",
+          "provider": "openrouter",
+          "source": "default",
+          "wire": "chat"
+        }
+      },
+      "wrote": true
+    },
+    {
+      "answered": false,
+      "asked": [
+        {
+          "agent": true,
+          "legacy": false,
+          "model": "m"
+        }
+      ],
+      "name": "a null pin resolves fresh",
+      "pin": {
+        "model": "m",
+        "profileId": "openrouter:messages",
+        "provider": "openrouter",
+        "source": "catalog",
+        "wire": "messages"
+      },
+      "script": {
+        "noRouting": false,
+        "route": {
+          "profileId": "openrouter:messages",
+          "source": "catalog",
+          "wire": "messages"
+        },
+        "throws": false
+      },
+      "session": {
+        "model": "m",
+        "provider": "openrouter",
+        "wireRoute": null
+      },
+      "wrote": true
+    },
+    {
+      "answered": true,
+      "asked": [
+        {
+          "agent": true,
+          "legacy": false,
+          "model": "m"
+        }
+      ],
+      "name": "a null pin on an answered session is not legacy",
+      "pin": {
+        "model": "m",
+        "profileId": "openrouter:messages",
+        "provider": "openrouter",
+        "source": "catalog",
+        "wire": "messages"
+      },
+      "script": {
+        "noRouting": false,
+        "route": {
+          "profileId": "openrouter:messages",
+          "source": "catalog",
+          "wire": "messages"
+        },
+        "throws": false
+      },
+      "session": {
+        "model": "m",
+        "provider": "openrouter",
+        "wireRoute": null
+      },
+      "wrote": true
+    },
+    {
+      "answered": false,
+      "asked": [
+        {
+          "agent": true,
+          "legacy": false,
+          "model": "m"
+        }
+      ],
+      "name": "an absent pin on an unanswered session is not legacy",
+      "pin": {
+        "model": "m",
+        "profileId": "openrouter:chat",
+        "provider": "openrouter",
+        "source": "default",
+        "wire": "chat"
+      },
+      "script": {
+        "noRouting": false,
+        "route": {
+          "profileId": "openrouter:chat",
+          "source": "default",
+          "wire": "chat"
+        },
+        "throws": false
+      },
+      "session": {
+        "model": "m",
+        "provider": "openrouter"
+      },
+      "wrote": true
+    },
+    {
+      "answered": true,
+      "asked": [
+        {
+          "agent": true,
+          "legacy": true,
+          "model": "m"
+        }
+      ],
+      "name": "an absent pin on an answered session is legacy",
+      "pin": {
+        "model": "m",
+        "profileId": "opencode-go:chat",
+        "provider": "opencode-go",
+        "source": "legacy",
+        "wire": "chat"
+      },
+      "script": {
+        "noRouting": false,
+        "route": {
+          "profileId": "opencode-go:chat",
+          "source": "legacy",
+          "wire": "chat"
+        },
+        "throws": false
+      },
+      "session": {
+        "model": "m",
+        "provider": "opencode-go"
+      },
+      "wrote": true
+    },
+    {
+      "answered": false,
+      "asked": [
+        {
+          "agent": true,
+          "legacy": false,
+          "model": "m"
+        }
+      ],
+      "name": "an unknown route is not pinned",
+      "pin": null,
+      "script": {
+        "noRouting": false,
+        "route": {
+          "profileId": "openrouter:chat",
+          "source": "unknown",
+          "wire": "chat"
+        },
+        "throws": false
+      },
+      "session": {
+        "model": "m",
+        "provider": "openrouter",
+        "wireRoute": null
+      },
+      "wrote": false
+    },
+    {
+      "answered": false,
+      "asked": [
+        {
+          "agent": true,
+          "legacy": false,
+          "model": "m"
+        }
+      ],
+      "name": "a model no wire serves is not pinned",
+      "pin": null,
+      "script": {
+        "noRouting": false,
+        "route": null,
+        "throws": false
+      },
+      "session": {
+        "model": "m",
+        "provider": "openrouter",
+        "wireRoute": null
+      },
+      "wrote": false
+    },
+    {
+      "answered": false,
+      "asked": [
+        {
+          "agent": true,
+          "legacy": false,
+          "model": "m"
+        }
+      ],
+      "name": "a failed resolution is not pinned",
+      "pin": null,
+      "script": {
+        "noRouting": false,
+        "route": null,
+        "throws": true
+      },
+      "session": {
+        "model": "m",
+        "provider": "openrouter",
+        "wireRoute": null
+      },
+      "wrote": false
+    },
+    {
+      "answered": false,
+      "asked": [],
+      "name": "a single-wire provider pins nothing",
+      "pin": null,
+      "script": {
+        "noRouting": true,
+        "route": null,
+        "throws": false
+      },
+      "session": {
+        "model": "m",
+        "provider": "openai",
+        "wireRoute": null
+      },
+      "wrote": false
+    },
+    {
+      "answered": false,
+      "asked": [
+        {
+          "agent": true,
+          "legacy": false,
+          "model": "deepseek-v4"
+        }
+      ],
+      "name": "an override route keeps its source",
+      "pin": {
+        "model": "deepseek-v4",
+        "profileId": "deepseek:messages",
+        "provider": "deepseek",
+        "source": "override",
+        "wire": "messages"
+      },
+      "script": {
+        "noRouting": false,
+        "route": {
+          "profileId": "deepseek:messages",
+          "source": "override",
+          "wire": "messages"
+        },
+        "throws": false
+      },
+      "session": {
+        "model": "deepseek-v4",
+        "provider": "deepseek",
+        "wireRoute": null
+      },
+      "wrote": true
+    }
+  ]
+}

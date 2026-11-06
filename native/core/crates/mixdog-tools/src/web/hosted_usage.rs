@@ -109,9 +109,8 @@ pub fn usage_delta(session_id: &str, requested_model: &str, model: &str, usage: 
     } else {
         usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens
     };
-    // A count the provider named; Rust's `Usage` cannot tell an absent count
-    // from a zero one, so a zero falls back to the raw object.
-    let reasoning = Some(usage.reasoning_tokens).filter(|count| *count > 0).or_else(|| usage.raw.as_ref().and_then(raw_reasoning));
+    // A count the provider named (an explicit 0 included); otherwise the raw object's.
+    let reasoning = usage.reasoning_tokens.or_else(|| usage.raw.as_ref().and_then(raw_reasoning));
     let mut delta = Map::new();
     delta.insert("sessionId".into(), json!(session_id));
     delta.insert("iterationIndex".into(), json!(0));

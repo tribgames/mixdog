@@ -48,7 +48,7 @@ enum Command {
 
 #[derive(Args)]
 struct MigrateCliArgs {
-    /// Default: `$MIXDOG_DATA_DIR`, else `~/.mixdog/data`.
+    /// Default: `$MIXDOG_DATA_DIR`, else `<$MIXDOG_HOME or ~/.mixdog>/data`.
     #[arg(long)]
     data_dir: Option<PathBuf>,
     /// Default: `$MIXDOG_HOME`, else `~/.mixdog`.

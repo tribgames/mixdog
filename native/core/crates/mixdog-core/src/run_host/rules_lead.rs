@@ -74,6 +74,7 @@ fn text_of(value: Option<&Value>) -> String {
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs inside the composition's io-interactive lane job (HostRunParts::compose_prompt), like RealSources")]
 /// `readUnifiedConfig`.
 fn unified_config(paths: &LeadPaths) -> Value {
     if let Some(config) = paths.config.filter(|c| c.is_object() || c.is_array()) {
@@ -188,6 +189,7 @@ fn match_style<'a>(value: &str, styles: &'a [StyleEntry]) -> Option<&'a StyleEnt
 
 // ---- the style catalog -----------------------------------------------------------------------------
 
+#[allow(clippy::disallowed_methods, reason = "runs inside the composition's io-interactive lane job (HostRunParts::compose_prompt), like RealSources")]
 /// `listOutputStyleEntries`: the shipped styles, then the user's (a user file replaces the
 /// shipped one of the same id in its place).
 fn list_styles(paths: &LeadPaths) -> Vec<StyleEntry> {
@@ -373,6 +375,7 @@ pub fn build_lead_language(paths: &LeadPaths, system_locale: &str) -> Option<(St
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
 mod tests {
     use std::path::PathBuf;
 

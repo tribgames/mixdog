@@ -32,7 +32,7 @@ use serde_json::{json, Value};
 use super::artifact::ToolResultArtifacts;
 use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
-use super::reactions::{LoopReactions, MessageFacts};
+use super::reactions::LoopReactions;
 use super::result_reuse::ToolResultReuse;
 use super::route_fallback::{HopHost, RouteHop};
 use crate::ports::gate::{GateEnv, LiveHeader, SessionGate};
@@ -49,13 +49,9 @@ pub struct RunSettings {
     pub hidden_agent: bool,
     pub agent_mode: bool,
     pub limits: Option<mixdog_agent::limits::TurnLimits>,
-    pub forced_first_tool: bool,
     pub compact: Option<mixdog_agent::boundary::CompactSettings>,
     pub escalated_max_output_tokens: Option<u32>,
-    pub later_flush_tools: Vec<String>,
     pub read_body_required: bool,
-    pub single_call_tools: Vec<String>,
-    pub eager_dispatch: bool,
     pub effort: Option<mixdog_agent::effort::EffortWiring>,
     pub step_auto_effort: Option<mixdog_agent::step_effort::StepAutoEffort>,
     pub text_only: Option<mixdog_agent::text_only::TextOnlyInput>,
@@ -83,8 +79,6 @@ pub trait SessionSeams: Send + Sync + 'static {
     fn todo_view(&self, thread: &ThreadId, header: &Header) -> Arc<dyn TodoView>;
     /// PostToolUse / PostToolUseFailure / PostToolBatch dispatch. Owner: WP-MCP (hook bus).
     fn post_tool_dispatch(&self) -> Arc<dyn PostToolDispatch>;
-    /// The stored-message facts a reaction needs (`react` targets). Owner: WP-STORE.
-    fn message_facts(&self, thread: &ThreadId) -> Arc<dyn MessageFacts>;
     /// The compaction pipeline for this session's route: `FreshCompactor` has no constructor, only
     /// a struct literal over `FreshParts`, `TriggerSeams`, a handoff source and `CompactorConfig`.
     /// Owner: WP-AGENT (`FreshCompactor::for_session`), with WP-AI-SVC's `RouteResolver` and
@@ -108,12 +102,12 @@ pub trait SessionSeams: Send + Sync + 'static {
     fn step_judge(&self) -> Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>;
     /// Tool-result image compaction. Owner: WP-AGENT (ImageCompactor has no implementation).
     fn image_compactor(&self) -> Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>;
-    /// The install's plugin root (`rules/`, `output-styles/`). Owner: WP-STORE (paths).
+    /// The install's plugin root (`rules/`, `output-styles/`): `mixdog_store::paths::Paths::plugin_root`.
     fn plugin_root(&self) -> PathBuf;
     /// `readSection('agent').instructionFiles`, the stored setting. Owner: WP-CONFIG.
     fn stored_instruction_files(&self) -> Option<Value>;
-    /// The data directory of the install (artifacts and attachments live under it). Owner:
-    /// WP-STORE (paths).
+    /// The data directory of the install (artifacts and attachments live under it):
+    /// `mixdog_store::paths::Paths::data_dir`.
     fn data_dir(&self) -> PathBuf;
 }
 
@@ -218,13 +212,9 @@ impl RunParts for HostRunParts {
         config.hidden_agent = hidden;
         config.agent_mode = settings.agent_mode;
         config.limits = settings.limits;
-        config.forced_first_tool = settings.forced_first_tool;
         config.compact = settings.compact;
         config.escalated_max_output_tokens = settings.escalated_max_output_tokens;
-        config.later_flush_tools = settings.later_flush_tools;
         config.read_body_required = settings.read_body_required;
-        config.single_call_tools = settings.single_call_tools;
-        config.eager_dispatch = settings.eager_dispatch;
         config.effort = settings.effort;
         config.step_auto_effort = settings.step_auto_effort;
         config.text_only = settings.text_only;
@@ -256,7 +246,10 @@ impl RunParts for HostRunParts {
         };
         let session_id = thread.as_str();
         let read_body = config.read_body_required;
+        // The reaction facts are read off the stored bodies the run holds, as Node reads `meta`.
+        let rows = Arc::new(crate::session::StoredRows::new());
         Ok(Assembled {
+            rows: rows.clone(),
             provider,
             tools: ToolSet::with_builtins(tools, builtins),
             tool_env,
@@ -271,10 +264,10 @@ impl RunParts for HostRunParts {
             skills: seams.skills(),
             hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),
             reuse: Some(Arc::new(ToolResultReuse::new(session_id, &cwd, read_body, s.clock.clone()))),
-            reactions: Some(Arc::new(LoopReactions::new(seams.message_facts(thread), mixdog_protocol::text_class::is_internal_transcript_display_text))),
+            reactions: Some(Arc::new(LoopReactions::new(rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
             tail: Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context: seams.tail_context(header) })),
             step_judge: seams.step_judge(),
-            artifacts: Some(Arc::new(ToolResultArtifacts::new(&seams.data_dir(), session_id))),
+            artifacts: Some(Arc::new(ToolResultArtifacts::new(s.io, &seams.data_dir(), session_id))),
             images: seams.image_compactor(),
             blobs: s.blobs.clone(),
             carry: RunCarry::default(),

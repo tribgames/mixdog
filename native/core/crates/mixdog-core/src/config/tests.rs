@@ -538,6 +538,15 @@ fn notification_readers_match_the_recorded_node_store() {
 }
 
 #[test]
+fn the_stored_instruction_files_setting_is_read_as_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    assert_eq!(config.stored_instruction_files(), None);
+    let (config, _) = open(&tempfile::tempdir().unwrap(), Some(json!({ "agent": { "instructionFiles": "claude" } })));
+    assert_eq!(config.stored_instruction_files(), Some(json!("claude")));
+}
+
+#[test]
 fn reads_do_not_wait_for_a_writer() {
     let dir = tempfile::tempdir().unwrap();
     let (config, _) = open(&dir, Some(json!({ "desktop": { "keepAwake": false } })));

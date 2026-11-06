@@ -202,8 +202,8 @@ pub(crate) struct SlotMem {
 }
 
 pub(crate) struct Slot {
-    /// One mutation at a time, in the order asked.
-    pub chain: Arc<tokio::sync::Mutex<()>>,
+    /// One mutation at a time, in the order asked (Node's `withMutation` chain).
+    pub chain: Arc<mixdog_rt::SerialChain>,
     pub mem: Mutex<SlotMem>,
 }
 
@@ -244,11 +244,12 @@ pub(crate) struct Tx<'a> {
     pub held: Vec<Option<Goal>>,
 }
 
-pub(crate) type Turn = std::pin::Pin<Box<dyn Future<Output = tokio::sync::OwnedMutexGuard<()>> + Send>>;
+pub(crate) type Turn = std::pin::Pin<Box<dyn Future<Output = mixdog_rt::ChainGuard> + Send>>;
 
 /// Joins the session's queue now: the first poll registers the waiter, which keeps its place.
 pub(crate) fn reserve_turn(slot: &Slot) -> Turn {
-    let mut waiting = Box::pin(slot.chain.clone().lock_owned());
+    let chain = slot.chain.clone();
+    let mut waiting: Turn = Box::pin(async move { chain.acquire().await });
     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
     match waiting.as_mut().poll(&mut cx) {
         std::task::Poll::Ready(guard) => Box::pin(std::future::ready(guard)),
@@ -286,7 +287,7 @@ impl Inner {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .entry(id.to_owned())
-            .or_insert_with(|| Arc::new(Slot { chain: Arc::new(tokio::sync::Mutex::new(())), mem: Mutex::default() }))
+            .or_insert_with(|| Arc::new(Slot { chain: mixdog_rt::SerialChain::new(), mem: Mutex::default() }))
             .clone()
     }
 
@@ -761,7 +762,7 @@ impl GoalRuntime {
         }
         inner.listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
         for slot in inner.slots() {
-            drop(slot.chain.lock().await);
+            drop(slot.chain.acquire().await);
         }
         inner.settled().await;
     }

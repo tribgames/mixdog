@@ -156,7 +156,7 @@ async fn file_tools_match_golden_fixtures_on_disk() {
 async fn run_golden(ctx: &ToolContext, root: &AbsPath, cases: &[&str]) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools");
     let tools: Vec<Box<dyn Tool>> = vec![
-        Box::new(ReadTool::new(None)),
+        Box::new(ReadTool::new(None, None)),
         Box::new(ListTool::new()),
         Box::new(GlobTool::new()),
         Box::new(FindTool::new()),
@@ -798,4 +798,197 @@ async fn a_rename_between_two_spellings_of_one_file_edits_it_in_place() {
         assert!(!is_error, "{text}");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "ONE\ntwo\n", "{text}");
     }
+}
+/// A flat-colour 8-bit RGB PNG in stored zlib blocks: the recipe `record_image.mjs` builds, so the
+/// bytes can be rebuilt from `image_cases.json` and checked against its recorded hash.
+fn flat_png(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xffff_ffff_u32;
+        for &b in bytes {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 { 0xedb8_8320 ^ (crc >> 1) } else { crc >> 1 };
+            }
+        }
+        !crc
+    }
+    fn chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut body = kind.to_vec();
+        body.extend_from_slice(data);
+        let mut out = (data.len() as u32).to_be_bytes().to_vec();
+        out.extend_from_slice(&body);
+        out.extend_from_slice(&crc32(&body).to_be_bytes());
+        out
+    }
+    let mut row = vec![0_u8];
+    for _ in 0..width {
+        row.extend_from_slice(&rgb);
+    }
+    let raw: Vec<u8> = (0..height).flat_map(|_| row.clone()).collect();
+    let (mut a, mut b) = (1_u32, 0_u32);
+    for &x in &raw {
+        a = (a + u32::from(x)) % 65521;
+        b = (b + a) % 65521;
+    }
+    let mut zlib = vec![0x78, 0x01];
+    let mut at = 0;
+    loop {
+        let part = &raw[at..raw.len().min(at + 65535)];
+        let last = at + 65535 >= raw.len();
+        zlib.push(u8::from(last));
+        zlib.extend_from_slice(&(part.len() as u16).to_le_bytes());
+        zlib.extend_from_slice(&(!(part.len() as u16)).to_le_bytes());
+        zlib.extend_from_slice(part);
+        at += 65535;
+        if last {
+            break;
+        }
+    }
+    zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let mut ihdr = width.to_be_bytes().to_vec();
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+    let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+    png.extend(chunk(b"IHDR", &ihdr));
+    png.extend(chunk(b"IDAT", &zlib));
+    png.extend(chunk(b"IEND", &[]));
+    png
+}
+
+/// A resizer that answers each recorded source image with what Node's `sharp` made of it (sizes,
+/// mime and base64 length are recorded; the bytes are the extension host's own), and rejects any
+/// other bytes as the decoder does.
+struct RecordedResizer(Vec<(String, mixdog_core_api::domain::ext::ResizedImage)>);
+
+#[async_trait::async_trait]
+impl mixdog_core_api::domain::ext::ImageResizer for RecordedResizer {
+    async fn resize(
+        &self,
+        _thread: &ThreadId,
+        bytes: &[u8],
+        ext: &str,
+    ) -> Result<Option<mixdog_core_api::domain::ext::ResizedImage>, mixdog_core_api::domain::ext::ImageResizeError> {
+        use sha2::Digest;
+        assert_eq!(ext, "png");
+        let hash = format!("{:x}", sha2::Sha256::digest(bytes));
+        self.0
+            .iter()
+            .find(|(sha, _)| *sha == hash)
+            .map(|(_, image)| Some(image.clone()))
+            .ok_or(mixdog_core_api::domain::ext::ImageResizeError::Invalid)
+    }
+}
+
+/// Node's `read` of an image, replayed from `image_cases.json`: the metadata line, the image block's
+/// mime type and size, and the empty and corrupt refusals, each as recorded.
+#[tokio::test]
+async fn reading_an_image_matches_the_recorded_node_cases() {
+    use mixdog_core_api::domain::ext::ResizedImage;
+    use sha2::Digest;
+
+    let cases: Vec<JsonValue> = serde_json::from_str(include_str!("golden/image_cases.json")).unwrap();
+    let mut resizes = Vec::new();
+    let mut files = Vec::new();
+    for case in &cases {
+        let bytes = match case.get("png") {
+            Some(recipe) => {
+                let rgb = recipe["rgb"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u8).collect::<Vec<_>>();
+                let png = flat_png(recipe["width"].as_u64().unwrap() as u32, recipe["height"].as_u64().unwrap() as u32, [rgb[0], rgb[1], rgb[2]]);
+                assert_eq!(png.len() as u64, case["sourceBytes"].as_u64().unwrap(), "{}", case["name"]);
+                assert_eq!(format!("{:x}", sha2::Sha256::digest(&png)), case["sourceSha256"].as_str().unwrap(), "{}", case["name"]);
+                if let Some(image) = case["content"].as_array().unwrap().iter().find(|b| b["type"] == "image") {
+                    resizes.push((
+                        case["sourceSha256"].as_str().unwrap().to_owned(),
+                        ResizedImage {
+                            // Data of the recorded length; its content is the host's.
+                            data_base64: "A".repeat(image["base64Length"].as_u64().unwrap() as usize),
+                            mime: image["mimeType"].as_str().unwrap().to_owned(),
+                            original_w: recipe["width"].as_u64().unwrap() as u32,
+                            original_h: recipe["height"].as_u64().unwrap() as u32,
+                            display_w: image["width"].as_u64().unwrap() as u32,
+                            display_h: image["height"].as_u64().unwrap() as u32,
+                        },
+                    ));
+                }
+                png
+            }
+            None => case["bytes"].as_str().unwrap().as_bytes().to_vec(),
+        };
+        files.push((case["file"].as_str().unwrap().to_owned(), bytes));
+        for (rel, text) in case.get("extra").and_then(JsonValue::as_object).into_iter().flatten() {
+            files.push((rel.clone(), text.as_str().unwrap().as_bytes().to_vec()));
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = AbsPath::new(dir.path().join("ws")).unwrap();
+    std::fs::create_dir_all(root.as_path()).unwrap();
+    let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), files).await;
+    let tool = ReadTool::new(None, Some(Arc::new(RecordedResizer(resizes))));
+    for case in &cases {
+        let name = case["name"].as_str().unwrap();
+        let out = tool.call(&ctx, schema_args("read", case["input"].clone())).await.unwrap();
+        let want = case["content"].as_array().unwrap();
+        assert_eq!(out.parts.len(), want.len(), "{name}");
+        for (part, want) in out.parts.iter().zip(want) {
+            match part {
+                ToolPart::Text(text) => {
+                    assert_eq!(want["type"], "text", "{name}");
+                    assert_eq!(text, want["text"].as_str().unwrap(), "{name}");
+                    assert_eq!(text.starts_with("Error:"), case["isError"].as_bool().unwrap(), "{name}");
+                }
+                ToolPart::Image { mime, data: ImageData::Bytes(bytes) } => {
+                    assert_eq!(want["type"], "image", "{name}");
+                    assert_eq!(mime, want["mimeType"].as_str().unwrap(), "{name}");
+                    assert_eq!(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes).len() as u64, want["base64Length"].as_u64().unwrap(), "{name}");
+                }
+                other => panic!("{name}: unexpected part {other:?}"),
+            }
+        }
+    }
+}
+
+/// With no resizer the read is Node without `sharp`: an original over 3,750,000 bytes is refused
+/// with Node's text, a smaller one goes through as the bare image block. A resizer whose host
+/// failed is a tool error, never that refusal.
+#[tokio::test]
+async fn an_image_without_a_resizer_keeps_the_inline_cap_and_a_failed_host_is_an_error() {
+    struct DeadHost;
+    #[async_trait::async_trait]
+    impl mixdog_core_api::domain::ext::ImageResizer for DeadHost {
+        async fn resize(
+            &self,
+            _thread: &ThreadId,
+            _bytes: &[u8],
+            _ext: &str,
+        ) -> Result<Option<mixdog_core_api::domain::ext::ResizedImage>, mixdog_core_api::domain::ext::ImageResizeError> {
+            Err(mixdog_core_api::domain::ext::ImageResizeError::Host(mixdog_core_api::domain::ext::ExtError::UnknownWorker))
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = AbsPath::new(dir.path().join("ws")).unwrap();
+    std::fs::create_dir_all(root.as_path()).unwrap();
+    let big = flat_png(2000, 1000, [200, 30, 90]);
+    let small = flat_png(30, 20, [1, 2, 3]);
+    let seeds = vec![("big.png".to_owned(), big.clone()), ("small.PNG".to_owned(), small.clone()), ("held.txt".to_owned(), small.clone())];
+    let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), seeds).await;
+
+    let bare = ReadTool::new(None, None);
+    let (_, refused) = text_of(bare.call(&ctx, serde_json::json!({ "file_path": "big.png" })).await);
+    assert_eq!(
+        refused,
+        format!(
+            "Error: image \"big.png\" is {} bytes, over the 3750000-byte inline-view cap (image resizing unavailable: install the optional \"sharp\" dependency to auto-downsample). Convert/resize before reading.",
+            big.len()
+        )
+    );
+    let out = bare.call(&ctx, serde_json::json!({ "file_path": "small.PNG" })).await.unwrap();
+    assert_eq!(out.parts, vec![ToolPart::Image { mime: "image/png".to_owned(), data: ImageData::Bytes(small) }]);
+    // An image by content under another extension is not an image to `read`: it is a binary file.
+    let (_, text) = text_of(bare.call(&ctx, serde_json::json!({ "file_path": "held.txt" })).await);
+    assert!(!text.contains("inline-view"), "{text}");
+
+    let dead = ReadTool::new(None, Some(Arc::new(DeadHost)));
+    let error = dead.call(&ctx, serde_json::json!({ "file_path": "big.png" })).await.unwrap_err();
+    assert!(matches!(error.code, ToolErrorCode::Unavailable { .. }), "{error:?}");
 }

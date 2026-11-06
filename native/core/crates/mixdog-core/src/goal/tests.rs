@@ -2,6 +2,10 @@
 //! real `createGoalRuntime` by `benchmarks/rust-core/recorders/record-goal-runtime.mjs`) replayed
 //! operation by operation under a scripted clock and scripted timers. Every answer, refusal text,
 //! listener event, armed deadline and stored byte must equal the recording.
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test harness: it lays out and reads back the temp record files outside any lane"
+)]
 
 use std::collections::BTreeMap;
 use std::path::Path;

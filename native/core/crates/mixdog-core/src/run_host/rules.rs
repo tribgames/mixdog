@@ -32,11 +32,13 @@ static LEAD_REPORT_PASSAGE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_st
 const AGENT_MODE_PROGRESS: &str = "- Just answer conversation. Quick tool use (checking memory, a lookup,\n  leaving a reaction) needs no announcement. When starting longer work\n  (research, delegation, multi-step tasks), say in one line what you are\n  doing, stay quiet between tool calls, and share the result when it\n  finishes.";
 const AGENT_MODE_REPORT: &str = "- Relay agent reports faithfully. Code: one fresh Reviewer per non-trivial\n  feature after its last worker, any author (Lead if none); docs/copy/style:\n  read the diff. Recheck only concrete fixes, never rerun passing checks\n  without new evidence; at request end check feature seams.";
 
+#[allow(clippy::disallowed_methods, reason = "runs inside the composition's io-interactive lane job (HostRunParts::compose_prompt), like RealSources")]
 /// `readOptional`: the trimmed file, `""` when it cannot be read.
 pub(super) fn read_optional(path: &Path) -> String {
     fs::read(path).map(|bytes| js_trim(&String::from_utf8_lossy(&bytes)).to_owned()).unwrap_or_default()
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs inside the composition's io-interactive lane job (HostRunParts::compose_prompt), like RealSources")]
 /// The `.md` file names of `dir`, sorted; `None` when the directory is unreadable.
 fn markdown_names(dir: &Path) -> Option<Vec<String>> {
     let mut names: Vec<String> = fs::read_dir(dir).ok()?.filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.ends_with(".md")).collect();
@@ -352,6 +354,7 @@ fn lowered_keep(value: &Value) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
 mod tests {
     use std::path::PathBuf;
 

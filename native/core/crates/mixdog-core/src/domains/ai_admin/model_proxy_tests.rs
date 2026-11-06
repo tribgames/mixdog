@@ -147,9 +147,9 @@ fn events_and_failures_survive_the_wire() {
         p::StreamEvent::ToolCallDone(p::ToolCall { id: "c".into(), name: "n".into(), arguments: json!({}), native_type: None }),
         p::StreamEvent::Usage(usage.clone()),
         p::StreamEvent::ProviderKeepalive,
-        p::StreamEvent::Completed { stop: Some(p::StopReason::Other("x".into())), pricing_model: None },
-        p::StreamEvent::Completed { stop: None, pricing_model: None },
-        p::StreamEvent::Completed { stop: Some(p::StopReason::EndTurn), pricing_model: Some("zen-3".into()) },
+        p::StreamEvent::Completed { stop: Some(p::StopReason::Other("x".into())), pricing_model: None, request_ms: None },
+        p::StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None },
+        p::StreamEvent::Completed { stop: Some(p::StopReason::EndTurn), pricing_model: Some("zen-3".into()), request_ms: Some(1_250) },
     ] {
         let text = serde_json::to_string(&event_out(&event)).unwrap();
         assert_eq!(event_in(serde_json::from_str(&text).unwrap()).unwrap(), Incoming::Event(event));

@@ -7,6 +7,7 @@ pub mod config;
 pub mod output;
 pub mod rules;
 pub mod runners;
+pub mod session;
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -344,12 +345,18 @@ impl HookBus {
     /// call. Returns the note to add as a user message (meta `hook`) when a hook blocks
     /// continuation. A batch with no calls fires nothing.
     pub async fn post_batch(&self, batch: &BatchCall<'_>) -> Option<String> {
+        let dispatched = self.post_batch_dispatched(batch).await?;
+        if dispatched.blocked { after::batch_reminder(dispatched.reason.as_deref()) } else { None }
+    }
+
+    /// `PostToolBatch` as the loop reads it: what the handlers decided, for the loop to word the
+    /// note itself. A batch with no calls fires nothing.
+    pub async fn post_batch_dispatched(&self, batch: &BatchCall<'_>) -> Option<Dispatched> {
         if batch.tool_count == 0 {
             return None;
         }
         let payload = Value::Object(base_payload("PostToolBatch", batch.session_id, batch.cwd, batch.common));
-        let dispatched = self.dispatch("PostToolBatch", payload, batch.cwd).await;
-        if dispatched.blocked { after::batch_reminder(dispatched.reason.as_deref()) } else { None }
+        Some(self.dispatch("PostToolBatch", payload, batch.cwd).await)
     }
 
     /// `SubagentStart` / `SubagentStop` (`onSubagentEvent`): a worker session began or finished.

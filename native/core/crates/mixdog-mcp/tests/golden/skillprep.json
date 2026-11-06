@@ -1,0 +1,440 @@
+{
+ "available": [
+  "a",
+  "alpha",
+  "beta-two",
+  "path",
+  "pptx",
+  "skill-1",
+  "skill-2",
+  "skill-3",
+  "skill-4",
+  "skill-5",
+  "skill-6",
+  "x1",
+  "history-recall",
+  "image",
+  "local-provider",
+  "memory-management",
+  "setup",
+  "setup-guide",
+  "skill-creator",
+  "test-suite",
+  "video"
+ ],
+ "answers": {
+  "alpha": {
+   "result": "Loaded skill: alpha",
+   "bodies": [
+    "<skill>\n<name>alpha</name>\nBody of alpha\n</skill>"
+   ]
+  },
+  "pptx": "Loaded built-in skill: pptx",
+  "beta-two": "Error: skill \"beta-two\" not found",
+  "path": "Error: skill \"path\" is turned off",
+  "a": {
+   "result": "Loaded skill: a (already active; instructions unchanged — follow them without calling Skill again)",
+   "bodies": []
+  },
+  "x1": {
+   "result": "Loaded skill: x1",
+   "bodies": [
+    "<skill>\n<name>x1</name>\nBody of x1\n</skill>",
+    "second"
+   ]
+  }
+ },
+ "cases": [
+  {
+   "prompt": "$alpha",
+   "calls": [
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "alpha"
+     }
+    }
+   ],
+   "applied": [
+    "alpha"
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: alpha\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": "<skill>\n<name>alpha</name>\nBody of alpha\n</skill>",
+     "meta": "skill"
+    }
+   ]
+  },
+  {
+   "prompt": "$pptx",
+   "calls": [
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "pptx"
+     }
+    }
+   ],
+   "applied": [
+    "pptx"
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded built-in skill: pptx\n</system-reminder>"
+    }
+   ]
+  },
+  {
+   "prompt": "$beta-two",
+   "calls": [
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "beta-two"
+     }
+    }
+   ],
+   "applied": [],
+   "messages": [
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nError: skill \"beta-two\" not found\n</system-reminder>"
+    }
+   ]
+  },
+  {
+   "prompt": "$path",
+   "calls": [],
+   "applied": [],
+   "messages": []
+  },
+  {
+   "prompt": "$a",
+   "calls": [
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "a"
+     }
+    }
+   ],
+   "applied": [
+    "a"
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: a (already active; instructions unchanged — follow them without calling Skill again)\n</system-reminder>"
+    }
+   ]
+  },
+  {
+   "prompt": "$x1",
+   "calls": [
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "x1"
+     }
+    }
+   ],
+   "applied": [
+    "x1"
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: x1\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": "<skill>\n<name>x1</name>\nBody of x1\n</skill>",
+     "meta": "skill"
+    },
+    {
+     "role": "user",
+     "content": "second",
+     "meta": "skill"
+    }
+   ]
+  },
+  {
+   "prompt": "$alpha $pptx $beta-two $a",
+   "calls": [
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "alpha"
+     }
+    },
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "pptx"
+     }
+    },
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "beta-two"
+     }
+    },
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "a"
+     }
+    }
+   ],
+   "applied": [
+    "alpha",
+    "pptx",
+    "a"
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: alpha\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": "<skill>\n<name>alpha</name>\nBody of alpha\n</skill>",
+     "meta": "skill"
+    },
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded built-in skill: pptx\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nError: skill \"beta-two\" not found\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: a (already active; instructions unchanged — follow them without calling Skill again)\n</system-reminder>"
+    }
+   ]
+  },
+  {
+   "prompt": "Skill: \"pptx\"\n\nuse $alpha then $pptx",
+   "calls": [
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "pptx"
+     }
+    },
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "alpha"
+     }
+    }
+   ],
+   "applied": [
+    "pptx",
+    "alpha"
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded built-in skill: pptx\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: alpha\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": "<skill>\n<name>alpha</name>\nBody of alpha\n</skill>",
+     "meta": "skill"
+    }
+   ]
+  },
+  {
+   "prompt": "nothing selected here",
+   "calls": [],
+   "applied": [],
+   "messages": []
+  },
+  {
+   "prompt": "$skill-1 $skill-2 $skill-3 $skill-4 $skill-5 $skill-6",
+   "calls": [
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "skill-1"
+     }
+    },
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "skill-2"
+     }
+    },
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "skill-3"
+     }
+    },
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "skill-4"
+     }
+    },
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "skill-5"
+     }
+    }
+   ],
+   "applied": [
+    "skill-1",
+    "skill-2",
+    "skill-3",
+    "skill-4",
+    "skill-5"
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: skill-1\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: skill-2\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: skill-3\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: skill-4\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: skill-5\n</system-reminder>"
+    }
+   ]
+  },
+  {
+   "prompt": [
+    {
+     "type": "text",
+     "text": "Skill: \"alpha\"\n\nrun"
+    },
+    {
+     "type": "text",
+     "text": "$x1"
+    }
+   ],
+   "calls": [
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "alpha"
+     }
+    },
+    {
+     "tool": "Skill",
+     "args": {
+      "name": "x1"
+     }
+    }
+   ],
+   "applied": [
+    "alpha",
+    "x1"
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: alpha\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": "<skill>\n<name>alpha</name>\nBody of alpha\n</skill>",
+     "meta": "skill"
+    },
+    {
+     "role": "user",
+     "meta": {
+      "source": "skill-context"
+     },
+     "content": "<system-reminder>\nExplicit skill selection result:\nLoaded skill: x1\n</system-reminder>"
+    },
+    {
+     "role": "user",
+     "content": "<skill>\n<name>x1</name>\nBody of x1\n</skill>",
+     "meta": "skill"
+    },
+    {
+     "role": "user",
+     "content": "second",
+     "meta": "skill"
+    }
+   ]
+  }
+ ]
+}

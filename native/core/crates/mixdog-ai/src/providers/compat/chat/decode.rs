@@ -122,11 +122,9 @@ pub fn usage_from(raw: &JsonValue, cost: CostField) -> Usage {
         cache_read_tokens: to_u64(cached),
         cache_write_tokens: to_u64(written),
         cache_write_1h_tokens: 0,
-        reasoning_tokens: to_u64(
-            get(&["completion_tokens_details", "reasoning_tokens"])
-                .or(get(&["output_tokens_details", "reasoning_tokens"]))
-                .unwrap_or(0.0),
-        ),
+        reasoning_tokens: get(&["completion_tokens_details", "reasoning_tokens"])
+            .or(get(&["output_tokens_details", "reasoning_tokens"]))
+            .map(to_u64),
         raw: Some(raw.clone()),
         cost: reported_cost(raw, cost),
     }
@@ -443,6 +441,7 @@ impl ChatDecoder {
         }
         out.push(StreamEvent::Completed {
             pricing_model: None,
+            request_ms: None,
             stop: Some(stop_reason(&finish)),
         });
         self.terminal = true;

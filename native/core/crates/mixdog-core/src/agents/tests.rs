@@ -201,3 +201,24 @@ async fn the_task_workspace_is_made_and_named_by_its_real_path() {
     assert!(!made.starts_with(r"\\?\"));
     assert_eq!(agents.task_workspace().await.unwrap(), made);
 }
+
+#[tokio::test]
+async fn only_the_shipped_internal_agents_are_hidden() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let agents = AgentDefinitions::new(
+        dir.path(),
+        dir.path(),
+        tokens.interactive_io,
+        AgentRoutes::new(config, dir.path()),
+        Arc::new(Evidence { greeted: HashMap::new(), chatted: HashMap::new(), owns: false }),
+        Arc::new(|| Value::Null),
+        dir.path().join("workspace"),
+    );
+    assert!(agents.hidden_agent(Some("title-agent")));
+    assert!(!agents.hidden_agent(Some("worker")));
+    assert!(!agents.hidden_agent(Some("")));
+    assert!(!agents.hidden_agent(None));
+}

@@ -1,6 +1,6 @@
 {
   "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
-  "fileCount": 70,
+  "fileCount": 74,
   "files": [
     {
       "bytes": 47880,
@@ -28,6 +28,11 @@
       "sha256": "df2fd09bab84691a1f632639281efbcb9e4fa1961f823f904d986b2cbfb134e7"
     },
     {
+      "bytes": 484473,
+      "path": "compact/golden/image.json",
+      "sha256": "41cf2fc06cb92729793d924996005476d78f2767fe62d731cf475ee73763ab7d"
+    },
+    {
       "bytes": 4562,
       "path": "compact/golden/meter.json",
       "sha256": "2fbe9d15048aec8939bc23c2936fe0f4b6579241d041fdbb35b70e2b2e969829"
@@ -53,6 +58,11 @@
       "sha256": "d0676c635a29cd4ab1baf6b11a8a26a7879b2d2df9bcaf286b893674ae023182"
     },
     {
+      "bytes": 6918,
+      "path": "compact/record_image.mjs",
+      "sha256": "3fac1edc192bf35ab18b439a849e9ece11a9264411b1a9175ff254f8ea8a4605"
+    },
+    {
       "bytes": 24135,
       "path": "compact/record_pressure.mjs",
       "sha256": "756b44cccb77722b10a77c69a7c6ef89d73e2cc9256041a7e0dab0cbc4ddf27c"
@@ -61,6 +71,11 @@
       "bytes": 10556,
       "path": "compact/record_settings.mjs",
       "sha256": "217304c5f70827657253bc6a1dd3b57ab187c7158962dead7f179cf4a72ccc31"
+    },
+    {
+      "bytes": 3313,
+      "path": "compact_marker/cases.json",
+      "sha256": "cfe78a5a4d229cc0fbdb2f72ca74ebb05429e596ce588067da85ba96fe8aea32"
     },
     {
       "bytes": 1817,
@@ -201,6 +216,11 @@
       "bytes": 18290,
       "path": "record-agent-tool.mjs",
       "sha256": "1fa0c1d52e1cc2c945e276a4a8a6002235a94e6af2726c3cd23589fee123d2a2"
+    },
+    {
+      "bytes": 3398,
+      "path": "record-compact-marker.mjs",
+      "sha256": "7d1cba5b014e39decd5efa556d10433b34bf4e4e4485231bd2a45cdf3da270bf"
     },
     {
       "bytes": 3804,
@@ -371,5 +391,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 1459395
+  "totalBytes": 1957497
 }

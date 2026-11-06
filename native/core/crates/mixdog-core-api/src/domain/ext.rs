@@ -109,6 +109,37 @@ pub trait DocumentText: Send + Sync {
     async fn pdf_counts(&self, thread: &ThreadId, data_base64: &str) -> Result<PdfIntake, ExtError>;
 }
 
+/// `resizeImageBuffer`'s answer for the read tool: the (possibly re-encoded) image and its sizes.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ResizedImage {
+    /// Base64, as Node returns it.
+    pub data_base64: String,
+    /// `image/<format>`.
+    pub mime: String,
+    pub original_w: u32,
+    pub original_h: u32,
+    pub display_w: u32,
+    pub display_h: u32,
+}
+
+/// Why an image could not be resized, other than there being no resizer.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ImageResizeError {
+    /// Node's `INVALID_IMAGE_DATA`: the decoder rejected the bytes.
+    Invalid,
+    /// The resizer's host failed (a dead worker): the image was not judged, and this is never
+    /// the same as there being no `sharp`.
+    Host(ExtError),
+}
+
+/// The read tool's image resize (`resizeImageBuffer(bytes, ext)` in `read-image-resize.mjs`),
+/// run by the extension host's `sharp` so the bytes equal Node's. `Ok(None)` is Node's `null`: no
+/// resizer (no `sharp`, or an empty buffer). `ext` is the format name (`png`, `jpeg`, `gif`,
+/// `webp`); `thread` is the call's fairness key.
+#[async_trait::async_trait]
+pub trait ImageResizer: Send + Sync {
+    async fn resize(&self, thread: &ThreadId, bytes: &[u8], ext: &str) -> Result<Option<ResizedImage>, ImageResizeError>;
+}
 /// What Node's PDF intake made of the bytes.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PdfIntake {

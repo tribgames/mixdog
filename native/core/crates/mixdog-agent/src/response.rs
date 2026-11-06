@@ -38,6 +38,10 @@ pub struct ModelResponse {
     /// `opts.providerState` back); `None` when the request did not change it.
     /// The run stores it as the pending state for the next request.
     pub provider_state: Option<ProviderState>,
+    /// The request's wall time as the usage ledger measured it (Node
+    /// `result.response.usageDurationMs`), from `Completed.request_ms`; `None`
+    /// when the send was not accounted, and the loop's own clock stands in.
+    pub request_ms: Option<u64>,
 }
 
 impl ModelResponse {
@@ -84,8 +88,9 @@ impl ResponseBuilder {
             StreamEvent::Usage(usage) => response.usage = usage,
             StreamEvent::ProviderState(state) => response.provider_state = Some(state),
             StreamEvent::ServerToolBlock(block) => response.server_blocks.push(block),
-            StreamEvent::Completed { stop, .. } => {
+            StreamEvent::Completed { stop, request_ms, .. } => {
                 response.stop = stop;
+                response.request_ms = request_ms;
                 self.completed = true;
             }
             StreamEvent::ItemStart { .. }
@@ -252,6 +257,17 @@ mod tests {
             continuation_signal(Some(&StopReason::Other("pause_turn".into()))),
             Some("pause_turn")
         );
+    }
+
+    #[test]
+    fn the_ledgers_request_time_rides_the_terminal_event() {
+        let fold = |request_ms| {
+            let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&[]));
+            builder.push(StreamEvent::Completed { stop: None, pricing_model: None, request_ms });
+            builder.finish().request_ms
+        };
+        assert_eq!(fold(Some(1_250)), Some(1_250));
+        assert_eq!(fold(None), None);
     }
 
     #[test]

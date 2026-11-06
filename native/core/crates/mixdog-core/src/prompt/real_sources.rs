@@ -9,7 +9,7 @@
 //! Node itself separates them (`prewarmGitStartupProbes`): the host's async prewarm fills
 //! [`StartupObservations`] and the composition reads the finished answers. An absent entry reads
 //! as a probe that failed, exactly as Node renders one.
-#![allow(clippy::disallowed_methods, reason = "lane job bodies: a RealSources lives inside an io-interactive job")]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "lane job bodies: a RealSources lives inside an io-interactive job")]
 
 use std::collections::HashMap;
 use std::collections::HashSet;

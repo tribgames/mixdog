@@ -42,6 +42,7 @@ pub mod skill_deps;
 mod skill_flow;
 pub mod skill_frontmatter;
 pub mod skill_port;
+pub mod skill_select;
 pub mod skill_state;
 pub mod skills;
 pub mod skills_service;

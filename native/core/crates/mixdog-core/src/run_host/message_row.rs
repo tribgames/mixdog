@@ -473,6 +473,7 @@ pub fn row_of(message: &AgentMessage) -> Value {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
 mod tests {
     use std::path::{Path, PathBuf};
 
@@ -530,6 +531,18 @@ mod tests {
     fn a_row_of_an_unknown_shape_is_an_error_not_a_dropped_message() {
         assert!(message_of(&json!({ "role": "narrator", "content": "x" })).is_err());
         assert!(message_of(&json!({ "role": "user", "content": [{ "type": "hologram" }] })).is_err());
+    }
+
+    /// A tool result's card diff is written into its row as Node's `uiDiff`, and read back.
+    #[test]
+    fn a_tool_rows_ui_diff_is_stored_in_its_body() {
+        let mut message = AgentMessage::user_content(Content::Text("done".into()));
+        message.message.role = Role::Tool;
+        message.message.tool_call_id = Some("c1".into());
+        message.ui_diff = Some("@@ -1 +1 @@".into());
+        let row = row_of(&message);
+        assert_eq!(row["uiDiff"], "@@ -1 +1 @@");
+        assert_eq!(message_of(&row).unwrap().ui_diff.as_deref(), Some("@@ -1 +1 @@"));
     }
 
     /// A reference part keeps its object as Node stores it, through the row and into the wire

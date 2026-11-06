@@ -724,7 +724,7 @@ impl Run {
         self.settle_turn_limits(overrun);
         self.last_batch_later = calls
             .iter()
-            .any(|call| self.config.later_flush_tools.contains(&call.name));
+            .any(|call| is_sleep_like(&call.name));
         self.tool_batch_just_completed = true;
         self.note_tool_batch_completed(&calls, results_from).await?;
         self.mark_step_effort(&calls, results_from);
@@ -733,8 +733,24 @@ impl Run {
 
 }
 
+/// `isSleepLikeToolCall` (`session/loop/tool-phase.mjs:18`): a sleep tool (any server or namespace
+/// prefix) grants the drain after its batch the `later` priority. A constant of the loop.
+pub(crate) fn is_sleep_like(name: &str) -> bool {
+    let name = name.to_lowercase();
+    name == "sleep" || name.ends_with("/sleep") || name.ends_with(".sleep")
+}
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_sleep_tool_with_any_prefix_grants_the_later_flush() {
+        for name in ["sleep", "Sleep", "srv/sleep", "ns.SLEEP"] {
+            assert!(super::is_sleep_like(name), "{name}");
+        }
+        for name in ["sleeper", "asleep", "sleep_now", "bash"] {
+            assert!(!super::is_sleep_like(name), "{name}");
+        }
+    }
+
     use super::*;
 
     #[test]

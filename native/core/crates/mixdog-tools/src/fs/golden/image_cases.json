@@ -1,0 +1,219 @@
+[
+  {
+    "name": "image-over-cap",
+    "file": "big.png",
+    "png": {
+      "width": 2000,
+      "height": 1000,
+      "rgb": [
+        200,
+        30,
+        90
+      ]
+    },
+    "sourceBytes": 6001523,
+    "sourceSha256": "e72016878d312b8b96d9f46bf14fada8f1ddd7dc4b5bf44af7a34282dfc1a0d5",
+    "input": {
+      "path": "big.png"
+    },
+    "isError": false,
+    "content": [
+      {
+        "type": "text",
+        "text": "[Image: source: big.png, 2000x1000, displayed at 1568x784. Multiply coordinates by 1.28 to map to the original image.]"
+      },
+      {
+        "type": "image",
+        "mimeType": "image/png",
+        "base64Length": 25656,
+        "base64Sha256": "ddafac787c57bab718ddbaff0a06c2ae559eb78f5c3bae47382e7f58505bc41e",
+        "width": 1568,
+        "height": 784
+      }
+    ]
+  },
+  {
+    "name": "image-over-cap-tall",
+    "file": "tall.png",
+    "png": {
+      "width": 700,
+      "height": 2200,
+      "rgb": [
+        10,
+        120,
+        240
+      ]
+    },
+    "sourceBytes": 4622618,
+    "sourceSha256": "bea0e406986cc78aa44cd1a84ff92c5e704dff5101a6c72a88c2e1002788df74",
+    "input": {
+      "path": "tall.png"
+    },
+    "isError": false,
+    "content": [
+      {
+        "type": "text",
+        "text": "[Image: source: tall.png, 700x2200, displayed at 498x1565. Multiply coordinates by 1.41 to map to the original image.]"
+      },
+      {
+        "type": "image",
+        "mimeType": "image/png",
+        "base64Length": 18604,
+        "base64Sha256": "55b1c085d426306d22aeb7de988951dcef0d8b3c0333f15b166397d4063d5110",
+        "width": 498,
+        "height": 1565
+      }
+    ]
+  },
+  {
+    "name": "image-under-cap",
+    "file": "small.png",
+    "png": {
+      "width": 300,
+      "height": 200,
+      "rgb": [
+        20,
+        200,
+        20
+      ]
+    },
+    "sourceBytes": 180278,
+    "sourceSha256": "4ac8337ad953ba4aa756b47c65bd181ffa286d5cbb76de730696e15cc1d50816",
+    "input": {
+      "path": "small.png"
+    },
+    "isError": false,
+    "content": [
+      {
+        "type": "text",
+        "text": "[Image: source: small.png, 300x200, displayed at 300x200]"
+      },
+      {
+        "type": "image",
+        "mimeType": "image/png",
+        "base64Length": 240372,
+        "base64Sha256": "b6a20af7eb365cc15d390623358f12293f2fdeecfc424734822beae85f71e10c",
+        "width": 300,
+        "height": 200
+      }
+    ]
+  },
+  {
+    "name": "image-tiny-upscaled",
+    "file": "tiny.png",
+    "png": {
+      "width": 40,
+      "height": 30,
+      "rgb": [
+        90,
+        90,
+        90
+      ]
+    },
+    "sourceBytes": 3698,
+    "sourceSha256": "70c675a452918b4d1299b29ad2072fc264840f45dd0dde4e3ff4127c5987addf",
+    "input": {
+      "path": "tiny.png"
+    },
+    "isError": false,
+    "content": [
+      {
+        "type": "text",
+        "text": "[Image: source: tiny.png, 40x30, displayed at 267x200. Multiply coordinates by 0.15 to map to the original image.]"
+      },
+      {
+        "type": "image",
+        "mimeType": "image/png",
+        "base64Length": 808,
+        "base64Sha256": "99b50478f475b71cb551c6f72db4d6f981d8b2d348bb080306e32d73c144c90c",
+        "width": 267,
+        "height": 200
+      }
+    ]
+  },
+  {
+    "name": "batch-image-and-text",
+    "file": "big.png",
+    "png": {
+      "width": 2000,
+      "height": 1000,
+      "rgb": [
+        200,
+        30,
+        90
+      ]
+    },
+    "sourceBytes": 6001523,
+    "sourceSha256": "e72016878d312b8b96d9f46bf14fada8f1ddd7dc4b5bf44af7a34282dfc1a0d5",
+    "input": {
+      "path": [
+        "big.png",
+        "note.txt"
+      ]
+    },
+    "extra": {
+      "note.txt": "hello\nworld\n"
+    },
+    "isError": false,
+    "content": [
+      {
+        "type": "text",
+        "text": "read 2"
+      },
+      {
+        "type": "text",
+        "text": "big.png [ok]"
+      },
+      {
+        "type": "text",
+        "text": "[Image: source: big.png, 2000x1000, displayed at 1568x784. Multiply coordinates by 1.28 to map to the original image.]"
+      },
+      {
+        "type": "image",
+        "mimeType": "image/png",
+        "base64Length": 25656,
+        "base64Sha256": "ddafac787c57bab718ddbaff0a06c2ae559eb78f5c3bae47382e7f58505bc41e",
+        "width": 1568,
+        "height": 784
+      },
+      {
+        "type": "text",
+        "text": "note.txt [ok]"
+      },
+      {
+        "type": "text",
+        "text": "1→hello\n2→world"
+      }
+    ]
+  },
+  {
+    "name": "image-empty",
+    "file": "empty.png",
+    "bytes": "",
+    "input": {
+      "path": "empty.png"
+    },
+    "isError": true,
+    "content": [
+      {
+        "type": "text",
+        "text": "Error: image \"empty.png\" is empty (0 bytes)."
+      }
+    ]
+  },
+  {
+    "name": "image-corrupt",
+    "file": "bad.png",
+    "bytes": "not a png at all",
+    "input": {
+      "path": "bad.png"
+    },
+    "isError": true,
+    "content": [
+      {
+        "type": "text",
+        "text": "Error: image \"bad.png\" is invalid or corrupt and was not attached."
+      }
+    ]
+  }
+]

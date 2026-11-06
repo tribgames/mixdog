@@ -12,6 +12,7 @@
 //!
 //! Needs the corpus (`MIXDOG_MIGRATION_CORPUS`), so it runs only on request:
 //! `cargo test -p mixdog-core --lib transcript_golden -- --ignored`.
+#![allow(clippy::disallowed_methods, reason = "golden setup: reads the recorded fixtures and the corpus")]
 
 use std::path::PathBuf;
 
@@ -199,7 +200,7 @@ fn routine_notices_equal_nodes() {
         .expect("record shape");
         record.body = Slot::Inline(message.clone());
         let strip = |mut row: Value| {
-            row.as_object_mut().expect("row").remove("id");
+            row.as_object_mut().expect("row").shift_remove("id");
             row
         };
         let got: Vec<Value> = restore(&record, message)

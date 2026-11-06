@@ -200,6 +200,11 @@ enum Decision {
     Run,
 }
 
+/// `isSingleCallPerTurnTool` (`session/loop/tool-helpers.mjs:55`): of these only the first call of an
+/// assistant turn runs. A constant of the loop, not a setting.
+pub(crate) fn is_single_call_per_turn_tool(name: &str) -> bool {
+    name == "computer"
+}
 impl Run {
     pub(crate) fn call_env(&self) -> Arc<CallEnv> {
         Arc::new(CallEnv {
@@ -221,9 +226,8 @@ impl Run {
     /// nothing in the batch could answer it differently: no limit, no guard
     /// near firing, no duplicate, receipt or cached body. A call that did not
     /// start here is decided by the serial batch.
-    pub(crate) fn try_eager(&mut self, call: &ToolCall) {
-        if !self.config.eager_dispatch
-            || self.turn_limit_noticed
+    pub(crate) async fn try_eager(&mut self, call: &ToolCall) {
+        if self.turn_limit_noticed
             || self.config.limits.is_some_and(|l| l.max_tool_calls.is_some() || l.wrap_up_at_ms.is_some())
             || call.id.is_empty()
             || self.eager.contains_key(&call.id)
@@ -241,9 +245,11 @@ impl Run {
         }
         if self.tools.dedup_eligible(&name) {
             let sig = call_signature(&name, &call.arguments);
-            if !self.eager_sigs.insert(sig.clone())
-                || self.cross_turn.has(&sig)
-                || self.env.reuse.as_ref().is_some_and(|r| r.lookup(&exec, false).is_some())
+            if !self.eager_sigs.insert(sig.clone()) || self.cross_turn.has(&sig) {
+                return;
+            }
+            if let Some(reuse) = self.env.reuse.clone()
+                && reuse.lookup(&exec, false).await.is_some()
             {
                 return;
             }
@@ -272,7 +278,7 @@ impl Run {
     /// What one call is, in Node's order: surface denial, one-per-turn tools,
     /// intra-turn twin, cross-turn receipt, repeat-failure guards.
     #[allow(clippy::too_many_arguments)]
-    fn decide(
+    async fn decide(
         &mut self,
         call: &ToolCall,
         dup_of: Option<&String>,
@@ -312,7 +318,7 @@ impl Run {
         }
         if let Some(ct) = ct_sig
             && !body_required
-            && let Some(stub) = self.cross_turn_stub(call, ct)
+            && let Some(stub) = self.cross_turn_stub(call, ct).await
         {
             return Decision::Skip(AgentMessage::tool_text(&call.id, stub, ToolKind::Skipped));
         }
@@ -324,7 +330,7 @@ impl Run {
 
     /// A receipt is only an in-context receipt, not a freshness proof:
     /// reference it only while the same cached body remains reusable.
-    fn cross_turn_stub(&mut self, call: &ToolCall, ct_sig: &str) -> Option<String> {
+    async fn cross_turn_stub(&mut self, call: &ToolCall, ct_sig: &str) -> Option<String> {
         let iterations = self.iterations;
         let (first_iteration, tool_use_id) = {
             let prior = self.cross_turn.find(ct_sig)?;
@@ -333,12 +339,11 @@ impl Run {
             }
             (prior.first_iteration, prior.tool_use_id.clone())
         };
-        let valid = self
-            .env
-            .reuse
-            .as_ref()
-            .and_then(|r| r.lookup(call, false))
-            .is_some_and(|hit| !tool_use_id.is_empty() && hit.first_tool_use_id == tool_use_id);
+        let hit = match self.env.reuse.clone() {
+            Some(reuse) => reuse.lookup(call, false).await,
+            None => None,
+        };
+        let valid = hit.is_some_and(|hit| !tool_use_id.is_empty() && hit.first_tool_use_id == tool_use_id);
         if !valid {
             self.cross_turn.remove(ct_sig);
             return None;
@@ -353,13 +358,13 @@ impl Run {
     /// Bookkeeping once a call has its result, in call order.
     /// Returns whether the body is a cache candidate (stored after the batch's
     /// budgets, so cache and transcript receive the same body).
-    fn record_executed(&mut self, call: &ToolCall, executed: &Executed, sigs: (String, String), later_mutation: bool) -> bool {
+    async fn record_executed(&mut self, call: &ToolCall, executed: &Executed, sigs: (String, String), later_mutation: bool) -> bool {
         self.carry
             .repeat
             .record(executed.failed, sigs.0, sigs.1, executed.arg_failure);
         let read_only = self.tools.read_only(&call.name);
-        if let Some(reuse) = &self.env.reuse {
-            reuse.after_call(call, executed.failed);
+        if let Some(reuse) = self.env.reuse.clone() {
+            reuse.after_call(call, executed.failed).await;
         }
         // A body that predates a later mutation of the batch is not cached.
         let cacheable = self.env.reuse.is_some()
@@ -404,7 +409,7 @@ impl Run {
         let mut single_first: HashMap<String, String> = HashMap::new();
         let mut single_of: Vec<Option<String>> = vec![None; n];
         for (i, c) in calls.iter().enumerate() {
-            if c.id.is_empty() || !self.config.single_call_tools.contains(&c.name) {
+            if c.id.is_empty() || !is_single_call_per_turn_tool(&c.name) {
                 continue;
             }
             match single_first.get(&c.name) {
@@ -466,7 +471,7 @@ impl Run {
                     break;
                 }
                 evaluated[j] = true;
-                match self.decide(call, dups.get(&j), single_of[j].as_ref(), ct_sig.as_deref(), &sig, &shape_sig) {
+                match self.decide(call, dups.get(&j), single_of[j].as_ref(), ct_sig.as_deref(), &sig, &shape_sig).await {
                     Decision::Skip(message) => {
                         staged[j] = Some(message);
                         finished[j] = true;
@@ -483,7 +488,7 @@ impl Run {
                     let later_mutation = (recorded + 1..n).any(|k| !self.tools.read_only(&calls[k].name));
                     let sig_pair = std::mem::take(&mut sigs[recorded]);
                     cacheable[recorded] =
-                        self.record_executed(&calls[recorded], &result, sig_pair, later_mutation);
+                        self.record_executed(&calls[recorded], &result, sig_pair, later_mutation).await;
                     outputs[recorded] = result.output.take();
                     was_executed[recorded] = true;
                     follow_ups.extend(result.follow_ups.iter().cloned());
@@ -511,9 +516,11 @@ impl Run {
                 }
                 started[j] = true;
                 let call = calls[j].clone();
-                if let Some(reuse) = &self.env.reuse
-                    && let Some(hit) = reuse.lookup(&call, true)
-                {
+                let hit = match self.env.reuse.clone() {
+                    Some(reuse) => reuse.lookup(&call, true).await,
+                    None => None,
+                };
+                if let Some(hit) = hit {
                     let mut served =
                         Executed::error(&call.id, String::new());
                     served.message = AgentMessage::tool_text(&call.id, hit.content, ToolKind::CacheHit);
@@ -652,7 +659,7 @@ impl Run {
         if let Some(reuse) = &self.env.reuse {
             for i in indices.into_iter().filter(|i| cacheable[*i]) {
                 if let (Some(m), Some(output)) = (&staged[i], &outputs[i]) {
-                    reuse.store(&calls[i], &m.text(), &calls[i].id, output);
+                    reuse.store(&calls[i], &m.text(), &calls[i].id, output).await;
                 }
             }
         }

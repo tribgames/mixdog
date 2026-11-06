@@ -76,7 +76,6 @@ fn divider_anchor(cid: &str) -> String {
 /// after its divider. Node marks them on the summary (or the context ack) message, whose own
 /// bubble is hidden, and shows the same "Model switched" row after it; a switch recorded twice
 /// (same time and model) shows once.
-#[allow(dead_code)] // wired by the history page that joins `SqliteStore::dividers`
 pub(in crate::session) fn divider_model_switches(cid: &str, switches: &[ModelSwitchEntry]) -> Vec<ThreadItem> {
     let anchor = divider_anchor(cid);
     let mut seen: Vec<(i64, &str)> = Vec::new();
@@ -95,7 +94,6 @@ pub(in crate::session) fn divider_model_switches(cid: &str, switches: &[ModelSwi
 
 /// The live row of a boundary committed on a replacement entry of compaction `cid`: the row
 /// [`divider_model_switches`] shows after a restore, with its id.
-#[allow(dead_code)] // wired by the session's `model_switch` commit
 pub(in crate::session) fn live_divider_model_switch(cid: &str, entry: &ModelSwitchEntry) -> Option<Shown> {
     divider_switch_item(&divider_anchor(cid), entry)
 }
@@ -116,6 +114,7 @@ pub(super) fn model_switch_item(anchor_iid: &str, turn: Option<&str>, entry: &Va
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods, reason = "test setup: reads the recorded fixture")]
     use mixdog_store::schema::blob::Slot;
     use mixdog_store::schema::record::ItemRecord;
 
@@ -253,7 +252,7 @@ mod tests {
                 case["boundaries"].as_array().expect("boundaries").iter().filter_map(|b| serde_json::from_value(b.clone()).ok()).collect();
             let shown = divider_model_switches("k1", &entries);
             let strip = |mut row: Value| {
-                row.as_object_mut().expect("row").remove("id");
+                row.as_object_mut().expect("row").shift_remove("id");
                 row
             };
             let want: Vec<Value> = case["rows"].as_array().expect("rows").iter().cloned().map(strip).collect();

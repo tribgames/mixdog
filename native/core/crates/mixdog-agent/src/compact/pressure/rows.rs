@@ -208,7 +208,7 @@ fn content_images(content: Option<&Value>) -> Vec<ImageDescriptor> {
 
 /// `Buffer.from(data, 'base64')`: both alphabets, characters outside them skipped, decoding
 /// stops at the first `=`, a trailing partial byte dropped.
-fn node_base64(data: &str) -> Vec<u8> {
+pub(crate) fn node_base64(data: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len() * 3 / 4);
     let (mut bits, mut count) = (0u32, 0u32);
     for c in data.chars() {
