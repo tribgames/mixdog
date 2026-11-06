@@ -56,7 +56,7 @@ impl TodoStore for ThreadTodos {
             // A refusal: another edit (or a header read behind the actor's) moved `todo`; compute again from it.
             match self.threads.patch_header_if(thread, expect, set, Vec::new()).await.map_err(|error| port_message(&error))? {
                 None => return Ok(()),
-                Some(mut current) => match current.remove("todo") {
+                Some(mut current) => match current.shift_remove("todo") {
                     Some(todo) if !todo.is_null() => header.insert("todo".into(), todo),
                     _ => header.shift_remove("todo"),
                 },

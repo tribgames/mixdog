@@ -7,6 +7,7 @@ use mixdog_core_api::mock::MockStatePublisher;
 use serde_json::{Value, json};
 
 use crate::run_host::auto_effort::*;
+use crate::run_host::fixture_fs;
 use mixdog_core_config::config::ConfigLanes;
 
 type EnvCell = Arc<Mutex<HashMap<String, String>>>;
@@ -42,7 +43,7 @@ impl Rig {
     /// The case's environment and saved `agent` section.
     async fn set(&self, env: &Value, agent: &Value) {
         *self.env.lock().unwrap() = env.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
-        std::fs::write(&self.path, serde_json::to_vec(&json!({ "agent": agent })).unwrap()).unwrap();
+        fixture_fs::write(&self.path, serde_json::to_vec(&json!({ "agent": agent })).unwrap());
         self.config.reload().await.unwrap();
     }
 }
@@ -145,14 +146,14 @@ fn log_env(mode: &str, root: &std::path::Path) -> Map<String, Value> {
 /// The file once the lane job that writes it has run.
 async fn settled(path: &std::path::Path, want: &str) -> Option<String> {
     for _ in 0..500 {
-        if let Ok(bytes) = std::fs::read_to_string(path) {
+        if let Ok(bytes) = fixture_fs::read_to_string(path) {
             if bytes.len() >= want.len() {
                 return Some(bytes);
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    std::fs::read_to_string(path).ok()
+    fixture_fs::read_to_string(path).ok()
 }
 
 #[async_trait]
@@ -250,7 +251,7 @@ async fn the_first_request_is_judged_as_the_recorded_node_judged_it() {
             };
         }
         let mut session = case["session"].as_object().unwrap().clone();
-        let messages = session.remove("messages").unwrap_or(Value::Null);
+        let messages = session.shift_remove("messages").unwrap_or(Value::Null);
         let messages = messages.as_array().cloned().unwrap_or_default();
         let prompt = prompt_content_text(&case["prompt"]);
         let input = TurnAutoEffortInput {
@@ -264,14 +265,13 @@ async fn the_first_request_is_judged_as_the_recorded_node_judged_it() {
         let options = ladder_facts(&doubles, route["provider"].as_str().unwrap(), route["model"].as_str().unwrap()).await.options;
         assert_eq!(json!(options), case["options"], "options of case {index}: {case}");
         let got = turn.resolve(&input).await;
-        let script = doubles.0.lock().unwrap();
         assert_eq!(got.as_ref().map(decision_value).unwrap_or(Value::Null), case["result"], "result of case {index}: {case}");
-        let judged: Vec<Value> = script.judged.iter().map(|j| json!({ "request": j.request, "prev": j.prev, "prevRequest": j.prev_request })).collect();
+        let judged: Vec<Value> = doubles.0.lock().unwrap().judged.iter().map(|j| json!({ "request": j.request, "prev": j.prev, "prevRequest": j.prev_request })).collect();
         assert_eq!(json!(judged), case["judged"], "judge input of case {index}: {case}");
         let log_path = root.path().join(case["log"]["path"].as_str().unwrap());
         match case["log"]["bytes"].as_str() {
             Some(want) => assert_eq!(settled(&log_path, want).await.as_deref(), Some(want), "log bytes of case {index}: {case}"),
-            None => assert!(!log_path.exists(), "no log of case {index}: {case}"),
+            None => assert!(!fixture_fs::exists(&log_path).unwrap(), "no log of case {index}: {case}"),
         }
         assert_eq!(json!(*diagnostics.warnings.lock().unwrap()), case["warnings"], "warnings of case {index}: {case}");
         decided += usize::from(got.is_some());
@@ -300,7 +300,7 @@ async fn the_destination_is_read_at_each_append_as_node_reads_it() {
             assert_eq!(got.as_deref(), Some(so_far.as_str()), "append sequence {index}");
         }
         for (rel, bytes) in case["files"].as_object().unwrap() {
-            let got = std::fs::read_to_string(root.path().join(rel)).ok();
+            let got = fixture_fs::read_to_string(root.path().join(rel)).ok();
             assert_eq!(got.as_deref(), bytes.as_str(), "{rel} of append sequence {index}");
         }
     }

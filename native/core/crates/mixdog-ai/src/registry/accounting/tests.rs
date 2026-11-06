@@ -160,8 +160,18 @@ async fn every_outcome_writes_the_rows_node_writes() {
 async fn an_unreadable_account_roster_fails_the_recording_and_exposes_the_error() {
     use crate::registry::accounted::AccountOf;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("provider-accounts.json")).unwrap();
     let tokens = mixdog_rt::testing::tokens();
+    let roster = dir.path().join("provider-accounts.json");
+    {
+        use mixdog_rt::LaneToken;
+        tokens
+            .durability_io
+            .submit(&tokio_util::sync::CancellationToken::new(), move |lane| mixdog_statefile::create_private_dir_all(lane, &roster))
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
+    }
     let store = crate::accounts::AccountStore::new(
         dir.path().to_path_buf(),
         crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },

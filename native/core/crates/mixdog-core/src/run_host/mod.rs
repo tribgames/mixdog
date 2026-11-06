@@ -7,6 +7,8 @@ pub mod accounting_scope;
 pub mod ladder_sources;
 pub mod hop_bindings;
 #[cfg(test)]
+mod fixture_fs;
+#[cfg(test)]
 mod process_tests;
 pub mod tool_exposure;
 pub mod tool_surface;

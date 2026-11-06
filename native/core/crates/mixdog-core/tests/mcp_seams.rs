@@ -356,6 +356,34 @@ async fn the_gate_env_binds_a_connector_call_to_the_hubs_account_choice() {
 }
 
 /// "Allow all actions" is on only when the stored option is `true` (`developerOptionEnabledStrict`).
+/// Writes `body` to `path` (parent directories made) as a durability-lane job.
+async fn write_file(path: &Path, body: &[u8]) {
+    use mixdog_rt::LaneToken;
+    let (path, body) = (path.to_owned(), body.to_vec());
+    mixdog_rt::testing::tokens()
+        .durability_io
+        .submit(&tokio_util::sync::CancellationToken::new(), move |lane| {
+            mixdog_statefile::write_file(lane, &path, &body, &mixdog_statefile::Opts::default())
+        })
+        .unwrap()
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+/// `std::fs::remove_dir_all(path).unwrap()` as a durability-lane job.
+async fn remove_dir_all(path: &Path) {
+    use mixdog_rt::LaneToken;
+    let path = path.to_owned();
+    mixdog_rt::testing::tokens()
+        .durability_io
+        .submit(&tokio_util::sync::CancellationToken::new(), move |lane| mixdog_statefile::remove_dir_all(lane, &path))
+        .unwrap()
+        .await
+        .unwrap()
+        .unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn allow_all_actions_is_on_only_for_a_stored_true() {
     use mixdog_core_config::config::Config;
@@ -375,7 +403,7 @@ async fn allow_all_actions_is_on_only_for_a_stored_true() {
     .enumerate()
     {
         let path = dir.path().join(format!("config-{index}.json"));
-        std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        write_file(&path, &serde_json::to_vec(&stored).unwrap()).await;
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         assert_eq!(ConfigAllowAll(config).allow_all_actions(), expected, "{stored}");
@@ -400,8 +428,7 @@ async fn the_skill_listing_answers_from_the_catalog() {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("skills");
-    std::fs::create_dir_all(root.join("alpha")).unwrap();
-    std::fs::write(root.join("alpha").join("SKILL.md"), "---\nname: alpha\ndescription: Use when alpha.\n---\n\nbody\n").unwrap();
+    write_file(&root.join("alpha").join("SKILL.md"), b"---\nname: alpha\ndescription: Use when alpha.\n---\n\nbody\n").await;
     let skill_root = SkillRoot { dir: root, source: SkillSource::Global, plugin: None };
     let catalog = SkillCatalog::new(
         dir.path().to_path_buf(),
@@ -414,11 +441,10 @@ async fn the_skill_listing_answers_from_the_catalog() {
     // A cold start collects before it answers.
     assert_eq!(listed.any_for(dir.path()).await, Ok(true));
     // A skill added since, after invalidation, is listed on the very next read.
-    std::fs::remove_dir_all(dir.path().join("skills").join("alpha")).unwrap();
+    remove_dir_all(&dir.path().join("skills").join("alpha")).await;
     catalog.invalidate();
     assert_eq!(listed.any_for(dir.path()).await, Ok(false));
-    std::fs::create_dir_all(dir.path().join("skills").join("beta")).unwrap();
-    std::fs::write(dir.path().join("skills").join("beta").join("SKILL.md"), "---\nname: beta\ndescription: Use when beta.\n---\n\nbody\n").unwrap();
+    write_file(&dir.path().join("skills").join("beta").join("SKILL.md"), b"---\nname: beta\ndescription: Use when beta.\n---\n\nbody\n").await;
     catalog.invalidate();
     assert_eq!(listed.any_for(dir.path()).await, Ok(true));
 }

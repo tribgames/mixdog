@@ -153,7 +153,7 @@ pub fn turn_effort_configuration_mode(
     opts.insert("modelParameters".into(), route.model_parameters.clone());
     match &protocol {
         Some(p) => opts.insert("protocol".into(), p.clone()),
-        None => opts.remove("protocol"),
+        None => opts.shift_remove("protocol"),
     };
     let custom = is_custom_provider_name(route.provider) && {
         let mut row: Map<String, Value> = facts.cached_model.as_ref().and_then(Value::as_object).cloned().unwrap_or_default();

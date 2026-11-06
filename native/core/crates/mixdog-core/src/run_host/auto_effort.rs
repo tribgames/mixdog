@@ -160,16 +160,9 @@ impl EffortDecisionLog {
 impl EffortDiagnostics for EffortDecisionLog {
     fn record(&self, entry: Map<String, Value>) {
         let (path, line) = (self.destination(), format!("{}\n", Value::Object(entry)));
-        #[allow(clippy::disallowed_methods, reason = "a lane job body")]
-        let job = move |_: &mixdog_rt::InLane<DurabilityIo>| {
-            use std::io::Write;
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            // The log is diagnostic only: a failed append is dropped.
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-                let _ = file.write_all(line.as_bytes());
-            }
+        // The log is diagnostic only: a failed append is dropped.
+        let job = move |lane: &mixdog_rt::InLane<DurabilityIo>| {
+            let _ = mixdog_statefile::append_file(lane, &path, line.as_bytes());
         };
         drop(self.lane.submit(&CancellationToken::new(), job));
     }

@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use mixdog_rt::InLane;
 
+use crate::IoLane;
 use crate::WriteLane;
 use crate::access::Access;
 use crate::access::create_new;
@@ -303,6 +304,32 @@ fn read_or_null(path: &Path) -> io::Result<Option<Vec<u8>>> {
 /// The file's bytes, `None` when it is missing.
 pub fn read_content(path: &Path) -> io::Result<Option<Vec<u8>>> {
     read_or_null(path)
+}
+
+/// `appendFileSync(path, bytes)`: the file is created when missing, after its directory (a
+/// failure to make the directory is left to the open to report).
+pub fn append_file<L: WriteLane>(_lane: &InLane<L>, path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::OpenOptions::new().create(true).append(true).open(path)?.write_all(bytes)
+}
+
+/// `statSync(path)`: the metadata of what `path` resolves to, every error (`NotFound` included)
+/// reported as it is.
+pub fn metadata<L: IoLane>(_lane: &InLane<L>, path: &Path) -> io::Result<fs::Metadata> {
+    fs::metadata(path)
+}
+
+/// `rmSync(path, { recursive: true })`: the directory and what it holds; a missing path is an
+/// error.
+pub fn remove_dir_all<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    fs::remove_dir_all(path)
+}
+
+/// `unlinkSync(path)`: a missing file is an error.
+pub fn remove_file<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    fs::remove_file(path)
 }
 
 fn bak_path(path: &Path) -> PathBuf {
