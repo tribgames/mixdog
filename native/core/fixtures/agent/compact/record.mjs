@@ -318,6 +318,26 @@ write('dropped', {
       const before = stampAll([withAt(1, { role: 'user', content: 'inspect a' }), call, tool('pc1', 'a body')], sid);
       return { before, after: [before[0], { ...before[1], content: '' }, before[2]] };
     }),
+    await droppedCase('hidden_only', (sid) => {
+      const before = stampAll([withAt(1, { role: 'user', content: 'question' }), withAt(2, { role: 'user', content: '[Request interrupted by user]' }), withAt(3, { role: 'user', content: '[Request interrupted by user for tool use]' })], sid);
+      return { before, after: [summaryRow, before[0]] };
+    }),
+    // Rows whose text is hidden but whose stored meta makes the transcript draw something.
+    await droppedCase('task_notification', (sid) => {
+      const notice = withAt(2, { role: 'user', content: 'Async agent task task_1 (completed) finished.', meta: { source: 'task-notification', execution: { surface: 'agent', status: 'completed', id: 'task_1' } } });
+      const before = stampAll([withAt(1, { role: 'user', content: 'question' }), notice], sid);
+      return { before, after: [summaryRow, before[0]] };
+    }),
+    await droppedCase('completion', (sid) => {
+      const failed = { role: 'assistant', content: '', meta: { transcript: { at: 2, completion: { status: 'failed', elapsedMs: 5 } } } };
+      const before = stampAll([withAt(1, { role: 'user', content: 'question' }), failed], sid);
+      return { before, after: [summaryRow, before[0]] };
+    }),
+    await droppedCase('model_switch', (sid) => {
+      const switched = { role: 'user', content: '[Request interrupted by user]', meta: { transcript: { at: 2 }, modelSwitches: [{ provider: 'openai', modelId: 'next-model', at: 2 }] } };
+      const before = stampAll([withAt(1, { role: 'user', content: 'question' }), switched], sid);
+      return { before, after: [summaryRow, before[0]] };
+    }),
     await droppedCase('rewrite_only', (sid) => {
       const before = stampAll([withAt(1, { role: 'user', content: 'question' }), withAt(2, { role: 'assistant', content: 'answer' })], sid);
       return { before, after: [before[0], { ...before[1], content: 'answer (rewritten)' }] };

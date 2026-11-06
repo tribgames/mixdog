@@ -217,7 +217,7 @@ const cases = {
   'worktree-host-failures': {
     setup: BASE,
     host: lead({
-      enter: { error: { code: 'WORKTREE_LARGE_REPO_CONFIRM', message: 'WORKTREE_LARGE_REPO_CONFIRM: big', details: { estimateBytes: 5368709120 } } },
+      enter: { error: { code: 'WORKTREE_LARGE_REPO_CONFIRM', message: 'WORKTREE_LARGE_REPO_CONFIRM: big', details: { estimateBytes: 5368709120, thresholdBytes: 2147483648 } } },
       return: { error: { code: 'WORKTREE_DIRTY', message: 'WORKTREE_DIRTY: x', details: { reason: 'project-dirty' } } },
       merge: { error: { code: 'MERGE_CONFLICT', message: 'MERGE_CONFLICT: c', details: { files: ['a', 'b', 'c', 'd', 'e', 'f'] } } },
       remove: { error: { code: 'WORKTREE_BUSY_JOBS', message: 'busy', details: { reason: 'folder-shell-jobs' } } },

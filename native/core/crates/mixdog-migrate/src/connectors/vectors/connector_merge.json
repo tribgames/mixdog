@@ -1,0 +1,336 @@
+{
+  "cases": [
+    {
+      "name": "unmerged",
+      "input": {
+        "mixdog-config.json": "{\n  \"agent\": {\n    \"mcpServers\": {\n      \"UnityMCP\": {\n        \"enabled\": true,\n        \"type\": \"http\",\n        \"url\": \"http://127.0.0.1:8080/mcp\",\n        \"startupTimeoutSec\": 30\n      },\n      \"gmail-2\": {\n        \"type\": \"http\",\n        \"url\": \"https://gmail-imap.mixdog.invalid/mcp\",\n        \"headers\": {\n          \"X-Mixdog-Gmail-Account\": \"b@gmail.com\"\n        },\n        \"connector\": \"gmail\",\n        \"enabled\": false\n      },\n      \"gmail\": {\n        \"type\": \"http\",\n        \"url\": \"https://gmail-imap.mixdog.invalid/mcp\",\n        \"headers\": {\n          \"X-Mixdog-Gmail-Account\": \"a@gmail.com\"\n        },\n        \"connector\": \"gmail\",\n        \"startupTimeoutSec\": 20\n      },\n      \"gmail-10\": {\n        \"type\": \"http\",\n        \"url\": \"https://gmail-imap.mixdog.invalid/mcp\",\n        \"headers\": {\n          \"X-Mixdog-Gmail-Account\": \"A@gmail.com\"\n        },\n        \"connector\": \"gmail\"\n      },\n      \"notion\": {\n        \"type\": \"http\",\n        \"url\": \"https://mcp.notion.com/mcp\",\n        \"connector\": \"notion\"\n      },\n      \"notion-2\": {\n        \"type\": \"http\",\n        \"url\": \"https://mcp.notion.com/mcp\",\n        \"oauthKey\": \"k2\",\n        \"connector\": \"notion\"\n      },\n      \"notion-3\": {\n        \"type\": \"http\",\n        \"url\": \"https://mcp.notion.com/mcp\",\n        \"connector\": \"notion\"\n      },\n      \"linear-2\": {\n        \"type\": \"http\",\n        \"url\": \"https://mcp.linear.app/mcp\",\n        \"connector\": \"linear\",\n        \"enabled\": false\n      },\n      \"linear-3\": {\n        \"type\": \"http\",\n        \"url\": \"https://mcp.linear.app/mcp\",\n        \"oauthKey\": \"l3\",\n        \"connector\": \"linear\",\n        \"enabled\": false\n      },\n      \"jira\": {\n        \"type\": \"http\",\n        \"url\": \"https://mcp.atlassian.com/v1/mcp/authv2\",\n        \"connector\": \"jira\"\n      },\n      \"jira-2\": {\n        \"type\": \"http\",\n        \"url\": \"https://connectors.mixdog.invalid/jira/mcp\",\n        \"connector\": \"jira\",\n        \"accounts\": [\n          {\n            \"name\": \"jira-2\",\n            \"url\": \"https://mcp.atlassian.com/v1/mcp/authv2\",\n            \"oauthKey\": \"j2\",\n            \"id\": \"kept-id\"\n          }\n        ]\n      },\n      \"postgres\": {\n        \"type\": \"stdio\",\n        \"command\": \"npx\",\n        \"args\": [\n          \"-y\",\n          \"@microsoft/postgres-mcp@0.2.0\",\n          \"run\"\n        ],\n        \"env\": {\n          \"POSTGRES_MCP_CONNECTION_STRING\": \"postgresql://x\"\n        },\n        \"connector\": \"postgres\"\n      },\n      \"custom\": {\n        \"type\": \"http\",\n        \"url\": \"https://example.com/mcp\",\n        \"connector\": \"not-in-catalog\"\n      }\n    },\n    \"extensionScopes\": {\n      \"skills\": {\n        \"s\": [\n          \"C:\\\\Project\\\\B\",\n          \"C:\\\\Project\\\\A\\\\\"\n        ]\n      },\n      \"mcp\": {\n        \"notion-2\": [\n          \"C:\\\\Project\\\\mixdog\"\n        ],\n        \"UnityMCP\": [\n          \"C:\\\\Project\\\\mixdog\"\n        ]\n      },\n      \"plugins\": {}\n    },\n    \"other\": 1\n  },\n  \"ui\": {\n    \"theme\": \"dark\"\n  }\n}\n",
+        "agents/a1/agent.json": "{\n  \"name\": \"a1\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail-2\",\n      \"UnityMCP\"\n    ],\n    \"tools\": {\n      \"gmail-2\": {\n        \"send_email\": \"auto\"\n      },\n      \"gmail\": {\n        \"read\": \"disabled\"\n      }\n    }\n  }\n}\n",
+        "agents/a2/agent.json": "{\n  \"name\": \"a2\",\n  \"connectors\": {\n    \"off\": [\n      \"UnityMCP\"\n    ]\n  }\n}\n",
+        "agents/a3/agent.json": "{\n  \"name\": \"a3\",\n  \"connectors\": {\n    \"off\": [\n      \"notion-3\"\n    ],\n    \"tools\": {\n      \"notion-3\": {\n        \"search\": \"disabled\"\n      }\n    }\n  }\n}\n",
+        "agents/a4/agent.json": "{\n  \"name\": \"a4\"\n}\n",
+        "bots/b1/agent.json": "{\n  \"name\": \"b1\",\n  \"connectors\": [\n    {\n      \"id\": \"notion-2\",\n      \"enabled\": true,\n      \"tools\": {\n        \"search\": \"needs_approval\"\n      }\n    },\n    {\n      \"id\": \"notion\",\n      \"enabled\": false\n    },\n    {\n      \"id\": \"UnityMCP\",\n      \"enabled\": true\n    }\n  ]\n}\n",
+        "bots/b2/agent.json": "{\n  \"name\": \"b2\",\n  \"connectors\": {\n    \"off\": [\n      \"jira\"\n    ]\n  }\n}\n",
+        "project-connectors.json": "{\n  \"projects\": {\n    \"C:\\\\Project\\\\A\": {\n      \"off\": [\n        \"notion-2\"\n      ]\n    },\n    \"C:\\\\Project\\\\B\": {\n      \"off\": [\n        \"UnityMCP\"\n      ]\n    },\n    \"C:\\\\Project\\\\C\": {\n      \"off\": [\n        \"notion\",\n        \"notion-3\",\n        \"UnityMCP\"\n      ],\n      \"note\": \"kept\"\n    }\n  }\n}\n",
+        "hooks.json": "{\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"mcp__notion-2__search|Bash|^mcp__gmail-10__.*$\",\n        \"hooks\": [\n          {\n            \"type\": \"mcp_tool\",\n            \"server\": \" gmail-2 \",\n            \"tool\": \"mcp__gmail-2__send_email\"\n          },\n          {\n            \"type\": \"command\",\n            \"command\": \"echo mcp__notion-2__x\",\n            \"if\": \"mcp__notion-3__x(mcp__notion-2__y)\"\n          }\n        ]\n      }\n    ]\n  }\n}\n",
+        "hooks/hooks.json": "[\n  {\n    \"tool\": \"^mcp__linear-3__.*$\",\n    \"name\": \"mcp__linear-2\",\n    \"action\": \"deny\"\n  },\n  \"not a rule\"\n]\n",
+        "connector-accounts-in-use.json": "{\n  \"gmail\": \"gmail-2\",\n  \"notion\": \"notion\",\n  \"jira\": \"nobody\",\n  \"linear\": \"\"\n}\n"
+      },
+      "merged": [
+        {
+          "name": "gmail",
+          "from": [
+            "gmail",
+            "gmail-2",
+            "gmail-10"
+          ]
+        },
+        {
+          "name": "jira-2",
+          "from": [
+            "jira-2",
+            "jira"
+          ]
+        },
+        {
+          "name": "linear-2",
+          "from": [
+            "linear-2",
+            "linear-3"
+          ]
+        },
+        {
+          "name": "notion",
+          "from": [
+            "notion",
+            "notion-2",
+            "notion-3"
+          ]
+        },
+        {
+          "name": "postgres",
+          "from": [
+            "postgres"
+          ]
+        }
+      ],
+      "failed": [],
+      "mcpServers": {
+        "UnityMCP": {
+          "enabled": true,
+          "type": "http",
+          "url": "http://127.0.0.1:8080/mcp",
+          "startupTimeoutSec": 30
+        },
+        "custom": {
+          "type": "http",
+          "url": "https://example.com/mcp",
+          "connector": "not-in-catalog"
+        },
+        "gmail": {
+          "connector": "gmail",
+          "startupTimeoutSec": 20,
+          "type": "http",
+          "url": "https://connectors.mixdog.invalid/gmail/mcp",
+          "accounts": [
+            {
+              "name": "gmail",
+              "url": "https://gmail-imap.mixdog.invalid/mcp",
+              "headers": {
+                "X-Mixdog-Gmail-Account": "a@gmail.com"
+              },
+              "id": "<new-id-1>"
+            },
+            {
+              "name": "gmail-2",
+              "url": "https://gmail-imap.mixdog.invalid/mcp",
+              "headers": {
+                "X-Mixdog-Gmail-Account": "b@gmail.com"
+              },
+              "enabled": false,
+              "id": "<new-id-2>"
+            }
+          ]
+        },
+        "jira-2": {
+          "connector": "jira",
+          "type": "http",
+          "url": "https://connectors.mixdog.invalid/jira/mcp",
+          "accounts": [
+            {
+              "name": "jira-2",
+              "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+              "oauthKey": "j2",
+              "id": "kept-id"
+            },
+            {
+              "name": "jira",
+              "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+              "id": "<new-id-3>"
+            }
+          ]
+        },
+        "linear-2": {
+          "connector": "linear",
+          "type": "http",
+          "url": "https://connectors.mixdog.invalid/linear/mcp",
+          "accounts": [
+            {
+              "name": "linear-2",
+              "url": "https://mcp.linear.app/mcp",
+              "id": "<new-id-4>"
+            },
+            {
+              "name": "linear-3",
+              "url": "https://mcp.linear.app/mcp",
+              "oauthKey": "l3",
+              "id": "<new-id-5>"
+            }
+          ],
+          "enabled": false
+        },
+        "notion": {
+          "connector": "notion",
+          "type": "http",
+          "url": "https://connectors.mixdog.invalid/notion/mcp",
+          "accounts": [
+            {
+              "name": "notion",
+              "url": "https://mcp.notion.com/mcp",
+              "id": "<new-id-6>"
+            },
+            {
+              "name": "notion-2",
+              "url": "https://mcp.notion.com/mcp",
+              "oauthKey": "k2",
+              "id": "<new-id-7>"
+            }
+          ]
+        },
+        "postgres": {
+          "connector": "postgres",
+          "type": "http",
+          "url": "https://connectors.mixdog.invalid/postgres/mcp",
+          "accounts": [
+            {
+              "name": "postgres",
+              "type": "stdio",
+              "command": "npx",
+              "args": [
+                "-y",
+                "@microsoft/postgres-mcp@0.2.0",
+                "run"
+              ],
+              "env": {
+                "POSTGRES_MCP_CONNECTION_STRING": "postgresql://x"
+              },
+              "id": "<new-id-8>"
+            }
+          ]
+        }
+      },
+      "extensionScopes": {
+        "skills": {
+          "s": [
+            "C:\\Project\\A",
+            "C:\\Project\\B"
+          ]
+        },
+        "mcp": {
+          "UnityMCP": [
+            "C:\\Project\\mixdog"
+          ]
+        },
+        "plugins": {}
+      },
+      "files": {
+        "agents/a1/agent.json": "{\n  \"name\": \"a1\",\n  \"connectors\": {\n    \"off\": [\n      \"UnityMCP\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"read\": \"disabled\"\n      }\n    }\n  }\n}\n",
+        "agents/a1/agent.json.bak": "{\n  \"name\": \"a1\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail-2\",\n      \"UnityMCP\"\n    ],\n    \"tools\": {\n      \"gmail-2\": {\n        \"send_email\": \"auto\"\n      },\n      \"gmail\": {\n        \"read\": \"disabled\"\n      }\n    }\n  }\n}\n",
+        "agents/a2/agent.json": "{\n  \"name\": \"a2\",\n  \"connectors\": {\n    \"off\": [\n      \"UnityMCP\"\n    ]\n  }\n}\n",
+        "agents/a3/agent.json": "{\n  \"name\": \"a3\",\n  \"connectors\": {\n    \"off\": [\n      \"notion\"\n    ],\n    \"tools\": {\n      \"notion\": {\n        \"search\": \"disabled\"\n      }\n    }\n  }\n}\n",
+        "agents/a3/agent.json.bak": "{\n  \"name\": \"a3\",\n  \"connectors\": {\n    \"off\": [\n      \"notion-3\"\n    ],\n    \"tools\": {\n      \"notion-3\": {\n        \"search\": \"disabled\"\n      }\n    }\n  }\n}\n",
+        "agents/a4/agent.json": "{\n  \"name\": \"a4\"\n}\n",
+        "bots/b1/agent.json": "{\n  \"name\": \"b1\",\n  \"connectors\": [\n    {\n      \"id\": \"UnityMCP\",\n      \"enabled\": true\n    },\n    {\n      \"id\": \"notion\",\n      \"enabled\": true,\n      \"tools\": {\n        \"search\": \"needs_approval\"\n      }\n    }\n  ]\n}\n",
+        "bots/b1/agent.json.bak": "{\n  \"name\": \"b1\",\n  \"connectors\": [\n    {\n      \"id\": \"notion-2\",\n      \"enabled\": true,\n      \"tools\": {\n        \"search\": \"needs_approval\"\n      }\n    },\n    {\n      \"id\": \"notion\",\n      \"enabled\": false\n    },\n    {\n      \"id\": \"UnityMCP\",\n      \"enabled\": true\n    }\n  ]\n}\n",
+        "bots/b2/agent.json": "{\n  \"name\": \"b2\",\n  \"connectors\": {\n    \"off\": [\n      \"jira-2\"\n    ]\n  }\n}\n",
+        "bots/b2/agent.json.bak": "{\n  \"name\": \"b2\",\n  \"connectors\": {\n    \"off\": [\n      \"jira\"\n    ]\n  }\n}\n",
+        "connector-accounts-in-use.json": "{\n  \"gmail\": {\n    \"name\": \"gmail-2\",\n    \"id\": \"<new-id-2>\"\n  },\n  \"notion\": {\n    \"name\": \"notion\",\n    \"id\": \"<new-id-6>\"\n  },\n  \"jira\": \"nobody\",\n  \"linear\": \"\",\n  \"#ids\": true\n}\n",
+        "hooks.json": "{\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"mcp__notion__search|Bash|^mcp__gmail__.*$\",\n        \"hooks\": [\n          {\n            \"type\": \"mcp_tool\",\n            \"server\": \"gmail\",\n            \"tool\": \"mcp__gmail__send_email\"\n          },\n          {\n            \"type\": \"command\",\n            \"command\": \"echo mcp__notion-2__x\",\n            \"if\": \"mcp__notion__x(mcp__notion-2__y)\"\n          }\n        ]\n      }\n    ]\n  }\n}\n",
+        "hooks.json.bak": "{\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"mcp__notion-2__search|Bash|^mcp__gmail-10__.*$\",\n        \"hooks\": [\n          {\n            \"type\": \"mcp_tool\",\n            \"server\": \" gmail-2 \",\n            \"tool\": \"mcp__gmail-2__send_email\"\n          },\n          {\n            \"type\": \"command\",\n            \"command\": \"echo mcp__notion-2__x\",\n            \"if\": \"mcp__notion-3__x(mcp__notion-2__y)\"\n          }\n        ]\n      }\n    ]\n  }\n}\n",
+        "hooks/hooks.json": "[\n  {\n    \"tool\": \"^mcp__linear-2__.*$\",\n    \"name\": \"mcp__linear-2\",\n    \"action\": \"deny\"\n  },\n  \"not a rule\"\n]\n",
+        "hooks/hooks.json.bak": "[\n  {\n    \"tool\": \"^mcp__linear-3__.*$\",\n    \"name\": \"mcp__linear-2\",\n    \"action\": \"deny\"\n  },\n  \"not a rule\"\n]\n",
+        "project-connectors.json": "{\n  \"projects\": {\n    \"C:\\\\Project\\\\A\": {\n      \"off\": [\n        \"notion\"\n      ]\n    },\n    \"C:\\\\Project\\\\B\": {\n      \"off\": [\n        \"UnityMCP\"\n      ]\n    },\n    \"C:\\\\Project\\\\C\": {\n      \"off\": [\n        \"UnityMCP\",\n        \"notion\"\n      ],\n      \"note\": \"kept\"\n    }\n  }\n}\n",
+        "project-connectors.json.bak": "{\n  \"projects\": {\n    \"C:\\\\Project\\\\A\": {\n      \"off\": [\n        \"notion-2\"\n      ]\n    },\n    \"C:\\\\Project\\\\B\": {\n      \"off\": [\n        \"UnityMCP\"\n      ]\n    },\n    \"C:\\\\Project\\\\C\": {\n      \"off\": [\n        \"notion\",\n        \"notion-3\",\n        \"UnityMCP\"\n      ],\n      \"note\": \"kept\"\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "name": "merged",
+      "input": {
+        "mixdog-config.json": "{\n  \"agent\": {\n    \"mcpServers\": {\n      \"UnityMCP\": {\n        \"enabled\": true,\n        \"type\": \"http\",\n        \"url\": \"http://127.0.0.1:8080/mcp\"\n      },\n      \"gmail\": {\n        \"type\": \"http\",\n        \"url\": \"https://connectors.mixdog.invalid/gmail/mcp\",\n        \"connector\": \"gmail\",\n        \"accounts\": [\n          {\n            \"name\": \"gmail\",\n            \"url\": \"https://gmail-imap.mixdog.invalid/mcp\",\n            \"headers\": {\n              \"X-Mixdog-Gmail-Account\": \"a@gmail.com\"\n            },\n            \"id\": \"id-1\"\n          },\n          {\n            \"name\": \"gmail-2\",\n            \"url\": \"https://gmail-imap.mixdog.invalid/mcp\",\n            \"headers\": {\n              \"X-Mixdog-Gmail-Account\": \"b@gmail.com\"\n            },\n            \"id\": \"id-2\"\n          }\n        ]\n      }\n    },\n    \"extensionScopes\": {\n      \"skills\": {},\n      \"mcp\": {},\n      \"plugins\": {}\n    }\n  }\n}\n",
+        "agents/a1/agent.json": "{\n  \"name\": \"a1\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+        "project-connectors.json": "{\n  \"projects\": {\n    \"C:\\\\Project\\\\A\": {\n      \"off\": [\n        \"UnityMCP\"\n      ]\n    }\n  }\n}\n",
+        "connector-accounts-in-use.json": "{\n  \"notion\": \"notion\",\n  \"gmail\": {\n    \"name\": \"gmail-2\",\n    \"id\": \"id-2\"\n  },\n  \"#ids\": true\n}\n"
+      },
+      "merged": [],
+      "failed": [],
+      "mcpServers": {
+        "UnityMCP": {
+          "enabled": true,
+          "type": "http",
+          "url": "http://127.0.0.1:8080/mcp"
+        },
+        "gmail": {
+          "type": "http",
+          "url": "https://connectors.mixdog.invalid/gmail/mcp",
+          "connector": "gmail",
+          "accounts": [
+            {
+              "name": "gmail",
+              "url": "https://gmail-imap.mixdog.invalid/mcp",
+              "headers": {
+                "X-Mixdog-Gmail-Account": "a@gmail.com"
+              },
+              "id": "id-1"
+            },
+            {
+              "name": "gmail-2",
+              "url": "https://gmail-imap.mixdog.invalid/mcp",
+              "headers": {
+                "X-Mixdog-Gmail-Account": "b@gmail.com"
+              },
+              "id": "id-2"
+            }
+          ]
+        }
+      },
+      "extensionScopes": {
+        "skills": {},
+        "mcp": {},
+        "plugins": {}
+      },
+      "files": {
+        "agents/a1/agent.json": "{\n  \"name\": \"a1\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+        "connector-accounts-in-use.json": "{\n  \"notion\": \"notion\",\n  \"gmail\": {\n    \"name\": \"gmail-2\",\n    \"id\": \"id-2\"\n  },\n  \"#ids\": true\n}\n",
+        "project-connectors.json": "{\n  \"projects\": {\n    \"C:\\\\Project\\\\A\": {\n      \"off\": [\n        \"UnityMCP\"\n      ]\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "name": "pending",
+      "input": {
+        "mixdog-config.json": "{\n  \"agent\": {\n    \"mcpServers\": {\n      \"notion\": {\n        \"type\": \"http\",\n        \"url\": \"https://connectors.mixdog.invalid/notion/mcp\",\n        \"connector\": \"notion\",\n        \"accounts\": [\n          {\n            \"name\": \"notion\",\n            \"url\": \"https://mcp.notion.com/mcp\",\n            \"id\": \"n1\"\n          },\n          {\n            \"name\": \"notion-2\",\n            \"url\": \"https://mcp.notion.com/mcp\",\n            \"oauthKey\": \"k2\",\n            \"id\": \"n2\"\n          }\n        ]\n      }\n    }\n  }\n}\n",
+        "connector-merge-pending.json": "{\n  \"merged\": [\n    {\n      \"name\": \"notion\",\n      \"from\": [\n        \"notion\",\n        \"notion-2\"\n      ]\n    },\n    {\n      \"name\": \"bad\"\n    }\n  ]\n}\n",
+        "agents/a1/agent.json": "{\n  \"name\": \"a1\",\n  \"connectors\": {\n    \"off\": [\n      \"notion-2\"\n    ]\n  }\n}\n",
+        "connector-accounts-in-use.json": "{\n  \"notion\": {\n    \"name\": \"notion-2\",\n    \"id\": \"n2\"\n  },\n  \"#ids\": true\n}\n"
+      },
+      "merged": [],
+      "failed": [],
+      "mcpServers": {
+        "notion": {
+          "type": "http",
+          "url": "https://connectors.mixdog.invalid/notion/mcp",
+          "connector": "notion",
+          "accounts": [
+            {
+              "name": "notion",
+              "url": "https://mcp.notion.com/mcp",
+              "id": "n1"
+            },
+            {
+              "name": "notion-2",
+              "url": "https://mcp.notion.com/mcp",
+              "oauthKey": "k2",
+              "id": "n2"
+            }
+          ]
+        }
+      },
+      "extensionScopes": null,
+      "files": {
+        "agents/a1/agent.json": "{\n  \"name\": \"a1\",\n  \"connectors\": {\n    \"off\": [\n      \"notion\"\n    ]\n  }\n}\n",
+        "agents/a1/agent.json.bak": "{\n  \"name\": \"a1\",\n  \"connectors\": {\n    \"off\": [\n      \"notion-2\"\n    ]\n  }\n}\n",
+        "connector-accounts-in-use.json": "{\n  \"notion\": {\n    \"name\": \"notion-2\",\n    \"id\": \"n2\"\n  },\n  \"#ids\": true\n}\n"
+      }
+    },
+    {
+      "name": "ids",
+      "input": {
+        "mixdog-config.json": "{\n  \"agent\": {\n    \"mcpServers\": {\n      \"gmail\": {\n        \"type\": \"http\",\n        \"url\": \"https://connectors.mixdog.invalid/gmail/mcp\",\n        \"connector\": \"gmail\",\n        \"accounts\": [\n          {\n            \"name\": \"gmail\",\n            \"url\": \"https://gmail-imap.mixdog.invalid/mcp\",\n            \"headers\": {\n              \"X-Mixdog-Gmail-Account\": \"a@gmail.com\"\n            },\n            \"id\": \"id-1\"\n          },\n          {\n            \"name\": \"gmail-2\",\n            \"url\": \"https://gmail-imap.mixdog.invalid/mcp\",\n            \"headers\": {\n              \"X-Mixdog-Gmail-Account\": \"b@gmail.com\"\n            }\n          },\n          {\n            \"name\": \"no-transport\"\n          }\n        ]\n      }\n    }\n  }\n}\n",
+        "connector-accounts-in-use.json": "{\n  \"gmail\": \"gmail-2\",\n  \"notion\": \"notion\"\n}\n"
+      },
+      "merged": [],
+      "failed": [],
+      "mcpServers": {
+        "gmail": {
+          "type": "http",
+          "url": "https://connectors.mixdog.invalid/gmail/mcp",
+          "connector": "gmail",
+          "accounts": [
+            {
+              "name": "gmail",
+              "url": "https://gmail-imap.mixdog.invalid/mcp",
+              "headers": {
+                "X-Mixdog-Gmail-Account": "a@gmail.com"
+              },
+              "id": "id-1"
+            },
+            {
+              "name": "gmail-2",
+              "url": "https://gmail-imap.mixdog.invalid/mcp",
+              "headers": {
+                "X-Mixdog-Gmail-Account": "b@gmail.com"
+              },
+              "id": "<new-id-1>"
+            },
+            {
+              "name": "no-transport",
+              "id": "<new-id-2>"
+            }
+          ]
+        }
+      },
+      "extensionScopes": null,
+      "files": {
+        "connector-accounts-in-use.json": "{\n  \"gmail\": {\n    \"name\": \"gmail-2\",\n    \"id\": \"<new-id-1>\"\n  },\n  \"notion\": \"notion\",\n  \"#ids\": true\n}\n"
+      }
+    }
+  ]
+}

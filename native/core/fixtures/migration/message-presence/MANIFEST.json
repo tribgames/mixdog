@@ -3,24 +3,24 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 126330,
+      "bytes": 126326,
       "path": "presence.json",
-      "sha256": "b70ddbed313cd2fbad0aaf2efe98343b413043c598eb19686c611cb51dace8c9"
+      "sha256": "b70ea9a505ac0b2c2dc6d4d57e389a4fa512e5f7145dbd3efb285e8f72aa99c5"
     }
   ],
-  "hidden": 3562,
+  "hidden": 3558,
   "product": {
     "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
     "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 43480,
+    "files": 43481,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 1,
       "exact": false,
-      "filesDifferingFromCommit": 34400
+      "filesDifferingFromCommit": 34407
     },
-    "srcSha256": "496e9670c833592f5676f057609525e1e4246394106c341c6f11d0d47441da01",
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
@@ -28,6 +28,6 @@
   "recorder": "benchmarks/rust-core/recorders/record-message-presence.mjs",
   "sessions": 59,
   "set": "migration/message-presence",
-  "shown": 4428,
-  "totalBytes": 126330
+  "shown": 4432,
+  "totalBytes": 126326
 }

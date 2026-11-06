@@ -239,6 +239,23 @@ impl Worktrees {
         Ok(json!({ "entry": entry_json(&current), "lease": lease, "replaced": replaced }))
     }
 
+    /// Removes a deleted session's shared references and their leases, never its neighbours'.
+    pub async fn forget_shared_worktree_session(&self, session_id: &str, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        let holding: Vec<WorktreeRecord> =
+            self.all_records(cancel).await?.into_iter().filter(|r| r.shared_session_ids.iter().any(|id| id == session_id)).collect();
+        for found in holding {
+            let repo = self.scm().open(Path::new(&found.project_path), cancel).await?;
+            let _lock = repo.lock_repository().await?;
+            let Some(mut current) = self.record(cancel, &found.id).await? else { continue };
+            current.shared_session_ids.retain(|id| id != session_id);
+            let mut leases = shared_leases(&current);
+            leases.remove(session_id);
+            current.extra.insert("sharedLeases".into(), Value::Object(leases));
+            self.put_record(cancel, current).await?;
+        }
+        Ok(())
+    }
+
     /// Releases the live lease when, and only when, exactly `owner` holds it. Durable ownership
     /// (the session retaining the worktree) is unchanged.
     pub async fn release_owner(

@@ -1,0 +1,4543 @@
+[
+  {
+    "name": "a_spawn_runs_to_completion",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "do it",
+        "tag": "scout"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "tool": "diff-1"
+        },
+        {
+          "terminal": {
+            "content": "done"
+          }
+        },
+        {
+          "return": {
+            "content": "done"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "scout",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:scout:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "scout"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "scout",
+              "mcpScopeId": null
+            },
+            "prompt": "do it",
+            "tag": "scout"
+          }
+        ],
+        [
+          "bindTag",
+          "scout",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "scout",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:do it@C:\\work",
+        "review:[\"diff-1\"]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: spawn\nlabel: scout\nstatus: completed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\ntag: scout\nsessionId: sess_w1\nagent: worker\npreset: agent-worker\nprovider: openai\nmodel: gpt-5\neffort: medium\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "completed",
+            "instruction": "Agent \"job\" completed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\ndone\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "agent-terminal-result",
+        "meta": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "scout",
+        "notified": true,
+        "result": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "done",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_generated_tag_is_used",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "do it"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-7",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:worker-7:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "worker-7"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "worker-7",
+              "mcpScopeId": null
+            },
+            "prompt": "do it",
+            "tag": "worker-7"
+          }
+        ],
+        [
+          "bindTag",
+          "worker-7",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "worker-7",
+          "sess_w1",
+          {
+            "tag": "worker-7",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:do it@C:\\work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>worker-7</tag>\n<status>completed</status>\n<summary>Agent \"worker-7\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "worker-7",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "worker-7",
+        "notified": true,
+        "result": {
+          "tag": "worker-7",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_directory_and_task_type_travel_with_the_session",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t",
+        "cwd": "sub/dir",
+        "taskType": "review",
+        "cacheKey": "ck"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work\\sub\\dir",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "taskType": "review",
+              "cacheKeyOverride": "ck",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work\\sub\\dir",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "type_hint_stands_in_for_task_type",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t",
+        "typeHint": "quick"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "taskType": "quick",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_locked_workspace_pins_the_worker",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t",
+        "cwd": "elsewhere"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": "/lead/worktree",
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\lead\\worktree",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\lead\\worktree",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "the_surface_may_move_the_workers_directory",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": "/moved",
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@/moved",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "an_agent_permission_travels",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": "read",
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "permission": "read",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_context_share_is_sized_from_the_model_window",
+    "scenario": {
+      "args": {
+        "agent": "ctx",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": {
+        "contextWindow": 200000,
+        "maxContextWindow": 1000000
+      },
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "ctx",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "ctx",
+        "preset": "agent-ctx",
+        "provider": "openai",
+        "model": "gpt-5",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "ctx",
+              "presetName": "AGENT CTX",
+              "preset": {
+                "id": "agent-ctx",
+                "name": "AGENT CTX",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "ctx"
+                },
+                "fast": false,
+                "contextPercent": 40,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "ctx",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null,
+              "contextPercent": 40
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "ctx",
+            "preset": "agent-ctx",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "ctx",
+            "preset": "agent-ctx",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "ctx",
+          "preset": "agent-ctx",
+          "provider": "openai",
+          "model": "gpt-5",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "ctx",
+          "preset": "agent-ctx",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "an_unknown_window_leaves_the_choice_as_stored",
+    "scenario": {
+      "args": {
+        "agent": "ctx",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "ctx",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "ctx",
+        "preset": "agent-ctx",
+        "provider": "openai",
+        "model": "gpt-5",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "ctx",
+              "presetName": "AGENT CTX",
+              "preset": {
+                "id": "agent-ctx",
+                "name": "AGENT CTX",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "ctx"
+                },
+                "fast": false,
+                "contextPercent": 40,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "ctx",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null,
+              "contextPercent": 40
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "ctx",
+            "preset": "agent-ctx",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "ctx",
+            "preset": "agent-ctx",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "ctx",
+          "preset": "agent-ctx",
+          "provider": "openai",
+          "model": "gpt-5",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "ctx",
+          "preset": "agent-ctx",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "an_explicit_model_needs_no_default",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t",
+        "provider": "xai",
+        "model": "grok",
+        "effort": "low",
+        "fast": true
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "provider": "xai",
+        "model": "grok",
+        "effort": "low",
+        "fast": true,
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "__direct__",
+              "preset": {
+                "id": "__direct__",
+                "name": "__DIRECT__",
+                "type": "agent",
+                "provider": "xai",
+                "model": "grok",
+                "effort": "low",
+                "fast": true,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "xai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "__direct__",
+            "provider": "xai",
+            "model": "grok",
+            "effort": "low",
+            "fast": true,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "__direct__",
+            "provider": "xai",
+            "model": "grok",
+            "effort": "low",
+            "fast": true,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "__direct__",
+          "provider": "xai",
+          "model": "grok",
+          "effort": "low",
+          "fast": true,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "__direct__",
+          "provider": "xai",
+          "model": "grok",
+          "effort": "low",
+          "fast": true,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "the_agent_is_required",
+    "scenario": {
+      "args": {
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [],
+      "canonical": true
+    },
+    "host": {
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "preset": "main-preset",
+        "provider": "anthropic",
+        "model": "opus",
+        "effort": "high",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>agent spawn: agent is required</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "agent spawn: agent is required",
+        "terminalReason": "run-rejected",
+        "meta": {
+          "tag": "t",
+          "preset": "main-preset",
+          "provider": "anthropic",
+          "model": "opus",
+          "effort": "high",
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "an_unknown_agent_fails",
+    "scenario": {
+      "args": {
+        "agent": "ghost",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "ghost",
+        "defined": false,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": []
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "ghost",
+        "preset": "main-preset",
+        "provider": "anthropic",
+        "model": "opus",
+        "effort": "high",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>agent spawn: unknown agent \"ghost\"</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "agent spawn: unknown agent \"ghost\"",
+        "terminalReason": "run-rejected",
+        "meta": {
+          "tag": "t",
+          "agent": "ghost",
+          "preset": "main-preset",
+          "provider": "anthropic",
+          "model": "opus",
+          "effort": "high",
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_turned_off_agent_fails",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        },
+        "disabledAgents": [
+          "worker"
+        ]
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": true,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>agent spawn: agent \"worker\" is turned off</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "agent spawn: agent \"worker\" is turned off",
+        "terminalReason": "run-rejected",
+        "meta": {
+          "tag": "t",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_taken_tag_fails",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "busy"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {
+        "busy": "sess_other"
+      },
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "busy",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:busy:false",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>busy</tag>\n<status>failed</status>\n<summary>Agent \"busy\" failed</summary>\n<error>agent spawn: tag \"busy\" already exists</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "agent spawn: tag \"busy\" already exists",
+        "terminalReason": "run-rejected",
+        "meta": {
+          "tag": "busy",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "clientHostPid": 4242
+        },
+        "label": "busy",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "an_ambiguous_tag_fails",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "amb"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {
+        "amb": "THROW"
+      },
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "amb",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:amb:false",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>amb</tag>\n<status>failed</status>\n<summary>Agent \"amb\" failed</summary>\n<error>tag \"amb\" is ambiguous</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "tag \"amb\" is ambiguous",
+        "terminalReason": "run-rejected",
+        "meta": {
+          "tag": "amb",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "clientHostPid": 4242
+        },
+        "label": "amb",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_recover_flag_scans_sessions",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t",
+        "recover": true
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:true",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_missing_prompt_fails",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>agent: prompt/message/file is required</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "agent: prompt/message/file is required",
+        "terminalReason": "run-rejected",
+        "meta": {
+          "tag": "t",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_contact_agent_already_in_the_chain_fails",
+    "scenario": {
+      "args": {
+        "agent": "robot",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "robot",
+        "defined": true,
+        "disabled": false,
+        "kind": "bot",
+        "contact": true,
+        "permission": null,
+        "candidates": []
+      },
+      "delegation": {
+        "chain": [
+          "robot",
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "robot",
+        "preset": "main-preset",
+        "provider": "anthropic",
+        "model": "opus",
+        "effort": "high",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>agent spawn: the contact agent \"robot\" is already in this delegation chain (robot → lead → robot); do not hand the work back, answer or delegate to a sub-agent instead</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "agent spawn: the contact agent \"robot\" is already in this delegation chain (robot → lead → robot); do not hand the work back, answer or delegate to a sub-agent instead",
+        "terminalReason": "run-rejected",
+        "meta": {
+          "tag": "t",
+          "agent": "robot",
+          "preset": "main-preset",
+          "provider": "anthropic",
+          "model": "opus",
+          "effort": "high",
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_free_contact_agent_spawns",
+    "scenario": {
+      "args": {
+        "agent": "robot",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "robot": {
+            "provider": "openai",
+            "model": "gpt-5"
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "robot",
+        "defined": true,
+        "disabled": false,
+        "kind": "bot",
+        "contact": true,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "robot",
+        "preset": "agent-robot",
+        "provider": "openai",
+        "model": "gpt-5",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "robot",
+              "presetName": "AGENT ROBOT",
+              "preset": {
+                "id": "agent-robot",
+                "name": "AGENT ROBOT",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "robot"
+                },
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "robot",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "robot",
+            "preset": "agent-robot",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "robot",
+            "preset": "agent-robot",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": null,
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "robot",
+          "preset": "agent-robot",
+          "provider": "openai",
+          "model": "gpt-5",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "robot",
+          "preset": "agent-robot",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_failing_session_creation_fails_the_job",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": "boom",
+      "cancel": null,
+      "window": null,
+      "steps": [],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>boom</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "boom",
+        "terminalReason": "run-rejected",
+        "meta": {
+          "tag": "t",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_job_cancelled_before_it_starts_runs_nothing",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": "before",
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "never"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>cancelled</status>\n<summary>Agent \"t\" was cancelled (cancelled early)</summary>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "cancelled",
+        "error": "cancelled early",
+        "terminalReason": null,
+        "meta": {
+          "tag": "t",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_job_cancelled_during_prep_closes_the_prepared_session",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": "during-prep",
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "never"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "close:sess_w1:agent-task-cancel",
+        "forget:t:sess_w1",
+        "status",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>cancelled</status>\n<summary>Agent \"t\" was cancelled (cancelled mid prep)</summary>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "cancelled",
+        "error": "cancelled mid prep",
+        "terminalReason": null,
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_respawn_is_marked",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": true,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "ok"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "respawned": true,
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "respawned": true,
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>completed</status>\n<summary>Agent \"t\" completed</summary>\n<result>\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "meta": {
+          "respawned": true,
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "ok",
+          "handoffOnly": true
+        }
+      }
+    }
+  },
+  {
+    "name": "an_abnormal_finish_fails_the_job",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "return": {
+            "content": "",
+            "termination": "empty"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)",
+        "terminalReason": "agent-finally-reconcile",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "",
+          "handoffOnly": true,
+          "error": "agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)"
+        }
+      }
+    }
+  },
+  {
+    "name": "a_throwing_turn_fails_the_job",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "window": null,
+      "steps": [
+        {
+          "throw": {
+            "message": "turn broke"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "\\work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        "emit:start",
+        "ask:p@C:\\work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>turn broke</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "turn broke",
+        "terminalReason": "agent-stream-stalled",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  }
+]

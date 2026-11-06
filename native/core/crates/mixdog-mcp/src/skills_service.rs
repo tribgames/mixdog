@@ -221,18 +221,20 @@ impl SkillsService {
     }
 
     /// `statusCwd`: the folder a caller asked the status for, if it asked.
-    fn requested_cwd(params: &Value) -> Result<Option<PathBuf>, Failure> {
+    async fn requested_cwd(&self, params: &Value) -> Result<Option<PathBuf>, Failure> {
         let Some(value) = params.get("cwd").filter(|v| !v.is_null()) else { return Ok(None) };
         let absolute = value.as_str().filter(|s| !s.is_empty() && !s.contains('\0') && Path::new(s).is_absolute());
         let Some(cwd) = absolute else { return Err("skillsStatus cwd must be an absolute path.".to_owned()) };
-        if !Path::new(cwd).is_dir() {
+        let cwd = PathBuf::from(cwd);
+        let probe = cwd.clone();
+        if !self.on_lane(move |lane| is_directory(lane, &probe)).await? {
             return Err("skillsStatus cwd is not a directory.".to_owned());
         }
-        Ok(Some(PathBuf::from(cwd)))
+        Ok(Some(cwd))
     }
 
     async fn skills_status(&self, params: &Value) -> Result<Value, Failure> {
-        let cwd = match Self::requested_cwd(params)? {
+        let cwd = match self.requested_cwd(params).await? {
             Some(cwd) => cwd,
             None => self.current_cwd(params).await,
         };
@@ -473,6 +475,11 @@ fn rewrite_skill(
         return Err(error);
     }
     Ok(Rewrite::Written(new_path))
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
+fn is_directory(_lane: &InLane<MaintenanceIo>, path: &Path) -> bool {
+    path.is_dir()
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]

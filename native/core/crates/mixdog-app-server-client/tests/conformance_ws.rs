@@ -4,6 +4,9 @@
 //! "Nothing happened" assertions cannot be decided by yielding on a real socket; `settle` therefore waits a short real
 //! interval. Every positive wait (a frame, a connection) is event driven.
 
+// The test peer is single-waiter: each async mutex guards one receiver that one test task awaits at a time.
+#![allow(clippy::disallowed_types)]
+
 mod common;
 
 use std::{
@@ -170,11 +173,9 @@ impl WsConn {
                             let _ = to_test.send(t.to_string());
                         }
                         // A close that answers the server's own close is the handshake echo, not the client's decision.
-                        Message::Close(frame) => {
-                            if !*server_closed.lock().unwrap() {
-                                *client_close.lock().unwrap() =
-                                    Some(frame.map_or(1005, |f| u16::from(f.code)));
-                            }
+                        Message::Close(frame) if !*server_closed.lock().unwrap() => {
+                            *client_close.lock().unwrap() =
+                                Some(frame.map_or(1005, |f| u16::from(f.code)));
                         }
                         _ => {}
                     }

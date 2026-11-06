@@ -39,7 +39,7 @@ thiserror = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-protocol = { workspace = true }
-tokio-tungstenite = { workspace = true }
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 tokio-util = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }

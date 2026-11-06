@@ -20,6 +20,7 @@ pub mod patch;
 mod settings;
 mod desktop;
 mod notifications;
+mod output_style;
 mod schema;
 mod seams;
 mod service;
@@ -56,6 +57,7 @@ use mixdog_rt::LaneToken;
 use serde_json::Map;
 use serde_json::Value;
 
+pub use output_style::OutputStyles;
 pub use settings::NoEffects;
 pub use settings::Settings;
 pub use settings::SettingsEffects;

@@ -1055,6 +1055,15 @@ impl SessionActor {
                 effects.push(Effect::ItemAck(self.ingest_when_durable()));
             }
             self.accept_record(record, Class::Control, Display::None, Vec::new(), effects);
+            if completed {
+                // `ask-turn-settle.mjs:137-139`: from this turn on an owner close of the
+                // session is recorded on it (`resumableAfterReap`).
+                let mut set = serde_json::Map::new();
+                set.insert("closeProvenance".into(), json!(1));
+                set.insert("lastTurnCompletedAt".into(), json!(at));
+                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+                self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
+            }
         }
         self.start_next_queued();
         self.try_unload();
@@ -1919,6 +1928,7 @@ impl SessionActor {
             body: Slot::Inline(body),
         });
         self.accept_record(item, Class::Normal, Display::None, Vec::new(), Vec::new());
+        self.deps.turn_starts.turn_started(&self.id);
         let started = Record::Run(RunRecord {
             rid: id(turn.as_str()),
             phase: RunPhase::Started,

@@ -20,7 +20,7 @@ const work = mkdtempSync(join(tmpdir(), 'mixdog-editor-config-'));
 const fwd = (p) => p.replace(/\\/g, '/');
 const scrub = (value) => {
   let text = JSON.stringify(value ?? null);
-  for (const root of [work, fwd(work), JSON.stringify(work).slice(1, -1)]) text = text.replaceAll(root, '<WORK>');
+  for (const root of [work, fwd(work), JSON.stringify(work).slice(1, -1), JSON.stringify(JSON.stringify(work)).slice(3, -3)]) text = text.replaceAll(root, '<WORK>');
   text = text.replace(/\b1[67]\d{11}\b/g, '0');
   return collapse(JSON.parse(text));
 };

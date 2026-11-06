@@ -51,7 +51,7 @@ async fn a_matching_single_use_receipt_completes_the_request() {
     assert!(broker.claim(&thread, &id, "other-window").is_none());
     assert_eq!(broker.complete(&id, "wrong-owner", &json!({ "result": {} })).unwrap(), false);
     assert_eq!(broker.complete(&id, "owner", &json!({ "result": { "saved": true, "scope": "desktop-host" } })).unwrap(), true);
-    assert_eq!(pending.await.unwrap().unwrap(), Some(json!({ "saved": true, "scope": "desktop-host" })));
+    assert_eq!(pending.await.unwrap().unwrap(), DesktopAnswer::Done(json!({ "saved": true, "scope": "desktop-host" })));
     assert!(broker.claim(&thread, &id, "owner").is_none());
     assert_eq!(broker.complete(&id, "owner", &json!({ "result": {} })).unwrap(), false);
 }
@@ -92,10 +92,16 @@ async fn a_desktop_error_receipt_fails_the_request() {
 #[tokio::test]
 async fn no_surface_or_no_claim_leaves_the_request_unclaimed() {
     let (absent, _) = requests(false, CLAIM_TIMEOUT);
-    assert_eq!(absent.request(&ThreadId::from("s"), &json!({})).await.unwrap(), None);
+    assert_eq!(
+        absent.request(&ThreadId::from("s"), &json!({})).await.unwrap(),
+        DesktopAnswer::Unclaimed("setup: no attached Desktop surface; nothing was changed".into())
+    );
     let (broker, surface) = requests(true, Duration::from_millis(10));
     let thread = ThreadId::from("s");
-    assert_eq!(broker.request(&thread, &json!({})).await.unwrap(), None);
+    assert_eq!(
+        broker.request(&thread, &json!({})).await.unwrap(),
+        DesktopAnswer::Unclaimed("setup: no Desktop window claimed the request; nothing was changed".into())
+    );
     let id = first_id(&surface).await;
     assert!(broker.claim(&thread, &id, "owner").is_none(), "an expired request cannot be claimed");
 }

@@ -138,6 +138,10 @@ RECORDS = [
                                      "digest": digest("other")}, "state": "fenced", "at": 1793306570500}),
     ("op_rejected", {"k": "op", "op": OP, "state": "rejected", "at": 1793306570600,
                      "detail": {"inline": {"code": -32600, "message": "turnNotActive"}}}),
+    ("model_switch", {"k": "model_switch", "anchor": {"iid": "msg_a1", "ordinal": 7},
+                      "op": {"id": "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d", "method": "route/set",
+                             "digest": digest("route")},
+                      "entry": {"provider": "openai", "modelId": "gpt-5.1", "at": 1793306570700}}),
     ("checkpoint", {"k": "checkpoint", "state": {"inline": {
         "log_id": LOG_ID, "covers_ordinal": 12, "history_rev": 1, "rows": 8, "visible_rows": 7,
         "context": {"ordinal": 6, "file_no": 0, "offset": 2048},

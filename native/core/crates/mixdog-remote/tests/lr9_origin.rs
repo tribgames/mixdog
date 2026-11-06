@@ -50,8 +50,8 @@ fn server_config() -> ServerConfig {
 
 /// One connection's life, as the daemon drives it.
 async fn drive(server: AppServer, accepted: AcceptedConnection) {
-    let AcceptedConnection { id, origin, mut inbound, sink } = accepted;
-    let handle = server.open(id, origin.origin(), Arc::new(sink.clone()));
+    let AcceptedConnection { id, mut inbound, sink, .. } = accepted;
+    let handle = server.open(id, Arc::new(sink.clone()));
     while let Some(message) = inbound.recv().await {
         match handle.on_message(message) {
             Inbound::Continue => {}
@@ -82,8 +82,15 @@ async fn a_phone_and_a_direct_connection_receive_the_same_thread_frames() {
         }))
     }));
     thread.feed().publish(&[event(1), event(2)], None).unwrap();
-    let server = AppServer::new(core, Outgoing::new(), server_config()).unwrap();
     let hub = ConnectionHub::new(Limits::default()).unwrap();
+    let origins = hub.clone();
+    let server = AppServer::new(
+        core,
+        Outgoing::new(),
+        Arc::new(move |id| origins.origin_of(id)),
+        server_config(),
+    )
+    .unwrap();
     let accept: Accept = {
         let server = server.clone();
         Arc::new(move |accepted| {
@@ -161,8 +168,15 @@ async fn next_text(endpoint: &mut RelayEndpoint) -> String {
 async fn a_phone_is_a_relay_connection_and_methods_outside_that_origin_are_refused() {
     mixdog_rt::testing::tokens();
     let core = Arc::new(MockCore::new(&[], MockLimits::default()));
-    let server = AppServer::new(core, Outgoing::new(), server_config()).unwrap();
     let hub = ConnectionHub::new(Limits::default()).unwrap();
+    let origins = hub.clone();
+    let server = AppServer::new(
+        core,
+        Outgoing::new(),
+        Arc::new(move |id| origins.origin_of(id)),
+        server_config(),
+    )
+    .unwrap();
     let accept: Accept = {
         let server = server.clone();
         Arc::new(move |accepted| {

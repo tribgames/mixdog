@@ -53,7 +53,13 @@ for (const file of files.sort()) {
     const window = [...before, message, ...later];
     const prefix = `hist_${session.id}_${before.length}_`;
     const rows = restoreTranscriptItems(window, { sessionId: session.id });
-    return rows.some((row) => String(row?.id ?? '').startsWith(prefix));
+    // A call folded into the previous message's aggregate card is still shown: the card names its id.
+    const callIds = (Array.isArray(message?.toolCalls) ? message.toolCalls : []).map((call) => call?.id).filter(Boolean);
+    return rows.some(
+      (row) =>
+        String(row?.id ?? '').startsWith(prefix) ||
+        (row?.kind === 'tool' && callIds.some((id) => JSON.stringify(row).includes(JSON.stringify(id))))
+    );
   });
   for (const value of shown) value ? (shownCount += 1) : (hiddenCount += 1);
   sessions.push({ key: relative(corpus, file).split(sep).join('/'), id: session.id, shown });

@@ -106,6 +106,10 @@ pub enum Inbound {
     Close(CloseCode),
 }
 
+/// The method-table origin of a registered connection, `None` for one that is gone or was
+/// never registered (the transport's `ConnectionHub::origin_of`). Asked on every request.
+pub type OriginOf = Arc<dyn Fn(ConnectionId) -> Option<Origin> + Send + Sync>;
+
 /// The server: shared by every connection.
 #[derive(Clone)]
 pub struct AppServer {
@@ -118,6 +122,7 @@ impl AppServer {
     pub fn new(
         core: Arc<dyn CoreHandle>,
         outgoing: Arc<Outgoing>,
+        origin_of: OriginOf,
         config: ServerConfig,
     ) -> Result<Self, LimitsViolation> {
         config.limits.check()?;
@@ -126,6 +131,7 @@ impl AppServer {
                 lifecycle: core.lifecycle(),
                 core,
                 outgoing,
+                origin_of,
                 config,
                 queues: KeyedQueues::new(),
             }),
@@ -136,10 +142,9 @@ impl AppServer {
     pub fn open(
         &self,
         id: ConnectionId,
-        origin: Origin,
         sink: Arc<dyn mixdog_core_api::ConnectionSink>,
     ) -> ConnectionHandle {
-        let conn = Arc::new(Connection::new(id, origin, sink));
+        let conn = Arc::new(Connection::new(id, sink));
         self.shared.outgoing.register(Arc::clone(&conn));
         ConnectionHandle {
             shared: Arc::clone(&self.shared),
@@ -226,6 +231,7 @@ impl Drop for ConnectionHandle {
 pub(crate) struct Shared {
     core: Arc<dyn CoreHandle>,
     outgoing: Arc<Outgoing>,
+    origin_of: OriginOf,
     config: ServerConfig,
     lifecycle: watch::Receiver<CoreState>,
     queues: KeyedQueues,
@@ -268,6 +274,11 @@ impl Shared {
 
     fn on_request(self: &Arc<Self>, conn: &Arc<Connection>, request: JsonRpcRequest) -> Inbound {
         let id = request.id.clone();
+        // No origin is no scope to judge the call by: refuse, never assume one.
+        let Some(origin) = (self.origin_of)(conn.id) else {
+            self.reject_core(conn, &id, &internal("request from a connection without an origin"));
+            return Inbound::Continue;
+        };
         if conn.session().is_none() && request.method != INITIALIZE {
             self.reject(conn, &id, &ErrorData::NotInitialized);
             return Inbound::Continue;
@@ -282,10 +293,10 @@ impl Shared {
             );
             return Inbound::Continue;
         };
-        if !spec.allows(conn.origin) {
+        if !spec.allows(origin) {
             let denied = CoreError::PermissionDenied {
                 method: spec.method.into(),
-                origin: conn.origin,
+                origin,
             };
             self.reject_core(conn, &id, &denied);
             return Inbound::Continue;
@@ -321,12 +332,11 @@ impl Shared {
         };
         if let ClientRequest::Initialize { params, .. } = typed {
             drop(slot);
-            return self.initialize(conn, &id, params);
+            return self.initialize(conn, &id, origin, params);
         }
         let scope = typed.serialization_scope();
-        let op = typed.op().map(|(_, op)| op.clone());
         let params = params.unwrap_or_else(empty_result);
-        match self.dispatch(conn, &id, typed, params, op, spec) {
+        match self.dispatch(conn, &id, origin, typed, params, spec) {
             Dispatch::Ready(outcome) => {
                 drop(slot);
                 self.finish(conn, &id, outcome);
@@ -414,6 +424,7 @@ impl Shared {
         &self,
         conn: &Arc<Connection>,
         id: &RequestId,
+        origin: Origin,
         params: v1::InitializeParams,
     ) -> Inbound {
         if conn.session().is_some() {
@@ -479,7 +490,7 @@ impl Shared {
             limits: config.limits.clone(),
             capabilities: config.capabilities.clone(),
             connection: v1::ConnectionInfo {
-                origin: conn.origin,
+                origin,
                 device,
             },
         };
@@ -501,9 +512,9 @@ impl Shared {
         self: &Arc<Self>,
         conn: &Arc<Connection>,
         id: &RequestId,
+        origin: Origin,
         request: ClientRequest,
         params: Value,
-        op: Option<OpId>,
         spec: &'static MethodSpec,
     ) -> Dispatch {
         match request {
@@ -536,7 +547,7 @@ impl Shared {
             }
             ClientRequest::OpStatus { params, .. } => {
                 let core = Arc::clone(&self.core);
-                let ctx = CallContext::connection(conn.id, conn.origin, conn.cancel.clone());
+                let ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
                 Dispatch::Later(
                     TaskClass::Work,
                     Box::pin(async move {
@@ -570,7 +581,10 @@ impl Shared {
                     }),
                 )
             }
-            _ => self.route(conn, spec, params, op),
+            _ => {
+                let op = request.op().map(|(_, op)| op.clone());
+                self.route(conn, origin, spec, params, op)
+            }
         }
     }
 
@@ -580,11 +594,12 @@ impl Shared {
     fn route(
         &self,
         conn: &Connection,
+        origin: Origin,
         spec: &'static MethodSpec,
         params: Value,
         op: Option<OpId>,
     ) -> Dispatch {
-        let ctx = CallContext::connection(conn.id, conn.origin, conn.cancel.clone());
+        let ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
         let namespace = namespace(spec.method);
         let thread = THREAD_NAMESPACES
             .contains(&namespace)

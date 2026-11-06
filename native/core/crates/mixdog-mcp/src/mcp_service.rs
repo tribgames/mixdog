@@ -189,6 +189,7 @@ pub struct McpService {
     home: PathBuf,
     /// One account addition of a connector at a time, each reading the servers the one before it
     /// saved: two at once never take the same name, nor does one's save drop the other's account.
+    #[allow(clippy::disallowed_types, reason = "held across the awaits of one account addition on purpose: the next addition waits for the save of the one before")]
     adds: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
@@ -273,6 +274,7 @@ impl McpService {
         ExtensionScopes::from_config(self.config.agent().get("extensionScopes").unwrap_or(&Value::Null))
     }
 
+    #[allow(clippy::disallowed_types, reason = "the per-connector addition lock is held across awaits on purpose (see `adds`)")]
     fn connector_lock(&self, connector: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut adds = self.adds.lock().unwrap_or_else(|e| e.into_inner());
         Arc::clone(adds.entry(connector.to_owned()).or_default())
@@ -463,7 +465,8 @@ impl McpService {
         }
         .await;
         if let Err(error) = attempt {
-            let _ = self.secrets.forget_stored_secrets(&stored_cfg).await;
+            // As in Node, a failed rollback is the failure the caller gets.
+            self.secrets.forget_stored_secrets(&stored_cfg).await?;
             return Err(error);
         }
         self.runtime.forget_account_health(&account_name);
@@ -525,10 +528,20 @@ impl McpService {
         }
         let merged = merge_mcp_server_config(&existing, &normalized_config);
         servers.insert(name.clone(), merged.clone());
-        self.secrets.store_oauth_client_secret(input, &merged, &existing).await?;
-        self.secrets.store_gmail_app_password(input, &merged, false).await?;
+        // A failure anywhere before the config is saved leaves the keychain as it was: the saved
+        // client id never pairs with a secret of another save (Node left the new secret behind).
+        let snapshot = self.secrets.snapshot(input, &merged, &existing).await?;
+        let attempt: Result<(), Failure> = async {
+            self.secrets.store_oauth_client_secret(input, &merged, &existing).await?;
+            self.secrets.store_gmail_app_password(input, &merged, false).await?;
+            self.save_servers(servers).await
+        }
+        .await;
+        if let Err(error) = attempt {
+            self.secrets.restore(snapshot).await?;
+            return Err(error);
+        }
         let enabled = enabled_flag(&merged);
-        self.save_servers(servers).await?;
         let previous_account = gmail_app_password_account(&existing);
         let account = gmail_app_password_account(&merged);
         if previous_account != account {
@@ -554,8 +567,6 @@ impl McpService {
         let (_, config) = normalize_mcp_server_input(&merged_server_input(&Value::Object(patch), &account_cfg, &account_name), &cwd, &self.home)?;
         let mut next = merge_mcp_server_config(&account_cfg, &config);
         next["connector"] = field(&cfg, "connector").clone();
-        self.secrets.store_oauth_client_secret(input, &next, &account_cfg).await?;
-        self.secrets.store_gmail_app_password(input, &next, false).await?;
         // Settings that are not the account's transport (timeouts) are the server's.
         let server_fields = server_settings(&config);
         let mut server = cfg.as_object().cloned().unwrap_or_default();
@@ -586,7 +597,18 @@ impl McpService {
             .collect();
         server.insert("accounts".to_owned(), Value::Array(accounts));
         servers.insert(server_name.clone(), Value::Object(server));
-        self.save_servers(servers).await?;
+        // As in `save_mcp_server`: a failed save leaves the keychain as it was.
+        let snapshot = self.secrets.snapshot(input, &next, &account_cfg).await?;
+        let attempt: Result<(), Failure> = async {
+            self.secrets.store_oauth_client_secret(input, &next, &account_cfg).await?;
+            self.secrets.store_gmail_app_password(input, &next, false).await?;
+            self.save_servers(servers).await
+        }
+        .await;
+        if let Err(error) = attempt {
+            self.secrets.restore(snapshot).await?;
+            return Err(error);
+        }
         self.runtime.forget_account_health(&account_name);
         let previous_address = gmail_app_password_account(&account_cfg);
         let address = gmail_app_password_account(&next);
@@ -639,11 +661,20 @@ impl McpService {
         // The server of a multi-account connector takes every account's sign-in with it.
         let account_cfgs = account_servers(&removed);
         if !account_cfgs.is_empty() {
-            let mut released = Vec::new();
-            for account_cfg in &account_cfgs {
-                if let Some(one) = self.secrets.release_account(account_cfg).await? {
-                    released.push(one);
+            // `Promise.all`: every account's release runs; the first to fail in time is the failure
+            // reported, after the others finished.
+            let mut pending: futures::stream::FuturesUnordered<_> = account_cfgs.iter().map(|cfg| self.secrets.release_account(cfg)).collect();
+            let (mut released, mut failure) = (Vec::new(), None);
+            while let Some(outcome) = futures::StreamExt::next(&mut pending).await {
+                match outcome {
+                    Ok(one) => released.extend(one),
+                    Err(error) => {
+                        failure.get_or_insert(error);
+                    }
                 }
+            }
+            if let Some(error) = failure {
+                return Err(error);
             }
             if released.is_empty() {
                 return Ok(status);

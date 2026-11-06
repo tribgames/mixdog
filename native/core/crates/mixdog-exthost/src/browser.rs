@@ -58,8 +58,8 @@ impl BrowserHandle {
         }
     }
 
-    /// The DevTools WebSocket endpoint of the running render browser, launching it if needed. The
-    /// browser counts as used from this moment: its idle clock restarts.
+    /// The DevTools WebSocket endpoint of the running render browser, launching it if needed. This
+    /// does not restart the idle clock; only a launch or the release of the last lease does.
     pub(crate) async fn endpoint(&self) -> Result<String, BrowserError> {
         self.ask(false).await.map(|(ws, _)| ws)
     }
@@ -90,9 +90,10 @@ impl BrowserHandle {
 pub struct RenderBrowser(pub(crate) BrowserHandle);
 
 impl RenderBrowser {
-    /// The DevTools WebSocket URL of the running browser, launching it when none is. Each call
-    /// restarts the browser's idle clock (60 s by default, `PUPPETEER_POOL_IDLE_MS`), so a user
-    /// whose work is shorter than that needs nothing more.
+    /// The DevTools WebSocket URL of the running browser, launching it when none is. A call
+    /// does not restart the browser's idle clock (60 s by default, `PUPPETEER_POOL_IDLE_MS`), as
+    /// in Node's pool, which restarts it only on release: a user whose work is shorter than the
+    /// period since the launch or the last release needs nothing more.
     ///
     /// # Errors
     /// The launch failed or the host is closing; the text is the one the workers' callers see.
@@ -103,8 +104,9 @@ impl RenderBrowser {
 
 #[async_trait::async_trait]
 impl mixdog_core_api::domain::ext::BrowserEndpoint for RenderBrowser {
-    async fn endpoint(&self) -> Result<String, String> {
-        RenderBrowser::endpoint(self).await
+    async fn lease(&self) -> Result<(String, mixdog_core_api::domain::ext::BrowserHold), String> {
+        let (ws, lease) = self.0.lease().await.map_err(|error| error.to_string())?;
+        Ok((ws, Box::new(lease)))
     }
 }
 
@@ -119,15 +121,21 @@ impl Drop for BrowserLease {
     }
 }
 
-/// The idle period after which an unused browser is closed (`PUPPETEER_POOL_IDLE_MS`, at least
-/// 5 s, 60 s by default), as the web renderer's pool has always done.
+/// The idle period after which an unused browser is closed: `PUPPETEER_POOL_IDLE_MS` through
+/// `idle_period_from`, as the web renderer's pool does (`web-tools.mjs:55`).
 fn idle_period() -> Duration {
-    let millis = std::env::var("PUPPETEER_POOL_IDLE_MS")
-        .ok()
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .filter(|&value| value > 0)
-        .unwrap_or(60_000);
-    Duration::from_millis(millis.max(5_000))
+    idle_period_from(std::env::var("PUPPETEER_POOL_IDLE_MS").ok().as_deref())
+}
+
+/// `Math.max(5_000, Number(env) || 60_000)` handed to `setTimeout` (`web-tools.mjs:55`, `:112`):
+/// an unset, empty, zero or non-numeric value is 60 s, and a delay outside 1..=2^31-1 ms (only
+/// reachable above it) becomes 1 ms, as Node's timers do; a fraction is truncated.
+fn idle_period_from(env: Option<&str>) -> Duration {
+    let number = env.map_or(f64::NAN, mixdog_js::string_to_number);
+    let requested = if number.is_nan() || number == 0.0 { 60_000.0 } else { number };
+    let millis = mixdog_js::math::max(5_000.0, requested);
+    let millis = if (1.0..=2_147_483_647.0).contains(&millis) { millis.trunc() } else { 1.0 };
+    Duration::from_millis(millis as u64)
 }
 
 /// `launches` counts every browser launch, so the owner can observe reuse.
@@ -236,9 +244,16 @@ async fn serve(launcher: Launcher, mut inbox: mpsc::UnboundedReceiver<Request>, 
     let mut launching: Option<Launching> = None;
     let mut closed = false;
     let mut leases = 0usize;
+    // Node's pool timer (`web-tools.mjs:93-114`): armed when the browser has no user left (the
+    // last lease released, or a launch finished with none), cleared while a lease is held, and
+    // left alone by an endpoint request on a browser that is already running.
+    let mut idle_at: Option<tokio::time::Instant> = None;
     loop {
-        // Re-armed on every turn: any request, release or launch counts as use of the browser.
-        let idle_at = (running.is_some() && leases == 0).then(|| tokio::time::Instant::now() + idle);
+        if running.is_none() || leases > 0 {
+            idle_at = None;
+        } else if idle_at.is_none() {
+            idle_at = Some(tokio::time::Instant::now() + idle);
+        }
         // Biased: an expired idle timer is taken before a request that is already queued, so what
         // happens at one instant does not depend on a random branch order.
         tokio::select! {
@@ -598,6 +613,23 @@ mod tests {
         )
     }
 
+    #[test]
+    fn the_idle_period_is_nodes_math_max_of_the_environment_value() {
+        let ms = |env| idle_period_from(env).as_millis();
+        assert_eq!(ms(None), 60_000);
+        assert_eq!(ms(Some("")), 60_000);
+        assert_eq!(ms(Some("0")), 60_000);
+        assert_eq!(ms(Some("abc")), 60_000);
+        assert_eq!(ms(Some("100")), 5_000, "at least 5 s");
+        assert_eq!(ms(Some("-3")), 5_000, "a negative number is a number: the floor applies");
+        assert_eq!(ms(Some(" 7500.9 ")), 7_500);
+        assert_eq!(ms(Some("1e4")), 10_000);
+        assert_eq!(ms(Some("0x1F40")), 8_000);
+        assert_eq!(ms(Some("2147483647")), 2_147_483_647);
+        assert_eq!(ms(Some("2147483648")), 1, "setTimeout overflow becomes 1 ms");
+        assert_eq!(ms(Some("Infinity")), 1);
+    }
+
     // The idle timer runs on the paused tokio clock: time moves only through `advance`, so no
     // assertion depends on how fast the machine is. The service takes an expired idle timer before
     // any request already queued (its `select!` is biased), so a request sent after an `advance`
@@ -616,12 +648,9 @@ mod tests {
         assert_eq!(browser.endpoint().await.unwrap(), first, "in use: one browser");
         assert_eq!(launches.load(Ordering::Relaxed), 1);
 
-        // Just short of the period since the last use: still the same browser, and that request
-        // restarts the clock.
+        // Just short of the period since the launch: still the same browser.
         tokio::time::advance(IDLE - Duration::from_millis(1)).await;
         assert_eq!(browser.endpoint().await.unwrap(), first, "not yet idle");
-        tokio::time::advance(IDLE - Duration::from_millis(1)).await;
-        assert_eq!(browser.endpoint().await.unwrap(), first, "the last request restarted the clock");
         assert_eq!(launches.load(Ordering::Relaxed), 1);
 
         pass_idle_period().await;
@@ -629,6 +658,43 @@ mod tests {
         assert_ne!(second, first, "the idle browser was closed and a new one launched");
         assert_eq!(launches.load(Ordering::Relaxed), 2);
         browser.shutdown().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_endpoint_request_does_not_restart_the_idle_clock_without_a_lease() {
+        let launches = Arc::new(AtomicU64::new(0));
+        let browser = service(&launches);
+        let first = browser.endpoint().await.unwrap();
+
+        // A request just short of the period is served by the same browser ...
+        tokio::time::advance(IDLE - Duration::from_millis(100)).await;
+        assert_eq!(browser.endpoint().await.unwrap(), first);
+        // ... and did not push the expiry: the period counted from the launch ends here.
+        tokio::time::advance(Duration::from_millis(101)).await;
+        assert_ne!(browser.endpoint().await.unwrap(), first, "closed on the launch's clock");
+        assert_eq!(launches.load(Ordering::Relaxed), 2);
+        browser.shutdown().await;
+    }
+
+    /// The trait the web renderer holds gives the browser only together with its hold.
+    #[tokio::test(start_paused = true)]
+    async fn the_endpoint_trait_keeps_the_browser_open_until_its_hold_is_dropped() {
+        use mixdog_core_api::domain::ext::BrowserEndpoint;
+
+        let launches = Arc::new(AtomicU64::new(0));
+        let render = RenderBrowser(service(&launches));
+        let (first, hold) = BrowserEndpoint::lease(&render).await.unwrap();
+        for _ in 0..4 {
+            pass_idle_period().await;
+        }
+        assert_eq!(render.endpoint().await.unwrap(), first, "held for a long render: still open");
+        assert_eq!(launches.load(Ordering::Relaxed), 1);
+
+        drop(hold);
+        assert_eq!(render.endpoint().await.unwrap(), first, "released, not yet idle");
+        pass_idle_period().await;
+        assert_ne!(render.endpoint().await.unwrap(), first, "closed after the period from the release");
+        render.0.shutdown().await;
     }
 
     #[tokio::test(start_paused = true)]

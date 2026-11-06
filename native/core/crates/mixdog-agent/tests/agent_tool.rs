@@ -218,8 +218,8 @@ impl SpawnFlow for Fakes {
 }
 
 impl TerminalTrace for Fakes {
-    fn has_terminal_trace(&self, tag: &str, _scope: &Scope) -> bool {
-        self.0.list("traces").iter().any(|t| t.as_str() == Some(tag))
+    fn has_terminal_trace(&self, tag: &str, _scope: &Scope) -> Result<bool, String> {
+        Ok(self.0.list("traces").iter().any(|t| t.as_str() == Some(tag)))
     }
     fn reap_terminal_trace_for_tag(&self, tag: &str, _scope: &Scope) {
         self.0.log(json!(["reapTrace", tag]));

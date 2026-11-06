@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 6: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 7: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 6;
+PRAGMA user_version = 7;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -154,6 +154,21 @@ CREATE TABLE history (
 CREATE INDEX history_iid ON history(session, iid);
 CREATE INDEX history_page ON history(session, ordinal) WHERE visible = 1 AND superseded_rev IS NULL;
 CREATE INDEX history_model ON history(session, ordinal) WHERE model = 1 AND superseded_rev IS NULL;
+
+-- One row per `model_switch` frame: a display-only boundary on the anchor row
+-- (anchor_ordinal, anchor_iid), shown while that row is live in the reader's view. No
+-- superseded_rev: a rewind that keeps the anchor keeps its boundaries.
+CREATE TABLE model_switches (
+    session TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    anchor_ordinal INTEGER NOT NULL,
+    anchor_iid TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (session, ordinal)
+) WITHOUT ROWID;
+CREATE INDEX model_switches_anchor ON model_switches(session, anchor_ordinal, ordinal);
 
 -- One row per `amend` frame.
 CREATE TABLE amends (

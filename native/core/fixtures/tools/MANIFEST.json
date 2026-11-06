@@ -48,7 +48,7 @@
     "memory/error-bad-op"
   ],
   "extraImpossible": [],
-  "fileCount": 149,
+  "fileCount": 153,
   "files": [
     {
       "bytes": 702,
@@ -446,9 +446,9 @@
       "sha256": "655f9abae5f71057defc85db9555049f4f4e0e391164f7f144a32884c322375e"
     },
     {
-      "bytes": 5974,
+      "bytes": 6046,
       "path": "git/worktree-host-failures.json",
-      "sha256": "9ae0913ff89abb21fa7632a146198c77c92f49556535a0694fe69ec593567d08"
+      "sha256": "04db950232836e37a8117701e074b3dda6f73595657fd78cfcb4da265072efcd"
     },
     {
       "bytes": 11036,
@@ -756,6 +756,11 @@
       "sha256": "ef01ca169c9ce4f871f4618a9ee39bd7a674d925a6d5e7da67a29c5f4b2c042c"
     },
     {
+      "bytes": 285,
+      "path": "task/task-list-after.json",
+      "sha256": "b5f47329e0a9fa0e8d2a365846136b93acb88fda60299ae8f891e8225c22364b"
+    },
+    {
       "bytes": 113,
       "path": "task/task-list-empty.json",
       "sha256": "6f5cf055421060cb15494380c155e59376c7ee4354fc88edfc0408f46aea7fdd"
@@ -776,6 +781,11 @@
       "sha256": "9c1ebd1e3fa9987d76d7132de552377077aecc2da53d5029b0bc25be2d77b88e"
     },
     {
+      "bytes": 321,
+      "path": "task/task-read-completed.json",
+      "sha256": "ef5a79741728f83038ff5dc27abbfec7e6d727366a6d54333b0ff4d806ffb248"
+    },
+    {
       "bytes": 159,
       "path": "task/task-read-missing.json",
       "sha256": "6f11cccacc264128ee7b4efd6072e3c9c5bd8a57b1d043dc4a9a881f008bbcde"
@@ -791,28 +801,38 @@
       "sha256": "3ecb0b0b42b612ca93c0cab54e2928fc7a5426add80d18991f06b1ca1d64fd2a"
     },
     {
+      "bytes": 316,
+      "path": "task/task-wait-completed.json",
+      "sha256": "503d772d1f6b3a6ca5d8924c72e1ad621c9435ee43644c6cda69393cf421f722"
+    },
+    {
       "bytes": 159,
       "path": "task/task-wait-missing.json",
       "sha256": "465d4d45140253523da119b815cef3551c8a7b00ed65a2d2ca9e7f8e6d5694b1"
+    },
+    {
+      "bytes": 630,
+      "path": "task/task-wait-running-expiry.json",
+      "sha256": "9582959ac89f398eef457ca3a7dd60f0031c45a1f8c57493616285d185ba9802"
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "appsSha256": "1ba13ae4c6213282aa4baf8e39dd32a65446dfddf9d3fe560f802a85d7e64ec3",
+    "commit": "10265470907864fdde0a7584f66b92b32cbacb4b",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9139,
+    "files": 9239,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "closestCommit": "10265470907864fdde0a7584f66b92b32cbacb4b",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "5a97c4f2f94ad49aaee3c72aa8a64ee685dcf9affc2719acac18e987b56549d3",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs",
   "set": "tools",
-  "totalBytes": 697182
+  "totalBytes": 698806
 }

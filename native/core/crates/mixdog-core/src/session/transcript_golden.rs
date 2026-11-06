@@ -177,6 +177,37 @@ fn hidden_tool(row: &Value) -> bool {
         && is_hidden_tool_item(row["name"].as_str().unwrap_or(""), row["result"].as_str().unwrap_or(""))
 }
 
+/// Per message, whether the shared classifier says Node's restore shows a row for it
+/// (`fixtures/migration/message-presence/presence.json`, `record-message-presence.mjs`).
+#[test]
+#[ignore = "needs the migration corpus"]
+fn presence_equals_nodes_for_every_message() {
+    use mixdog_protocol::message_class::messages_shown;
+    use mixdog_protocol::message_class::user_text::UserText;
+
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/migration/message-presence/presence.json");
+    let presence: Value = serde_json::from_slice(&std::fs::read(path).expect("presence.json")).expect("json");
+    let corpus = PathBuf::from(std::env::var("MIXDOG_MIGRATION_CORPUS").unwrap_or_else(|_| DEFAULT_CORPUS.into()));
+    let data = PathBuf::from(std::env::var("MIXDOG_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA.into()));
+    let blobs = DataBlobs(data);
+    let mut failures = Vec::new();
+    for session in presence["sessions"].as_array().expect("sessions") {
+        let key = session["key"].as_str().expect("key");
+        let stored: Value = serde_json::from_slice(&std::fs::read(corpus.join(key)).expect("session")).expect("json");
+        let messages = stored["messages"].as_array().expect("messages");
+        let got = messages_shown(messages, &mut UserText::new(&blobs));
+        let want: Vec<bool> = session["shown"].as_array().expect("shown").iter().map(|v| v == true).collect();
+        for (index, (g, w)) in got.iter().zip(&want).enumerate() {
+            if g != w {
+                let brief: String = messages[index].to_string().chars().take(300).collect();
+                failures.push(format!("{key}[{index}]: rust {g} node {w}: {brief}"));
+            }
+        }
+        assert_eq!(got.len(), want.len(), "{key}: message count");
+    }
+    assert!(failures.is_empty(), "{} messages differ:\n{}", failures.len(), failures.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
+}
+
 #[test]
 #[ignore = "needs the migration corpus"]
 fn rows_equal_nodes_for_every_corpus_session() {

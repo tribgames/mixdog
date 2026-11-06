@@ -1,0 +1,2212 @@
+[
+  {
+    "name": "completes_with_a_terminal_result",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "tool": "diff-1"
+      },
+      {
+        "tool": "diff-2"
+      },
+      {
+        "assistant": "thinking"
+      },
+      {
+        "terminal": {
+          "content": "done",
+          "iterations": 2,
+          "toolCallsTotal": 3
+        }
+      },
+      {
+        "return": {
+          "content": "done",
+          "iterations": 2,
+          "toolCallsTotal": 3
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "done"
+        }
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[\"diff-2\"]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: spawn\nlabel: scout\nstatus: completed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\ntag: scout\nsessionId: sess_w1\nagent: worker\npreset: worker-preset\nprovider: openai\nmodel: gpt-x\neffort: high\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "completed",
+            "instruction": "Agent \"job\" completed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\ndone\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "agent-terminal-result",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_completes_with_a_terminal_result",
+    "steps": [
+      {
+        "tool": "diff-1"
+      },
+      {
+        "tool": "diff-2"
+      },
+      {
+        "assistant": "thinking"
+      },
+      {
+        "terminal": {
+          "content": "done",
+          "iterations": 2,
+          "toolCallsTotal": 3
+        }
+      },
+      {
+        "return": {
+          "content": "done",
+          "iterations": 2,
+          "toolCallsTotal": 3
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-x",
+          "content": "done"
+        }
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: send\nlabel: scout\nstatus: completed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\ntag: scout\nsessionId: sess_w1\nagent: worker\nprovider: openai\nmodel: gpt-x\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "completed",
+            "instruction": "Agent \"job\" completed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\ndone\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "agent-terminal-result",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "completes_with_a_report_of_earlier_answers",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "return": {
+          "content": "ok",
+          "reportContent": "earlier\n\nok"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "earlier\n\nok"
+        }
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\nearlier\n\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_completes_with_a_report_of_earlier_answers",
+    "steps": [
+      {
+        "return": {
+          "content": "ok",
+          "reportContent": "earlier\n\nok"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-x",
+          "content": "earlier\n\nok"
+        }
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\nearlier\n\nok\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_normally_empty_finish_is_a_completion",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "return": {
+          "content": ""
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": ""
+        }
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_normally_empty_finish_is_a_completion",
+    "steps": [
+      {
+        "return": {
+          "content": ""
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-x",
+          "content": ""
+        }
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "an_empty_public_finish_is_a_failure",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "terminal": {
+          "content": "",
+          "termination": "empty",
+          "iterations": 3,
+          "toolCallsTotal": 2,
+          "stopReason": "end_turn"
+        }
+      },
+      {
+        "return": {
+          "content": "",
+          "termination": "empty",
+          "iterations": 3,
+          "toolCallsTotal": 2,
+          "stopReason": "end_turn"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' finished without a final answer (stopReason=end_turn, 3 iterations, 2 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: spawn\nlabel: scout\nstatus: failed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\nerror: agent 'worker' finished without a final answer (stopReason=end_turn, 3 iterations, 2 tool calls)\ntag: scout\nsessionId: sess_w1\nagent: worker\npreset: worker-preset\nprovider: openai\nmodel: gpt-x\neffort: high\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "failed",
+            "instruction": "Agent \"job\" failed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<error>agent 'worker' finished without a final answer (stopReason=end_turn, 3 iterations, 2 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'worker' finished without a final answer (stopReason=end_turn, 3 iterations, 2 tool calls)",
+        "terminalReason": "agent-empty-final",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_an_empty_public_finish_is_a_failure",
+    "steps": [
+      {
+        "terminal": {
+          "content": "",
+          "termination": "empty",
+          "iterations": 3,
+          "toolCallsTotal": 2,
+          "stopReason": "end_turn"
+        }
+      },
+      {
+        "return": {
+          "content": "",
+          "termination": "empty",
+          "iterations": 3,
+          "toolCallsTotal": 2,
+          "stopReason": "end_turn"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' finished without a final answer (stopReason=end_turn, 3 iterations, 2 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: send\nlabel: scout\nstatus: failed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\nerror: agent 'worker' finished without a final answer (stopReason=end_turn, 3 iterations, 2 tool calls)\ntag: scout\nsessionId: sess_w1\nagent: worker\nprovider: openai\nmodel: gpt-x\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "failed",
+            "instruction": "Agent \"job\" failed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<error>agent 'worker' finished without a final answer (stopReason=end_turn, 3 iterations, 2 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'worker' finished without a final answer (stopReason=end_turn, 3 iterations, 2 tool calls)",
+        "terminalReason": "agent-empty-final",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "an_empty_finish_with_no_stop_reason_reads_none",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "return": {
+          "content": "",
+          "termination": "empty"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<error>agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)",
+        "terminalReason": "agent-finally-reconcile",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_an_empty_finish_with_no_stop_reason_reads_none",
+    "steps": [
+      {
+        "return": {
+          "content": "",
+          "termination": "empty"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<error>agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)",
+        "terminalReason": "agent-finally-reconcile",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_truncated_finish_returned_without_a_hook_is_a_failure",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "return": {
+          "content": "cut",
+          "termination": "truncated",
+          "stopReason": "max_tokens",
+          "iterations": 4,
+          "toolCallsTotal": 1
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' response was truncated (stopReason=max_tokens) before a final answer (4 iterations, 1 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<result>\ncut\n</result>\n<error>agent 'worker' response was truncated (stopReason=max_tokens) before a final answer (4 iterations, 1 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'worker' response was truncated (stopReason=max_tokens) before a final answer (4 iterations, 1 tool calls)",
+        "terminalReason": "agent-finally-reconcile",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_truncated_finish_returned_without_a_hook_is_a_failure",
+    "steps": [
+      {
+        "return": {
+          "content": "cut",
+          "termination": "truncated",
+          "stopReason": "max_tokens",
+          "iterations": 4,
+          "toolCallsTotal": 1
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' response was truncated (stopReason=max_tokens) before a final answer (4 iterations, 1 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<result>\ncut\n</result>\n<error>agent 'worker' response was truncated (stopReason=max_tokens) before a final answer (4 iterations, 1 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'worker' response was truncated (stopReason=max_tokens) before a final answer (4 iterations, 1 tool calls)",
+        "terminalReason": "agent-finally-reconcile",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_truncated_finish_with_no_stop_reason_reads_null",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "return": {
+          "content": "cut",
+          "termination": "truncated"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' response was truncated (stopReason=null) before a final answer (1 iterations, 0 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<result>\ncut\n</result>\n<error>agent 'worker' response was truncated (stopReason=null) before a final answer (1 iterations, 0 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'worker' response was truncated (stopReason=null) before a final answer (1 iterations, 0 tool calls)",
+        "terminalReason": "agent-finally-reconcile",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_truncated_finish_with_no_stop_reason_reads_null",
+    "steps": [
+      {
+        "return": {
+          "content": "cut",
+          "termination": "truncated"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' response was truncated (stopReason=null) before a final answer (1 iterations, 0 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<result>\ncut\n</result>\n<error>agent 'worker' response was truncated (stopReason=null) before a final answer (1 iterations, 0 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'worker' response was truncated (stopReason=null) before a final answer (1 iterations, 0 tool calls)",
+        "terminalReason": "agent-finally-reconcile",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_refusal_is_a_failure",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "terminal": {
+          "content": "no",
+          "termination": "refusal",
+          "iterations": 1
+        }
+      },
+      {
+        "return": {
+          "content": "no",
+          "termination": "refusal",
+          "iterations": 1
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' response was refused by the safety classifier (1 iterations, 0 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: spawn\nlabel: scout\nstatus: failed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\nerror: agent 'worker' response was refused by the safety classifier (1 iterations, 0 tool calls)\ntag: scout\nsessionId: sess_w1\nagent: worker\npreset: worker-preset\nprovider: openai\nmodel: gpt-x\neffort: high\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "failed",
+            "instruction": "Agent \"job\" failed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<result>\nno\n</result>\n<error>agent 'worker' response was refused by the safety classifier (1 iterations, 0 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'worker' response was refused by the safety classifier (1 iterations, 0 tool calls)",
+        "terminalReason": "agent-empty-final",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_refusal_is_a_failure",
+    "steps": [
+      {
+        "terminal": {
+          "content": "no",
+          "termination": "refusal",
+          "iterations": 1
+        }
+      },
+      {
+        "return": {
+          "content": "no",
+          "termination": "refusal",
+          "iterations": 1
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' response was refused by the safety classifier (1 iterations, 0 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: send\nlabel: scout\nstatus: failed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\nerror: agent 'worker' response was refused by the safety classifier (1 iterations, 0 tool calls)\ntag: scout\nsessionId: sess_w1\nagent: worker\nprovider: openai\nmodel: gpt-x\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "failed",
+            "instruction": "Agent \"job\" failed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<result>\nno\n</result>\n<error>agent 'worker' response was refused by the safety classifier (1 iterations, 0 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'worker' response was refused by the safety classifier (1 iterations, 0 tool calls)",
+        "terminalReason": "agent-empty-final",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_throw_before_any_result_fails_the_job",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "throw": {
+          "message": "provider exploded"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "provider exploded"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<error>provider exploded</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "provider exploded",
+        "terminalReason": "agent-stream-stalled",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_throw_before_any_result_fails_the_job",
+    "steps": [
+      {
+        "throw": {
+          "message": "provider exploded"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "provider exploded"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<error>provider exploded</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "provider exploded",
+        "terminalReason": "agent-stream-stalled",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_throw_carries_the_answers_before_it",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "throw": {
+          "message": "then it broke",
+          "carriedReport": "first answer"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "then it broke"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<result>\nfirst answer\n</result>\n<error>then it broke</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "then it broke",
+        "terminalReason": "agent-stream-stalled",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_throw_carries_the_answers_before_it",
+    "steps": [
+      {
+        "throw": {
+          "message": "then it broke",
+          "carriedReport": "first answer"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "then it broke"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<result>\nfirst answer\n</result>\n<error>then it broke</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "then it broke",
+        "terminalReason": "agent-stream-stalled",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_throw_after_a_terminal_result_keeps_the_completion",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "terminal": {
+          "content": "done"
+        }
+      },
+      {
+        "throw": {
+          "message": "post-result cleanup failed"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "post-result cleanup failed"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: spawn\nlabel: scout\nstatus: completed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\ntag: scout\nsessionId: sess_w1\nagent: worker\npreset: worker-preset\nprovider: openai\nmodel: gpt-x\neffort: high\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "completed",
+            "instruction": "Agent \"job\" completed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\ndone\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "agent-terminal-result",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_throw_after_a_terminal_result_keeps_the_completion",
+    "steps": [
+      {
+        "terminal": {
+          "content": "done"
+        }
+      },
+      {
+        "throw": {
+          "message": "post-result cleanup failed"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "post-result cleanup failed"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: send\nlabel: scout\nstatus: completed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\ntag: scout\nsessionId: sess_w1\nagent: worker\nprovider: openai\nmodel: gpt-x\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "completed",
+            "instruction": "Agent \"job\" completed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\ndone\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "agent-terminal-result",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_second_terminal_result_sends_no_second_preview",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "terminal": {
+          "content": "one"
+        }
+      },
+      {
+        "terminal": {
+          "content": "two"
+        }
+      },
+      {
+        "return": {
+          "content": "two"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "two"
+        }
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: spawn\nlabel: scout\nstatus: completed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\ntag: scout\nsessionId: sess_w1\nagent: worker\npreset: worker-preset\nprovider: openai\nmodel: gpt-x\neffort: high\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "completed",
+            "instruction": "Agent \"job\" completed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\none\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "agent-terminal-result",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_second_terminal_result_sends_no_second_preview",
+    "steps": [
+      {
+        "terminal": {
+          "content": "one"
+        }
+      },
+      {
+        "terminal": {
+          "content": "two"
+        }
+      },
+      {
+        "return": {
+          "content": "two"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-x",
+          "content": "two"
+        }
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: send\nlabel: scout\nstatus: completed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\ntag: scout\nsessionId: sess_w1\nagent: worker\nprovider: openai\nmodel: gpt-x\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "completed",
+            "instruction": "Agent \"job\" completed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\none\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "agent-terminal-result",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_cancel_then_a_return_reports_the_result_as_cancelled",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "cancel": true
+      },
+      {
+        "return": {
+          "content": "late result"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "late result"
+        }
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:cancelled",
+        "emit:stop:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nlate result\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_cancel_then_a_return_reports_the_result_as_cancelled",
+    "steps": [
+      {
+        "cancel": true
+      },
+      {
+        "return": {
+          "content": "late result"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-x",
+          "content": "late result"
+        }
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nlate result\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_cancel_then_a_terminal_result_sends_no_preview",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "cancel": true
+      },
+      {
+        "terminal": {
+          "content": "late"
+        }
+      },
+      {
+        "return": {
+          "content": "late"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "late"
+        }
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:cancelled",
+        "emit:stop:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nlate\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_cancel_then_a_terminal_result_sends_no_preview",
+    "steps": [
+      {
+        "cancel": true
+      },
+      {
+        "terminal": {
+          "content": "late"
+        }
+      },
+      {
+        "return": {
+          "content": "late"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-x",
+          "content": "late"
+        }
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nlate\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_cancel_then_an_abnormal_finish_is_still_cancelled",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "cancel": true
+      },
+      {
+        "return": {
+          "content": "",
+          "termination": "empty"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "",
+          "error": "agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)"
+        }
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:cancelled",
+        "emit:stop:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_cancel_then_an_abnormal_finish_is_still_cancelled",
+    "steps": [
+      {
+        "cancel": true
+      },
+      {
+        "return": {
+          "content": "",
+          "termination": "empty"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-x",
+          "content": "",
+          "error": "agent 'worker' finished without a final answer (stopReason=none, 1 iterations, 0 tool calls)"
+        }
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_cancel_then_a_throw_reports_what_the_session_produced",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "assistant": "work so far"
+      },
+      {
+        "cancel": true
+      },
+      {
+        "throw": {
+          "message": "aborted"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "aborted"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:cancelled",
+        "emit:stop:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nwork so far\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_cancel_then_a_throw_reports_what_the_session_produced",
+    "steps": [
+      {
+        "assistant": "work so far"
+      },
+      {
+        "cancel": true
+      },
+      {
+        "throw": {
+          "message": "aborted"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "aborted"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nwork so far\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_cancel_skips_placeholder_rows_and_reads_replay_text",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "assistant": "."
+      },
+      {
+        "assistant": "",
+        "replay": "from replay"
+      },
+      {
+        "assistant": "  real  "
+      },
+      {
+        "cancel": true
+      },
+      {
+        "throw": {
+          "message": "aborted"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "aborted"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:cancelled",
+        "emit:stop:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nfrom replay\n\nreal\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_cancel_skips_placeholder_rows_and_reads_replay_text",
+    "steps": [
+      {
+        "assistant": "."
+      },
+      {
+        "assistant": "",
+        "replay": "from replay"
+      },
+      {
+        "assistant": "  real  "
+      },
+      {
+        "cancel": true
+      },
+      {
+        "throw": {
+          "message": "aborted"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "aborted"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nfrom replay\n\nreal\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_cancel_prefers_the_error_handoff",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "assistant": "ignored"
+      },
+      {
+        "cancel": true
+      },
+      {
+        "throw": {
+          "message": "aborted",
+          "partialHandoff": "handed"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "aborted"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:cancelled",
+        "emit:stop:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nhanded\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_cancel_prefers_the_error_handoff",
+    "steps": [
+      {
+        "assistant": "ignored"
+      },
+      {
+        "cancel": true
+      },
+      {
+        "throw": {
+          "message": "aborted",
+          "partialHandoff": "handed"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "aborted"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nhanded\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_cancel_with_an_empty_handoff_falls_back_to_the_result",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "cancel": true
+      },
+      {
+        "throw": {
+          "message": "aborted",
+          "partialHandoff": ""
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "aborted"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:cancelled",
+        "emit:stop:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_cancel_with_an_empty_handoff_falls_back_to_the_result",
+    "steps": [
+      {
+        "cancel": true
+      },
+      {
+        "throw": {
+          "message": "aborted",
+          "partialHandoff": ""
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "aborted"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_cancel_with_nothing_produced_is_header_only",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "cancel": true
+      },
+      {
+        "throw": {
+          "message": "aborted"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "aborted"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:cancelled",
+        "emit:stop:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_cancel_with_nothing_produced_is_header_only",
+    "steps": [
+      {
+        "cancel": true
+      },
+      {
+        "throw": {
+          "message": "aborted"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "error": "aborted"
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "no_job_returns_the_value",
+    "kind": "spawn",
+    "job": false,
+    "steps": [
+      {
+        "assistant": "x"
+      },
+      {
+        "return": {
+          "content": "plain"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "plain"
+        }
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [],
+      "row": null
+    }
+  },
+  {
+    "name": "no_job_an_abnormal_finish_throws",
+    "kind": "spawn",
+    "job": false,
+    "steps": [
+      {
+        "return": {
+          "content": "",
+          "termination": "empty",
+          "iterations": 2
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "agent 'worker' finished without a final answer (stopReason=none, 2 iterations, 0 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [],
+      "row": null
+    }
+  },
+  {
+    "name": "no_job_a_throw_is_rethrown",
+    "kind": "spawn",
+    "job": false,
+    "steps": [
+      {
+        "throw": {
+          "message": "nope"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "nope"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [],
+      "row": null
+    }
+  },
+  {
+    "name": "no_job_a_terminal_hook_is_not_offered",
+    "kind": "spawn",
+    "job": false,
+    "steps": [
+      {
+        "terminal": {
+          "content": "x"
+        }
+      },
+      {
+        "return": {
+          "content": "x"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "x"
+        }
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [],
+      "row": null
+    }
+  },
+  {
+    "name": "a_canonical_surface_hands_off_only",
+    "kind": "spawn",
+    "job": true,
+    "canonical": true,
+    "steps": [
+      {
+        "return": {
+          "content": "<final-answer>wrapped</final-answer>"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "<final-answer>wrapped</final-answer>",
+          "handoffOnly": true
+        }
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\n<final-answer>wrapped</final-answer>\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_canonical_surface_hands_off_only",
+    "kind": "send",
+    "job": true,
+    "canonical": true,
+    "steps": [
+      {
+        "return": {
+          "content": "plain handoff"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-x",
+          "content": "plain handoff",
+          "handoffOnly": true
+        }
+      },
+      "calls": [
+        "claim",
+        "ask:do it@/work",
+        "release:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\nplain handoff\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "run-resolved",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "the_agent_name_reads_into_the_failure",
+    "kind": "spawn",
+    "job": true,
+    "agent": "explorer",
+    "steps": [
+      {
+        "return": {
+          "content": "",
+          "termination": "truncated",
+          "stopReason": "length"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "error": "agent 'explorer' response was truncated (stopReason=length) before a final answer (1 iterations, 0 tool calls)"
+      },
+      "calls": [
+        "claim",
+        "emit:start",
+        "ask:do it@/work",
+        "review:[]",
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>failed</status>\n<summary>Agent \"scout\" failed</summary>\n<error>agent 'explorer' response was truncated (stopReason=length) before a final answer (1 iterations, 0 tool calls)</error>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "failed",
+        "error": "agent 'explorer' response was truncated (stopReason=length) before a final answer (1 iterations, 0 tool calls)",
+        "terminalReason": "agent-finally-reconcile",
+        "notified": true
+      }
+    }
+  }
+]

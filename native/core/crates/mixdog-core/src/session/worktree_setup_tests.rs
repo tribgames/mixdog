@@ -9,6 +9,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -261,6 +262,52 @@ impl Retention for KeepNone {
     }
 }
 
+/// A directory link `link` -> `target`: a junction on Windows (no privilege needed), else a symlink.
+fn link_dir(link: &Path, target: &Path) {
+    #[cfg(windows)]
+    {
+        let out = std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(link).arg(target).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    }
+    #[cfg(not(windows))]
+    std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+#[tokio::test]
+async fn a_link_an_install_could_reach_through_blocks_the_installs_until_it_is_recorded_as_asked_for() {
+    let rig = rig();
+    std::fs::write(rig.repo.join("package.json"), "{}\n").unwrap();
+    super::worktree_tests::git(&rig.repo, &["add", "."]);
+    super::worktree_tests::git(&rig.repo, &["commit", "-q", "-m", "manifest"]);
+    let entered = run(&rig, enter("feat", "c1")).await.unwrap();
+    let worktree_id = entered["workspace"]["worktreeId"].as_str().unwrap().to_owned();
+    let cwd = PathBuf::from(entered["workspace"]["cwd"].as_str().unwrap());
+    let shared_target = tempfile::tempdir().unwrap();
+    std::fs::write(shared_target.path().join("keep.txt"), "keep").unwrap();
+    link_dir(&cwd.join("node_modules"), shared_target.path());
+
+    let tokens = mixdog_rt::testing::tokens();
+    let setup = WorktreeSetup::new(rig.worktrees.clone(), Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())));
+    let cancel = CancellationToken::new();
+    // Written before the link was made (`pending`), as creation does: not yet a link the user
+    // asked for, so an install through it could empty the folder it points at.
+    rig.worktrees.record_link(&worktree_id, "node_modules", shared_target.path(), "pending", &cancel).await.unwrap();
+    let blocked = setup.run_pending("lead", Some(&entered["workspace"]), &cancel).await.unwrap();
+    let content = blocked.notice.expect("the preparation is reported").content;
+    assert!(
+        content.contains("Dependencies were not installed: node_modules is a link, and any install here could empty the folder it points at (such as the main checkout's) through it. Remove the link (never its target); the next turn installs."),
+        "{content}"
+    );
+    assert!(shared_target.path().join("keep.txt").exists(), "nothing was emptied through the link");
+
+    // Still pending: once the link is recorded as created (asked for), the next turn goes on.
+    rig.worktrees.record_link(&worktree_id, "node_modules", shared_target.path(), "created", &cancel).await.unwrap();
+    let next = setup.run_pending("lead", Some(&entered["workspace"]), &cancel).await.unwrap();
+    let content = next.notice.expect("the pending preparation runs on the next turn").content;
+    assert!(!content.contains("Dependencies were not installed"), "{content}");
+    assert!(shared_target.path().join("keep.txt").exists());
+}
+
 #[derive(Default)]
 struct Sessions {
     stored: Mutex<HashSet<String>>,
@@ -319,6 +366,56 @@ async fn the_startup_reconcile_keeps_what_a_session_keeps_and_a_deleted_session_
     assert_eq!(*cancelled.lock().unwrap(), [Some("lead".to_owned())]);
     assert!(rig.worktrees.list(None, &KeepNone, &cancel).await.unwrap().is_empty());
     assert!(maintenance.cleanup_deleted_session("lead", &cancel).await.unwrap().is_none());
+}
+
+fn open_maintenance(rig: &super::worktree_tests::Rig, cancelled: Arc<Mutex<Vec<Option<String>>>>) -> WorktreeMaintenance {
+    maintenance(rig, Arc::new(Sessions::default()), &[], cancelled)
+}
+
+#[tokio::test]
+async fn a_deleted_sessions_snapshots_go_with_it_whatever_it_owns() {
+    let rig = rig();
+    let cancel = CancellationToken::new();
+    let head = super::worktree_tests::git(&rig.repo, &["rev-parse", "HEAD"]).trim().to_owned();
+    let snapshot = rig.worktrees.snapshot(&rig.repo, "holder", &head, "tx1", false, &cancel).await.unwrap();
+    assert!(Path::new(&snapshot.path).exists());
+    let cancelled = Arc::new(Mutex::new(Vec::new()));
+    let maintenance = open_maintenance(&rig, cancelled.clone());
+    // The holder owns no worktree: nothing to report, yet its snapshot is removed (autoCleanup
+    // is not consulted for snapshots) and its retrying cleanups are stopped first.
+    rig.auto_cleanup.store(false, Ordering::SeqCst);
+    assert!(maintenance.cleanup_deleted_session("holder", &cancel).await.unwrap().is_none());
+    assert_eq!(*cancelled.lock().unwrap(), [Some("holder".to_owned())]);
+    assert!(rig.worktrees.record(&cancel, &snapshot.id).await.unwrap().is_none());
+    assert!(!Path::new(&snapshot.path).exists());
+}
+
+#[tokio::test]
+async fn a_deleted_sessions_shared_reference_is_forgotten_and_the_owner_keeps_the_worktree() {
+    let rig = rig();
+    let entered = run(&rig, enter("feat", "c1")).await.unwrap();
+    let id = entered["workspace"]["worktreeId"].as_str().unwrap().to_owned();
+    let cancel = CancellationToken::new();
+    let other = mixdog_scm::worktree::ownership::Owner { session_id: "other".into(), runtime_token: "rt-other".into(), pid: None };
+    rig.worktrees.claim_owner(&id, other, &cancel).await.unwrap();
+    let shared = rig.worktrees.record(&cancel, &id).await.unwrap().unwrap();
+    assert_eq!(shared.shared_session_ids, ["other"]);
+    let maintenance = open_maintenance(&rig, Arc::default());
+    // It shared the worktree and owned none: the reference goes, the owner's folder stays.
+    assert!(maintenance.cleanup_deleted_session("other", &cancel).await.unwrap().is_none());
+    let after = rig.worktrees.record(&cancel, &id).await.unwrap().unwrap();
+    assert!(after.shared_session_ids.is_empty());
+    assert_eq!(after.owner_session_id.as_deref(), Some("lead"));
+    assert!(Path::new(&after.path).exists());
+}
+
+#[tokio::test]
+async fn a_deleted_session_with_nothing_reports_nothing_and_still_stops_its_cleanups() {
+    let rig = rig();
+    let cancelled = Arc::new(Mutex::new(Vec::new()));
+    let maintenance = open_maintenance(&rig, cancelled.clone());
+    assert!(maintenance.cleanup_deleted_session("ghost", &CancellationToken::new()).await.unwrap().is_none());
+    assert_eq!(*cancelled.lock().unwrap(), [Some("ghost".to_owned())]);
 }
 
 #[test]

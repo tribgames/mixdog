@@ -23,6 +23,7 @@ use mixdog_rt::TaskClass;
 use mixdog_rt::ticker::TimerHandle;
 use mixdog_tools::exec::TaskNotifier;
 use mixdog_tools::orch::agent::TaskResult;
+use serde_json::Value;
 
 use super::error_text::ErrorText;
 use super::error_text::PlainErrorText;
@@ -49,6 +50,8 @@ pub struct JobMeta {
     pub fast: Option<bool>,
     pub respawned: bool,
     pub resumed: bool,
+    /// `autoEffort: false`.
+    pub auto_effort_off: bool,
 }
 
 /// Who started a job.
@@ -75,6 +78,8 @@ pub struct NewJob {
     /// The directory the work ran in (`task.input.cwd || task.meta.cwd`): its end is a command
     /// boundary for the review (see [`JobBoard::on_command_settled`]).
     pub cwd: Option<String>,
+    /// `renderResult`: reads a structured result as its body.
+    pub render: Option<Arc<dyn Fn(&Value) -> String + Send + Sync>>,
 }
 
 pub struct Completion {
@@ -188,6 +193,7 @@ struct Record {
     appendix: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     cwd: Option<String>,
     terminal_reason: Option<String>,
+    render: Option<Arc<dyn Fn(&Value) -> String + Send + Sync>>,
 }
 
 fn is_terminal(status: &str) -> bool {
@@ -268,14 +274,24 @@ fn body_of(task: &Record) -> String {
     }
     match &task.result {
         Some(TaskResult::Content(content)) => content.clone(),
-        Some(TaskResult::Json(value)) => serde_json::to_string_pretty(value).unwrap_or_default(),
+        Some(TaskResult::Json(value)) => task
+            .render
+            .as_ref()
+            .map(|render| render(value))
+            .filter(|rendered| !rendered.is_empty())
+            .unwrap_or_else(|| serde_json::to_string_pretty(value).unwrap_or_default()),
         None => String::new(),
     }
 }
 
 /// `renderBackgroundTaskNotification` for the agent surface.
 fn notification_of(task: &Record) -> String {
-    let body = body_of(task);
+    // An agent's authored `content` is the notification's body; the renderer serves views only.
+    let authored = match &task.result {
+        Some(TaskResult::Json(value)) => value.get("content").and_then(Value::as_str).map(str::to_owned),
+        _ => None,
+    };
+    let body = authored.unwrap_or_else(|| body_of(task));
     let appendix = task.appendix.as_ref().map(|f| f()).unwrap_or_default();
     let result = if appendix.is_empty() { body } else { [body, appendix].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n\n") };
     let tag = task.meta.tag.clone().filter(|t| !t.is_empty()).or_else(|| task.label.clone()).unwrap_or_default();
@@ -451,6 +467,7 @@ impl JobBoard {
             appendix: None,
             cwd: job.cwd.filter(|c| !c.is_empty()),
             terminal_reason: None,
+            render: job.render,
         });
         drop(state);
         self.run(Effects { changed: vec![session_id.unwrap_or_default()], ..Effects::default() });
@@ -459,14 +476,16 @@ impl JobBoard {
 
     /// `startBackgroundTask`: registers the row and runs `run` as its work. What `run` returns
     /// completes the row; its failure fails it. A row cancelled meanwhile only releases its
-    /// deferred report, carrying whatever was settled onto it.
-    pub fn start<F>(&self, job: NewJob, run: F) -> Result<String, String>
+    /// deferred report, carrying whatever was settled onto it. `run` is given the row's id.
+    pub fn start<F, Fut>(&self, job: NewJob, run: F) -> Result<String, String>
     where
-        F: Future<Output = Result<Option<TaskResult>, String>> + Send + 'static,
+        F: FnOnce(String) -> Fut,
+        Fut: Future<Output = Result<Option<TaskResult>, String>> + Send + 'static,
     {
         let task_id = self.register(job)?;
         let board = self.clone();
         let id = task_id.clone();
+        let run = run(task_id.clone());
         drop(mixdog_rt::spawn("agent-job", TaskClass::Work, async move {
             match run.await {
                 Ok(result) => {

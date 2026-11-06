@@ -56,7 +56,7 @@ fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     }
 }
 
-async fn eventually<T>(mut probe: impl FnMut() -> Option<T>) -> T {
+pub(crate) async fn eventually<T>(mut probe: impl FnMut() -> Option<T>) -> T {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         if let Some(value) = probe() {
@@ -83,7 +83,7 @@ pub(super) async fn start_thread(directory: &SessionDirectory) -> Arc<SessionHan
     directory.handle(&id).expect("loaded")
 }
 
-async fn turn(handle: &SessionHandle, prompt: &str, op: &str) -> Value {
+pub(crate) async fn turn(handle: &SessionHandle, prompt: &str, op: &str) -> Value {
     let reply = handle
         .request(request(
             "turn/start",
@@ -157,7 +157,7 @@ fn prompt_list(handle: &SessionHandle) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn idle(handle: &SessionHandle) -> bool {
+pub(crate) fn idle(handle: &SessionHandle) -> bool {
     handle.cell.run.load().is_none()
 }
 
@@ -912,6 +912,35 @@ async fn a_large_prompt_round_trips_through_the_real_store() {
         .expect("rewind");
     let Reply::Value(value) = reply else { panic!() };
     assert_eq!(value["text"], text.as_str());
+}
+
+/// The whole stored history reads every page of the lineage, oldest first, and a rewind's
+/// superseded rows are not part of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_real_store_reads_the_whole_history_oldest_first() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    turn(&handle, "two", "op-2").await;
+    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    let ids = |items: Vec<mixdog_protocol::ThreadItem>| items.iter().map(|i| i.id().clone()).collect::<Vec<_>>();
+    let shown: Vec<_> = handle.cell.view.load_full().items.iter().map(|i| i.id().clone()).collect();
+    assert_eq!(ids(directory.history_items(&handle.id).await.expect("history")), shown);
+
+    let second = shown[2].clone();
+    let reply = handle
+        .request(request("thread/rewind", json!({ "threadId": handle.id, "opId": "op-3", "itemId": second }), "op-3"))
+        .await
+        .expect("rewind");
+    assert!(matches!(reply, Reply::Value(_)));
+    eventually(|| (rows(&handle).len() == 2).then_some(())).await;
+    assert_eq!(ids(directory.history_items(&handle.id).await.expect("history")), shown[..2]);
+    assert!(directory.history_items(&ThreadId::from("missing")).await.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

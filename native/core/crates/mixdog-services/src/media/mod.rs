@@ -6,7 +6,9 @@
 pub mod jobs;
 pub mod service;
 pub mod store;
+pub mod transfer_source;
 
+pub use transfer_source::MediaAssetSource;
 pub use jobs::{GeneratedMedia, GenerationRequest, MediaFailure, MediaGenerator, MediaJobs, Reference, ResolvedMedia};
 pub use service::MediaService;
 pub use store::{MediaError, MediaStore};

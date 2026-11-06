@@ -1,0 +1,21 @@
+{
+  "name": "pause_turn",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "script": [
+    {
+      "content": "part",
+      "toolCalls": [],
+      "stopReason": "pause_turn"
+    },
+    {
+      "content": "rest",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}

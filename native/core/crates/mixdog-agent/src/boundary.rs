@@ -7,7 +7,6 @@ use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::Usage;
 
 use crate::env::CompactError;
-use crate::compact::dropped::dropped_summary;
 use crate::env::CompactEvent;
 use crate::env::Dropped;
 use crate::env::CompactRequest;
@@ -351,12 +350,11 @@ impl Run {
             }
         }
         let changed = output.messages != self.messages;
-        let mut dropped = (0, None);
+        let (dropped_count, dropped) = (output.dropped_count, output.dropped);
         if changed {
-            dropped = dropped_summary(&self.messages, &output.messages);
             self.adopt_compacted(output.messages);
         }
-        self.emit(RunEvent::Compact(event(changed, false, self.messages.len(), dropped.0, dropped.1)));
+        self.emit(RunEvent::Compact(event(changed, false, self.messages.len(), dropped_count, dropped)));
         Ok(changed)
     }
 

@@ -8,8 +8,11 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+icu_collator = { workspace = true }
+icu_locale_core = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
 mixdog-js = { workspace = true }
+mixdog-mcp = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
@@ -19,6 +22,7 @@ serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 sha1 = { workspace = true }
 sha2 = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 mixdog-ai = { workspace = true }

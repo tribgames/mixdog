@@ -39,6 +39,14 @@ impl SecretOps for Ops {
         Ok(())
     }
 
+    async fn read_secret(&self, _: &str) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
+    async fn write_secret(&self, _: &str, _: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
+
     async fn clear_oauth(&self, cfg: &Value) -> Result<bool, String> {
         let name = cfg.get("name").and_then(Value::as_str).unwrap_or("undefined");
         self.log.lock().unwrap().push(format!("clear:{name}:true"));

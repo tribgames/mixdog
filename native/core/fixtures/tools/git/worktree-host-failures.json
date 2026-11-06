@@ -5,7 +5,8 @@
         "error": {
           "code": "WORKTREE_LARGE_REPO_CONFIRM",
           "details": {
-            "estimateBytes": 5368709120
+            "estimateBytes": 5368709120,
+            "thresholdBytes": 2147483648
           },
           "message": "WORKTREE_LARGE_REPO_CONFIRM: big"
         }
@@ -143,7 +144,7 @@
           "txId": "call1:enter"
         }
       ],
-      "text": "{\"ok\":false,\"code\":\"WORKTREE_LARGE_REPO_CONFIRM\",\"error\":\"WORKTREE_LARGE_REPO_CONFIRM: big\",\"details\":{\"estimateBytes\":5368709120},\"next\":\"Tell the user the worktree needs about 5.0 GB and ask to confirm; only on yes call again with confirm_large:true.\"}"
+      "text": "{\"ok\":false,\"code\":\"WORKTREE_LARGE_REPO_CONFIRM\",\"error\":\"WORKTREE_LARGE_REPO_CONFIRM: big\",\"details\":{\"estimateBytes\":5368709120,\"thresholdBytes\":2147483648},\"next\":\"Tell the user the worktree needs about 5.0 GB and ask to confirm; only on yes call again with confirm_large:true.\"}"
     },
     {
       "input": {

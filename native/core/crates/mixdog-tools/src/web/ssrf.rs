@@ -7,6 +7,10 @@ use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 
+use super::error::FetchKind;
+use super::gai;
+use super::gai::LookupError;
+use super::gai::LookupKind;
 use reqwest::dns::Addrs;
 use reqwest::dns::Name;
 use reqwest::dns::Resolve;
@@ -146,6 +150,20 @@ impl AddressPolicy {
     }
 }
 
+/// Node treats `ENOTFOUND` and `ENODATA` as "no addresses" (a policy block) and retries
+/// `EAI_AGAIN`; any other lookup failure is a plain network error.
+pub(super) fn lookup_failure(host: &str, error: LookupError) -> FetchError {
+    let name = match error.kind {
+        LookupKind::NotFound | LookupKind::NoData => {
+            return FetchError::policy(format!("DNS returned no addresses for {host}"));
+        }
+        LookupKind::TryAgain => "EAI_AGAIN".to_string(),
+        LookupKind::Other => format!("error {}", error.code),
+    };
+    let kind = if error.kind == LookupKind::TryAgain { FetchKind::NetworkTransient } else { FetchKind::Network };
+    FetchError::new(kind, format!("fetch failed: getaddrinfo {name} {host}"))
+}
+
 /// Resolver handed to the HTTP client: every returned address must satisfy the
 /// policy, so a DNS answer cannot smuggle a private address behind a public one.
 pub struct PolicyResolver(pub AddressPolicy);
@@ -155,13 +173,16 @@ impl Resolve for PolicyResolver {
         let policy = self.0;
         Box::pin(async move {
             let host = name.as_str().to_string();
-            let found: Vec<SocketAddr> = match tokio::net::lookup_host((host.as_str(), 0)).await {
-                Ok(iter) => iter.collect(),
+            let name = host.clone();
+            let looked_up = tokio::task::spawn_blocking(move || gai::lookup(&name)).await;
+            let found: Vec<SocketAddr> = match looked_up {
+                Ok(Ok(ips)) => ips.into_iter().map(|ip| SocketAddr::new(ip, 0)).collect(),
+                Ok(Err(error)) => {
+                    return Err(Box::new(lookup_failure(&host, error)) as Box<dyn std::error::Error + Send + Sync>);
+                }
                 Err(error) => {
-                    return Err(Box::new(FetchError::new(
-                        super::error::FetchKind::Network,
-                        format!("fetch failed: {error}"),
-                    )) as Box<dyn std::error::Error + Send + Sync>);
+                    return Err(Box::new(FetchError::new(FetchKind::Network, format!("fetch failed: {error}")))
+                        as Box<dyn std::error::Error + Send + Sync>);
                 }
             };
             if found.is_empty() {

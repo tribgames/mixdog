@@ -40,6 +40,12 @@ use serde_json::json;
 use sha2::Digest as _;
 use sha2::Sha256;
 
+mod attachment;
+pub use attachment::AttachmentSource;
+pub use attachment::NamedAttachment;
+pub use attachment::SessionAttachments;
+pub(crate) use attachment::sanitized_file_name;
+
 use super::support::decode;
 use super::support::invalid;
 use super::support::on_lane;

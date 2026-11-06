@@ -1,0 +1,87 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "go",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "semantic_search",
+          "arguments": {
+            "query": "x"
+          }
+        }
+      ],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "tool",
+      "content": "Error: unknown tool \"semantic_search\" — use the `grep` or `code_graph` tool.",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": "c1",
+      "toolKind": "error",
+      "turnReminder": null
+    }
+  ],
+  "result": {
+    "content": "k",
+    "historyContent": null,
+    "reportContent": null,
+    "terminationReason": null,
+    "iterations": 2,
+    "toolCallsTotal": 1,
+    "maxOutputRecoveryAttempts": null,
+    "providerContinuations": 0
+  },
+  "error": null,
+  "requests": [
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "Error: unknown tool \"semantic_search\" — use the `grep` or `code_graph` tool.",
+          "toolCallId": "c1"
+        }
+      ]
+    }
+  ]
+}

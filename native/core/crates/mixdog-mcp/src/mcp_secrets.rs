@@ -93,6 +93,10 @@ pub trait SecretOps: Send + Sync {
     async fn save_oauth_client_secret(&self, url: &str, secret: &str) -> Result<(), String>;
     /// `clearMcpServerOAuth(cfg, { revoke: true })`: whether the provider confirmed the revocation.
     async fn clear_oauth(&self, cfg: &Value) -> Result<bool, String>;
+    /// What the keychain holds under `account`; `None` when nothing.
+    async fn read_secret(&self, account: &str) -> Result<Option<String>, String>;
+    /// Puts `value` back under `account` as it was (no check with Gmail); `None` deletes.
+    async fn write_secret(&self, account: &str, value: Option<&str>) -> Result<(), String>;
     /// `forgetConnectorAccountHealth`.
     fn forget_account_health(&self, name: &str);
     /// Every configured server (`resolveConfiguredMcpCatalog().servers`): plugin and disabled
@@ -131,7 +135,22 @@ impl KeychainOps {
             self.store.set(&account, secret).await.map_err(|e| e.to_string())
         }
     }
+
+    pub async fn read_secret(&self, account: &str) -> Result<Option<String>, String> {
+        self.store.get(account).await.map_err(|e| e.to_string())
+    }
+
+    pub async fn write_secret(&self, account: &str, value: Option<&str>) -> Result<(), String> {
+        match value {
+            Some(value) => self.store.set(account, value).await,
+            None => self.store.delete(account).await,
+        }
+        .map_err(|e| e.to_string())
+    }
 }
+
+/// The keychain accounts a save is about to write, with what they held before it.
+pub struct SecretSnapshot(Vec<(String, Option<String>)>);
 
 /// How a removed server's sign-in ended up.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -169,19 +188,65 @@ impl McpServerSecrets {
         Self { ops, env }
     }
 
-    /// The user's OAuth client secret goes to the keychain only; clearing the client id forgets it.
-    pub async fn store_oauth_client_secret(&self, input: &Value, cfg: &Value, previous: &Value) -> Result<(), String> {
-        let Some(url) = cfg.get("url").filter(|u| truthy(u)) else { return Ok(()) };
-        let url = mixdog_js::value_to_string(url);
+    /// The client secret a save writes, as (URL, secret); an empty secret deletes.
+    fn client_secret_write(input: &Value, cfg: &Value, previous: &Value) -> Option<(String, String)> {
+        let url = mixdog_js::value_to_string(cfg.get("url").filter(|u| truthy(u))?);
         let secret = input.get("oauthClientSecret").and_then(Value::as_str).map(|s| mixdog_js::js_trim(s).to_owned()).unwrap_or_default();
         let has_client = cfg.get("oauthClientId").is_some_and(truthy);
         if has_client && !secret.is_empty() {
-            self.ops.save_oauth_client_secret(&url, &secret).await?;
+            Some((url, secret))
         } else if !has_client && previous.get("oauthClientId").is_some_and(truthy) {
             let old_url = previous.get("url").filter(|u| truthy(u)).map_or_else(|| url.clone(), mixdog_js::value_to_string);
-            self.ops.save_oauth_client_secret(&old_url, "").await?;
+            Some((old_url, String::new()))
+        } else {
+            None
         }
-        Ok(())
+    }
+
+    /// The app password a save writes, as (address, password).
+    fn gmail_write(input: &Value, cfg: &Value) -> Option<(String, String)> {
+        let account = gmail_app_password_account(cfg);
+        let password = gmail_app_password_value(input.get("appPassword").unwrap_or(&Value::Null));
+        (!account.is_empty() && !password.is_empty()).then_some((account, password))
+    }
+
+    /// What the keychain holds for the two secrets the stores below are about to write, so a save
+    /// that fails afterwards can put it back ([`Self::restore`]).
+    pub async fn snapshot(&self, input: &Value, cfg: &Value, previous: &Value) -> Result<SecretSnapshot, String> {
+        let mut accounts = Vec::new();
+        if let Some((url, _)) = Self::client_secret_write(input, cfg, previous)
+            && let Ok(account) = oauth_client_secret_account(&url)
+        {
+            accounts.push(account);
+        }
+        if let Some((address, _)) = Self::gmail_write(input, cfg) {
+            accounts.push(gmail_app_password_secret_account(&address));
+        }
+        let mut kept = Vec::new();
+        for account in accounts {
+            let value = self.ops.read_secret(&account).await?;
+            kept.push((account, value));
+        }
+        Ok(SecretSnapshot(kept))
+    }
+
+    /// Puts a [`Self::snapshot`] back. Every account is tried; the first failure is reported.
+    pub async fn restore(&self, snapshot: SecretSnapshot) -> Result<(), String> {
+        let mut first = None;
+        for (account, value) in snapshot.0 {
+            if let Err(error) = self.ops.write_secret(&account, value.as_deref()).await {
+                first.get_or_insert(error);
+            }
+        }
+        first.map_or(Ok(()), Err)
+    }
+
+    /// The user's OAuth client secret goes to the keychain only; clearing the client id forgets it.
+    pub async fn store_oauth_client_secret(&self, input: &Value, cfg: &Value, previous: &Value) -> Result<(), String> {
+        match Self::client_secret_write(input, cfg, previous) {
+            Some((url, secret)) => self.ops.save_oauth_client_secret(&url, &secret).await,
+            None => Ok(()),
+        }
     }
 
     /// Gmail with an app password: checked with Gmail before anything is saved and kept in the

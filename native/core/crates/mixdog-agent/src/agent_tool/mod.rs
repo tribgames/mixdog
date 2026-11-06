@@ -6,6 +6,7 @@
 pub mod board;
 pub mod dispatch;
 pub mod error_text;
+pub mod flow;
 pub mod host;
 pub mod model_select;
 pub mod progress;

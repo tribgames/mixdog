@@ -273,6 +273,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::result_large_err)] // the handshake callback's error type is fixed by tungstenite
     async fn upgrade_carries_the_bearer_token_and_no_origin_and_text_frames_round_trip() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let connector = connector_to(&listener).await;

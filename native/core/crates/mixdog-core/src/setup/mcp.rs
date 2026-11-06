@@ -31,15 +31,6 @@ impl SetupActions for McpSetup {
     }
 
     async fn run(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
-        // `validateSetupInput`: GitHub is the signed-in CLI, not a catalog connector.
-        if call.action == "connect_connector"
-            && call.args.get("connector").map(mixdog_js::value_to_string).is_some_and(|name| mixdog_js::js_trim(&name).to_lowercase() == "github")
-        {
-            return Err(PortError::Failed {
-                capability: "setup".into(),
-                message: "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.".into(),
-            });
-        }
         run(call.action, call.args, self.runtime.as_ref())
             .await
             .map_err(|message| PortError::Failed { capability: "setup".into(), message })

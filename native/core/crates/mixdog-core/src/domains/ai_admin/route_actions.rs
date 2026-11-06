@@ -274,6 +274,7 @@ impl SetupActions for RouteActions {
                 Ok(Value::Object(out))
             }
             "set_agent_route" => {
+                self.assert_agent(thread, clean(args.get("agent")).as_str(), "set_agent_route").await?;
                 let agent = require_text(args, "agent")?;
                 let source = args.get("route").unwrap_or(&Value::Null);
                 let route = self.agents.set_agent_route(&agent, &route_input(source)).await.map_err(fail)?;

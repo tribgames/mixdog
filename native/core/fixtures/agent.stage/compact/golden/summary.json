@@ -1,0 +1,205 @@
+{
+  "head": [
+    {
+      "role": "user",
+      "content": "please fix the parser in src/parser.rs and ./lib/util.mjs"
+    },
+    {
+      "role": "assistant",
+      "content": "looking",
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "read",
+          "arguments": {
+            "path": "src/parser.rs",
+            "password": "hunter2",
+            "list": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10
+            ],
+            "z": 1,
+            "a": {
+              "b": {
+                "c": {
+                  "d": {
+                    "e": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "fn parse() {}\r\nsecond line",
+      "toolCallId": "c1"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "c2",
+          "name": "bash",
+          "arguments": {
+            "command": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        {
+          "id": "c3",
+          "name": "a",
+          "arguments": {}
+        },
+        {
+          "id": "c4",
+          "name": "b",
+          "arguments": {}
+        },
+        {
+          "id": "c5",
+          "name": "c",
+          "arguments": {}
+        },
+        {
+          "id": "c6",
+          "name": "d",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx middle yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    }
+  ],
+  "systemPrompt": "You are an anchored context summarization assistant for coding sessions.\n\nSummarize only the conversation history you are given. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.\n\nIf the prompt includes a <previous-summary> block, treat it as the current anchored summary. Update it with the new history by preserving still-true details, removing stale details, and merging in new facts.\n\nAlways follow the exact output structure requested by the user prompt. Keep every section, preserve exact file paths and identifiers when known, and prefer terse bullets over paragraphs.\n\nDo not answer the conversation itself. Do not mention that you are summarizing, compacting, or merging context. Respond in the same language as the conversation.",
+  "forkedPrompt": "<compaction-request>\nPause the task for this one response. No tools are available here: do not call any.\nWrite the anchored handoff summary this work continues from. The latest user request and the recent tool calls and results are kept verbatim after it, so focus on the older context that still matters.\nIf the conversation holds an earlier summary, update it: preserve still-true details, remove stale details, and merge in the new facts.\nDo not answer the conversation itself. Do not mention that you are summarizing, compacting, or merging context. Respond in the same language as the conversation.\n\nOutput exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.\n<template>\n## Goal\n- [single-sentence task summary]\n\n## Constraints & Preferences\n- [user constraints, preferences, specs, or \"(none)\"]\n\n## Progress\n### Done\n- [completed work or \"(none)\"]\n\n### In Progress\n- [current work or \"(none)\"]\n\n### Blocked\n- [blockers or \"(none)\"]\n\n## Key Decisions\n- [decision and why, or \"(none)\"]\n\n## Next Steps\n- [ordered next actions or \"(none)\"]\n\n## Critical Context\n- [important technical facts, errors, open questions, or \"(none)\"]\n\n## Relevant Files\n- [file or directory path: why it matters, or \"(none)\"]\n</template>\n\nRules:\n- Keep every section, even when empty.\n- Use terse bullets, not prose paragraphs.\n- Preserve exact file paths, commands, error strings, and identifiers when known.\n- Use the same language as the active user thread when it is clear.\n- Record work as Done or In Progress only when a tool call and its result in the history show it (an agent spawn/send result, an edit, a command outcome). An assistant's stated intent with no matching tool call is not started: list it under Next Steps as \"announced, not started\".\n- Attribute every decision, answer, and version/choice to its source: the user (message or ask_user answer), a named agent's report, or the assistant. Never credit an agent or the assistant with a user's answer.\n- Do not mention the summary process or that context was compacted.\n</compaction-request>",
+  "prompts": [
+    {
+      "previous": null,
+      "target": 1000000000,
+      "prompt": "Create a new anchored summary from the conversation history below.\nOutput exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.\n<template>\n## Goal\n- [single-sentence task summary]\n\n## Constraints & Preferences\n- [user constraints, preferences, specs, or \"(none)\"]\n\n## Progress\n### Done\n- [completed work or \"(none)\"]\n\n### In Progress\n- [current work or \"(none)\"]\n\n### Blocked\n- [blockers or \"(none)\"]\n\n## Key Decisions\n- [decision and why, or \"(none)\"]\n\n## Next Steps\n- [ordered next actions or \"(none)\"]\n\n## Critical Context\n- [important technical facts, errors, open questions, or \"(none)\"]\n\n## Relevant Files\n- [file or directory path: why it matters, or \"(none)\"]\n</template>\n\nRules:\n- Keep every section, even when empty.\n- Use terse bullets, not prose paragraphs.\n- Preserve exact file paths, commands, error strings, and identifiers when known.\n- Use the same language as the active user thread when it is clear.\n- Record work as Done or In Progress only when a tool call and its result in the history show it (an agent spawn/send result, an edit, a command outcome). An assistant's stated intent with no matching tool call is not started: list it under Next Steps as \"announced, not started\".\n- Attribute every decision, answer, and version/choice to its source: the user (message or ask_user answer), a named agent's report, or the assistant. Never credit an agent or the assistant with a user's answer.\n- Do not mention the summary process or that context was compacted.\n\n<conversation-history>\n1. user:\nplease fix the parser in src/parser.rs and ./lib/util.mjs\n2. assistant tool_calls=read({\"a\":{\"b\":{\"c\":{\"d\":\"[object]\"}}},\"list\":[1,2,3,4,5,6,7,8,\"+2 more\"],\"password\":\"[redacted]\",\"path\":\"src/parser.rs\",\"z\":1}):\nlooking\n3. tool tool_result=c1:\nfn parse() {}\nsecond line\n4. assistant tool_calls=bash({\"command\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx … xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"});a({});b({});c({});+1 more\n5. user:\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx middle yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n</conversation-history>"
+    },
+    {
+      "previous": "## Goal\n- fix the parser\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n\n### In Progress\n- editing\n\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n\n## Relevant Files\n- src/parser.rs: the parser",
+      "target": 1000000000,
+      "prompt": "Update the anchored summary below using the conversation history that follows. Preserve still-true details, remove stale details, and merge in the new facts.\nOutput exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.\n<template>\n## Goal\n- [single-sentence task summary]\n\n## Constraints & Preferences\n- [user constraints, preferences, specs, or \"(none)\"]\n\n## Progress\n### Done\n- [completed work or \"(none)\"]\n\n### In Progress\n- [current work or \"(none)\"]\n\n### Blocked\n- [blockers or \"(none)\"]\n\n## Key Decisions\n- [decision and why, or \"(none)\"]\n\n## Next Steps\n- [ordered next actions or \"(none)\"]\n\n## Critical Context\n- [important technical facts, errors, open questions, or \"(none)\"]\n\n## Relevant Files\n- [file or directory path: why it matters, or \"(none)\"]\n</template>\n\nRules:\n- Keep every section, even when empty.\n- Use terse bullets, not prose paragraphs.\n- Preserve exact file paths, commands, error strings, and identifiers when known.\n- Use the same language as the active user thread when it is clear.\n- Record work as Done or In Progress only when a tool call and its result in the history show it (an agent spawn/send result, an edit, a command outcome). An assistant's stated intent with no matching tool call is not started: list it under Next Steps as \"announced, not started\".\n- Attribute every decision, answer, and version/choice to its source: the user (message or ask_user answer), a named agent's report, or the assistant. Never credit an agent or the assistant with a user's answer.\n- Do not mention the summary process or that context was compacted.\n\n<previous-summary>\n## Goal\n- fix the parser\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n\n### In Progress\n- editing\n\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n\n## Relevant Files\n- src/parser.rs: the parser\n</previous-summary>\n\n<conversation-history>\n1. user:\nplease fix the parser in src/parser.rs and ./lib/util.mjs\n2. assistant tool_calls=read({\"a\":{\"b\":{\"c\":{\"d\":\"[object]\"}}},\"list\":[1,2,3,4,5,6,7,8,\"+2 more\"],\"password\":\"[redacted]\",\"path\":\"src/parser.rs\",\"z\":1}):\nlooking\n3. tool tool_result=c1:\nfn parse() {}\nsecond line\n4. assistant tool_calls=bash({\"command\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx … xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"});a({});b({});c({});+1 more\n5. user:\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx middle yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n</conversation-history>"
+    },
+    {
+      "previous": null,
+      "target": 20,
+      "prompt": null
+    },
+    {
+      "previous": null,
+      "target": 1000000000,
+      "head": [],
+      "prompt": "Create a new anchored summary from the conversation history below.\nOutput exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.\n<template>\n## Goal\n- [single-sentence task summary]\n\n## Constraints & Preferences\n- [user constraints, preferences, specs, or \"(none)\"]\n\n## Progress\n### Done\n- [completed work or \"(none)\"]\n\n### In Progress\n- [current work or \"(none)\"]\n\n### Blocked\n- [blockers or \"(none)\"]\n\n## Key Decisions\n- [decision and why, or \"(none)\"]\n\n## Next Steps\n- [ordered next actions or \"(none)\"]\n\n## Critical Context\n- [important technical facts, errors, open questions, or \"(none)\"]\n\n## Relevant Files\n- [file or directory path: why it matters, or \"(none)\"]\n</template>\n\nRules:\n- Keep every section, even when empty.\n- Use terse bullets, not prose paragraphs.\n- Preserve exact file paths, commands, error strings, and identifiers when known.\n- Use the same language as the active user thread when it is clear.\n- Record work as Done or In Progress only when a tool call and its result in the history show it (an agent spawn/send result, an edit, a command outcome). An assistant's stated intent with no matching tool call is not started: list it under Next Steps as \"announced, not started\".\n- Attribute every decision, answer, and version/choice to its source: the user (message or ask_user answer), a named agent's report, or the assistant. Never credit an agent or the assistant with a user's answer.\n- Do not mention the summary process or that context was compacted.\n\n<conversation-history>\n[No additional older messages before the preserved recent tail.]\n</conversation-history>"
+    }
+  ],
+  "enforce": [
+    {
+      "name": "valid",
+      "summary": "## Goal\n- fix the parser\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n\n### In Progress\n- editing\n\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n\n## Relevant Files\n- src/parser.rs: the parser",
+      "result": {
+        "summary": "## Goal\n- fix the parser\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n\n### In Progress\n- editing\n\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n\n## Relevant Files\n- src/parser.rs: the parser",
+        "repaired": false
+      }
+    },
+    {
+      "name": "empty",
+      "summary": "   ",
+      "result": {
+        "summary": "",
+        "repaired": false
+      }
+    },
+    {
+      "name": "blob",
+      "summary": "just some prose about the work",
+      "result": {
+        "summary": "## Goal\n- xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx middle yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- (none)\n### In Progress\n- (none)\n### Blocked\n- (none)\n\n## Key Decisions\n- (none)\n\n## Next Steps\n- (none)\n\n## Critical Context\n- just some prose about the work\n\n## Relevant Files\n- src/parser.rs\n- lib/util.mjs",
+        "repaired": true
+      }
+    },
+    {
+      "name": "partial",
+      "summary": "## Goal\n- do x\n\n## Next Steps\n- y\n\n## Extra Notes\n- keep me",
+      "result": {
+        "summary": "## Goal\n- do x\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- (none)\n### In Progress\n- (none)\n### Blocked\n- (none)\n\n## Key Decisions\n- (none)\n\n## Next Steps\n- y\n\n## Critical Context\n- ## Extra Notes\n- keep me\n\n## Relevant Files\n- src/parser.rs\n- lib/util.mjs",
+        "repaired": true
+      }
+    },
+    {
+      "name": "fenced",
+      "summary": "```\n## Goal\n```\n## Progress\n- a",
+      "result": {
+        "summary": "## Goal\n- xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx middle yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n- a\n\n## Key Decisions\n- (none)\n\n## Next Steps\n- (none)\n\n## Critical Context\n- ```\n\n## Relevant Files\n- src/parser.rs\n- lib/util.mjs",
+        "repaired": true
+      }
+    },
+    {
+      "name": "goalkeeper",
+      "summary": "## Goalkeeper\n- fix the parser\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n\n### In Progress\n- editing\n\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n\n## Relevant Files\n- src/parser.rs: the parser",
+      "result": {
+        "summary": "## Goal\n- xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx middle yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n### In Progress\n- editing\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n- ## Goalkeeper\n- fix the parser\n\n## Relevant Files\n- src/parser.rs: the parser",
+        "repaired": true
+      }
+    }
+  ],
+  "fits": [
+    {
+      "name": "big",
+      "summary": "## Goal\n- fix the parser\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n\n### In Progress\n- editing\n\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n\n## Relevant Files\n- src/parser.rs: the parser",
+      "remaining": 100000,
+      "result": {
+        "role": "user",
+        "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.\nmessages=5 sha256=d914965eb7c47edf roles=user:2, assistant:2, tool:1\ngenerated_handoff=true provider=anthropic model=opus\n\n## Goal\n- fix the parser\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n### In Progress\n- editing\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n\n## Relevant Files\n- src/parser.rs: the parser",
+        "meta": {
+          "source": "compact-summary"
+        }
+      }
+    },
+    {
+      "name": "mid",
+      "summary": "## Goal\n- fix the parser\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n\n### In Progress\n- editing\n\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n\n## Relevant Files\n- src/parser.rs: the parser\n- detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail ",
+      "remaining": 400,
+      "result": {
+        "role": "user",
+        "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.\nmessages=5 sha256=d914965eb7c47edf roles=user:2, assistant:2, tool:1\ngenerated_handoff=true provider=anthropic model=opus\n\n## Goal\n- fix the parser\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n### In Progress\n- editing\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n\n## Relevant Files\n- src/parser.rs: the parser\n- detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail det … etail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail detail",
+        "meta": {
+          "source": "compact-summary"
+        }
+      }
+    },
+    {
+      "name": "tiny",
+      "summary": "## Goal\n- fix the parser\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- read src/parser.rs\n\n### In Progress\n- editing\n\n### Blocked\n- (none)\n\n## Key Decisions\n- keep the API\n\n## Next Steps\n- run tests\n\n## Critical Context\n- error E0308 at parser.rs:12\n\n## Relevant Files\n- src/parser.rs: the parser",
+      "remaining": 10,
+      "result": null
+    },
+    {
+      "name": "empty",
+      "summary": "",
+      "remaining": 100000,
+      "result": {
+        "role": "user",
+        "content": "A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.\nmessages=5 sha256=d914965eb7c47edf roles=user:2, assistant:2, tool:1\ngenerated_handoff=true provider=anthropic model=opus",
+        "meta": {
+          "source": "compact-summary"
+        }
+      }
+    }
+  ]
+}

@@ -352,8 +352,8 @@ fn row_views(ledger: &Ledger) -> Vec<Value> {
 
 #[tokio::test]
 async fn every_send_is_asked_answered_accounted_and_reported_like_node() {
-    // The golden was recorded with TZ=UTC: a row's day is the local day.
-    let _ = mixdog_js::time::set_process_zone(mixdog_js::time::Tz::UTC);
+    // The golden was recorded in Seoul: a row's day is the local day.
+    let _ = mixdog_js::time::set_process_zone(mixdog_js::time::Tz::Asia__Seoul);
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let start = golden["startedAt"].as_i64().unwrap();
     for case in golden["sends"].as_array().unwrap() {

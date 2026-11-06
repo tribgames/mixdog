@@ -1,0 +1,22 @@
+{
+  "name": "empty_max_tokens_nudge_spelling",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "escalated": null,
+  "script": [
+    {
+      "content": "",
+      "toolCalls": [],
+      "stopReason": "MAX_TOKENS"
+    },
+    {
+      "content": "x",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}

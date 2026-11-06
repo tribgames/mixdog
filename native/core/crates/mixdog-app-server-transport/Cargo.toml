@@ -16,9 +16,8 @@ bytes = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync", "time", "net", "macros"] }
-# The workspace pin names a `proxy` feature tokio-tungstenite 0.28 does not have (contract change
-# request to WP-INTEGRATE); the listener needs only the server-side handshake, no TLS.
-tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["handshake"] }
+# The listener needs only the server-side handshake, no TLS.
+tokio-tungstenite = { workspace = true, features = ["handshake"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 

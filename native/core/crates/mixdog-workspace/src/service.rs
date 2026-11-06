@@ -176,6 +176,17 @@ pub struct Deps {
     pub recovery_dir: PathBuf,
     /// The desktop profile folder: editor backups, User/settings.json, the task workspace.
     pub user_data_dir: PathBuf,
+    /// Transfer sources other domains serve (`mediaAsset`, `attachment`, `export`).
+    pub sources: Vec<Arc<dyn crate::transfer::TransferSource>>,
+    /// The shared `code_graph` tool, adapted (`project/codeGraph`); `None` answers `unsupported`.
+    pub code_graph: Option<Arc<dyn CodeGraph>>,
+}
+
+/// `project/codeGraph` runs the agent tools' `code_graph` tool (one instance, one cache): `args`
+/// is the tool's own JSON with `cwd` the project, and the answer is the tool's text.
+#[async_trait::async_trait]
+pub trait CodeGraph: Send + Sync + 'static {
+    async fn query(&self, cwd: &Path, args: Value, cancel: &tokio_util::sync::CancellationToken) -> WsResult<String>;
 }
 
 struct Owned {
@@ -198,6 +209,8 @@ pub struct WorkspaceService {
     search_owner: Mutex<HashMap<String, String>>,
     lsp: Arc<LspManager>,
     lsp_feeds: Arc<LspFeeds>,
+    sources: Vec<Arc<dyn crate::transfer::TransferSource>>,
+    code_graph: Option<Arc<dyn CodeGraph>>,
     backups: Arc<crate::editorcfg::Backups>,
     user_data: PathBuf,
     tracked: Arc<dyn crate::zip::TrackedFiles>,
@@ -251,6 +264,8 @@ impl WorkspaceService {
             search_owner: Mutex::default(),
             lsp: LspManager::new(deps.processes.clone(), lsp_feeds.clone(), deps.lanes.maintenance),
             lsp_feeds,
+            sources: deps.sources,
+            code_graph: deps.code_graph,
             tracked: deps.tracked,
             backups: Arc::new(crate::editorcfg::Backups::new(&deps.user_data_dir)),
             user_data: deps.user_data_dir,
@@ -313,7 +328,11 @@ impl WorkspaceService {
     }
 
     async fn root(&self, params: &Value) -> WsResult<PathBuf> {
-        self.catalog.resolve(s(params, "root")?).await
+        self.root_of(params, "root").await
+    }
+
+    async fn root_of(&self, params: &Value, key: &str) -> WsResult<PathBuf> {
+        self.catalog.resolve(s(params, key)?).await
     }
 
     /// Lexical paths and their resolved aliases: a queued operation must not be
@@ -606,7 +625,14 @@ impl WorkspaceService {
                         let path = s(source, "path")?.to_owned();
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_local_read(&owner, &path)).await?
                     }
-                    _ => return Err(WsError::new(Reason::Unsupported, "This transfer source is served by another domain.")),
+                    Some(kind) => match self.sources.iter().find(|x| x.kind() == kind) {
+                        Some(found) => {
+                            let file = found.open(source, &cancel).await?;
+                            self.transfers.begin_source(&owner, file)?
+                        }
+                        None => return Err(WsError::new(Reason::Unsupported, "This transfer source is served by another domain.")),
+                    },
+                    None => return Err(WsError::invalid("source.kind is invalid.")),
                 };
                 value(json!({ "transferId": opened.transfer_id, "size": opened.size, "mimeType": opened.mime_type,
                     "entry": { "name": opened.name, "version": opened.version, "rangeMaxBytes": opened.range_max_bytes } }))
@@ -709,6 +735,26 @@ impl WorkspaceService {
                 let user_data = self.user_data.clone();
                 let path = run_fallible(self.lanes.durability, &cancel, move || crate::editorcfg::task_workspace(&user_data)).await?;
                 value(json!({ "path": path.to_string_lossy() }))
+            }
+            "project/codeGraph" => {
+                let mode = s(params, "mode")?;
+                let query = s(params, "query")?.trim();
+                // Node's `codeGraphQueryIn`: the same checks, arguments and text.
+                let symbols = mode == "symbols";
+                if !matches!(mode, "find_symbol" | "references" | "symbols") {
+                    return Err(WsError::invalid("mode is invalid."));
+                }
+                if query.is_empty() || query.encode_utf16().count() > if symbols { 1_024 } else { 256 } {
+                    return Err(WsError::invalid(if symbols { "File path is invalid." } else { "Symbol is invalid." }));
+                }
+                let args = if symbols {
+                    json!({ "mode": mode, "files": query, "limit": 200 })
+                } else {
+                    json!({ "mode": mode, "symbols": query, "limit": 20 })
+                };
+                let root = self.root_of(params, "path").await?;
+                let graph = self.code_graph.as_ref().ok_or_else(|| WsError::new(Reason::Unsupported, "The code graph is not available."))?;
+                value(Value::String(graph.query(&root, args, &cancel).await?))
             }
             "lsp/subscribe" => {
                 // The feed is named by the project string `lsp/document` was given, which is what the
@@ -868,6 +914,7 @@ impl DomainService for WorkspaceService {
             "project/directory",
             "project/recoveryDirectory",
             "project/taskWorkspace",
+            "project/codeGraph",
             "projectFs/listDir",
             "projectFs/readText",
             "projectFs/stat",

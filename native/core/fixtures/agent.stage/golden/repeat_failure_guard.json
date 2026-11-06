@@ -1,0 +1,294 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "go",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "boom",
+          "arguments": {
+            "path": "a/../b.txt"
+          }
+        }
+      ],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "tool",
+      "content": "Error: boom",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": "c1",
+      "toolKind": "error",
+      "turnReminder": null
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [
+        {
+          "id": "c2",
+          "name": "boom",
+          "arguments": {
+            "path": "b.txt"
+          }
+        }
+      ],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "tool",
+      "content": "Error: boom",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": "c2",
+      "toolKind": "error",
+      "turnReminder": null
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [
+        {
+          "id": "c3",
+          "name": "boom",
+          "arguments": {
+            "path": "./b.txt"
+          }
+        }
+      ],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "tool",
+      "content": "Error: boom",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": "c3",
+      "toolKind": "error",
+      "turnReminder": null
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [
+        {
+          "id": "c4",
+          "name": "boom",
+          "arguments": {
+            "path": "b.txt"
+          }
+        }
+      ],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "tool",
+      "content": "[repeat-failure-guard] Identical normalized `boom` call failed 3 times; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved.",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": "c4",
+      "toolKind": "error",
+      "turnReminder": null
+    }
+  ],
+  "result": {
+    "content": "gave up",
+    "historyContent": null,
+    "reportContent": null,
+    "terminationReason": null,
+    "iterations": 5,
+    "toolCallsTotal": 4,
+    "maxOutputRecoveryAttempts": null,
+    "providerContinuations": 0
+  },
+  "error": null,
+  "requests": [
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "Error: boom",
+          "toolCallId": "c1"
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "Error: boom",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "Error: boom",
+          "toolCallId": "c2"
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "Error: boom",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "Error: boom",
+          "toolCallId": "c2"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "Error: boom",
+          "toolCallId": "c3"
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "Error: boom",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "Error: boom",
+          "toolCallId": "c2"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "Error: boom",
+          "toolCallId": "c3"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "[repeat-failure-guard] Identical normalized `boom` call failed 3 times; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved.",
+          "toolCallId": "c4"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2724 @@
+[
+  {
+    "name": "minimal legacy",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "minimal v2",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "not an object",
+    "input": "text",
+    "config": null,
+    "error": "[custom-provider] config must be an object"
+  },
+  {
+    "name": "array",
+    "input": [],
+    "config": null,
+    "error": "[custom-provider] config must be an object"
+  },
+  {
+    "name": "legacy models become manual overrides",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "models": [
+        {
+          "id": "a",
+          "name": " Alpha ",
+          "contextWindow": "8000",
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "b"
+        }
+      ]
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": true
+      },
+      "modelOverrides": {
+        "a": {
+          "manual": true,
+          "hidden": false,
+          "name": "Alpha",
+          "contextWindow": 8000,
+          "maxOutputTokens": 512
+        },
+        "b": {
+          "manual": true,
+          "hidden": false
+        }
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "legacy models not an array",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "models": "x"
+    },
+    "config": null,
+    "error": "[custom-provider] models must be an array"
+  },
+  {
+    "name": "legacy duplicate model",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "models": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "a"
+        }
+      ]
+    },
+    "config": null,
+    "error": "[custom-provider] duplicate model id: a"
+  },
+  {
+    "name": "legacy null entry",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "models": [
+        null
+      ]
+    },
+    "config": null,
+    "error": "[custom-provider] every model id must be a non-empty string"
+  },
+  {
+    "name": "legacy blank context",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "models": [
+        {
+          "id": "a",
+          "contextWindow": ""
+        }
+      ]
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": true
+      },
+      "modelOverrides": {
+        "a": {
+          "manual": true,
+          "hidden": false
+        }
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "legacy bad context",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "models": [
+        {
+          "id": "a",
+          "contextWindow": 1.5
+        }
+      ]
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[a].contextWindow must be a positive integer"
+  },
+  {
+    "name": "legacy huge context is dropped",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "models": [
+        {
+          "id": "a",
+          "contextWindow": 1e+300
+        }
+      ]
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": true
+      },
+      "modelOverrides": {
+        "a": {
+          "manual": true,
+          "hidden": false
+        }
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "legacy with v2 field",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "wires": [
+        "chat"
+      ]
+    },
+    "config": null,
+    "error": "[custom-provider] wires and modelWires require schemaVersion 2"
+  },
+  {
+    "name": "legacy with overrides",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {}
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides and discovery require schemaVersion 2"
+  },
+  {
+    "name": "legacy with headers",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {}
+    },
+    "config": null,
+    "error": "[custom-provider] headers require schemaVersion 2"
+  },
+  {
+    "name": "legacy with requestBody",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "requestBody": {}
+    },
+    "config": null,
+    "error": "[custom-provider] requestBody requires schemaVersion 2"
+  },
+  {
+    "name": "legacy keeps its stated auth",
+    "input": {
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "auth": "none"
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "none",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "future version",
+    "input": {
+      "schemaVersion": 3,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] unsupported schemaVersion 3; update mixdog to use this provider"
+  },
+  {
+    "name": "bad version",
+    "input": {
+      "schemaVersion": "two",
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] invalid schemaVersion: two"
+  },
+  {
+    "name": "version one",
+    "input": {
+      "schemaVersion": 1,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] invalid schemaVersion: 1"
+  },
+  {
+    "name": "v2 unknown field",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "extra": 1
+    },
+    "config": null,
+    "error": "[custom-provider] config has unsupported field: extra"
+  },
+  {
+    "name": "v2 transport fields are ignored",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "id": "custom-x",
+      "apiKey": "k",
+      "preconnect": true
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "v2 bad type",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "type": "other"
+    },
+    "config": null,
+    "error": "[custom-provider] invalid type: other"
+  },
+  {
+    "name": "v2 padded protocol",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": " openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] unsupported protocol:  openai-chat"
+  },
+  {
+    "name": "v2 non-string protocol",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": 3,
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] protocol must be a string"
+  },
+  {
+    "name": "v2 bad auth",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "auth": "maybe"
+    },
+    "config": null,
+    "error": "[custom-provider] invalid auth: maybe"
+  },
+  {
+    "name": "v2 non-boolean enabled",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": "yes"
+    },
+    "config": null,
+    "error": "[custom-provider] enabled must be a boolean"
+  },
+  {
+    "name": "v2 disabled",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": false
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": false,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "v2 non-boolean preconnect",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "preconnect": 1
+    },
+    "config": null,
+    "error": "[custom-provider] preconnect must be a boolean"
+  },
+  {
+    "name": "no name",
+    "input": {
+      "schemaVersion": 2,
+      "name": "",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] name is required"
+  },
+  {
+    "name": "name not a string",
+    "input": {
+      "schemaVersion": 2,
+      "name": 3,
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] name must be a string"
+  },
+  {
+    "name": "name trimmed",
+    "input": {
+      "schemaVersion": 2,
+      "name": "  Spaced  ",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "Spaced",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "name too long",
+    "input": {
+      "schemaVersion": 2,
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] name must be at most 200 characters"
+  },
+  {
+    "name": "name control character",
+    "input": {
+      "schemaVersion": 2,
+      "name": "a\u0007b",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] name must not contain control characters"
+  },
+  {
+    "name": "no protocol",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] protocol is required"
+  },
+  {
+    "name": "unknown protocol",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "grpc",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] unsupported protocol: grpc"
+  },
+  {
+    "name": "anthropic protocol",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "anthropic",
+      "baseURL": "https://api.example.com/"
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "anthropic",
+      "baseURL": "https://api.example.com",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "responses protocol",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-responses",
+      "baseURL": "http://localhost:1234/v1"
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-responses",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "no baseURL",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": ""
+    },
+    "config": null,
+    "error": "[custom-provider] baseURL is required"
+  },
+  {
+    "name": "unparseable baseURL",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "not a url"
+    },
+    "config": null,
+    "error": "[custom-provider] invalid baseURL: not a url"
+  },
+  {
+    "name": "ftp baseURL",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "ftp://example.com"
+    },
+    "config": null,
+    "error": "[custom-provider] baseURL must use http or https"
+  },
+  {
+    "name": "credentials in baseURL",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "https://u:p@example.com/v1"
+    },
+    "config": null,
+    "error": "[custom-provider] baseURL must not embed credentials"
+  },
+  {
+    "name": "query in baseURL",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "https://example.com/v1?x=1"
+    },
+    "config": null,
+    "error": "[custom-provider] baseURL must not contain a query or hash"
+  },
+  {
+    "name": "hash in baseURL",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "https://example.com/v1#x"
+    },
+    "config": null,
+    "error": "[custom-provider] baseURL must not contain a query or hash"
+  },
+  {
+    "name": "bare question mark",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "https://example.com/v1?"
+    },
+    "config": null,
+    "error": "[custom-provider] baseURL must not contain a query or hash"
+  },
+  {
+    "name": "plain http on a remote host",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://example.com/v1"
+    },
+    "config": null,
+    "error": "[provider:custom] baseURL must use https for non-localhost host (got http://example.com)"
+  },
+  {
+    "name": "http on loopback v6",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://[::1]:8080/v1"
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://[::1]:8080/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "http on 127.0.0.1",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://127.0.0.1/v1///"
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://127.0.0.1/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "https trailing slashes",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": " https://example.com/api/// "
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "https://example.com/api",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "baseURL too long",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "https://example.com/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "config": null,
+    "error": "[custom-provider] baseURL must be at most 2048 characters"
+  },
+  {
+    "name": "apiKeyEnv",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "apiKeyEnv": "MY_KEY"
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "apiKeyEnv": "MY_KEY",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "apiKeyEnv with keyless auth is dropped",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "auth": "none",
+      "apiKeyEnv": "MY_KEY"
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "none",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "apiKeyEnv invalid",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "apiKeyEnv": "1BAD"
+    },
+    "config": null,
+    "error": "[custom-provider] apiKeyEnv must be a valid environment variable name"
+  },
+  {
+    "name": "apiKeyEnv null",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "apiKeyEnv": null
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "discovery hidden",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "discovery": {
+        "newModelsHidden": true
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": true
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "discovery null",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "discovery": null
+    },
+    "config": null,
+    "error": "[custom-provider] discovery must be an object"
+  },
+  {
+    "name": "discovery unknown key",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "discovery": {
+        "other": 1
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] discovery has unsupported field: other"
+  },
+  {
+    "name": "discovery non-boolean",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "discovery": {
+        "newModelsHidden": "yes"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] discovery.newModelsHidden must be a boolean"
+  },
+  {
+    "name": "wires",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "wires": [
+        "messages",
+        "chat"
+      ]
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {},
+      "wires": [
+        "chat",
+        "messages"
+      ]
+    },
+    "error": null
+  },
+  {
+    "name": "wires empty",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "wires": []
+    },
+    "config": null,
+    "error": "[custom-provider] wires must be a non-empty array"
+  },
+  {
+    "name": "wires unsupported",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "wires": [
+        "chat",
+        "grpc"
+      ]
+    },
+    "config": null,
+    "error": "[custom-provider] wires has unsupported wire: grpc"
+  },
+  {
+    "name": "wires duplicate",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "wires": [
+        "chat",
+        "chat"
+      ]
+    },
+    "config": null,
+    "error": "[custom-provider] wires has duplicate wire: chat"
+  },
+  {
+    "name": "wires missing the protocol wire",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "wires": [
+        "responses"
+      ]
+    },
+    "config": null,
+    "error": "[custom-provider] wires must include the protocol wire: chat"
+  },
+  {
+    "name": "wires on anthropic",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "anthropic",
+      "baseURL": "http://localhost:1234/v1",
+      "wires": [
+        "messages"
+      ]
+    },
+    "config": null,
+    "error": "[custom-provider] wires requires an 'openai-chat' or 'openai-responses' protocol"
+  },
+  {
+    "name": "wires not an array",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "wires": "chat"
+    },
+    "config": null,
+    "error": "[custom-provider] wires must be a non-empty array"
+  },
+  {
+    "name": "modelWires",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "wires": [
+        "chat",
+        "responses"
+      ],
+      "modelWires": {
+        "m1": "responses"
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {},
+      "wires": [
+        "chat",
+        "responses"
+      ],
+      "modelWires": {
+        "m1": "responses"
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "modelWires without wires serve the protocol wire",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelWires": {
+        "m1": "chat"
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {},
+      "modelWires": {
+        "m1": "chat"
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "modelWires outside the served wires",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelWires": {
+        "m1": "responses"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelWires[m1] must be one of the served wires: chat"
+  },
+  {
+    "name": "modelWires not an object",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelWires": []
+    },
+    "config": null,
+    "error": "[custom-provider] modelWires must be an object"
+  },
+  {
+    "name": "modelWires on anthropic",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "anthropic",
+      "baseURL": "http://localhost:1234/v1",
+      "modelWires": {
+        "m": "messages"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelWires requires an 'openai-chat' or 'openai-responses' protocol"
+  },
+  {
+    "name": "modelWires bad key",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelWires": {
+        " m": "chat"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelWires key must not have surrounding whitespace: \" m\""
+  },
+  {
+    "name": "headers",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "X-Team": " blue ",
+        "x-other": "v"
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "headers": {
+        "X-Team": "blue",
+        "x-other": "v"
+      },
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "headers not an object",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": []
+    },
+    "config": null,
+    "error": "[custom-provider] headers must be an object of header names to string values"
+  },
+  {
+    "name": "headers auth",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "Authorization": "x"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] headers must not set Authorization: authentication belongs to the API key field"
+  },
+  {
+    "name": "headers api-key",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "API-Key": "x"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] headers must not set API-Key: authentication belongs to the API key field"
+  },
+  {
+    "name": "headers duplicate",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "X-A": "1",
+        "x-a": "2"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] headers has duplicate header: x-a"
+  },
+  {
+    "name": "headers bad name",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "bad name": "1"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] headers has an invalid header name: \"bad name\""
+  },
+  {
+    "name": "headers empty name",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "": "1"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] headers has an invalid header name: \"\""
+  },
+  {
+    "name": "headers non-string value",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "X-A": 1
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] headers.X-A must be a string"
+  },
+  {
+    "name": "headers control value",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "X-A": "a\nb"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] headers.X-A has an invalid value"
+  },
+  {
+    "name": "headers non-latin value",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "X-A": "é"
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "headers": {
+        "X-A": "é"
+      },
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "headers beyond latin-1",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "X-A": "€"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] headers.X-A has an invalid value"
+  },
+  {
+    "name": "headers too many",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "X-0": "v",
+        "X-1": "v",
+        "X-2": "v",
+        "X-3": "v",
+        "X-4": "v",
+        "X-5": "v",
+        "X-6": "v",
+        "X-7": "v",
+        "X-8": "v",
+        "X-9": "v",
+        "X-10": "v",
+        "X-11": "v",
+        "X-12": "v",
+        "X-13": "v",
+        "X-14": "v",
+        "X-15": "v",
+        "X-16": "v",
+        "X-17": "v",
+        "X-18": "v",
+        "X-19": "v",
+        "X-20": "v",
+        "X-21": "v",
+        "X-22": "v",
+        "X-23": "v",
+        "X-24": "v",
+        "X-25": "v",
+        "X-26": "v",
+        "X-27": "v",
+        "X-28": "v",
+        "X-29": "v",
+        "X-30": "v",
+        "X-31": "v",
+        "X-32": "v",
+        "X-33": "v",
+        "X-34": "v",
+        "X-35": "v",
+        "X-36": "v",
+        "X-37": "v",
+        "X-38": "v",
+        "X-39": "v",
+        "X-40": "v",
+        "X-41": "v",
+        "X-42": "v",
+        "X-43": "v",
+        "X-44": "v",
+        "X-45": "v",
+        "X-46": "v",
+        "X-47": "v",
+        "X-48": "v",
+        "X-49": "v",
+        "X-50": "v",
+        "X-51": "v",
+        "X-52": "v",
+        "X-53": "v",
+        "X-54": "v",
+        "X-55": "v",
+        "X-56": "v",
+        "X-57": "v",
+        "X-58": "v",
+        "X-59": "v",
+        "X-60": "v",
+        "X-61": "v",
+        "X-62": "v",
+        "X-63": "v",
+        "X-64": "v"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] at most 64 headers are allowed"
+  },
+  {
+    "name": "headers long value",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "headers": {
+        "X-A": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] headers.X-A has an invalid value"
+  },
+  {
+    "name": "requestBody",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "requestBody": {
+        "top_p": 0.5,
+        "seed": 7
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "requestBody": {
+        "top_p": 0.5,
+        "seed": 7
+      },
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {}
+    },
+    "error": null
+  },
+  {
+    "name": "requestBody reserved",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "requestBody": {
+        "model": "x"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] requestBody must not set model: the app owns this field"
+  },
+  {
+    "name": "requestBody unsafe",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "requestBody": {
+        "__proto__": 1
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] requestBody has an unsafe key: __proto__"
+  },
+  {
+    "name": "requestBody not an object",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "requestBody": 3
+    },
+    "config": null,
+    "error": "[custom-provider] requestBody must be a JSON object"
+  },
+  {
+    "name": "requestBody too large",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "requestBody": {
+        "a": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] requestBody must be at most 16384 characters"
+  },
+  {
+    "name": "overrides",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "hidden": true,
+          "name": "M One",
+          "contextWindow": 9000,
+          "maxOutputTokens": 800,
+          "supportsVision": false,
+          "manual": true
+        }
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {
+        "m1": {
+          "manual": true,
+          "hidden": true,
+          "name": "M One",
+          "contextWindow": 9000,
+          "maxOutputTokens": 800,
+          "supportsVision": false
+        }
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "overrides manual false is dropped",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "manual": false
+        }
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {
+        "m1": {}
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "overrides not an object",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": []
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides must be an object"
+  },
+  {
+    "name": "overrides entry not an object",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": 3
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1] must be an object"
+  },
+  {
+    "name": "overrides unknown field",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "other": 1
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1] has unsupported field: other"
+  },
+  {
+    "name": "overrides blank name",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "name": "  "
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].name must be non-empty"
+  },
+  {
+    "name": "overrides bad context",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "contextWindow": "8000"
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].contextWindow must be a positive integer"
+  },
+  {
+    "name": "overrides zero context",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "contextWindow": 0
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].contextWindow must be a positive integer"
+  },
+  {
+    "name": "overrides float context",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "contextWindow": 8000.5
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].contextWindow must be a positive integer"
+  },
+  {
+    "name": "overrides integral float context",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "contextWindow": 8000
+        }
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {
+        "m1": {
+          "contextWindow": 8000
+        }
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "overrides unsafe key",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "__proto__": {}
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] unsafe modelOverrides key: __proto__"
+  },
+  {
+    "name": "overrides padded key",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        " m1": {}
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides key must not have surrounding whitespace: \" m1\""
+  },
+  {
+    "name": "overrides empty key",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "": {}
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] every modelOverrides key must be a non-empty string"
+  },
+  {
+    "name": "overrides key too long",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": {}
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides key must be at most 256 characters"
+  },
+  {
+    "name": "overrides too many",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m0": {},
+        "m1": {},
+        "m2": {},
+        "m3": {},
+        "m4": {},
+        "m5": {},
+        "m6": {},
+        "m7": {},
+        "m8": {},
+        "m9": {},
+        "m10": {},
+        "m11": {},
+        "m12": {},
+        "m13": {},
+        "m14": {},
+        "m15": {},
+        "m16": {},
+        "m17": {},
+        "m18": {},
+        "m19": {},
+        "m20": {},
+        "m21": {},
+        "m22": {},
+        "m23": {},
+        "m24": {},
+        "m25": {},
+        "m26": {},
+        "m27": {},
+        "m28": {},
+        "m29": {},
+        "m30": {},
+        "m31": {},
+        "m32": {},
+        "m33": {},
+        "m34": {},
+        "m35": {},
+        "m36": {},
+        "m37": {},
+        "m38": {},
+        "m39": {},
+        "m40": {},
+        "m41": {},
+        "m42": {},
+        "m43": {},
+        "m44": {},
+        "m45": {},
+        "m46": {},
+        "m47": {},
+        "m48": {},
+        "m49": {},
+        "m50": {},
+        "m51": {},
+        "m52": {},
+        "m53": {},
+        "m54": {},
+        "m55": {},
+        "m56": {},
+        "m57": {},
+        "m58": {},
+        "m59": {},
+        "m60": {},
+        "m61": {},
+        "m62": {},
+        "m63": {},
+        "m64": {},
+        "m65": {},
+        "m66": {},
+        "m67": {},
+        "m68": {},
+        "m69": {},
+        "m70": {},
+        "m71": {},
+        "m72": {},
+        "m73": {},
+        "m74": {},
+        "m75": {},
+        "m76": {},
+        "m77": {},
+        "m78": {},
+        "m79": {},
+        "m80": {},
+        "m81": {},
+        "m82": {},
+        "m83": {},
+        "m84": {},
+        "m85": {},
+        "m86": {},
+        "m87": {},
+        "m88": {},
+        "m89": {},
+        "m90": {},
+        "m91": {},
+        "m92": {},
+        "m93": {},
+        "m94": {},
+        "m95": {},
+        "m96": {},
+        "m97": {},
+        "m98": {},
+        "m99": {},
+        "m100": {},
+        "m101": {},
+        "m102": {},
+        "m103": {},
+        "m104": {},
+        "m105": {},
+        "m106": {},
+        "m107": {},
+        "m108": {},
+        "m109": {},
+        "m110": {},
+        "m111": {},
+        "m112": {},
+        "m113": {},
+        "m114": {},
+        "m115": {},
+        "m116": {},
+        "m117": {},
+        "m118": {},
+        "m119": {},
+        "m120": {},
+        "m121": {},
+        "m122": {},
+        "m123": {},
+        "m124": {},
+        "m125": {},
+        "m126": {},
+        "m127": {},
+        "m128": {},
+        "m129": {},
+        "m130": {},
+        "m131": {},
+        "m132": {},
+        "m133": {},
+        "m134": {},
+        "m135": {},
+        "m136": {},
+        "m137": {},
+        "m138": {},
+        "m139": {},
+        "m140": {},
+        "m141": {},
+        "m142": {},
+        "m143": {},
+        "m144": {},
+        "m145": {},
+        "m146": {},
+        "m147": {},
+        "m148": {},
+        "m149": {},
+        "m150": {},
+        "m151": {},
+        "m152": {},
+        "m153": {},
+        "m154": {},
+        "m155": {},
+        "m156": {},
+        "m157": {},
+        "m158": {},
+        "m159": {},
+        "m160": {},
+        "m161": {},
+        "m162": {},
+        "m163": {},
+        "m164": {},
+        "m165": {},
+        "m166": {},
+        "m167": {},
+        "m168": {},
+        "m169": {},
+        "m170": {},
+        "m171": {},
+        "m172": {},
+        "m173": {},
+        "m174": {},
+        "m175": {},
+        "m176": {},
+        "m177": {},
+        "m178": {},
+        "m179": {},
+        "m180": {},
+        "m181": {},
+        "m182": {},
+        "m183": {},
+        "m184": {},
+        "m185": {},
+        "m186": {},
+        "m187": {},
+        "m188": {},
+        "m189": {},
+        "m190": {},
+        "m191": {},
+        "m192": {},
+        "m193": {},
+        "m194": {},
+        "m195": {},
+        "m196": {},
+        "m197": {},
+        "m198": {},
+        "m199": {},
+        "m200": {},
+        "m201": {},
+        "m202": {},
+        "m203": {},
+        "m204": {},
+        "m205": {},
+        "m206": {},
+        "m207": {},
+        "m208": {},
+        "m209": {},
+        "m210": {},
+        "m211": {},
+        "m212": {},
+        "m213": {},
+        "m214": {},
+        "m215": {},
+        "m216": {},
+        "m217": {},
+        "m218": {},
+        "m219": {},
+        "m220": {},
+        "m221": {},
+        "m222": {},
+        "m223": {},
+        "m224": {},
+        "m225": {},
+        "m226": {},
+        "m227": {},
+        "m228": {},
+        "m229": {},
+        "m230": {},
+        "m231": {},
+        "m232": {},
+        "m233": {},
+        "m234": {},
+        "m235": {},
+        "m236": {},
+        "m237": {},
+        "m238": {},
+        "m239": {},
+        "m240": {},
+        "m241": {},
+        "m242": {},
+        "m243": {},
+        "m244": {},
+        "m245": {},
+        "m246": {},
+        "m247": {},
+        "m248": {},
+        "m249": {},
+        "m250": {},
+        "m251": {},
+        "m252": {},
+        "m253": {},
+        "m254": {},
+        "m255": {},
+        "m256": {},
+        "m257": {},
+        "m258": {},
+        "m259": {},
+        "m260": {},
+        "m261": {},
+        "m262": {},
+        "m263": {},
+        "m264": {},
+        "m265": {},
+        "m266": {},
+        "m267": {},
+        "m268": {},
+        "m269": {},
+        "m270": {},
+        "m271": {},
+        "m272": {},
+        "m273": {},
+        "m274": {},
+        "m275": {},
+        "m276": {},
+        "m277": {},
+        "m278": {},
+        "m279": {},
+        "m280": {},
+        "m281": {},
+        "m282": {},
+        "m283": {},
+        "m284": {},
+        "m285": {},
+        "m286": {},
+        "m287": {},
+        "m288": {},
+        "m289": {},
+        "m290": {},
+        "m291": {},
+        "m292": {},
+        "m293": {},
+        "m294": {},
+        "m295": {},
+        "m296": {},
+        "m297": {},
+        "m298": {},
+        "m299": {},
+        "m300": {},
+        "m301": {},
+        "m302": {},
+        "m303": {},
+        "m304": {},
+        "m305": {},
+        "m306": {},
+        "m307": {},
+        "m308": {},
+        "m309": {},
+        "m310": {},
+        "m311": {},
+        "m312": {},
+        "m313": {},
+        "m314": {},
+        "m315": {},
+        "m316": {},
+        "m317": {},
+        "m318": {},
+        "m319": {},
+        "m320": {},
+        "m321": {},
+        "m322": {},
+        "m323": {},
+        "m324": {},
+        "m325": {},
+        "m326": {},
+        "m327": {},
+        "m328": {},
+        "m329": {},
+        "m330": {},
+        "m331": {},
+        "m332": {},
+        "m333": {},
+        "m334": {},
+        "m335": {},
+        "m336": {},
+        "m337": {},
+        "m338": {},
+        "m339": {},
+        "m340": {},
+        "m341": {},
+        "m342": {},
+        "m343": {},
+        "m344": {},
+        "m345": {},
+        "m346": {},
+        "m347": {},
+        "m348": {},
+        "m349": {},
+        "m350": {},
+        "m351": {},
+        "m352": {},
+        "m353": {},
+        "m354": {},
+        "m355": {},
+        "m356": {},
+        "m357": {},
+        "m358": {},
+        "m359": {},
+        "m360": {},
+        "m361": {},
+        "m362": {},
+        "m363": {},
+        "m364": {},
+        "m365": {},
+        "m366": {},
+        "m367": {},
+        "m368": {},
+        "m369": {},
+        "m370": {},
+        "m371": {},
+        "m372": {},
+        "m373": {},
+        "m374": {},
+        "m375": {},
+        "m376": {},
+        "m377": {},
+        "m378": {},
+        "m379": {},
+        "m380": {},
+        "m381": {},
+        "m382": {},
+        "m383": {},
+        "m384": {},
+        "m385": {},
+        "m386": {},
+        "m387": {},
+        "m388": {},
+        "m389": {},
+        "m390": {},
+        "m391": {},
+        "m392": {},
+        "m393": {},
+        "m394": {},
+        "m395": {},
+        "m396": {},
+        "m397": {},
+        "m398": {},
+        "m399": {},
+        "m400": {},
+        "m401": {},
+        "m402": {},
+        "m403": {},
+        "m404": {},
+        "m405": {},
+        "m406": {},
+        "m407": {},
+        "m408": {},
+        "m409": {},
+        "m410": {},
+        "m411": {},
+        "m412": {},
+        "m413": {},
+        "m414": {},
+        "m415": {},
+        "m416": {},
+        "m417": {},
+        "m418": {},
+        "m419": {},
+        "m420": {},
+        "m421": {},
+        "m422": {},
+        "m423": {},
+        "m424": {},
+        "m425": {},
+        "m426": {},
+        "m427": {},
+        "m428": {},
+        "m429": {},
+        "m430": {},
+        "m431": {},
+        "m432": {},
+        "m433": {},
+        "m434": {},
+        "m435": {},
+        "m436": {},
+        "m437": {},
+        "m438": {},
+        "m439": {},
+        "m440": {},
+        "m441": {},
+        "m442": {},
+        "m443": {},
+        "m444": {},
+        "m445": {},
+        "m446": {},
+        "m447": {},
+        "m448": {},
+        "m449": {},
+        "m450": {},
+        "m451": {},
+        "m452": {},
+        "m453": {},
+        "m454": {},
+        "m455": {},
+        "m456": {},
+        "m457": {},
+        "m458": {},
+        "m459": {},
+        "m460": {},
+        "m461": {},
+        "m462": {},
+        "m463": {},
+        "m464": {},
+        "m465": {},
+        "m466": {},
+        "m467": {},
+        "m468": {},
+        "m469": {},
+        "m470": {},
+        "m471": {},
+        "m472": {},
+        "m473": {},
+        "m474": {},
+        "m475": {},
+        "m476": {},
+        "m477": {},
+        "m478": {},
+        "m479": {},
+        "m480": {},
+        "m481": {},
+        "m482": {},
+        "m483": {},
+        "m484": {},
+        "m485": {},
+        "m486": {},
+        "m487": {},
+        "m488": {},
+        "m489": {},
+        "m490": {},
+        "m491": {},
+        "m492": {},
+        "m493": {},
+        "m494": {},
+        "m495": {},
+        "m496": {},
+        "m497": {},
+        "m498": {},
+        "m499": {},
+        "m500": {}
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] at most 500 model overrides are allowed"
+  },
+  {
+    "name": "override non-boolean hidden",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "hidden": 1
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].hidden must be a boolean"
+  },
+  {
+    "name": "override request fields",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "requestBody": {
+            "top_k": 3
+          },
+          "requestHeaders": {
+            "X-M": "v"
+          }
+        }
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {
+        "m1": {
+          "requestBody": {
+            "top_k": 3
+          },
+          "requestHeaders": {
+            "X-M": "v"
+          }
+        }
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "override refused transport header",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "requestHeaders": {
+            "Host": "x"
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].requestHeaders must not set Host: the app owns this header"
+  },
+  {
+    "name": "override reasoning",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "levels": [
+              "high",
+              "ultra",
+              "low"
+            ],
+            "wireFormat": "vllm",
+            "wireValues": {
+              "high": " hi ",
+              "max": "mx"
+            },
+            "replay": true
+          }
+        }
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "levels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "wireFormat": "vllm",
+            "wireValues": {
+              "high": "hi",
+              "max": "mx"
+            },
+            "replay": true
+          }
+        }
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "override reasoning empty is dropped",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {}
+        }
+      }
+    },
+    "config": {
+      "type": "custom",
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "enabled": true,
+      "auth": "key",
+      "discovery": {
+        "newModelsHidden": false
+      },
+      "modelOverrides": {
+        "m1": {}
+      }
+    },
+    "error": null
+  },
+  {
+    "name": "override reasoning unknown field",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "other": 1
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning has unsupported field: other"
+  },
+  {
+    "name": "override reasoning unknown level",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "levels": [
+              "loud"
+            ]
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.levels has unknown level: loud"
+  },
+  {
+    "name": "override reasoning duplicate level",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "levels": [
+              "high",
+              "HIGH"
+            ]
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.levels has duplicate level: high"
+  },
+  {
+    "name": "override reasoning levels not an array",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "levels": "high"
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.levels must be an array"
+  },
+  {
+    "name": "override reasoning bad wireFormat",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "wireFormat": "x"
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.wireFormat is invalid: x"
+  },
+  {
+    "name": "override reasoning deepseek on responses",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-responses",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "wireFormat": "deepseek"
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.wireFormat 'deepseek' requires protocol 'openai-chat'"
+  },
+  {
+    "name": "override reasoning wire value outside levels",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "levels": [
+              "low"
+            ],
+            "wireValues": {
+              "high": "x"
+            }
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.wireValues level high is not in levels"
+  },
+  {
+    "name": "override reasoning wire value unknown level",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "wireValues": {
+              "loud": "x"
+            }
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.wireValues has unknown level: loud"
+  },
+  {
+    "name": "override reasoning wire value duplicate",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "wireValues": {
+              "high": "x",
+              "HIGH": "y"
+            }
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.wireValues has duplicate level: high"
+  },
+  {
+    "name": "override reasoning blank wire value",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "wireValues": {
+              "high": " "
+            }
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.wireValues.high must be non-empty"
+  },
+  {
+    "name": "override reasoning wire value not a string",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "wireValues": {
+              "high": 1
+            }
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.wireValues.high must be a string"
+  },
+  {
+    "name": "override reasoning wire value too long",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "wireValues": {
+              "high": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.wireValues.high must be at most 64 characters"
+  },
+  {
+    "name": "override reasoning non-boolean replay",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": {
+            "replay": "yes"
+          }
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning.replay must be a boolean"
+  },
+  {
+    "name": "override reasoning not an object",
+    "input": {
+      "schemaVersion": 2,
+      "name": "P",
+      "protocol": "openai-chat",
+      "baseURL": "http://localhost:1234/v1",
+      "modelOverrides": {
+        "m1": {
+          "reasoning": []
+        }
+      }
+    },
+    "config": null,
+    "error": "[custom-provider] modelOverrides[m1].reasoning must be an object"
+  }
+]

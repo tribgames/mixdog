@@ -141,8 +141,9 @@ pretty_assertions = "1.4.1"
 rand = "0.9"
 rayon = "1" # not in Codex; WP-GRAPH-GIT parallel graph parse (same major as mixdog-graph)
 pulldown-cmark = { version = "0.13", default-features = false }
+rcgen = "0.14" # dev only: throwaway TLS certificates for fake-server tests
 regex = "1.12.3"
-ring = "0.17.14" # RS256 signing of the Vertex AI service-account JWT (already in the rustls graph)
+ring ="0.17.14" # RS256 signing of the Vertex AI service-account JWT (already in the rustls graph)
 trash = "5.2" # not in Codex: OS recycle bin for projectFs/trash (WP-WS), as Node's shell.trashItem
 regress = "0.10" # not in Codex: ECMAScript-syntax regex engine for user-facing text search (WP-WS)
 reqwest = { version = "0.12", default-features = false, features = ["charset", "cookies", "http2", "macos-system-configuration", "rustls-tls-native-roots"] }
@@ -175,7 +176,8 @@ tokio-stream = "0.1.18"
 tokio-test = "0.4"
 # Codex pins openai-oss-forks git revisions of tokio-tungstenite/tungstenite, which add a
 # `proxy` feature; the crates.io releases used here have none, so it is not requested.
-tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-native-roots"] }
+# Each crate names the features it uses (client connect, server handshake, TLS).
+tokio-tungstenite = { version = "0.28.0", default-features = false }
 tokio-util = "0.7.18"
 toml = "0.9.5"
 tracing = "0.1.44"

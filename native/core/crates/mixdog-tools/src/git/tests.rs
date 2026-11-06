@@ -188,10 +188,8 @@ fn scripted_failure(error: &Value) -> ScmFailure {
     let code = error["code"].as_str().unwrap();
     let mut details = error.get("details").cloned().unwrap_or_else(|| json!({}));
     let (code, tag): (&'static str, &str) = match code {
-        "WORKTREE_LARGE_REPO_CONFIRM" => {
-            details["thresholdBytes"] = json!(0);
-            ("WORKTREE_LARGE_REPO_CONFIRM", "worktreeLargeRepoConfirm")
-        }
+        "WORKTREE_LARGE_REPO_CONFIRM" => ("WORKTREE_LARGE_REPO_CONFIRM", "worktreeLargeRepoConfirm"),
+        "MERGE_CONFLICT" => ("MERGE_CONFLICT", "mergeConflict"),
         "WORKTREE_DIRTY" => ("WORKTREE_DIRTY", "worktreeDirty"),
         "WORKTREE_BUSY_JOBS" => ("WORKTREE_BUSY_JOBS", "worktreeBusyJobs"),
         "WORKTREE_DISK_INSUFFICIENT" => {
@@ -201,7 +199,7 @@ fn scripted_failure(error: &Value) -> ScmFailure {
         _ => return ScmFailure::git(error["message"].as_str().unwrap()),
     };
     details["type"] = json!(tag);
-    ScmFailure::coded(code, serde_json::from_value::<DomainErrorDetail>(details).unwrap())
+    ScmFailure::coded_with_message(code, serde_json::from_value::<DomainErrorDetail>(details).unwrap(), error["message"].as_str().unwrap())
 }
 
 #[async_trait]
@@ -275,19 +273,11 @@ fn text_of(outcome: ToolOutcome) -> String {
     }
 }
 
-/// Session transitions are the only host operations this tool still sends out. Two scripted
-/// refusals are left out until `mixdog-scm`'s `worktree::texts` words them: `MERGE_CONFLICT`
-/// (no typed detail, no text) and `WORKTREE_LARGE_REPO_CONFIRM` (no text for the code itself).
-fn replayable(step: &Value, case: &Value) -> bool {
-    let unworded = |op: &str| {
-        let code = case["host"]["script"][op]["error"]["code"].as_str();
-        matches!(code, Some("MERGE_CONFLICT" | "WORKTREE_LARGE_REPO_CONFIRM"))
-    };
-    step.get("requests").and_then(Value::as_array).is_none_or(|requests| {
-        requests.iter().all(|r| {
-            matches!(r["op"].as_str(), Some("enter" | "return" | "merge" | "remove")) && !unworded(r["op"].as_str().unwrap_or(""))
-        })
-    })
+/// Session transitions are the only host operations this tool still sends out.
+fn replayable(step: &Value) -> bool {
+    step.get("requests")
+        .and_then(Value::as_array)
+        .is_none_or(|requests| requests.iter().all(|r| matches!(r["op"].as_str(), Some("enter" | "return" | "merge" | "remove"))))
 }
 
 #[tokio::test]
@@ -334,7 +324,7 @@ async fn every_recorded_case_replays_to_nodes_text() {
                 apply_op(&ws, &json!({ "write": write }));
                 continue;
             }
-            if !replayable(step, &case) {
+            if !replayable(step) {
                 continue;
             }
             let mut input = step["input"].to_string();

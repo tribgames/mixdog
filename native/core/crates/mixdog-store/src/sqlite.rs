@@ -40,7 +40,9 @@ use crate::projection::Projection;
 use crate::schema::bounded::Digest;
 use crate::schema::checkpoint::FramePos;
 use crate::schema::record::ApprovalPhase;
+use crate::schema::bounded::Name;
 use crate::schema::record::Form;
+use crate::schema::record::ModelSwitchEntry;
 use crate::schema::record::RunPhase;
 use crate::schema::sql::INDEX_APPLICATION_ID;
 use crate::schema::sql::INDEX_DDL;
@@ -935,6 +937,22 @@ fn apply_frame(
                     .execute(params![session, aid])?;
             }
         },
+        // No rewind mark: the boundary lives while its anchor row does (FORMAT.md §5.3).
+        FrameKind::ModelSwitch { anchor, entry } => {
+            tx.prepare_cached(
+                "INSERT OR REPLACE INTO model_switches (session, ordinal, anchor_ordinal, anchor_iid, provider,
+                 model_id, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?
+            .execute(params![
+                session,
+                ordinal,
+                anchor.ordinal as i64,
+                anchor.iid.as_str(),
+                entry.provider.as_str(),
+                entry.model_id.as_str(),
+                entry.at
+            ])?;
+        }
         FrameKind::Other => {}
     }
     if let Some(op) = &frame.op {
@@ -1030,6 +1048,10 @@ pub struct HistoryRow {
     /// the copy before against the copy kept): copy 0 is this row, copy `n` is `kept[n-1]`.
     /// A dropped message (`archived`) is its newest copy, whole.
     pub kept: Vec<KeptCopy>,
+    /// The display-only model-switch boundaries anchored on this row (the 1.4.5
+    /// `meta.modelSwitches` of the message), in the order they were recorded: shown after
+    /// the row's own items.
+    pub model_switches: Vec<ModelSwitchEntry>,
 }
 
 /// One rewritten copy of a message: entry `idx` of the replacement of the `compacted`
@@ -1766,6 +1788,23 @@ fn page_on(
                             kept.push(copy?);
                         }
                     }
+                    // The anchor's boundaries come from its own log or a later level's: a
+                    // base level's records up to its fork point, oldest level first.
+                    let mut model_switches = Vec::new();
+                    for holder in lineage[..=cur.level].iter().rev() {
+                        let end = holder.end.map_or(i64::MAX, |e| e as i64);
+                        let mut stmt = c.prepare_cached(MODEL_SWITCHES_SQL)?;
+                        let found = stmt.query_map(params![holder.session, ordinal as i64, iid, end], |s| {
+                            // The columns hold what a parsed record held, so the bounds hold.
+                            let name = |i: usize| {
+                                s.get::<_, String>(i).map(|v| Name::try_from(v).expect("a projected name"))
+                            };
+                            Ok(ModelSwitchEntry { provider: name(0)?, model_id: name(1)?, at: s.get(2)? })
+                        })?;
+                        for entry in found {
+                            model_switches.push(entry?);
+                        }
+                    }
                     out.push(HistoryRow {
                         session: level.session.clone(),
                         ordinal,
@@ -1780,6 +1819,7 @@ fn page_on(
                         dropped_text: verdict.text,
                         dropped_calls: verdict.calls,
                         kept,
+                        model_switches,
                     });
                     cur.before = ordinal;
                 }
@@ -1805,6 +1845,11 @@ pub(crate) const KEPT_SQL: &str =
      WHERE m.session = ?1 AND m.iid = ?2 AND m.ordinal > ?3 AND m.ordinal < ?4 AND m.ver = m.ordinal
        AND (m.superseded_rev IS NULL OR m.superseded_rev >= ?4)
        AND (c.superseded_rev IS NULL OR c.superseded_rev >= ?4) ORDER BY m.ordinal";
+
+/// The model-switch boundaries in session `?1`'s log below `?4` anchored on row `?2` with
+/// iid `?3`, in record order.
+pub(crate) const MODEL_SWITCHES_SQL: &str = "SELECT provider, model_id, at FROM model_switches
+     WHERE session = ?1 AND anchor_ordinal = ?2 AND anchor_iid = ?3 AND ordinal < ?4 ORDER BY ordinal";
 
 /// One history page level: visible rows below `?2`, live for the reader at `?3`.
 pub(crate) const PAGE_SQL: &str =

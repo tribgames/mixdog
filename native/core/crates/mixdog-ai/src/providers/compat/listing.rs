@@ -323,6 +323,41 @@ fn positive_number(value: Option<&Value>) -> Option<u64> {
     (n.is_finite() && n > 0.0).then_some(n as u64)
 }
 
+/// `costFields`: the untiered price (or the first one) in USD per million
+/// tokens; a value that is not a finite number is left out.
+fn set_costs(record: &mut ModelRecord, cost: Option<&Value>) {
+    let list: Vec<&Value> = match cost {
+        Some(Value::Array(items)) => items.iter().collect(),
+        Some(other) => vec![other],
+        None => return,
+    };
+    let base = list
+        .iter()
+        .find(|e| e.is_object() && e.get("tier").is_none_or(|t| !js_truthy(t)))
+        .or_else(|| list.iter().find(|e| e.is_object()));
+    let Some(base) = base else { return };
+    let finite = |value: Option<&Value>| {
+        let value = value.filter(|v| !v.is_null() && v.as_str() != Some(""))?;
+        let n = to_number(value);
+        n.is_finite().then_some(n)
+    };
+    let cache = base.get("cache");
+    record.input_cost_per_m = finite(base.get("input"));
+    record.output_cost_per_m = finite(base.get("output"));
+    record.cache_read_cost_per_m = finite(cache.and_then(|c| c.get("read")));
+    record.cache_write_cost_per_m = finite(cache.and_then(|c| c.get("write")));
+}
+
+fn js_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
 /// A models.dev row in the console config's model shape (`configModelFromModelsDev`).
 fn config_model_from_models_dev(row: &Value) -> Value {
     let mut model = Map::new();
@@ -334,6 +369,21 @@ fn config_model_from_models_dev(row: &Value) -> Value {
     }
     if let Some(limit) = row.get("limit") {
         model.insert("limit".into(), limit.clone());
+    }
+    if let Some(cost) = row.get("cost").and_then(Value::as_object) {
+        let pick = |source: &Map<String, Value>, from: &str, to: &str, into: &mut Map<String, Value>| {
+            if let Some(v) = source.get(from) {
+                into.insert(to.into(), v.clone());
+            }
+        };
+        let mut out = Map::new();
+        pick(cost, "input", "input", &mut out);
+        pick(cost, "output", "output", &mut out);
+        let mut cache = Map::new();
+        pick(cost, "cache_read", "read", &mut cache);
+        pick(cost, "cache_write", "write", &mut cache);
+        out.insert("cache".into(), Value::Object(cache));
+        model.insert("cost".into(), Value::Object(out));
     }
     if let Some(reasoning) = row.get("reasoning").and_then(Value::as_bool) {
         let effort = row
@@ -360,6 +410,7 @@ fn console_record(id: &str, model: &Map<String, Value>, provider_package: &str) 
     let limit = model.get("limit");
     record.context_window = positive_number(limit.and_then(|l| l.get("context")));
     record.max_output_tokens = positive_number(limit.and_then(|l| l.get("output")));
+    set_costs(&mut record, model.get("cost"));
     let reasoning = model.get("capabilities").and_then(|c| c.get("reasoning"));
     if let Some(supported) = reasoning.and_then(|r| r.get("supported")).and_then(Value::as_bool) {
         record.supports_reasoning = Some(supported);

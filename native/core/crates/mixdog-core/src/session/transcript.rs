@@ -30,6 +30,8 @@ use super::user_text::PASTED_LINE_READ_BUDGET_BYTES;
 use super::user_text::js_trim;
 use super::user_text::user_display_text;
 
+#[path = "transcript_boundary.rs"]
+mod transcript_boundary;
 #[path = "transcript_convert.rs"]
 mod transcript_convert;
 #[path = "transcript_divider.rs"]

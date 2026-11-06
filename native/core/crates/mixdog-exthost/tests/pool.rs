@@ -426,13 +426,13 @@ async fn close_racing_a_failed_endpoint_channel_still_waits_for_the_browser() {
 async fn the_render_browser_serves_the_endpoint_trait_object_the_web_renderer_holds() {
     let pool = ExtHostPool::new(config(1, &[])).unwrap();
     let endpoint: std::sync::Arc<dyn BrowserEndpoint> = std::sync::Arc::new(pool.render_browser());
-    let first = endpoint.endpoint().await.unwrap();
+    let (first, _hold) = endpoint.lease().await.unwrap();
     assert!(first.starts_with("ws://127.0.0.1:9222/devtools/browser/fake-"), "{first}");
-    assert_eq!(endpoint.endpoint().await.unwrap(), first, "one browser while it is in use");
+    assert_eq!(endpoint.lease().await.unwrap().0, first, "one browser while it is in use");
     assert_eq!(run(&pool, call("a", "browser", json!(null))).await, json!(first), "the workers share it");
     assert_eq!(pool.browser_launches(), 1);
     within(pool.close()).await;
-    assert!(endpoint.endpoint().await.is_err());
+    assert!(endpoint.lease().await.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

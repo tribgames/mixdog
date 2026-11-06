@@ -47,6 +47,8 @@ pub async fn serve() -> Result<(), ServeError> {
         js_runtime: js_runtime::resolve_current()?,
         // Likewise the ONNX Runtime library comes from the install layout.
         ort_library: None,
+        // The server that attaches here takes this router with it (`Running::build`).
+        host: mixdog_app_server::Outgoing::new(),
     };
     let core = compose::compose(&tokens, config).await?;
     tracing::info!(mocked = core.mocked_domains().len(), "core composed against mocks");

@@ -1,7 +1,7 @@
 //! Single-file and directory stores of SM §11.2 outside the sessions: preserved stores
 //! (bytes unchanged, verified by SHA-256 and parse), retired caches and leftovers, the
-//! legacy usage inputs, and the one config rewrite the runtime no longer carries
-//! (`agent.compaction` legacy keys).
+//! legacy usage inputs, and the config rewrites the runtime no longer carries
+//! (`agent.compaction` legacy keys; the connector transition, `crate::connectors`).
 
 use std::path::Path;
 
@@ -18,6 +18,7 @@ use mixdog_store::schema::migration::Target;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::connectors;
 use crate::durable;
 use crate::error::Blocked;
 use crate::error::Result;
@@ -245,13 +246,14 @@ fn folded_config(doc: &Value) -> Option<Value> {
     Some(doc)
 }
 
-fn config_bytes(doc: &Value) -> Vec<u8> {
+/// A JSON document as 1.4.5 writes it (`JSON.stringify(value, null, 2)` and a newline).
+pub(crate) fn config_bytes(doc: &Value) -> Vec<u8> {
     let mut bytes = serde_json::to_vec_pretty(doc).expect("a value encodes");
     bytes.push(b'\n');
     bytes
 }
 
-fn read_config(data: &Path) -> Result<Option<(Vec<u8>, Value)>> {
+pub(crate) fn read_config(data: &Path) -> Result<Option<(Vec<u8>, Value)>> {
     let path = data.join(CONFIG_FILE);
     let Some(bytes) = durable::read_optional(&path)? else {
         return Ok(None);
@@ -292,7 +294,7 @@ fn sources_sha256(sources: &[SourceFile]) -> String {
     durable::sha256_hex(text.as_bytes())
 }
 
-fn store_key(kind: ItemKind) -> String {
+pub(crate) fn store_key(kind: ItemKind) -> String {
     let name = serde_json::to_value(kind)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
@@ -633,7 +635,8 @@ impl ItemDriver for StoresDriver {
         self.plan_ledger_backups(roots, sink)?;
         self.plan_retired(roots, sink)?;
         self.plan_ledger_inputs(roots, sink)?;
-        self.plan_legacy_compaction(roots, sink)
+        self.plan_legacy_compaction(roots, sink)?;
+        connectors::plan(roots, sink)
     }
 
     fn owns(&self, item: &ManifestItem) -> bool {
@@ -650,7 +653,7 @@ impl ItemDriver for StoresDriver {
     }
 
     fn wave(&self, item: &ManifestItem) -> Wave {
-        if item.key.as_str() == LEGACY_COMPACTION_ITEM {
+        if [LEGACY_COMPACTION_ITEM, connectors::ITEM].contains(&item.key.as_str()) {
             Wave::Late
         } else {
             Wave::Stores
@@ -660,6 +663,9 @@ impl ItemDriver for StoresDriver {
     fn stage(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
         if item.key.as_str() == LEGACY_COMPACTION_ITEM {
             return self.stage_legacy_compaction(cx, item);
+        }
+        if item.key.as_str() == connectors::ITEM {
+            return connectors::stage(cx, item);
         }
         match item.contract {
             Contract::Retain => Ok(Staged::Quarantine {
@@ -677,12 +683,18 @@ impl ItemDriver for StoresDriver {
         if item.key.as_str() == LEGACY_COMPACTION_ITEM {
             return self.publish_legacy_compaction(cx, item, staged);
         }
+        if item.key.as_str() == connectors::ITEM {
+            return connectors::publish(cx, item, staged);
+        }
         Ok(())
     }
 
     fn verify(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Verdict> {
         if item.key.as_str() == LEGACY_COMPACTION_ITEM {
             return self.verify_legacy_compaction(cx);
+        }
+        if item.key.as_str() == connectors::ITEM {
+            return connectors::verify(cx, item);
         }
         match item.contract {
             Contract::Retire => Ok(Verdict::Verified { digest: None }),

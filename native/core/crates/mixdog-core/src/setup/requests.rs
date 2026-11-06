@@ -1,6 +1,6 @@
 //! The desktop-host setup requests (`setup-tool/ui-requests.mjs`): one addressed request, one
 //! desktop claimant, one receipt. A request nobody claims in time changes nothing and answers
-//! `None` (`SETUP_DESKTOP_UNCLAIMED`), so a caller with a runtime-only route may still take
+//! [`DesktopAnswer::Unclaimed`] (`SETUP_DESKTOP_UNCLAIMED`), so a caller with a runtime-only route may still take
 //! it. The three `config/*SetupRequest` methods are the claimant's side.
 
 use std::collections::HashMap;
@@ -16,7 +16,12 @@ use serde_json::json;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
+use super::DesktopAnswer;
 use super::SetupDesktop;
+
+/// The two ways `ui-requests.mjs` leaves a request unclaimed, with its message.
+const NO_SURFACE: &str = "setup: no attached Desktop surface; nothing was changed";
+const NOT_CLAIMED: &str = "setup: no Desktop window claimed the request; nothing was changed";
 
 /// `notifySessionUi(sessionId, 'Desktop settings request', { kind: 'setup-ui', id })`: whether a
 /// desktop surface is attached to the session and took the notice.
@@ -142,7 +147,7 @@ impl SetupRequests {
 
 #[async_trait]
 impl SetupDesktop for SetupRequests {
-    async fn request(&self, thread: &ThreadId, args: &Value) -> Result<Option<Value>, PortError> {
+    async fn request(&self, thread: &ThreadId, args: &Value) -> Result<DesktopAnswer, PortError> {
         let id = uuid::Uuid::new_v4().to_string();
         let (done, outcome) = oneshot::channel();
         let now = Instant::now();
@@ -159,7 +164,7 @@ impl SetupDesktop for SetupRequests {
         );
         let _guard = Pending { requests: self, id: id.clone() };
         if !self.surface.notify(thread, &id).await {
-            return Ok(None);
+            return Ok(DesktopAnswer::Unclaimed(NO_SURFACE.into()));
         }
         tokio::pin!(outcome);
         loop {
@@ -171,9 +176,9 @@ impl SetupDesktop for SetupRequests {
             tokio::select! {
                 result = &mut outcome => {
                     return match result {
-                        Ok(Ok(value)) => Ok(Some(value)),
+                        Ok(Ok(value)) => Ok(DesktopAnswer::Done(value)),
                         Ok(Err(message)) => Err(PortError::Failed { capability: "setup".into(), message }),
-                        Err(_) => Ok(None),
+                        Err(_) => Ok(DesktopAnswer::Unclaimed(NOT_CLAIMED.into())),
                     };
                 }
                 () = tokio::time::sleep_until(deadline) => {
@@ -190,11 +195,11 @@ impl SetupDesktop for SetupRequests {
                             message: "setup: Desktop did not return a receipt. The operation may still be running; inspect its state before retrying.".into(),
                         });
                     }
-                    return Ok(None);
+                    return Ok(DesktopAnswer::Unclaimed(NOT_CLAIMED.into()));
                 }
             }
         }
-        Ok(None)
+        Ok(DesktopAnswer::Unclaimed(NOT_CLAIMED.into()))
     }
 }
 

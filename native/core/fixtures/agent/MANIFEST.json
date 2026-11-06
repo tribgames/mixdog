@@ -1,6 +1,6 @@
 {
   "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
-  "fileCount": 59,
+  "fileCount": 65,
   "files": [
     {
       "bytes": 47880,
@@ -13,9 +13,9 @@
       "sha256": "ca5c75d95ec15b2b422723c17f0531eb87742c6acb6129d6d9b855630b6f92de"
     },
     {
-      "bytes": 7174,
+      "bytes": 12514,
       "path": "compact/golden/dropped.json",
-      "sha256": "a92e1bb8abdc1720d4c4c681b15e37903dd07795f0a619c7c22de9eb05e5d4bd"
+      "sha256": "0353e2dede0f51f34106f3cf59bac5968e8503cf78b598e94e3fb281774e996d"
     },
     {
       "bytes": 27973,
@@ -33,9 +33,9 @@
       "sha256": "2fbe9d15048aec8939bc23c2936fe0f4b6579241d041fdbb35b70e2b2e969829"
     },
     {
-      "bytes": 82907,
+      "bytes": 94625,
       "path": "compact/golden/settings.json",
-      "sha256": "375ba944f9021454310bc925b17d46ffd8bda99ad3e4f463b6fa4a190dab7378"
+      "sha256": "bf7e89f2b4c7fb36d6f93f36b2de44fae6b6972cd4291932ab9f3eb759c4b1d6"
     },
     {
       "bytes": 23095,
@@ -43,19 +43,29 @@
       "sha256": "a3b99b253ca9c0284f06de9c3facf1c7853f07eb201c0512b97d6deb72cbe2cd"
     },
     {
-      "bytes": 18915,
+      "bytes": 20538,
       "path": "compact/record.mjs",
-      "sha256": "dae43f83f12f27663ec07f4ead4f7e7d02751542b879aef19612651bf48c9d73"
+      "sha256": "e2ed7ce1a5d438468a41badd6bd2c50bbd56b9ad246988af5aa8ff556384d3f4"
     },
     {
-      "bytes": 9564,
+      "bytes": 10627,
       "path": "compact/record_settings.mjs",
-      "sha256": "5176dfcd33f90f4435b13e5d8888f0c75b4f001cb0621263f712d14503504708"
+      "sha256": "d420d6909f935a71a59839195953f6aca2dd59a8bf9ef8e638888257540e711a"
     },
     {
       "bytes": 1817,
       "path": "explorer/cases.json",
       "sha256": "fbc09cf64c964fd3fb154f51ae5242a5dd2b1bb08f65d096e4b672a50a3ad0b0"
+    },
+    {
+      "bytes": 53869,
+      "path": "flows/preset.json",
+      "sha256": "dd7faf8bd9fa24bafdb87b7e6a2c8aaddab2bb5f78bc6659729669247429f0c1"
+    },
+    {
+      "bytes": 102791,
+      "path": "flows/spawn.json",
+      "sha256": "0fd372e90b4a065d580df73522644b14088a6935830de2ca90070fa970b69563"
     },
     {
       "bytes": 1549,
@@ -173,6 +183,11 @@
       "sha256": "214bea77e0251d1b08cc441ac5b0bc361e22760ae4bb26b7d43f33571ce3d262"
     },
     {
+      "bytes": 22810,
+      "path": "record-flows.mjs",
+      "sha256": "eb2073f0f13e7b8c7f2a1c8f49ef7949733c67fc0d7ae6c6615eee6a433a31db"
+    },
+    {
       "bytes": 25624,
       "path": "record-jobs.mjs",
       "sha256": "82afc36131d69b3304eaf1e16f6681d2b5f42daeefdf71149d23e934e894f26a"
@@ -186,6 +201,11 @@
       "bytes": 4392,
       "path": "record-text-only.mjs",
       "sha256": "9584cead9e52f359e28a161195218b9a1bf85d07a3a82920ddc89d0873c954f5"
+    },
+    {
+      "bytes": 19721,
+      "path": "record-turns.mjs",
+      "sha256": "1ee3f8c6e099856f63176bcbed759017d458a1b93d58b93b4d14e8b31316d8fb"
     },
     {
       "bytes": 9711,
@@ -296,6 +316,16 @@
       "bytes": 14060,
       "path": "text_only/cases.json",
       "sha256": "29ab61a9ec03797565e234806556c1608f3d44556069a6c8fc115a85d4254312"
+    },
+    {
+      "bytes": 59931,
+      "path": "turns/runner.json",
+      "sha256": "fce1ceeb8b13cd94feb7e2f6ca552d744ea3f264bca2552fa592bc13deb74510"
+    },
+    {
+      "bytes": 12639,
+      "path": "turns/worker-turns.json",
+      "sha256": "12fda8b6b84474881528ff9582557365bb1b22f4886b5e18db4961dfb5b6854f"
     }
   ],
   "product": {
@@ -309,12 +339,12 @@
       "exact": false,
       "filesDifferingFromCommit": 34407
     },
-    "srcSha256": "cd19ae47524b0f6a486c3c407d67ec40c3373ff082b78574133e107a1ce76de0",
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 631892
+  "totalBytes": 923397
 }

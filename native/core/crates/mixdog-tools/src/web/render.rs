@@ -378,7 +378,9 @@ impl PageRenderer for BrowserRenderer {
             .acquire()
             .await
             .map_err(|_| FetchError::new(FetchKind::Cancelled, "browser pool closed"))?;
-        let endpoint = self.endpoint.endpoint().await.map_err(|message| launch_failed(&message))?;
+        // The hold keeps the shared browser open for the whole render, teardown included (Node
+        // takes a pool slot before any browser use).
+        let (endpoint, _hold) = self.endpoint.lease().await.map_err(|message| launch_failed(&message))?;
         let cdp = Arc::new(Cdp::connect(&endpoint).await.map_err(|message| launch_failed(&message))?);
         // The context goes away with the connection, so a dropped (cancelled)
         // render leaves nothing behind.

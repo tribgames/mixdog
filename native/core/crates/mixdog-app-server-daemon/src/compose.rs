@@ -22,7 +22,9 @@ use mixdog_services::tidy::process::Processes;
 use mixdog_services::tool_state::StateTick;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_exthost::DEFAULT_PENDING_CAP;
+use mixdog_exthost::BrowserService;
 use mixdog_exthost::DocumentService;
+use mixdog_exthost::VisualizeService;
 use mixdog_workspace::localfs::LocalFileService;
 use mixdog_exthost::ExtHostConfig;
 use mixdog_exthost::ExtHostError;
@@ -73,6 +75,7 @@ use crate::lifecycle::new_instance_id;
 use mixdog_core_api::CoreState as LifecycleState;
 use mixdog_core_api::DomainService;
 use mixdog_core_api::FeedSource;
+use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostMediaSink;
 use mixdog_core_api::OpIndex;
 use mixdog_core_api::ThreadDirectory;
@@ -312,6 +315,7 @@ struct Seams {
     recovery_dir: PathBuf,
     user_data_dir: PathBuf,
     ext_host: Arc<ExtHostPool>,
+    host: Arc<dyn HostChannel>,
 }
 
 /// `CoreWiring.drain_feed`: the `core/drain` notification as the next frame of the app feed, so
@@ -337,6 +341,10 @@ fn register_real(builder: &mut DomainsBuilder, seams: &Seams) -> Result<(), Comp
         state: seams.state.clone(),
         recovery_dir: seams.recovery_dir.clone(),
         user_data_dir: seams.user_data_dir.clone(),
+        // mediaAsset, attachment and export register here as their domains land.
+        sources: Vec::new(),
+        // The adapter over the shared `CodeGraphTool` lands with the composed tool runtime.
+        code_graph: None,
     })
     .map_err(ComposeError::Workspace)?;
     builder.register(workspace)?;
@@ -345,6 +353,10 @@ fn register_real(builder: &mut DomainsBuilder, seams: &Seams) -> Result<(), Comp
     // own subfolders there.
     let cache_root = seams.user_data_dir.to_string_lossy().into_owned();
     builder.register(Arc::new(DocumentService::new(seams.ext_host.clone(), cache_root)))?;
+    // Browser and visualize commands are the desktop host's: the core forwards them over the
+    // host channel and the host claims the capability.
+    builder.register(Arc::new(BrowserService::new(seams.host.clone())))?;
+    builder.register(Arc::new(VisualizeService::new(seams.host.clone())))?;
     Ok(())
 }
 
@@ -375,10 +387,13 @@ pub struct ComposeConfig {
     /// The ONNX Runtime shared library (install layout); `None` leaves the embedding and
     /// effort-judge models unbuilt.
     pub ort_library: Option<PathBuf>,
+    /// The server's host channel (`Outgoing`), built before the core: what the browser and
+    /// visualize domains forward their commands through.
+    pub host: Arc<dyn HostChannel>,
 }
 
 pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library } = config;
+    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, host } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
@@ -426,6 +441,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         recovery_dir: data_dir.join("recovery"),
         user_data_dir,
         ext_host: ext_host.clone(),
+        host,
     })?;
     let file_service: Arc<dyn FileService> = Arc::new(LocalFileService::new());
     let models = ort_library.map(|ort_library| build_models(tokens, data_dir, ort_library)).transpose()?;
@@ -476,10 +492,60 @@ mod tests {
     use mixdog_core_api::CallContext;
     use mixdog_core_api::CoreRequest;
     use mixdog_core_api::Reply;
+    use mixdog_core_api::HostCapability;
     use mixdog_core_api::ids::Method;
+    use mixdog_core_api::mock::MockHostChannel;
     use serde_json::json;
 
     use super::*;
+
+    /// The desktop commands reach the host channel the server was built with, through the real
+    /// services (not the echo mock), each addressed by its own capability.
+    #[tokio::test]
+    async fn browser_and_visualize_commands_go_to_the_hosts_channel() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = Arc::new(MockHostChannel::default());
+        host.claim(HostCapability::Browser);
+        host.claim(HostCapability::Visualize);
+        host.reply(Method("host/browser/command"), json!({ "from": "browser" }));
+        host.reply(Method("host/visualize/command"), json!({ "from": "visualize" }));
+        let core = compose(
+            &mixdog_rt::testing::tokens(),
+            ComposeConfig {
+                data_dir: dir.path().to_path_buf(),
+                user_data_dir: dir.path().join("userdata"),
+                js_runtime: crate::js_runtime::fixture(dir.path()),
+                ort_library: None,
+                host: host.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!core.mocked_domains().contains(&"browser/command"));
+        assert!(!core.mocked_domains().contains(&"visualize/command"));
+
+        let call = |method: &'static str, params| CoreRequest {
+            method: Method(method),
+            params,
+            op: None,
+            ctx: CallContext::internal("test"),
+        };
+        let browser = core.domain_for("browser/command").unwrap();
+        let Reply::Value(value) = browser.call(call("browser/command", json!({ "action": "hide" }))).await.unwrap() else {
+            panic!("a value reply")
+        };
+        assert_eq!(value, json!({ "from": "browser" }));
+        let visualize = core.domain_for("visualize/command").unwrap();
+        let params = json!({ "action": "close", "input": { "sessionId": "s", "tabId": "t" } });
+        let Reply::Value(value) = visualize.call(call("visualize/command", params)).await.unwrap() else {
+            panic!("a value reply")
+        };
+        assert_eq!(value, json!({ "from": "visualize" }));
+        let sent = host.sent();
+        assert_eq!(sent.len(), 2);
+        assert_eq!((sent[0].0, sent[0].1.as_str()), (HostCapability::Browser, "host/browser/command"));
+        assert_eq!((sent[1].0, sent[1].1.as_str()), (HostCapability::Visualize, "host/visualize/command"));
+    }
 
     #[tokio::test]
     async fn every_domain_method_has_a_service() {
@@ -491,6 +557,7 @@ mod tests {
                 user_data_dir: dir.path().join("userdata"),
                 js_runtime: crate::js_runtime::fixture(dir.path()),
                 ort_library: None,
+                host: Arc::new(MockHostChannel::default()),
             },
         )
         .await.unwrap();

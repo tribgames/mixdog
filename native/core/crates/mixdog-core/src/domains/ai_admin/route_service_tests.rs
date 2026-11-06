@@ -26,12 +26,12 @@ fn twin() -> Value {
 const KNOWN: [&str; 5] = ["openai", "openai-oauth", "anthropic", "anthropic-oauth", "gemini"];
 
 #[derive(Default)]
-struct Log {
+pub(super) struct Log {
     ensured: Vec<Value>,
     route_states: Vec<Value>,
     refreshes: Vec<Value>,
     statusline: u32,
-    follows: Vec<FollowOptions>,
+    pub(super) follows: Vec<FollowOptions>,
     tunes: u32,
 }
 
@@ -73,7 +73,7 @@ impl RouteFacts for Facts {
     }
 }
 
-struct Writer {
+pub(super) struct Writer {
     route: Mutex<Route>,
     log: Arc<Mutex<Log>>,
 }
@@ -132,7 +132,7 @@ fn subset(doc: &Obj) -> Value {
     Value::Object(["default", "presets", "modelSettings"].iter().filter_map(|k| doc.get(*k).map(|v| ((*k).to_owned(), v.clone()))).collect())
 }
 
-async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<Log>>, tempfile::TempDir) {
+pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<Log>>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };

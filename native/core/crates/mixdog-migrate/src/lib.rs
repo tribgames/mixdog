@@ -1,3 +1,4 @@
+pub mod connectors;
 pub mod desktop_profile;
 pub mod durable;
 pub mod error;

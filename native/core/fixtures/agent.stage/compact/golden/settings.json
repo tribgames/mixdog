@@ -1,0 +1,3539 @@
+{
+  "configKeys": [
+    "auto",
+    "onModelChange",
+    "summaryMode",
+    "type",
+    "compactType",
+    "compact_type",
+    "semantic",
+    "semanticModel",
+    "prune",
+    "tailTurns",
+    "recallMemoryTimeoutMs",
+    "recallIngestLimit",
+    "recallChunkLimit",
+    "recallLimit",
+    "recallCycle1BatchSize",
+    "recallRowsPerSession",
+    "recallWindowSize",
+    "recallConcurrency",
+    "recallCycle1DeadlineMs",
+    "enabled",
+    "useMaintainer",
+    "model",
+    "summaryModel",
+    "timeoutMs",
+    "memoryTimeoutMs",
+    "buffer",
+    "bufferTokens",
+    "reservedTokens",
+    "bufferPercent",
+    "bufferPct",
+    "bufferRatio",
+    "bufferFraction",
+    "mainBufferTokens",
+    "mainBuffer",
+    "mainBufferPercent",
+    "mainBufferPct",
+    "mainBufferRatio",
+    "mainBufferFraction"
+  ],
+  "cases": [
+    {
+      "name": "defaults",
+      "config": {},
+      "configText": null,
+      "provider": null,
+      "session": null,
+      "steps": [
+        {
+          "method": "getCompactionSettings",
+          "result": {
+            "auto": true,
+            "onModelChange": true,
+            "summaryMode": "smart"
+          },
+          "config": {},
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 0
+        },
+        {
+          "method": "getAutoClear",
+          "result": {
+            "enabled": true,
+            "idleMs": 3600000,
+            "unlimited": false,
+            "label": "1h",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": null,
+            "providerDefaults": [
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {},
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 0
+        }
+      ]
+    },
+    {
+      "name": "legacy-compaction",
+      "config": {
+        "compaction": {
+          "enabled": false,
+          "semanticModel": "m-old",
+          "recallMemoryTimeoutMs": 9000,
+          "type": "x",
+          "prune": true,
+          "tailTurns": 3,
+          "useMaintainer": false,
+          "mainBufferPercent": 20,
+          "extra": {
+            "a": 1
+          }
+        }
+      },
+      "configText": null,
+      "provider": null,
+      "session": null,
+      "steps": [
+        {
+          "method": "getCompactionSettings",
+          "result": {
+            "mainBufferPercent": 20,
+            "extra": {
+              "a": 1
+            },
+            "summaryModel": "m-old",
+            "memoryTimeoutMs": 9000,
+            "auto": false,
+            "onModelChange": true,
+            "summaryMode": "self"
+          },
+          "config": {
+            "compaction": {
+              "enabled": false,
+              "semanticModel": "m-old",
+              "recallMemoryTimeoutMs": 9000,
+              "type": "x",
+              "prune": true,
+              "tailTurns": 3,
+              "useMaintainer": false,
+              "mainBufferPercent": 20,
+              "extra": {
+                "a": 1
+              }
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 0
+        }
+      ]
+    },
+    {
+      "name": "set-compaction",
+      "config": {
+        "compaction": {
+          "auto": true,
+          "mainBufferTokens": 5000,
+          "summaryModel": "sm"
+        }
+      },
+      "configText": null,
+      "provider": null,
+      "session": {
+        "auto": true,
+        "mainBufferTokens": 5000,
+        "bufferTokens": 42,
+        "thresholds": {
+          "a": 1
+        },
+        "model": "x",
+        "useMaintainer": false
+      },
+      "steps": [
+        {
+          "method": "setCompactionSettings",
+          "input": {
+            "mainBufferPercent": 30
+          },
+          "result": {
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": true,
+            "summaryMode": "smart",
+            "mainBufferPercent": 30
+          },
+          "config": {
+            "compaction": {
+              "auto": true,
+              "summaryModel": "sm",
+              "onModelChange": true,
+              "summaryMode": "smart",
+              "mainBufferPercent": 30
+            }
+          },
+          "session": {
+            "thresholds": {
+              "a": 1
+            },
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": true,
+            "summaryMode": "smart",
+            "mainBufferPercent": 30
+          },
+          "invalidated": 1,
+          "refreshes": 0
+        },
+        {
+          "method": "setCompactionSettings",
+          "input": {
+            "enabled": false,
+            "onModelChange": false
+          },
+          "result": {
+            "auto": false,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "smart",
+            "mainBufferPercent": 30
+          },
+          "config": {
+            "compaction": {
+              "auto": false,
+              "summaryModel": "sm",
+              "onModelChange": false,
+              "summaryMode": "smart",
+              "mainBufferPercent": 30
+            }
+          },
+          "session": {
+            "thresholds": {
+              "a": 1
+            },
+            "auto": false,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "smart",
+            "mainBufferPercent": 30
+          },
+          "invalidated": 2,
+          "refreshes": 0
+        },
+        {
+          "method": "setCompactionSettings",
+          "input": {
+            "summaryMode": "maintainer",
+            "auto": true
+          },
+          "result": {
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferPercent": 30
+          },
+          "config": {
+            "compaction": {
+              "auto": true,
+              "summaryModel": "sm",
+              "onModelChange": false,
+              "summaryMode": "maintainer",
+              "mainBufferPercent": 30
+            }
+          },
+          "session": {
+            "thresholds": {
+              "a": 1
+            },
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferPercent": 30
+          },
+          "invalidated": 3,
+          "refreshes": 0
+        },
+        {
+          "method": "setCompactionSettings",
+          "input": {
+            "summaryMode": "bogus"
+          },
+          "error": "usage: summaryMode smart | maintainer | self",
+          "config": {
+            "compaction": {
+              "auto": true,
+              "summaryModel": "sm",
+              "onModelChange": false,
+              "summaryMode": "maintainer",
+              "mainBufferPercent": 30
+            }
+          },
+          "session": {
+            "thresholds": {
+              "a": 1
+            },
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferPercent": 30
+          },
+          "invalidated": 3,
+          "refreshes": 0
+        },
+        {
+          "method": "setCompactionSettings",
+          "input": {
+            "mainBufferTokens": 8000,
+            "mainBuffer": 1
+          },
+          "result": {
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferTokens": 8000,
+            "mainBuffer": 1
+          },
+          "config": {
+            "compaction": {
+              "auto": true,
+              "summaryModel": "sm",
+              "onModelChange": false,
+              "summaryMode": "maintainer",
+              "mainBufferTokens": 8000,
+              "mainBuffer": 1
+            }
+          },
+          "session": {
+            "thresholds": {
+              "a": 1
+            },
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferTokens": 8000,
+            "mainBuffer": 1
+          },
+          "invalidated": 4,
+          "refreshes": 0
+        },
+        {
+          "method": "setCompactionSettings",
+          "input": {},
+          "result": {
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferTokens": 8000,
+            "mainBuffer": 1
+          },
+          "config": {
+            "compaction": {
+              "auto": true,
+              "summaryModel": "sm",
+              "onModelChange": false,
+              "summaryMode": "maintainer",
+              "mainBufferTokens": 8000,
+              "mainBuffer": 1
+            }
+          },
+          "session": {
+            "thresholds": {
+              "a": 1
+            },
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferTokens": 8000,
+            "mainBuffer": 1
+          },
+          "invalidated": 5,
+          "refreshes": 0
+        },
+        {
+          "method": "setCompactionSettings",
+          "result": {
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferTokens": 8000,
+            "mainBuffer": 1
+          },
+          "config": {
+            "compaction": {
+              "auto": true,
+              "summaryModel": "sm",
+              "onModelChange": false,
+              "summaryMode": "maintainer",
+              "mainBufferTokens": 8000,
+              "mainBuffer": 1
+            }
+          },
+          "session": {
+            "thresholds": {
+              "a": 1
+            },
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferTokens": 8000,
+            "mainBuffer": 1
+          },
+          "invalidated": 6,
+          "refreshes": 0
+        },
+        {
+          "method": "setCompactionSettings",
+          "input": {
+            "type": "smart",
+            "auto": 0
+          },
+          "result": {
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferTokens": 8000,
+            "mainBuffer": 1
+          },
+          "config": {
+            "compaction": {
+              "auto": true,
+              "summaryModel": "sm",
+              "onModelChange": false,
+              "summaryMode": "maintainer",
+              "mainBufferTokens": 8000,
+              "mainBuffer": 1
+            }
+          },
+          "session": {
+            "thresholds": {
+              "a": 1
+            },
+            "auto": true,
+            "summaryModel": "sm",
+            "onModelChange": false,
+            "summaryMode": "maintainer",
+            "mainBufferTokens": 8000,
+            "mainBuffer": 1
+          },
+          "invalidated": 7,
+          "refreshes": 0
+        }
+      ]
+    },
+    {
+      "name": "auto-clear-routes",
+      "config": {
+        "providers": {
+          "anthropic": {
+            "enabled": true
+          },
+          "openai": {
+            "enabled": false
+          },
+          "openai-oauth": {},
+          "Custom": {
+            "enabled": true
+          },
+          "off": null
+        },
+        "autoClear": {
+          "enabled": true,
+          "providerIdleMs": {
+            "Groq": 7200000,
+            "mistral": 0,
+            "x-new": "90m",
+            "bad": -1,
+            "empty": ""
+          }
+        }
+      },
+      "configText": null,
+      "provider": "anthropic",
+      "session": null,
+      "steps": [
+        {
+          "method": "getAutoClear",
+          "result": {
+            "enabled": true,
+            "idleMs": 3600000,
+            "unlimited": false,
+            "label": "1h",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "anthropic",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "groq",
+                "idleMs": 7200000,
+                "builtInMs": 7200000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "mistral",
+                "idleMs": 9007199254740991,
+                "builtInMs": 3600000,
+                "unlimited": true,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "providerIdleMs": {
+                "Groq": 7200000,
+                "mistral": 0,
+                "x-new": "90m",
+                "bad": -1,
+                "empty": ""
+              }
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 0
+        }
+      ]
+    },
+    {
+      "name": "auto-clear-integer-like-keys",
+      "config": {
+        "providers": {
+          "b": {
+            "enabled": true
+          }
+        },
+        "autoClear": {
+          "providerIdleMs": {
+            "3": "15m",
+            "20": 300000,
+            "zeta": 120000,
+            "alpha": 180000,
+            "007": 240000
+          }
+        }
+      },
+      "configText": "{\"providers\":{\"b\":{\"enabled\":true}},\"autoClear\":{\"providerIdleMs\":{\"zeta\":120000,\"20\":300000,\"alpha\":180000,\"3\":\"15m\",\"007\":240000}}}",
+      "provider": "b",
+      "session": null,
+      "steps": [
+        {
+          "method": "getAutoClear",
+          "result": {
+            "enabled": true,
+            "idleMs": 3600000,
+            "unlimited": false,
+            "label": "1h",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "b",
+            "providerDefaults": [
+              {
+                "provider": "b",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "20",
+                "idleMs": 300000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "zeta",
+                "idleMs": 120000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "alpha",
+                "idleMs": 180000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "007",
+                "idleMs": 240000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "b": {
+                "enabled": true
+              }
+            },
+            "autoClear": {
+              "providerIdleMs": {
+                "3": "15m",
+                "20": 300000,
+                "zeta": 120000,
+                "alpha": 180000,
+                "007": 240000
+              }
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 0
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "9",
+            "duration": "20m"
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 3600000,
+            "unlimited": false,
+            "label": "1h",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "b",
+            "providerDefaults": [
+              {
+                "provider": "b",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "9",
+                "idleMs": 1200000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "20",
+                "idleMs": 300000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "zeta",
+                "idleMs": 120000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "alpha",
+                "idleMs": 180000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "007",
+                "idleMs": 240000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "b": {
+                "enabled": true
+              }
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "9": 1200000,
+                "20": 300000,
+                "zeta": 120000,
+                "alpha": 180000,
+                "007": 240000
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 1
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "alpha",
+            "resetProvider": true
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 3600000,
+            "unlimited": false,
+            "label": "1h",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "b",
+            "providerDefaults": [
+              {
+                "provider": "b",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "9",
+                "idleMs": 1200000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "20",
+                "idleMs": 300000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "zeta",
+                "idleMs": 120000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "007",
+                "idleMs": 240000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "b": {
+                "enabled": true
+              }
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "9": 1200000,
+                "20": 300000,
+                "zeta": 120000,
+                "007": 240000
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 2
+        }
+      ]
+    },
+    {
+      "name": "auto-clear-integer-like-provider-rows",
+      "config": {
+        "providers": {
+          "3": {},
+          "20": {},
+          "b": {}
+        }
+      },
+      "configText": "{\"providers\":{\"b\":{},\"20\":{},\"3\":{}}}",
+      "provider": null,
+      "session": null,
+      "steps": [
+        {
+          "method": "getAutoClear",
+          "result": {
+            "enabled": true,
+            "idleMs": 3600000,
+            "unlimited": false,
+            "label": "1h",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": null,
+            "providerDefaults": [
+              {
+                "provider": "3",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "20",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "b",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "3": {},
+              "20": {},
+              "b": {}
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 0
+        }
+      ]
+    },
+    {
+      "name": "auto-clear-oauth-unlimited",
+      "config": {
+        "providers": {
+          "openai-oauth": {
+            "enabled": true
+          }
+        }
+      },
+      "configText": null,
+      "provider": "openai-oauth",
+      "session": null,
+      "steps": [
+        {
+          "method": "getAutoClear",
+          "result": {
+            "enabled": true,
+            "idleMs": 9007199254740991,
+            "unlimited": true,
+            "label": "unlimited",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 9007199254740991,
+            "provider": "openai-oauth",
+            "providerDefaults": [
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "openai-oauth": {
+                "enabled": true
+              }
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 0
+        }
+      ]
+    },
+    {
+      "name": "auto-clear-unknown-provider",
+      "config": {
+        "autoClear": {
+          "idleMs": 90000,
+          "minContextPercent": 250.6
+        }
+      },
+      "configText": null,
+      "provider": "Weird",
+      "session": null,
+      "steps": [
+        {
+          "method": "getAutoClear",
+          "result": {
+            "enabled": true,
+            "idleMs": 90000,
+            "unlimited": false,
+            "label": "90s",
+            "custom": true,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "Weird",
+            "providerDefaults": [
+              {
+                "provider": "weird",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 100
+          },
+          "config": {
+            "autoClear": {
+              "idleMs": 90000,
+              "minContextPercent": 250.6
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 0
+        }
+      ]
+    },
+    {
+      "name": "set-auto-clear-global",
+      "config": {
+        "providers": {
+          "anthropic": {
+            "enabled": true
+          },
+          "openai": {
+            "enabled": false
+          },
+          "openai-oauth": {},
+          "Custom": {
+            "enabled": true
+          },
+          "off": null
+        },
+        "autoClear": {
+          "idleMs": 120000
+        }
+      },
+      "configText": null,
+      "provider": "anthropic",
+      "session": null,
+      "steps": [
+        {
+          "method": "setAutoClear",
+          "input": {
+            "enabled": false
+          },
+          "result": {
+            "enabled": false,
+            "idleMs": 120000,
+            "unlimited": false,
+            "label": "2m",
+            "custom": true,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "anthropic",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": false,
+              "idleMs": 120000,
+              "custom": true,
+              "providerIdleMs": {},
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 1
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "minContextPercent": 33.4
+          },
+          "result": {
+            "enabled": false,
+            "idleMs": 120000,
+            "unlimited": false,
+            "label": "2m",
+            "custom": true,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "anthropic",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 33
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": false,
+              "idleMs": 120000,
+              "custom": true,
+              "providerIdleMs": {},
+              "minContextPercent": 33
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 2
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "minContextPercent": "abc"
+          },
+          "error": "autoclear minContextPercent must be a number between 0 and 100",
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": false,
+              "idleMs": 120000,
+              "custom": true,
+              "providerIdleMs": {},
+              "minContextPercent": 33
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 2
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "idleMs": 30000
+          },
+          "result": {
+            "enabled": false,
+            "idleMs": 60000,
+            "unlimited": false,
+            "label": "1m",
+            "custom": true,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "anthropic",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 33
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": false,
+              "idleMs": 60000,
+              "custom": true,
+              "providerIdleMs": {},
+              "minContextPercent": 33
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 3
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "idleMs": -5
+          },
+          "error": "autoclear idleMs must be a positive number",
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": false,
+              "idleMs": 60000,
+              "custom": true,
+              "providerIdleMs": {},
+              "minContextPercent": 33
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 3
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "idleMs": null
+          },
+          "result": {
+            "enabled": false,
+            "idleMs": 3600000,
+            "unlimited": false,
+            "label": "1h",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "anthropic",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 33
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": false,
+              "idleMs": null,
+              "custom": true,
+              "providerIdleMs": {},
+              "minContextPercent": 33
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 4
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "reset": true
+          },
+          "result": {
+            "enabled": false,
+            "idleMs": 3600000,
+            "unlimited": false,
+            "label": "1h",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "anthropic",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 33
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": false,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {},
+              "minContextPercent": 33
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 5
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "duration": "2h"
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 7200000,
+            "unlimited": false,
+            "label": "2h",
+            "custom": true,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "anthropic",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 33
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 7200000,
+              "custom": false,
+              "providerIdleMs": {},
+              "minContextPercent": 33
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 6
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "duration": "zzz"
+          },
+          "error": "usage: /autoclear [on|off|status|<minutes|1h|90m>|unlimited]",
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 7200000,
+              "custom": false,
+              "providerIdleMs": {},
+              "minContextPercent": 33
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 6
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "enabled": false,
+            "duration": "90m"
+          },
+          "result": {
+            "enabled": false,
+            "idleMs": 5400000,
+            "unlimited": false,
+            "label": "90m",
+            "custom": true,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "anthropic",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 33
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": false,
+              "idleMs": 5400000,
+              "custom": true,
+              "providerIdleMs": {},
+              "minContextPercent": 33
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 7
+        },
+        {
+          "method": "setAutoClear",
+          "input": {},
+          "result": {
+            "enabled": false,
+            "idleMs": 5400000,
+            "unlimited": false,
+            "label": "90m",
+            "custom": true,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": "anthropic",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 33
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": false,
+              "idleMs": 5400000,
+              "custom": true,
+              "providerIdleMs": {},
+              "minContextPercent": 33
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 8
+        }
+      ]
+    },
+    {
+      "name": "set-auto-clear-provider",
+      "config": {
+        "providers": {
+          "anthropic": {
+            "enabled": true
+          },
+          "openai": {
+            "enabled": false
+          },
+          "openai-oauth": {},
+          "Custom": {
+            "enabled": true
+          },
+          "off": null
+        },
+        "autoClear": {
+          "providerIdleMs": {
+            "anthropic": 7200000
+          }
+        }
+      },
+      "configText": null,
+      "provider": "openai",
+      "session": null,
+      "steps": [
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "Anthropic",
+            "duration": "45m"
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 1800000,
+            "unlimited": false,
+            "label": "30m",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 1800000,
+            "provider": "openai",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 2700000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai",
+                "idleMs": 1800000,
+                "builtInMs": 1800000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 1
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "groq",
+            "idleMs": 10000
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 1800000,
+            "unlimited": false,
+            "label": "30m",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 1800000,
+            "provider": "openai",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 2700000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "groq",
+                "idleMs": 60000,
+                "builtInMs": 7200000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai",
+                "idleMs": 1800000,
+                "builtInMs": 1800000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000,
+                "groq": 60000
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 2
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "groq",
+            "unlimited": true
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 1800000,
+            "unlimited": false,
+            "label": "30m",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 1800000,
+            "provider": "openai",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 2700000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "groq",
+                "idleMs": 9007199254740991,
+                "builtInMs": 7200000,
+                "unlimited": true,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai",
+                "idleMs": 1800000,
+                "builtInMs": 1800000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000,
+                "groq": 0
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 3
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "xai",
+            "idleMs": 0
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 1800000,
+            "unlimited": false,
+            "label": "30m",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 1800000,
+            "provider": "openai",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 2700000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "groq",
+                "idleMs": 9007199254740991,
+                "builtInMs": 7200000,
+                "unlimited": true,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai",
+                "idleMs": 1800000,
+                "builtInMs": 1800000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "xai",
+                "idleMs": 9007199254740991,
+                "builtInMs": 3600000,
+                "unlimited": true,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000,
+                "groq": 0,
+                "xai": 0
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 4
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "xai",
+            "duration": "never"
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 1800000,
+            "unlimited": false,
+            "label": "30m",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 1800000,
+            "provider": "openai",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 2700000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "groq",
+                "idleMs": 9007199254740991,
+                "builtInMs": 7200000,
+                "unlimited": true,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai",
+                "idleMs": 1800000,
+                "builtInMs": 1800000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "xai",
+                "idleMs": 9007199254740991,
+                "builtInMs": 3600000,
+                "unlimited": true,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000,
+                "groq": 0,
+                "xai": 0
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 5
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "xai",
+            "resetProvider": true
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 1800000,
+            "unlimited": false,
+            "label": "30m",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 1800000,
+            "provider": "openai",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 2700000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "groq",
+                "idleMs": 9007199254740991,
+                "builtInMs": 7200000,
+                "unlimited": true,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai",
+                "idleMs": 1800000,
+                "builtInMs": 1800000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000,
+                "groq": 0
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 6
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "groq",
+            "idleMs": null
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 1800000,
+            "unlimited": false,
+            "label": "30m",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 1800000,
+            "provider": "openai",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 2700000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai",
+                "idleMs": 1800000,
+                "builtInMs": 1800000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 7
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "groq",
+            "duration": "bogus"
+          },
+          "error": "usage: duration like 10m, 1h, 24h, or unlimited",
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 7
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "groq",
+            "idleMs": "x"
+          },
+          "error": "usage: duration like 10m, 1h, 24h, or unlimited",
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 7
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": " DeepSeek ",
+            "duration": "1.5h"
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 1800000,
+            "unlimited": false,
+            "label": "30m",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 1800000,
+            "provider": "openai",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 2700000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai",
+                "idleMs": 1800000,
+                "builtInMs": 1800000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "deepseek",
+                "idleMs": 5400000,
+                "builtInMs": 86400000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000,
+                "deepseek": 5400000
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 8
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "duration": "unlimited"
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 9007199254740991,
+            "unlimited": true,
+            "label": "unlimited",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 9007199254740991,
+            "provider": "openai",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 2700000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai",
+                "idleMs": 9007199254740991,
+                "builtInMs": 1800000,
+                "unlimited": true,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "deepseek",
+                "idleMs": 5400000,
+                "builtInMs": 86400000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000,
+                "deepseek": 5400000,
+                "openai": 0
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 9
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "duration": "UNLIMITED",
+            "enabled": true
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 9007199254740991,
+            "unlimited": true,
+            "label": "unlimited",
+            "custom": false,
+            "providerCustom": false,
+            "providerDefault": 9007199254740991,
+            "provider": "openai",
+            "providerDefaults": [
+              {
+                "provider": "anthropic",
+                "idleMs": 2700000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai",
+                "idleMs": 9007199254740991,
+                "builtInMs": 1800000,
+                "unlimited": true,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "deepseek",
+                "idleMs": 5400000,
+                "builtInMs": 86400000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "openai-oauth",
+                "idleMs": 9007199254740991,
+                "builtInMs": 9007199254740991,
+                "unlimited": true,
+                "builtInUnlimited": true,
+                "custom": false
+              },
+              {
+                "provider": "custom",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "providers": {
+              "anthropic": {
+                "enabled": true
+              },
+              "openai": {
+                "enabled": false
+              },
+              "openai-oauth": {},
+              "Custom": {
+                "enabled": true
+              },
+              "off": null
+            },
+            "autoClear": {
+              "enabled": true,
+              "idleMs": null,
+              "custom": false,
+              "providerIdleMs": {
+                "anthropic": 2700000,
+                "deepseek": 5400000,
+                "openai": 0
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 10
+        }
+      ]
+    },
+    {
+      "name": "set-auto-clear-no-route",
+      "config": {},
+      "configText": null,
+      "provider": null,
+      "session": null,
+      "steps": [
+        {
+          "method": "setAutoClear",
+          "input": {
+            "duration": "unlimited"
+          },
+          "error": "usage: /autoclear [on|off|status|<minutes|1h|90m>|unlimited]",
+          "config": {},
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 0
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "duration": "10m"
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 600000,
+            "unlimited": false,
+            "label": "10m",
+            "custom": true,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": null,
+            "providerDefaults": [
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 600000,
+              "custom": false,
+              "providerIdleMs": {},
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 1
+        },
+        {
+          "method": "setAutoClear",
+          "input": {
+            "provider": "mistral",
+            "duration": "3600s"
+          },
+          "result": {
+            "enabled": true,
+            "idleMs": 600000,
+            "unlimited": false,
+            "label": "10m",
+            "custom": true,
+            "providerCustom": false,
+            "providerDefault": 3600000,
+            "provider": null,
+            "providerDefaults": [
+              {
+                "provider": "mistral",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": true
+              },
+              {
+                "provider": "default",
+                "idleMs": 3600000,
+                "builtInMs": 3600000,
+                "unlimited": false,
+                "builtInUnlimited": false,
+                "custom": false
+              }
+            ],
+            "minContextPercent": 10
+          },
+          "config": {
+            "autoClear": {
+              "enabled": true,
+              "idleMs": 600000,
+              "custom": true,
+              "providerIdleMs": {
+                "mistral": 3600000
+              },
+              "minContextPercent": 10
+            }
+          },
+          "session": null,
+          "invalidated": 0,
+          "refreshes": 2
+        }
+      ]
+    }
+  ],
+  "reap": [
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "openai-oauth",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "OpenAI",
+      "ms": 1800000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": " anthropic ",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "groq",
+      "ms": 7200000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "xai",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "mistral",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "deepseek",
+      "ms": 86400000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "unknown",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "Default",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "20",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "openai-oauth",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "OpenAI",
+      "ms": 1800000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": " anthropic ",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "groq",
+      "ms": 7200000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "xai",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "mistral",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "deepseek",
+      "ms": 86400000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "unknown",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "Default",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "20",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "openai-oauth",
+      "ms": 600000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "OpenAI",
+      "ms": 1800000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": " anthropic ",
+      "ms": 3600000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "groq",
+      "ms": 7200000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "xai",
+      "ms": 3600000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "mistral",
+      "ms": 3600000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "deepseek",
+      "ms": 86400000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "unknown",
+      "ms": 900000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "Default",
+      "ms": 900000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "",
+      "ms": 900000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "20",
+      "ms": 900000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": null,
+      "ms": 900000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": null,
+      "ms": 900000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "openai-oauth",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "OpenAI",
+      "ms": 1800000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": " anthropic ",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "groq",
+      "ms": 7200000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "xai",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "mistral",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "deepseek",
+      "ms": 86400000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "unknown",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "Default",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "20",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "openai-oauth",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "OpenAI",
+      "ms": 1800000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": " anthropic ",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "groq",
+      "ms": 7200000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "xai",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "mistral",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "deepseek",
+      "ms": 86400000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "unknown",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "Default",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "20",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": null,
+      "ms": 3600000
+    }
+  ]
+}

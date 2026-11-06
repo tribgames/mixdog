@@ -184,6 +184,32 @@ impl Worktrees {
         outcome
     }
 
+    /// Removes every snapshot `session_id` holds (the session was deleted): `{removed, kept}`,
+    /// a snapshot a command still runs in kept with `reason:"in-use"`, another failure kept with
+    /// its code.
+    pub async fn remove_session_snapshots(&self, session_id: &str, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        let held: Vec<(String, Option<String>)> = self
+            .all_records(cancel)
+            .await?
+            .into_iter()
+            .filter(|r| {
+                crate::worktree::manager::is_snapshot(r) && r.extra.get("holderSessionId").and_then(Value::as_str) == Some(session_id)
+            })
+            .map(|r| (r.id.clone(), r.extra.get("txId").and_then(Value::as_str).map(str::to_owned)))
+            .collect();
+        let (mut removed, mut kept) = (Vec::<Value>::new(), Vec::<Value>::new());
+        for (id, tx) in held {
+            match self.remove_snapshot(&id, true, cancel).await {
+                Ok(_) => removed.push(json!(id)),
+                Err(failure) if failure.code() == Some(errors::WORKTREE_BUSY_JOBS) => {
+                    kept.push(json!({ "id": id, "txId": tx, "reason": "in-use" }));
+                }
+                Err(failure) => kept.push(json!({ "id": id, "txId": tx, "error": failure.code().unwrap_or("error") })),
+            }
+        }
+        Ok(json!({ "removed": removed, "kept": kept }))
+    }
+
     /// The worker's turn settled: removes the snapshots it made. One a command still runs in is
     /// retried with a doubling delay a few times; the rest stays for the prune.
     pub async fn release_worker_snapshots(

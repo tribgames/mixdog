@@ -992,6 +992,51 @@ async fn an_unrecorded_link_still_refuses_the_removal_and_nothing_is_deleted() {
 }
 
 #[tokio::test]
+async fn a_deleted_session_loses_its_snapshots_even_with_no_owned_worktree_and_neighbours_keep_theirs() {
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let project = std::path::Path::new(&made[0].project_path);
+    let mine = worktrees.create_worker_snapshot("gone", project, "HEAD", "tx-a", false, &cancel).await.unwrap();
+    let theirs = worktrees.create_worker_snapshot("neighbour", project, "HEAD", "tx-b", false, &cancel).await.unwrap();
+    let (mine, theirs) = (std::path::PathBuf::from(mine["path"].as_str().unwrap()), std::path::PathBuf::from(theirs["path"].as_str().unwrap()));
+    // No owned worktree: nothing to report, but the snapshot goes.
+    assert!(worktrees.cleanup_deleted_session_worktree("gone", &cancel).await.unwrap().is_none());
+    assert!(!mine.exists());
+    assert!(theirs.exists());
+}
+
+#[tokio::test]
+async fn snapshots_go_before_the_owned_worktree_is_judged_and_a_kept_one_does_not_hold_them() {
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let project = std::path::Path::new(&made[1].project_path);
+    let snapshot = worktrees.create_worker_snapshot("s2", project, "HEAD", "tx-c", false, &cancel).await.unwrap();
+    let snapshot = std::path::PathBuf::from(snapshot["path"].as_str().unwrap());
+    std::fs::write(std::path::Path::new(&made[1].path).join("dirty.txt"), "d\n").unwrap();
+    let kept = worktrees.cleanup_deleted_session_worktree("s2", &cancel).await.unwrap().unwrap();
+    assert_ne!(kept["removed"], true, "{kept}");
+    assert!(std::path::Path::new(&made[1].path).exists(), "dirty work is kept");
+    assert!(!snapshot.exists(), "its snapshot is removed whatever the owned worktree does");
+}
+
+#[tokio::test]
+async fn a_deleted_sessions_shared_references_are_forgotten_and_the_owners_are_not() {
+    use crate::worktree::ownership::Owner;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let id = &made[0].id;
+    let guest = Owner { session_id: "guest".into(), runtime_token: "rt".into(), pid: None };
+    worktrees.claim_owner(id, guest, &cancel).await.unwrap();
+    let before = worktrees.all_records(&cancel).await.unwrap().into_iter().find(|r| r.id == *id).unwrap();
+    assert_eq!(before.shared_session_ids, ["guest"]);
+    assert!(before.extra["sharedLeases"].get("guest").is_some());
+    // The guest owns no worktree of its own.
+    assert!(worktrees.cleanup_deleted_session_worktree("guest", &cancel).await.unwrap().is_none());
+    let after = worktrees.all_records(&cancel).await.unwrap().into_iter().find(|r| r.id == *id).unwrap();
+    assert!(after.shared_session_ids.is_empty());
+    assert!(after.extra["sharedLeases"].get("guest").is_none());
+    assert_eq!(after.owner_session_id.as_deref(), Some("s1"));
+    assert!(std::path::Path::new(&made[0].path).exists());
+}
+
+#[tokio::test]
 async fn a_deleted_sessions_worktree_is_removed_when_clean_and_kept_when_not() {
     let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
     std::fs::write(std::path::Path::new(&made[1].path).join("dirty.txt"), "d\n").unwrap();

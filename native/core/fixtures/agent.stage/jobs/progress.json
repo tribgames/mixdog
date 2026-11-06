@@ -1,0 +1,3877 @@
+[
+  {
+    "name": "no_input/none/none",
+    "input": {
+      "now": 1772366400000
+    },
+    "output": {
+      "worker_stage": "unknown",
+      "last_progress": "unknown",
+      "diagnostic": "unknown"
+    }
+  },
+  {
+    "name": "no_input/running/none",
+    "input": {
+      "now": 1772366400000,
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "unknown",
+      "last_progress": "unknown",
+      "diagnostic": "unknown"
+    }
+  },
+  {
+    "name": "no_input/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "unknown",
+      "last_progress": "unknown",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "no_input/failed/none",
+    "input": {
+      "now": 1772366400000,
+      "taskStatus": "failed"
+    },
+    "output": {
+      "worker_stage": "unknown",
+      "last_progress": "unknown",
+      "diagnostic": "task failed"
+    }
+  },
+  {
+    "name": "no_input/cancelled/none",
+    "input": {
+      "now": 1772366400000,
+      "taskStatus": "cancelled"
+    },
+    "output": {
+      "worker_stage": "unknown",
+      "last_progress": "unknown",
+      "diagnostic": "task cancelled"
+    }
+  },
+  {
+    "name": "no_input/canceled/none",
+    "input": {
+      "now": 1772366400000,
+      "taskStatus": "canceled"
+    },
+    "output": {
+      "worker_stage": "unknown",
+      "last_progress": "unknown",
+      "diagnostic": "task cancelled"
+    }
+  },
+  {
+    "name": "no_input/error/none",
+    "input": {
+      "now": 1772366400000,
+      "taskStatus": "error"
+    },
+    "output": {
+      "worker_stage": "unknown",
+      "last_progress": "unknown",
+      "diagnostic": "task failed"
+    }
+  },
+  {
+    "name": "idle_session/none/idle",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "idle",
+      "runtimeStage": "idle"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "idle"
+    }
+  },
+  {
+    "name": "idle_session/running/idle",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "idle",
+      "runtimeStage": "idle",
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task running; worker turn finished, awaiting job reconciliation"
+    }
+  },
+  {
+    "name": "idle_session/completed/idle",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "idle",
+      "runtimeStage": "idle",
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "idle_empty_final/none/idle",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "idle",
+      "runtimeStage": "idle",
+      "runtime": {
+        "emptyFinal": true
+      }
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "finished empty",
+      "diagnostic": "idle"
+    }
+  },
+  {
+    "name": "idle_empty_final/running/idle",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "idle",
+      "runtimeStage": "idle",
+      "runtime": {
+        "emptyFinal": true
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "finished empty",
+      "diagnostic": "task running; worker turn finished, awaiting job reconciliation"
+    }
+  },
+  {
+    "name": "idle_empty_final/completed/idle",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "idle",
+      "runtimeStage": "idle",
+      "runtime": {
+        "emptyFinal": true
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "finished empty",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "done/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "done"
+    },
+    "output": {
+      "worker_stage": "done",
+      "last_progress": "idle",
+      "diagnostic": "idle"
+    }
+  },
+  {
+    "name": "done/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "done",
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "done",
+      "last_progress": "idle",
+      "diagnostic": "task running; worker turn finished, awaiting job reconciliation"
+    }
+  },
+  {
+    "name": "done/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "done",
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "done",
+      "last_progress": "idle",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "error/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "error"
+    },
+    "output": {
+      "worker_stage": "error",
+      "last_progress": "error",
+      "diagnostic": "worker error"
+    }
+  },
+  {
+    "name": "error/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "error",
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "error",
+      "last_progress": "error",
+      "diagnostic": "worker error"
+    }
+  },
+  {
+    "name": "error/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "error",
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "error",
+      "last_progress": "error",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "closed/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "closed"
+    },
+    "output": {
+      "worker_stage": "closed",
+      "last_progress": "closed",
+      "diagnostic": "closed"
+    }
+  },
+  {
+    "name": "closed/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "closed",
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "closed",
+      "last_progress": "closed",
+      "diagnostic": "closed"
+    }
+  },
+  {
+    "name": "closed/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "closed",
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "closed",
+      "last_progress": "closed",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "cancelling/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "cancelling"
+    },
+    "output": {
+      "worker_stage": "cancelling",
+      "last_progress": "cancelling",
+      "diagnostic": "cancelling"
+    }
+  },
+  {
+    "name": "cancelling/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "cancelling",
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "cancelling",
+      "last_progress": "cancelling",
+      "diagnostic": "cancelling"
+    }
+  },
+  {
+    "name": "cancelling/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "cancelling",
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "cancelling",
+      "last_progress": "cancelling",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "resource_wait/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "resource_wait"
+    },
+    "output": {
+      "worker_stage": "resource_wait",
+      "last_progress": "waiting for execution capacity",
+      "diagnostic": "waiting to reacquire execution capacity"
+    }
+  },
+  {
+    "name": "resource_wait/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "resource_wait",
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "resource_wait",
+      "last_progress": "waiting for execution capacity",
+      "diagnostic": "waiting to reacquire execution capacity"
+    }
+  },
+  {
+    "name": "resource_wait/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "resource_wait",
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "resource_wait",
+      "last_progress": "waiting for execution capacity",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "connecting/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "connecting"
+    },
+    "output": {
+      "worker_stage": "connecting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response"
+    }
+  },
+  {
+    "name": "connecting/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "connecting",
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "connecting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response"
+    }
+  },
+  {
+    "name": "connecting/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "connecting",
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "connecting",
+      "last_progress": "connecting to model",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "requesting/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting"
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response"
+    }
+  },
+  {
+    "name": "requesting/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response"
+    }
+  },
+  {
+    "name": "requesting/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "connecting to model",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "running_stage/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "running",
+      "runtime": {
+        "lastProgressAt": 1772366358000
+      }
+    },
+    "output": {
+      "worker_stage": "running",
+      "last_progress": "active (42s since last progress)",
+      "diagnostic": "running",
+      "silent_for": 42
+    }
+  },
+  {
+    "name": "running_stage/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "running",
+      "runtime": {
+        "lastProgressAt": 1772366358000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "running",
+      "last_progress": "active (42s since last progress)",
+      "diagnostic": "running",
+      "silent_for": 42
+    }
+  },
+  {
+    "name": "running_stage/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "running",
+      "runtime": {
+        "lastProgressAt": 1772366358000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "running",
+      "last_progress": "active (42s since last progress)",
+      "diagnostic": "task completed; worker idle",
+      "silent_for": 42
+    }
+  },
+  {
+    "name": "tool_running_named/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "bash",
+      "runtime": {
+        "toolStartedAt": 1772366393000
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: bash",
+      "diagnostic": "tool running",
+      "silent_for": 7
+    }
+  },
+  {
+    "name": "tool_running_named/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "bash",
+      "runtime": {
+        "toolStartedAt": 1772366393000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: bash",
+      "diagnostic": "tool running",
+      "silent_for": 7
+    }
+  },
+  {
+    "name": "tool_running_named/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "bash",
+      "runtime": {
+        "toolStartedAt": 1772366393000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: bash",
+      "diagnostic": "task completed; worker idle",
+      "silent_for": 7
+    }
+  },
+  {
+    "name": "tool_running_unnamed/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "runtime": {
+        "toolStartedAt": 1772366393000
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "tool running",
+      "silent_for": 7
+    }
+  },
+  {
+    "name": "tool_running_unnamed/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "runtime": {
+        "toolStartedAt": 1772366393000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "tool running",
+      "silent_for": 7
+    }
+  },
+  {
+    "name": "tool_running_unnamed/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "runtime": {
+        "toolStartedAt": 1772366393000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "task completed; worker idle",
+      "silent_for": 7
+    }
+  },
+  {
+    "name": "tool_running_runtime_tool/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "runtime": {
+        "lastToolCall": "read"
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: read",
+      "diagnostic": "tool running"
+    }
+  },
+  {
+    "name": "tool_running_runtime_tool/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "runtime": {
+        "lastToolCall": "read"
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: read",
+      "diagnostic": "tool running"
+    }
+  },
+  {
+    "name": "tool_running_runtime_tool/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "runtime": {
+        "lastToolCall": "read"
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: read",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "tool_silence/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "task",
+      "toolSilence": {
+        "taskId": "task_shell_1",
+        "silentMs": 725000,
+        "hung": false
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: task",
+      "diagnostic": "tool running",
+      "tool_silent_for": "12m (shell job task_shell_1 no output)"
+    }
+  },
+  {
+    "name": "tool_silence/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "task",
+      "toolSilence": {
+        "taskId": "task_shell_1",
+        "silentMs": 725000,
+        "hung": false
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: task",
+      "diagnostic": "tool running",
+      "tool_silent_for": "12m (shell job task_shell_1 no output)"
+    }
+  },
+  {
+    "name": "tool_silence/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "task",
+      "toolSilence": {
+        "taskId": "task_shell_1",
+        "silentMs": 725000,
+        "hung": false
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: task",
+      "diagnostic": "task completed; worker idle",
+      "tool_silent_for": "12m (shell job task_shell_1 no output)"
+    }
+  },
+  {
+    "name": "tool_hung/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "task",
+      "toolSilence": {
+        "taskId": "task_shell_1",
+        "silentMs": 725000,
+        "hung": true
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: task",
+      "diagnostic": "tool possibly hung: shell job task_shell_1 no output for 12m; inspect or cancel it",
+      "tool_silent_for": "12m (shell job task_shell_1 no output)"
+    }
+  },
+  {
+    "name": "tool_hung/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "task",
+      "toolSilence": {
+        "taskId": "task_shell_1",
+        "silentMs": 725000,
+        "hung": true
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: task",
+      "diagnostic": "tool possibly hung: shell job task_shell_1 no output for 12m; inspect or cancel it",
+      "tool_silent_for": "12m (shell job task_shell_1 no output)"
+    }
+  },
+  {
+    "name": "tool_hung/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "task",
+      "toolSilence": {
+        "taskId": "task_shell_1",
+        "silentMs": 725000,
+        "hung": true
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: task",
+      "diagnostic": "task completed; worker idle",
+      "tool_silent_for": "12m (shell job task_shell_1 no output)"
+    }
+  },
+  {
+    "name": "tool_silence_short/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "toolSilence": {
+        "taskId": "t",
+        "silentMs": 400,
+        "hung": false
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "tool running",
+      "tool_silent_for": "0s (shell job t no output)"
+    }
+  },
+  {
+    "name": "tool_silence_short/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "toolSilence": {
+        "taskId": "t",
+        "silentMs": 400,
+        "hung": false
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "tool running",
+      "tool_silent_for": "0s (shell job t no output)"
+    }
+  },
+  {
+    "name": "tool_silence_short/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "toolSilence": {
+        "taskId": "t",
+        "silentMs": 400,
+        "hung": false
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "task completed; worker idle",
+      "tool_silent_for": "0s (shell job t no output)"
+    }
+  },
+  {
+    "name": "tool_silence_idle_stage/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "toolSilence": {
+        "taskId": "t",
+        "silentMs": 90000,
+        "hung": true
+      }
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "idle"
+    }
+  },
+  {
+    "name": "tool_silence_idle_stage/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "toolSilence": {
+        "taskId": "t",
+        "silentMs": 90000,
+        "hung": true
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task running; worker turn finished, awaiting job reconciliation"
+    }
+  },
+  {
+    "name": "tool_silence_idle_stage/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "toolSilence": {
+        "taskId": "t",
+        "silentMs": 90000,
+        "hung": true
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "streaming_plain/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastStreamDeltaAt": 1772366398000
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 2
+    }
+  },
+  {
+    "name": "streaming_plain/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastStreamDeltaAt": 1772366398000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 2
+    }
+  },
+  {
+    "name": "streaming_plain/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastStreamDeltaAt": 1772366398000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "task completed; worker idle",
+      "silent_for": 2
+    }
+  },
+  {
+    "name": "streaming_quiet/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastStreamDeltaAt": 1772366391000
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming (no stream delta for 9s)",
+      "diagnostic": "streaming, no visible output yet (9s)",
+      "silent_for": 9
+    }
+  },
+  {
+    "name": "streaming_quiet/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastStreamDeltaAt": 1772366391000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming (no stream delta for 9s)",
+      "diagnostic": "streaming, no visible output yet (9s)",
+      "silent_for": 9
+    }
+  },
+  {
+    "name": "streaming_quiet/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastStreamDeltaAt": 1772366391000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming (no stream delta for 9s)",
+      "diagnostic": "task completed; worker idle",
+      "silent_for": 9
+    }
+  },
+  {
+    "name": "streaming_quiet_runtime/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "runtime": {
+        "lastStreamDeltaAt": 1772366389000
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming (no stream delta for 11s)",
+      "diagnostic": "streaming",
+      "silent_for": 11
+    }
+  },
+  {
+    "name": "streaming_quiet_runtime/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "runtime": {
+        "lastStreamDeltaAt": 1772366389000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming (no stream delta for 11s)",
+      "diagnostic": "streaming",
+      "silent_for": 11
+    }
+  },
+  {
+    "name": "streaming_quiet_runtime/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "runtime": {
+        "lastStreamDeltaAt": 1772366389000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming (no stream delta for 11s)",
+      "diagnostic": "task completed; worker idle",
+      "silent_for": 11
+    }
+  },
+  {
+    "name": "streaming_text/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "text",
+        "lastProgressAt": 1772366399000
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "visible model text",
+      "diagnostic": "visible text streaming",
+      "silent_for": 1
+    }
+  },
+  {
+    "name": "streaming_text/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "text",
+        "lastProgressAt": 1772366399000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "visible model text",
+      "diagnostic": "visible text streaming",
+      "silent_for": 1
+    }
+  },
+  {
+    "name": "streaming_text/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "text",
+        "lastProgressAt": 1772366399000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "visible model text",
+      "diagnostic": "task completed; worker idle",
+      "silent_for": 1
+    }
+  },
+  {
+    "name": "streaming_tool/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "tool"
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "tool protocol progress",
+      "diagnostic": "tool protocol active"
+    }
+  },
+  {
+    "name": "streaming_tool/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "tool"
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "tool protocol progress",
+      "diagnostic": "tool protocol active"
+    }
+  },
+  {
+    "name": "streaming_tool/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "tool"
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "tool protocol progress",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "streaming_reasoning_silent/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "reasoning"
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model reasoning (hidden; no visible output yet)",
+      "diagnostic": "hidden reasoning active; no visible output yet"
+    }
+  },
+  {
+    "name": "streaming_reasoning_silent/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "reasoning"
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model reasoning (hidden; no visible output yet)",
+      "diagnostic": "hidden reasoning active; no visible output yet"
+    }
+  },
+  {
+    "name": "streaming_reasoning_silent/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "reasoning"
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model reasoning (hidden; no visible output yet)",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "streaming_reasoning_after_text/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "reasoning",
+        "lastVisibleTextAt": 1772366370000
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model reasoning (hidden; visible output previously emitted)",
+      "diagnostic": "hidden reasoning active; visible output previously emitted"
+    }
+  },
+  {
+    "name": "streaming_reasoning_after_text/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "reasoning",
+        "lastVisibleTextAt": 1772366370000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model reasoning (hidden; visible output previously emitted)",
+      "diagnostic": "hidden reasoning active; visible output previously emitted"
+    }
+  },
+  {
+    "name": "streaming_reasoning_after_text/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastSemanticKind": "reasoning",
+        "lastVisibleTextAt": 1772366370000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model reasoning (hidden; visible output previously emitted)",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "streaming_first_semantic/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "hasFirstSemantic": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet"
+    }
+  },
+  {
+    "name": "streaming_first_semantic/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "hasFirstSemantic": true
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet"
+    }
+  },
+  {
+    "name": "streaming_first_semantic/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "hasFirstSemantic": true
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "awaiting_headers/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "awaitingModelResponse": true,
+        "modelRequestStartedAt": 1772366395000
+      }
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "model thinking (request sent; awaiting response headers)",
+      "diagnostic": "model thinking; request sent, response headers pending"
+    }
+  },
+  {
+    "name": "awaiting_headers/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "awaitingModelResponse": true,
+        "modelRequestStartedAt": 1772366395000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "model thinking (request sent; awaiting response headers)",
+      "diagnostic": "model thinking; request sent, response headers pending"
+    }
+  },
+  {
+    "name": "awaiting_headers/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "awaitingModelResponse": true,
+        "modelRequestStartedAt": 1772366395000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "model thinking (request sent; awaiting response headers)",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "waiting_transport/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "waitingForTransport": true,
+        "modelRequestStartedAt": 1772366395000
+      }
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "awaiting model transport",
+      "diagnostic": "waiting for model transport"
+    }
+  },
+  {
+    "name": "waiting_transport/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "waitingForTransport": true,
+        "modelRequestStartedAt": 1772366395000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "awaiting model transport",
+      "diagnostic": "waiting for model transport"
+    }
+  },
+  {
+    "name": "waiting_transport/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "waitingForTransport": true,
+        "modelRequestStartedAt": 1772366395000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "awaiting model transport",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "waiting_first_semantic/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "waitingForFirstSemantic": true,
+        "modelRequestStartedAt": 1772366395000
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "transport active; awaiting first model event",
+      "diagnostic": "transport healthy; waiting for first semantic model event"
+    }
+  },
+  {
+    "name": "waiting_first_semantic/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "waitingForFirstSemantic": true,
+        "modelRequestStartedAt": 1772366395000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "transport active; awaiting first model event",
+      "diagnostic": "transport healthy; waiting for first semantic model event"
+    }
+  },
+  {
+    "name": "waiting_first_semantic/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "waitingForFirstSemantic": true,
+        "modelRequestStartedAt": 1772366395000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "transport active; awaiting first model event",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "stage_from_snapshot/none/none",
+    "input": {
+      "now": 1772366400000,
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772366397000
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 3
+    }
+  },
+  {
+    "name": "stage_from_snapshot/running/none",
+    "input": {
+      "now": 1772366400000,
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772366397000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 3
+    }
+  },
+  {
+    "name": "stage_from_snapshot/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772366397000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "task completed; worker idle",
+      "silent_for": 3
+    }
+  },
+  {
+    "name": "stage_from_session_status/none/streaming",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "streaming"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming"
+    }
+  },
+  {
+    "name": "stage_from_session_status/running/streaming",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "streaming",
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming"
+    }
+  },
+  {
+    "name": "stage_from_session_status/completed/streaming",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "streaming",
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "queued_one_active/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "queuedFollowups": 1
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming, 1 follow-up queued",
+      "queued_followups": 1
+    }
+  },
+  {
+    "name": "queued_one_active/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "queuedFollowups": 1,
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming, 1 follow-up queued",
+      "queued_followups": 1
+    }
+  },
+  {
+    "name": "queued_one_active/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "queuedFollowups": 1,
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "task completed; worker idle",
+      "queued_followups": 1
+    }
+  },
+  {
+    "name": "queued_one_active/failed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "queuedFollowups": 1,
+      "taskStatus": "failed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "task failed",
+      "queued_followups": 1
+    }
+  },
+  {
+    "name": "queued_one_active/cancelled/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "queuedFollowups": 1,
+      "taskStatus": "cancelled"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "task cancelled",
+      "queued_followups": 1
+    }
+  },
+  {
+    "name": "queued_one_active/canceled/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "queuedFollowups": 1,
+      "taskStatus": "canceled"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "task cancelled",
+      "queued_followups": 1
+    }
+  },
+  {
+    "name": "queued_one_active/error/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "queuedFollowups": 1,
+      "taskStatus": "error"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "task failed",
+      "queued_followups": 1
+    }
+  },
+  {
+    "name": "queued_two_idle/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "idle, 2 follow-ups queued",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_two_idle/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2,
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "idle, 2 follow-ups queued",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_two_idle/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2,
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task completed; worker idle",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_two_idle/failed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2,
+      "taskStatus": "failed"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task failed",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_two_idle/cancelled/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2,
+      "taskStatus": "cancelled"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task cancelled",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_two_idle/canceled/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2,
+      "taskStatus": "canceled"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task cancelled",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_two_idle/error/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2,
+      "taskStatus": "error"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task failed",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_junk/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": "x"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "idle"
+    }
+  },
+  {
+    "name": "queued_junk/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": "x",
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task running; worker turn finished, awaiting job reconciliation"
+    }
+  },
+  {
+    "name": "queued_junk/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": "x",
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "queued_junk/failed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": "x",
+      "taskStatus": "failed"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task failed"
+    }
+  },
+  {
+    "name": "queued_junk/cancelled/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": "x",
+      "taskStatus": "cancelled"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task cancelled"
+    }
+  },
+  {
+    "name": "queued_junk/canceled/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": "x",
+      "taskStatus": "canceled"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task cancelled"
+    }
+  },
+  {
+    "name": "queued_junk/error/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": "x",
+      "taskStatus": "error"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task failed"
+    }
+  },
+  {
+    "name": "queued_fraction/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2.7
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "idle, 2 follow-ups queued",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_fraction/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2.7,
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "idle, 2 follow-ups queued",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_fraction/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2.7,
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task completed; worker idle",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_fraction/failed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2.7,
+      "taskStatus": "failed"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task failed",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_fraction/cancelled/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2.7,
+      "taskStatus": "cancelled"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task cancelled",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_fraction/canceled/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2.7,
+      "taskStatus": "canceled"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task cancelled",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "queued_fraction/error/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "queuedFollowups": 2.7,
+      "taskStatus": "error"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task failed",
+      "queued_followups": 2
+    }
+  },
+  {
+    "name": "silent_all_clocks/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "lastProgressAt": 1772366300000,
+        "lastStreamDeltaAt": 1772366360000,
+        "toolStartedAt": 1772366330000,
+        "askStartedAt": 1772366200000
+      },
+      "runtime": {
+        "lastProgressAt": 1772366390000
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming (no stream delta for 40s)",
+      "diagnostic": "streaming, no visible output yet (40s)",
+      "silent_for": 10
+    }
+  },
+  {
+    "name": "silent_all_clocks/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "lastProgressAt": 1772366300000,
+        "lastStreamDeltaAt": 1772366360000,
+        "toolStartedAt": 1772366330000,
+        "askStartedAt": 1772366200000
+      },
+      "runtime": {
+        "lastProgressAt": 1772366390000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming (no stream delta for 40s)",
+      "diagnostic": "streaming, no visible output yet (40s)",
+      "silent_for": 10
+    }
+  },
+  {
+    "name": "silent_all_clocks/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "lastProgressAt": 1772366300000,
+        "lastStreamDeltaAt": 1772366360000,
+        "toolStartedAt": 1772366330000,
+        "askStartedAt": 1772366200000
+      },
+      "runtime": {
+        "lastProgressAt": 1772366390000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming (no stream delta for 40s)",
+      "diagnostic": "task completed; worker idle",
+      "silent_for": 10
+    }
+  },
+  {
+    "name": "silent_idle_hidden/none/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "runtime": {
+        "lastProgressAt": 1772366300000
+      }
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "idle"
+    }
+  },
+  {
+    "name": "silent_idle_hidden/running/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "runtime": {
+        "lastProgressAt": 1772366300000
+      },
+      "taskStatus": "running"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task running; worker turn finished, awaiting job reconciliation"
+    }
+  },
+  {
+    "name": "silent_idle_hidden/completed/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "runtime": {
+        "lastProgressAt": 1772366300000
+      },
+      "taskStatus": "completed"
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "task completed; worker idle"
+    }
+  },
+  {
+    "name": "stale_idle/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "hasFirstSemantic": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet",
+      "silent_for": 700
+    }
+  },
+  {
+    "name": "stale_idle/unarmed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": false
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "silent_for": 700,
+      "watchdog": "not armed (no registered progress watchdog)"
+    }
+  },
+  {
+    "name": "stale_idle/check_failed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true,
+        "error": "probe died"
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "silent_for": 700,
+      "watchdog": "check failed: probe died"
+    }
+  },
+  {
+    "name": "stale_idle/armed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "silent_for": 700,
+      "watchdog": "armed idle=600s"
+    }
+  },
+  {
+    "name": "stale_idle/inactive",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 0
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet",
+      "silent_for": 700
+    }
+  },
+  {
+    "name": "stale_idle/idle_only",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 90000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "stale: task stale (90000ms without stream/tool progress)",
+      "silent_for": 700,
+      "watchdog": "armed idle=90s"
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_holds/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet",
+      "silent_for": 700
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_holds/unarmed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": false
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet",
+      "silent_for": 700,
+      "watchdog": "not armed (no registered progress watchdog)"
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_holds/check_failed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true,
+        "error": "probe died"
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet",
+      "silent_for": 700,
+      "watchdog": "check failed: probe died"
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_holds/armed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet",
+      "silent_for": 700,
+      "watchdog": "armed idle=600s"
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_holds/inactive",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 0
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet",
+      "silent_for": 700
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_holds/idle_only",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772365700000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 90000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "stale: task stale (90000ms without stream/tool progress)",
+      "silent_for": 700,
+      "watchdog": "armed idle=90s"
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_past_cap/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772364400000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet",
+      "silent_for": 2000
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_past_cap/unarmed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772364400000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": false
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "silent_for": 2000,
+      "watchdog": "not armed (no registered progress watchdog)"
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_past_cap/check_failed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772364400000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true,
+        "error": "probe died"
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "silent_for": 2000,
+      "watchdog": "check failed: probe died"
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_past_cap/armed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772364400000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "silent_for": 2000,
+      "watchdog": "armed idle=600s"
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_past_cap/inactive",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772364400000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 0
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "model active; no visible output yet",
+      "silent_for": 2000
+    }
+  },
+  {
+    "name": "stale_idle_keepalive_past_cap/idle_only",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772364400000,
+        "lastKeepaliveAt": 1772366300000,
+        "hasFirstSemantic": true
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 90000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "model active (no visible output yet)",
+      "diagnostic": "stale: task stale (90000ms without stream/tool progress)",
+      "silent_for": 2000,
+      "watchdog": "armed idle=90s"
+    }
+  },
+  {
+    "name": "stale_first_transport/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "waitingForTransport": true,
+        "modelRequestStartedAt": 1772365900000
+      }
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "awaiting model transport",
+      "diagnostic": "waiting for model transport"
+    }
+  },
+  {
+    "name": "stale_first_transport/unarmed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "waitingForTransport": true,
+        "modelRequestStartedAt": 1772365900000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": false
+      }
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "awaiting model transport",
+      "diagnostic": "stale: first transport stale (120000ms)",
+      "watchdog": "not armed (no registered progress watchdog)"
+    }
+  },
+  {
+    "name": "stale_first_transport/check_failed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "waitingForTransport": true,
+        "modelRequestStartedAt": 1772365900000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true,
+        "error": "probe died"
+      }
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "awaiting model transport",
+      "diagnostic": "stale: first transport stale (120000ms)",
+      "watchdog": "check failed: probe died"
+    }
+  },
+  {
+    "name": "stale_first_transport/armed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "waitingForTransport": true,
+        "modelRequestStartedAt": 1772365900000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "awaiting model transport",
+      "diagnostic": "stale: first transport stale (120000ms)",
+      "watchdog": "armed transport=120s"
+    }
+  },
+  {
+    "name": "stale_first_transport/inactive",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "waitingForTransport": true,
+        "modelRequestStartedAt": 1772365900000
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 0
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "awaiting model transport",
+      "diagnostic": "waiting for model transport"
+    }
+  },
+  {
+    "name": "stale_first_transport/idle_only",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "snapshot": {
+        "stage": "requesting",
+        "waitingForTransport": true,
+        "modelRequestStartedAt": 1772365900000
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 90000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "awaiting model transport",
+      "diagnostic": "waiting for model transport",
+      "watchdog": "armed idle=90s"
+    }
+  },
+  {
+    "name": "stale_first_semantic/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "waitingForFirstSemantic": true,
+        "modelRequestStartedAt": 1772365500000
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "transport active; awaiting first model event",
+      "diagnostic": "transport healthy; waiting for first semantic model event"
+    }
+  },
+  {
+    "name": "stale_first_semantic/unarmed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "waitingForFirstSemantic": true,
+        "modelRequestStartedAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": false
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "transport active; awaiting first model event",
+      "diagnostic": "stale: first semantic response stale (600000ms)",
+      "watchdog": "not armed (no registered progress watchdog)"
+    }
+  },
+  {
+    "name": "stale_first_semantic/check_failed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "waitingForFirstSemantic": true,
+        "modelRequestStartedAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true,
+        "error": "probe died"
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "transport active; awaiting first model event",
+      "diagnostic": "stale: first semantic response stale (600000ms)",
+      "watchdog": "check failed: probe died"
+    }
+  },
+  {
+    "name": "stale_first_semantic/armed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "waitingForFirstSemantic": true,
+        "modelRequestStartedAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "transport active; awaiting first model event",
+      "diagnostic": "stale: first semantic response stale (600000ms)",
+      "watchdog": "armed semantic=600s"
+    }
+  },
+  {
+    "name": "stale_first_semantic/inactive",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "waitingForFirstSemantic": true,
+        "modelRequestStartedAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 0
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "transport active; awaiting first model event",
+      "diagnostic": "transport healthy; waiting for first semantic model event"
+    }
+  },
+  {
+    "name": "stale_first_semantic/idle_only",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "waitingForFirstSemantic": true,
+        "modelRequestStartedAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 90000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "transport active; awaiting first model event",
+      "diagnostic": "transport healthy; waiting for first semantic model event",
+      "watchdog": "armed idle=90s"
+    }
+  },
+  {
+    "name": "stale_awaiting_user/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772361400000,
+        "awaitingUser": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 5000
+    }
+  },
+  {
+    "name": "stale_awaiting_user/unarmed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772361400000,
+        "awaitingUser": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": false
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 5000,
+      "watchdog": "not armed (no registered progress watchdog)"
+    }
+  },
+  {
+    "name": "stale_awaiting_user/check_failed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772361400000,
+        "awaitingUser": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true,
+        "error": "probe died"
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 5000,
+      "watchdog": "check failed: probe died"
+    }
+  },
+  {
+    "name": "stale_awaiting_user/armed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772361400000,
+        "awaitingUser": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 5000,
+      "watchdog": "armed idle=600s"
+    }
+  },
+  {
+    "name": "stale_awaiting_user/inactive",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772361400000,
+        "awaitingUser": true
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 0
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 5000
+    }
+  },
+  {
+    "name": "stale_awaiting_user/idle_only",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastProgressAt": 1772361400000,
+        "awaitingUser": true
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 90000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 5000,
+      "watchdog": "armed idle=90s"
+    }
+  },
+  {
+    "name": "stale_queued_connecting/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "connecting",
+      "snapshot": {
+        "stage": "connecting",
+        "lastProgressAt": 1772361400000
+      }
+    },
+    "output": {
+      "worker_stage": "connecting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response",
+      "silent_for": 5000
+    }
+  },
+  {
+    "name": "stale_queued_connecting/unarmed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "connecting",
+      "snapshot": {
+        "stage": "connecting",
+        "lastProgressAt": 1772361400000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": false
+      }
+    },
+    "output": {
+      "worker_stage": "connecting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response",
+      "silent_for": 5000,
+      "watchdog": "not armed (no registered progress watchdog)"
+    }
+  },
+  {
+    "name": "stale_queued_connecting/check_failed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "connecting",
+      "snapshot": {
+        "stage": "connecting",
+        "lastProgressAt": 1772361400000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true,
+        "error": "probe died"
+      }
+    },
+    "output": {
+      "worker_stage": "connecting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response",
+      "silent_for": 5000,
+      "watchdog": "check failed: probe died"
+    }
+  },
+  {
+    "name": "stale_queued_connecting/armed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "connecting",
+      "snapshot": {
+        "stage": "connecting",
+        "lastProgressAt": 1772361400000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "connecting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response",
+      "silent_for": 5000,
+      "watchdog": "armed idle=600s"
+    }
+  },
+  {
+    "name": "stale_queued_connecting/inactive",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "connecting",
+      "snapshot": {
+        "stage": "connecting",
+        "lastProgressAt": 1772361400000
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 0
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "connecting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response",
+      "silent_for": 5000
+    }
+  },
+  {
+    "name": "stale_queued_connecting/idle_only",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "connecting",
+      "snapshot": {
+        "stage": "connecting",
+        "lastProgressAt": 1772361400000
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 90000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "connecting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response",
+      "silent_for": 5000,
+      "watchdog": "armed idle=90s"
+    }
+  },
+  {
+    "name": "stale_running_runtime_only/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "running",
+      "runtime": {
+        "lastProgressAt": 1772365500000
+      }
+    },
+    "output": {
+      "worker_stage": "running",
+      "last_progress": "active (900s since last progress)",
+      "diagnostic": "running",
+      "silent_for": 900
+    }
+  },
+  {
+    "name": "stale_running_runtime_only/unarmed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "running",
+      "runtime": {
+        "lastProgressAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": false
+      }
+    },
+    "output": {
+      "worker_stage": "running",
+      "last_progress": "active (900s since last progress)",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "silent_for": 900,
+      "watchdog": "not armed (no registered progress watchdog)"
+    }
+  },
+  {
+    "name": "stale_running_runtime_only/check_failed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "running",
+      "runtime": {
+        "lastProgressAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true,
+        "error": "probe died"
+      }
+    },
+    "output": {
+      "worker_stage": "running",
+      "last_progress": "active (900s since last progress)",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "silent_for": 900,
+      "watchdog": "check failed: probe died"
+    }
+  },
+  {
+    "name": "stale_running_runtime_only/armed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "running",
+      "runtime": {
+        "lastProgressAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "running",
+      "last_progress": "active (900s since last progress)",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "silent_for": 900,
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "stale_running_runtime_only/inactive",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "running",
+      "runtime": {
+        "lastProgressAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 0
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "running",
+      "last_progress": "active (900s since last progress)",
+      "diagnostic": "running",
+      "silent_for": 900
+    }
+  },
+  {
+    "name": "stale_running_runtime_only/idle_only",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "running",
+      "runtime": {
+        "lastProgressAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 90000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "running",
+      "last_progress": "active (900s since last progress)",
+      "diagnostic": "stale: task stale (90000ms without stream/tool progress)",
+      "silent_for": 900,
+      "watchdog": "armed idle=90s"
+    }
+  },
+  {
+    "name": "stale_first_activity/none",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "snapshot": {
+        "stage": "tool_running",
+        "firstActivityAt": 1772365500000
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "tool running"
+    }
+  },
+  {
+    "name": "stale_first_activity/unarmed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "snapshot": {
+        "stage": "tool_running",
+        "firstActivityAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": false
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "watchdog": "not armed (no registered progress watchdog)"
+    }
+  },
+  {
+    "name": "stale_first_activity/check_failed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "snapshot": {
+        "stage": "tool_running",
+        "firstActivityAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true,
+        "error": "probe died"
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "watchdog": "check failed: probe died"
+    }
+  },
+  {
+    "name": "stale_first_activity/armed",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "snapshot": {
+        "stage": "tool_running",
+        "firstActivityAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "stale: task stale (600000ms without stream/tool progress)",
+      "watchdog": "armed idle=600s"
+    }
+  },
+  {
+    "name": "stale_first_activity/inactive",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "snapshot": {
+        "stage": "tool_running",
+        "firstActivityAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 0
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "tool running"
+    }
+  },
+  {
+    "name": "stale_first_activity/idle_only",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "snapshot": {
+        "stage": "tool_running",
+        "firstActivityAt": 1772365500000
+      },
+      "policy": {
+        "firstTransportMs": 0,
+        "firstSemanticMs": 0,
+        "idleStaleMs": 90000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "stale: task stale (90000ms without stream/tool progress)",
+      "watchdog": "armed idle=90s"
+    }
+  },
+  {
+    "name": "no_input/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "unknown",
+      "last_progress": "unknown",
+      "diagnostic": "unknown",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "idle_session/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "idle",
+      "runtimeStage": "idle",
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "idle",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "idle_empty_final/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "sessionStatus": "idle",
+      "runtimeStage": "idle",
+      "runtime": {
+        "emptyFinal": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "finished empty",
+      "diagnostic": "idle",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "done/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "done",
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "done",
+      "last_progress": "idle",
+      "diagnostic": "idle",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "error/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "error",
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "error",
+      "last_progress": "error",
+      "diagnostic": "worker error",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "closed/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "closed",
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "closed",
+      "last_progress": "closed",
+      "diagnostic": "closed",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "cancelling/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "cancelling",
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "cancelling",
+      "last_progress": "cancelling",
+      "diagnostic": "cancelling",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "resource_wait/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "resource_wait",
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "resource_wait",
+      "last_progress": "waiting for execution capacity",
+      "diagnostic": "waiting to reacquire execution capacity",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "connecting/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "connecting",
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "connecting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "requesting/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "requesting",
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "requesting",
+      "last_progress": "connecting to model",
+      "diagnostic": "waiting for first response",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "running_stage/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "running",
+      "runtime": {
+        "lastProgressAt": 1772366358000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "running",
+      "last_progress": "active (42s since last progress)",
+      "diagnostic": "running",
+      "silent_for": 42,
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "tool_running_named/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "bash",
+      "runtime": {
+        "toolStartedAt": 1772366393000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: bash",
+      "diagnostic": "tool running",
+      "silent_for": 7,
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "tool_running_unnamed/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "runtime": {
+        "toolStartedAt": 1772366393000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "tool running",
+      "silent_for": 7,
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "tool_running_runtime_tool/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "runtime": {
+        "lastToolCall": "read"
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: read",
+      "diagnostic": "tool running",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "tool_silence/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "task",
+      "toolSilence": {
+        "taskId": "task_shell_1",
+        "silentMs": 725000,
+        "hung": false
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: task",
+      "diagnostic": "tool running",
+      "watchdog": "armed transport=120s semantic=600s idle=600s",
+      "tool_silent_for": "12m (shell job task_shell_1 no output)"
+    }
+  },
+  {
+    "name": "tool_hung/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "lastToolCall": "task",
+      "toolSilence": {
+        "taskId": "task_shell_1",
+        "silentMs": 725000,
+        "hung": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool: task",
+      "diagnostic": "tool possibly hung: shell job task_shell_1 no output for 12m; inspect or cancel it",
+      "watchdog": "armed transport=120s semantic=600s idle=600s",
+      "tool_silent_for": "12m (shell job task_shell_1 no output)"
+    }
+  },
+  {
+    "name": "tool_silence_short/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "tool_running",
+      "toolSilence": {
+        "taskId": "t",
+        "silentMs": 400,
+        "hung": false
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "tool_running",
+      "last_progress": "tool running",
+      "diagnostic": "tool running",
+      "watchdog": "armed transport=120s semantic=600s idle=600s",
+      "tool_silent_for": "0s (shell job t no output)"
+    }
+  },
+  {
+    "name": "tool_silence_idle_stage/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "idle",
+      "toolSilence": {
+        "taskId": "t",
+        "silentMs": 90000,
+        "hung": true
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "idle",
+      "last_progress": "idle",
+      "diagnostic": "idle",
+      "watchdog": "armed transport=120s semantic=600s idle=600s"
+    }
+  },
+  {
+    "name": "streaming_plain/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastStreamDeltaAt": 1772366398000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming",
+      "diagnostic": "streaming",
+      "silent_for": 2,
+      "watchdog": "armed idle=600s"
+    }
+  },
+  {
+    "name": "streaming_quiet/armed_policy",
+    "input": {
+      "now": 1772366400000,
+      "runtimeStage": "streaming",
+      "snapshot": {
+        "stage": "streaming",
+        "lastStreamDeltaAt": 1772366391000
+      },
+      "policy": {
+        "firstTransportMs": 120000,
+        "firstSemanticMs": 600000,
+        "idleStaleMs": 600000
+      },
+      "watchdogState": {
+        "registered": true
+      }
+    },
+    "output": {
+      "worker_stage": "streaming",
+      "last_progress": "streaming (no stream delta for 9s)",
+      "diagnostic": "streaming, no visible output yet (9s)",
+      "silent_for": 9,
+      "watchdog": "armed idle=600s"
+    }
+  }
+]

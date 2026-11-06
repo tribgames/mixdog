@@ -140,20 +140,39 @@ async fn origin_rules_come_from_the_table() {
     let phone = rig.connect(1, Origin::Relay);
     phone.initialize(super::VERSION, json!({}));
     phone.response(0).await;
-    // `thread/resume` is not offered over the relay.
-    phone.request(
-        1,
-        "thread/resume",
-        json!({ "threadId": "t1", "window": { "lastItems": 10 } }),
-    );
+    // `config/read` is offered to local and ssh connections only.
+    phone.request(1, "config/read", json!({}));
     let denied = phone.response(1).await;
     assert_eq!(reason(&denied), "permissionDenied");
     assert_eq!(
         denied["error"]["data"],
-        json!({ "reason": "permissionDenied", "method": "thread/resume", "origin": "relay" })
+        json!({ "reason": "permissionDenied", "method": "config/read", "origin": "relay" })
     );
     phone.request(2, "thread/list", json!({}));
     assert!(phone.response(2).await.get("result").is_some());
+}
+
+#[tokio::test]
+async fn a_call_from_a_connection_without_a_known_origin_is_refused() {
+    let rig = Rig::new();
+    // Never registered with the transport: not even `initialize` is served.
+    let stranger = rig.connect(1, Origin::Local);
+    rig.forget(1);
+    stranger.initialize(super::VERSION, json!({}));
+    let refused = stranger.response(0).await;
+    assert_eq!(reason(&refused), "internal");
+
+    // Registered, then lost: the next call is refused, and the core never sees it.
+    let client = rig.ready(2, json!({}));
+    client.request(1, "thread/list", json!({}));
+    assert!(client.response(1).await.get("result").is_some());
+    let before = rig.core.opens();
+    rig.forget(2);
+    client.request(2, "thread/list", json!({}));
+    let refused = client.response(2).await;
+    assert_eq!(reason(&refused), "internal");
+    assert!(refused.get("result").is_none());
+    assert_eq!(rig.core.opens(), before);
 }
 
 #[tokio::test]

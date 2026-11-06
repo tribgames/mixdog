@@ -76,6 +76,8 @@ async fn idle_run(idle: Duration) {
         state,
         recovery_dir: base.join("recovery"),
         user_data_dir: base.join("userdata"),
+        sources: Vec::new(),
+        code_graph: None,
     })
     .unwrap();
     service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None).await.unwrap();

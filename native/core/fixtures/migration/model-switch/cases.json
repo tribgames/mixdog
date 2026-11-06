@@ -1,0 +1,452 @@
+{
+  "cases": [
+    {
+      "after": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "hi there",
+          "meta": {
+            "modelSwitches": [
+              {
+                "at": 200,
+                "modelId": "gpt-next",
+                "provider": "openai"
+              }
+            ],
+            "transcript": {
+              "at": 100,
+              "messageId": "m_reply"
+            }
+          },
+          "role": "assistant"
+        },
+        {
+          "content": "and then",
+          "role": "user"
+        }
+      ],
+      "anchor": 1,
+      "boundaries": [
+        {
+          "at": 200,
+          "modelId": "gpt-next",
+          "provider": "openai"
+        }
+      ],
+      "messages": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "hi there",
+          "meta": {
+            "transcript": {
+              "at": 100,
+              "messageId": "m_reply"
+            }
+          },
+          "role": "assistant"
+        },
+        {
+          "content": "and then",
+          "role": "user"
+        }
+      ],
+      "name": "anchor is the last answer before a trailing prompt",
+      "rows": [
+        {
+          "id": "hist_ms_0_1",
+          "kind": "user",
+          "text": "hello"
+        },
+        {
+          "at": 100,
+          "id": "hist_ms_1_1",
+          "kind": "assistant",
+          "messageId": "m_reply",
+          "text": "hi there"
+        },
+        {
+          "at": 200,
+          "id": "hist_ms_1_2",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "gpt-next",
+          "provider": "openai",
+          "status": "model-switched"
+        },
+        {
+          "id": "hist_ms_2_1",
+          "kind": "user",
+          "text": "and then"
+        }
+      ]
+    },
+    {
+      "after": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "hi there",
+          "meta": {
+            "modelSwitches": [
+              {
+                "at": 200,
+                "modelId": "gpt-next",
+                "provider": "openai"
+              }
+            ],
+            "transcript": {
+              "at": 100,
+              "messageId": "m_reply"
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "anchor": 1,
+      "boundaries": [
+        {
+          "at": 200,
+          "modelId": "gpt-next",
+          "provider": "openai"
+        }
+      ],
+      "messages": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "hi there",
+          "meta": {
+            "transcript": {
+              "at": 100,
+              "messageId": "m_reply"
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "name": "anchor is the last message",
+      "rows": [
+        {
+          "id": "hist_ms_0_1",
+          "kind": "user",
+          "text": "hello"
+        },
+        {
+          "at": 100,
+          "id": "hist_ms_1_1",
+          "kind": "assistant",
+          "messageId": "m_reply",
+          "text": "hi there"
+        },
+        {
+          "at": 200,
+          "id": "hist_ms_1_2",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "gpt-next",
+          "provider": "openai",
+          "status": "model-switched"
+        }
+      ]
+    },
+    {
+      "after": [
+        {
+          "content": "hello",
+          "meta": {
+            "modelSwitches": [
+              {
+                "at": 200,
+                "modelId": "gpt-next",
+                "provider": "openai"
+              }
+            ]
+          },
+          "role": "user"
+        },
+        {
+          "content": "s",
+          "role": "system"
+        }
+      ],
+      "anchor": 0,
+      "boundaries": [
+        {
+          "at": 200,
+          "modelId": "gpt-next",
+          "provider": "openai"
+        }
+      ],
+      "messages": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "s",
+          "role": "system"
+        }
+      ],
+      "name": "only prompts: the last non-system message",
+      "rows": [
+        {
+          "id": "hist_ms_0_1",
+          "kind": "user",
+          "text": "hello"
+        },
+        {
+          "at": 200,
+          "id": "hist_ms_0_2",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "gpt-next",
+          "provider": "openai",
+          "status": "model-switched"
+        }
+      ]
+    },
+    {
+      "after": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "hi there",
+          "meta": {
+            "modelSwitches": [
+              {
+                "at": 200,
+                "modelId": "gpt-next",
+                "provider": "openai"
+              },
+              {
+                "at": 300,
+                "modelId": "claude-next",
+                "provider": "anthropic"
+              }
+            ],
+            "transcript": {
+              "at": 100,
+              "messageId": "m_reply"
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "anchor": 1,
+      "boundaries": [
+        {
+          "at": 200,
+          "modelId": "gpt-next",
+          "provider": "openai"
+        },
+        {
+          "at": 300,
+          "modelId": "claude-next",
+          "provider": "anthropic"
+        }
+      ],
+      "messages": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "hi there",
+          "meta": {
+            "transcript": {
+              "at": 100,
+              "messageId": "m_reply"
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "name": "a second, different switch on the same anchor",
+      "rows": [
+        {
+          "id": "hist_ms_0_1",
+          "kind": "user",
+          "text": "hello"
+        },
+        {
+          "at": 100,
+          "id": "hist_ms_1_1",
+          "kind": "assistant",
+          "messageId": "m_reply",
+          "text": "hi there"
+        },
+        {
+          "at": 200,
+          "id": "hist_ms_1_2",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "gpt-next",
+          "provider": "openai",
+          "status": "model-switched"
+        },
+        {
+          "at": 300,
+          "id": "hist_ms_1_3",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "claude-next",
+          "provider": "anthropic",
+          "status": "model-switched"
+        }
+      ]
+    },
+    {
+      "after": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "hi there",
+          "meta": {
+            "modelSwitches": [
+              {
+                "at": 200,
+                "modelId": "gpt-next",
+                "provider": "openai"
+              }
+            ],
+            "transcript": {
+              "at": 100,
+              "messageId": "m_reply"
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "anchor": 1,
+      "boundaries": [
+        {
+          "at": 200,
+          "modelId": "gpt-next",
+          "provider": "openai"
+        },
+        {
+          "at": 200,
+          "modelId": "gpt-next",
+          "provider": "openai"
+        }
+      ],
+      "messages": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "hi there",
+          "meta": {
+            "transcript": {
+              "at": 100,
+              "messageId": "m_reply"
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "name": "the same switch recorded twice is recorded once",
+      "rows": [
+        {
+          "id": "hist_ms_0_1",
+          "kind": "user",
+          "text": "hello"
+        },
+        {
+          "at": 100,
+          "id": "hist_ms_1_1",
+          "kind": "assistant",
+          "messageId": "m_reply",
+          "text": "hi there"
+        },
+        {
+          "at": 200,
+          "id": "hist_ms_1_2",
+          "kind": "statusdone",
+          "label": "Model switched",
+          "modelId": "gpt-next",
+          "provider": "openai",
+          "status": "model-switched"
+        }
+      ]
+    },
+    {
+      "after": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "hi there",
+          "meta": {
+            "modelSwitches": [
+              {
+                "at": 400,
+                "provider": "openai"
+              }
+            ],
+            "transcript": {
+              "at": 100,
+              "messageId": "m_reply"
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "anchor": 1,
+      "boundaries": [
+        {
+          "at": 400,
+          "provider": "openai"
+        }
+      ],
+      "messages": [
+        {
+          "content": "hello",
+          "role": "user"
+        },
+        {
+          "content": "hi there",
+          "meta": {
+            "transcript": {
+              "at": 100,
+              "messageId": "m_reply"
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "name": "a boundary without a model shows no row",
+      "rows": [
+        {
+          "id": "hist_ms_0_1",
+          "kind": "user",
+          "text": "hello"
+        },
+        {
+          "at": 100,
+          "id": "hist_ms_1_1",
+          "kind": "assistant",
+          "messageId": "m_reply",
+          "text": "hi there"
+        }
+      ]
+    }
+  ],
+  "note": "model-switch boundary fold + restored rows"
+}

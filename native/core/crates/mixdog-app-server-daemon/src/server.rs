@@ -48,11 +48,18 @@ pub struct Running {
 }
 
 impl Running {
-    pub fn build(core: Arc<ComposedCore>) -> Result<Self, LimitsViolation> {
+    /// `outgoing` is the router `core` was composed with as its host channel
+    /// (`ComposeConfig::host`); the server registers its connections there.
+    pub fn build(core: Arc<ComposedCore>, outgoing: Arc<Outgoing>) -> Result<Self, LimitsViolation> {
         let limits = Limits::default();
         let hub = ConnectionHub::new(limits.clone())?;
-        let outgoing = Outgoing::new();
-        let server = AppServer::new(core.clone(), outgoing.clone(), server_config(limits))?;
+        let origins = hub.clone();
+        let server = AppServer::new(
+            core.clone(),
+            outgoing.clone(),
+            Arc::new(move |id| origins.origin_of(id)),
+            server_config(limits),
+        )?;
         Ok(Self { server, hub, outgoing, core })
     }
 
@@ -101,8 +108,8 @@ fn spawn_drive(server: AppServer, accepted: AcceptedConnection) {
 
 /// One connection's life: its requests go to the server in arrival order until it closes.
 async fn drive(server: AppServer, accepted: AcceptedConnection) {
-    let AcceptedConnection { id, origin, mut inbound, sink } = accepted;
-    let handle = server.open(id, origin.origin(), Arc::new(sink.clone()));
+    let AcceptedConnection { id, mut inbound, sink, .. } = accepted;
+    let handle = server.open(id, Arc::new(sink.clone()));
     while let Some(message) = inbound.recv().await {
         match handle.on_message(message) {
             Inbound::Continue => {}
@@ -173,8 +180,11 @@ impl Shutdown {
 
 /// Serves `core` to clients of this process: the connector opens in-process connections (scoped
 /// as `Origin::Local`, see `ConnectionOrigin::InProcess`), and `Shutdown::run` stops the core.
-pub fn serve_in_process(core: Arc<ComposedCore>) -> Result<(Arc<dyn Connector>, Shutdown), LimitsViolation> {
-    let running = Running::build(core.clone())?;
+pub fn serve_in_process(
+    core: Arc<ComposedCore>,
+    outgoing: Arc<Outgoing>,
+) -> Result<(Arc<dyn Connector>, Shutdown), LimitsViolation> {
+    let running = Running::build(core.clone(), outgoing)?;
     let refusing = Arc::new(AtomicBool::new(false));
     let accept = {
         let (running, refusing) = (running.clone(), refusing.clone());
@@ -206,20 +216,22 @@ mod tests {
     use crate::compose::ComposeConfig;
     use crate::compose::compose;
 
-    async fn core(dir: &std::path::Path) -> Arc<ComposedCore> {
-        Arc::new(
-            compose(
-                &mixdog_rt::testing::tokens(),
-                ComposeConfig {
-                    data_dir: dir.to_path_buf(),
-                    user_data_dir: dir.join("userdata"),
-                    js_runtime: crate::js_runtime::fixture(dir),
-                    ort_library: None,
-                },
-            )
-            .await
-            .unwrap(),
+    /// The core, composed over the router the server will use as its host channel.
+    async fn core(dir: &std::path::Path) -> (Arc<ComposedCore>, Arc<Outgoing>) {
+        let outgoing = Outgoing::new();
+        let core = compose(
+            &mixdog_rt::testing::tokens(),
+            ComposeConfig {
+                data_dir: dir.to_path_buf(),
+                user_data_dir: dir.join("userdata"),
+                js_runtime: crate::js_runtime::fixture(dir),
+                ort_library: None,
+                host: outgoing.clone(),
+            },
         )
+        .await
+        .unwrap();
+        (Arc::new(core), outgoing)
     }
 
     async fn reply(halves: &mut mixdog_app_server_client::api::TransportHalves, id: u64) -> serde_json::Value {
@@ -235,15 +247,15 @@ mod tests {
     #[tokio::test]
     async fn a_client_initializes_and_starts_a_thread_over_the_pair() {
         let dir = tempfile::tempdir().unwrap();
-        let core = core(dir.path()).await;
-        let (connector, shutdown) = serve_in_process(core).unwrap();
+        let (core, outgoing) = core(dir.path()).await;
+        let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
         let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
         let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
             "clientInfo":{"name":"test","version":env!("CARGO_PKG_VERSION"),"kind":"cli"},"capabilities":{}}});
         halves.writer.send(initialize.to_string()).await.unwrap();
         let initialized = reply(&mut halves, 0).await;
         assert!(initialized.get("result").is_some(), "{initialized}");
-        let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1"}});
+        let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1","kind":"task"}});
         halves.writer.send(start.to_string()).await.unwrap();
         let started = reply(&mut halves, 1).await;
         assert!(started.get("result").is_some(), "{started}");
@@ -253,13 +265,13 @@ mod tests {
     #[tokio::test]
     async fn shutdown_stops_the_core_in_registration_order_and_refuses_new_clients() {
         let dir = tempfile::tempdir().unwrap();
-        let core = core(dir.path()).await;
+        let (core, outgoing) = core(dir.path()).await;
         let order = Arc::new(Mutex::new(Vec::new()));
         for name in ["trace", "usage", "sessions"] {
             let order = order.clone();
             core.on_stop(name, async move { order.lock().unwrap().push(name) });
         }
-        let (connector, shutdown) = serve_in_process(core).unwrap();
+        let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
         shutdown.run().await;
         assert_eq!(*order.lock().unwrap(), ["trace", "usage", "sessions"]);
         shutdown.run().await;

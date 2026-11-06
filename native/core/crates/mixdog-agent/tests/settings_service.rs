@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use mixdog_agent::compact::settings::Doc;
 use mixdog_agent::compact::settings::adopt_session_compaction;
+use mixdog_agent::compact::settings::agent_terminal_reap_ms;
 use mixdog_agent::compact::settings::compaction_config_keys;
 use mixdog_agent::compact::settings_service::AgentChange;
 use mixdog_agent::compact::settings_service::AgentConfigStore;
@@ -164,6 +165,16 @@ async fn every_recorded_call_equals_nodes_result_and_state() {
             }
             refreshed = refreshes.len();
         }
+    }
+}
+
+#[test]
+fn agent_terminal_reap_equals_nodes() {
+    let golden = golden();
+    for row in golden["reap"].as_array().unwrap() {
+        let auto_clear = Some(&row["autoClear"]).filter(|v| !v.is_null());
+        let provider = row["provider"].as_str().unwrap_or_default();
+        assert_eq!(agent_terminal_reap_ms(auto_clear, provider), row["ms"].as_f64().unwrap(), "{row}");
     }
 }
 

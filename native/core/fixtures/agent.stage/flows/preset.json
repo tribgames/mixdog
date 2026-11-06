@@ -1,0 +1,2216 @@
+{
+  "preset": [
+    {
+      "name": "direct",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "provider": " openai ",
+        "model": "gpt-x",
+        "effort": " high ",
+        "fast": true,
+        "autoEffort": false,
+        "preset": "mine"
+      },
+      "result": {
+        "value": {
+          "presetName": "mine",
+          "preset": {
+            "id": "__direct__",
+            "name": "__DIRECT__",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "high",
+            "fast": true,
+            "autoEffort": false,
+            "tools": "full"
+          }
+        }
+      }
+    },
+    {
+      "name": "direct_defaults",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "provider": "openai",
+        "model": "gpt-x"
+      },
+      "result": {
+        "value": {
+          "presetName": "__direct__",
+          "preset": {
+            "id": "__direct__",
+            "name": "__DIRECT__",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-x",
+            "fast": false,
+            "tools": "full"
+          }
+        }
+      }
+    },
+    {
+      "name": "agent_route_with_fallbacks",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "worker"
+      },
+      "result": {
+        "value": {
+          "presetName": "AGENT WORKER",
+          "preset": {
+            "id": "agent-worker",
+            "name": "AGENT WORKER",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet",
+                "fast": false
+              },
+              null
+            ],
+            "fallbackSource": {
+              "agent": "worker"
+            },
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "tools": "full"
+          }
+        }
+      }
+    },
+    {
+      "name": "agent_route_plain",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "Plain"
+      },
+      "result": {
+        "value": {
+          "presetName": "AGENT PLAIN",
+          "preset": {
+            "id": "agent-plain",
+            "name": "AGENT PLAIN",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbackSource": {
+              "agent": "plain"
+            },
+            "fast": false,
+            "tools": "full"
+          }
+        }
+      }
+    },
+    {
+      "name": "agent_route_tuned",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "tuned"
+      },
+      "result": {
+        "value": {
+          "presetName": "AGENT TUNED",
+          "preset": {
+            "id": "agent-tuned",
+            "name": "AGENT TUNED",
+            "type": "agent",
+            "provider": "xai",
+            "model": "grok",
+            "fallbackSource": {
+              "agent": "tuned"
+            },
+            "fast": false,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextPercent": 55,
+            "contextTokens": 120000,
+            "tools": "full"
+          }
+        }
+      }
+    },
+    {
+      "name": "agent_alias_normalized",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": " heavy_worker "
+      },
+      "result": {
+        "value": {
+          "presetName": "main-preset",
+          "preset": {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true,
+            "fallbackSource": {
+              "agent": "heavy-worker"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "incomplete_agent_route_falls_to_main",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "halfway"
+      },
+      "result": {
+        "value": {
+          "presetName": "main-preset",
+          "preset": {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true,
+            "fallbackSource": {
+              "agent": "halfway"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "bad_fallbacks",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "badfallbacks"
+      },
+      "result": {
+        "error": "route.fallbacks must be an array"
+      }
+    },
+    {
+      "name": "nested_fallbacks",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "nested"
+      },
+      "result": {
+        "error": "fallback routes must be leaf route objects"
+      }
+    },
+    {
+      "name": "main_preset",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "nobody"
+      },
+      "result": {
+        "value": {
+          "presetName": "main-preset",
+          "preset": {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true,
+            "fallbackSource": {
+              "agent": "nobody"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "named_preset_skips_the_agent_route",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "worker",
+        "preset": "the named"
+      },
+      "result": {
+        "value": {
+          "presetName": "the named",
+          "preset": {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false,
+            "fallbackSource": {
+              "preset": "the named"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "named_preset_by_id",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "worker",
+        "preset": "NAMED"
+      },
+      "result": {
+        "value": {
+          "presetName": "NAMED",
+          "preset": {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false,
+            "fallbackSource": {
+              "preset": "NAMED"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "alias_preset",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "worker",
+        "preset": "opus-xhigh"
+      },
+      "result": {
+        "value": {
+          "presetName": "opus-xhigh",
+          "preset": {
+            "id": "opus-xhigh",
+            "name": "OPUS XHIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "xhigh"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown_preset",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "worker",
+        "preset": "ghost"
+      },
+      "result": {
+        "error": "agent: preset \"ghost\" not found"
+      }
+    },
+    {
+      "name": "incomplete_preset",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "worker",
+        "preset": "broken"
+      },
+      "result": {
+        "error": "agent: preset \"broken\" has no complete route"
+      }
+    },
+    {
+      "name": "no_main_assignment",
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "nobody"
+      },
+      "result": {
+        "error": "agent: agent \"nobody\" has no Main model assignment"
+      }
+    },
+    {
+      "name": "provider_only_is_not_direct",
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          {
+            "id": "opus-high",
+            "name": "OPUS HIGH",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          },
+          {
+            "id": "broken",
+            "name": "BROKEN",
+            "provider": "anthropic"
+          },
+          {
+            "id": "Named",
+            "name": "The Named",
+            "provider": "openai",
+            "model": "gpt-x",
+            "effort": "low",
+            "fast": false,
+            "autoEffort": false
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": true,
+            "autoEffort": false,
+            "contextPercent": 40,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "sonnet"
+              },
+              {
+                "provider": "openai",
+                "model": "gpt-4"
+              },
+              {
+                "provider": "gemini"
+              }
+            ]
+          },
+          "plain": {
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "tuned": {
+            "provider": "xai",
+            "model": "grok",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "contextTokens": 120000.4,
+            "contextPercent": "55"
+          },
+          "halfway": {
+            "provider": "openai"
+          },
+          "badfallbacks": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": "nope"
+          },
+          "nested": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "fallbacks": [
+              {
+                "provider": "a",
+                "model": "b",
+                "fallbacks": []
+              }
+            ]
+          }
+        }
+      },
+      "args": {
+        "agent": "nobody",
+        "provider": "openai"
+      },
+      "result": {
+        "value": {
+          "presetName": "main-preset",
+          "preset": {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true,
+            "fallbackSource": {
+              "agent": "nobody"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "metas": [
+    {
+      "name": "pending_from_args",
+      "args": {
+        "agent": "Worker",
+        "tag": " t1 ",
+        "provider": "openai",
+        "model": "gpt-x",
+        "effort": "high",
+        "fast": true,
+        "preset": "p"
+      },
+      "extras": {},
+      "meta": {
+        "tag": "t1",
+        "sessionId": null,
+        "agent": "worker",
+        "preset": "p",
+        "provider": "openai",
+        "model": "gpt-x",
+        "effort": "high",
+        "fast": true
+      }
+    },
+    {
+      "name": "pending_resolves_the_default",
+      "args": {
+        "agent": "worker"
+      },
+      "extras": {},
+      "meta": {
+        "tag": null,
+        "sessionId": null,
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "fast": true
+      }
+    },
+    {
+      "name": "pending_resolve_failure_shows_the_args",
+      "args": {
+        "agent": "nobody",
+        "preset": "ghost"
+      },
+      "extras": {},
+      "meta": {
+        "tag": null,
+        "sessionId": null,
+        "agent": "nobody",
+        "preset": "ghost",
+        "provider": null,
+        "model": null,
+        "effort": null,
+        "fast": null
+      }
+    },
+    {
+      "name": "pending_extras",
+      "args": {
+        "agent": "worker"
+      },
+      "extras": {
+        "respawned": true
+      },
+      "meta": {
+        "respawned": true,
+        "tag": null,
+        "sessionId": null,
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "fast": true
+      }
+    },
+    {
+      "name": "pending_internal_knobs_dropped",
+      "args": {
+        "agent": "worker"
+      },
+      "extras": {
+        "spawnPrepTimeoutMs": 5,
+        "idleTimeoutMs": 1,
+        "respawned": true
+      },
+      "meta": {
+        "respawned": true,
+        "tag": null,
+        "sessionId": null,
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "fast": true
+      }
+    }
+  ],
+  "prepared": [
+    {
+      "name": "prepared_agent_route",
+      "in": {
+        "tag": "scout",
+        "sessionId": "sess_1",
+        "agent": "worker",
+        "preset": {
+          "id": "agent-worker",
+          "name": "AGENT WORKER",
+          "type": "agent",
+          "provider": "openai",
+          "model": "gpt-5",
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "sonnet",
+              "fast": false
+            },
+            null
+          ],
+          "fallbackSource": {
+            "agent": "worker"
+          },
+          "effort": "medium",
+          "fast": true,
+          "autoEffort": false,
+          "contextPercent": 40,
+          "tools": "full"
+        },
+        "presetName": "AGENT WORKER",
+        "extras": {}
+      },
+      "meta": {
+        "tag": "scout",
+        "sessionId": "sess_1",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "fast": true,
+        "autoEffort": false
+      },
+      "pending": {
+        "tag": "scout",
+        "sessionId": null,
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "fast": true
+      },
+      "merged": {
+        "meta": {
+          "tag": "scout",
+          "sessionId": "sess_1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": true,
+          "autoEffort": false
+        },
+        "label": "scout"
+      },
+      "descriptor": {
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "fast": true,
+        "autoEffort": false
+      }
+    },
+    {
+      "name": "prepared_main",
+      "in": {
+        "tag": "scout",
+        "sessionId": "sess_1",
+        "agent": "nobody",
+        "preset": {
+          "id": "main-preset",
+          "name": "MAIN",
+          "provider": "anthropic",
+          "model": "opus",
+          "effort": "high",
+          "fast": true,
+          "fallbackSource": {
+            "agent": "nobody"
+          }
+        },
+        "presetName": "main-preset",
+        "extras": {
+          "respawned": true
+        }
+      },
+      "meta": {
+        "respawned": true,
+        "tag": "scout",
+        "sessionId": "sess_1",
+        "agent": "nobody",
+        "preset": "main-preset",
+        "provider": "anthropic",
+        "model": "opus",
+        "effort": "high",
+        "fast": true
+      },
+      "pending": {
+        "tag": "scout",
+        "sessionId": null,
+        "agent": "nobody",
+        "preset": "main-preset",
+        "provider": "anthropic",
+        "model": "opus",
+        "effort": "high",
+        "fast": true
+      },
+      "merged": {
+        "meta": {
+          "tag": "scout",
+          "sessionId": "sess_1",
+          "agent": "nobody",
+          "preset": "main-preset",
+          "provider": "anthropic",
+          "model": "opus",
+          "effort": "high",
+          "fast": true,
+          "respawned": true
+        },
+        "label": "scout"
+      },
+      "descriptor": {
+        "agent": "nobody",
+        "preset": "main-preset",
+        "provider": "anthropic",
+        "model": "opus",
+        "effort": "high",
+        "fast": true
+      }
+    },
+    {
+      "name": "prepared_direct_named",
+      "in": {
+        "tag": "x",
+        "sessionId": "sess_2",
+        "agent": "a",
+        "preset": {
+          "id": "__direct__",
+          "name": "__DIRECT__",
+          "type": "agent",
+          "provider": "p",
+          "model": "m",
+          "fast": false,
+          "tools": "full"
+        },
+        "presetName": "custom",
+        "extras": {}
+      },
+      "meta": {
+        "tag": "x",
+        "sessionId": "sess_2",
+        "agent": "a",
+        "preset": "__direct__",
+        "provider": "p",
+        "model": "m",
+        "effort": null,
+        "fast": false
+      },
+      "pending": {
+        "tag": "x",
+        "sessionId": null,
+        "agent": "a",
+        "preset": "main-preset",
+        "provider": "anthropic",
+        "model": "opus",
+        "effort": "high",
+        "fast": true
+      },
+      "merged": {
+        "meta": {
+          "tag": "x",
+          "sessionId": "sess_2",
+          "agent": "a",
+          "preset": "__direct__",
+          "provider": "p",
+          "model": "m",
+          "effort": null,
+          "fast": false
+        },
+        "label": "x"
+      },
+      "descriptor": {
+        "agent": "a",
+        "preset": "__direct__",
+        "provider": "p",
+        "model": "m",
+        "effort": null,
+        "fast": false
+      }
+    },
+    {
+      "name": "prepared_no_key",
+      "in": {
+        "tag": "x",
+        "sessionId": "sess_2",
+        "agent": "a",
+        "preset": {
+          "provider": "p",
+          "model": "m",
+          "effort": ""
+        },
+        "presetName": "fallback-name",
+        "extras": {}
+      },
+      "meta": {
+        "tag": "x",
+        "sessionId": "sess_2",
+        "agent": "a",
+        "preset": "fallback-name",
+        "provider": "p",
+        "model": "m",
+        "effort": null,
+        "fast": false
+      },
+      "pending": {
+        "tag": "x",
+        "sessionId": null,
+        "agent": "a",
+        "preset": "main-preset",
+        "provider": "anthropic",
+        "model": "opus",
+        "effort": "high",
+        "fast": true
+      },
+      "merged": {
+        "meta": {
+          "tag": "x",
+          "sessionId": "sess_2",
+          "agent": "a",
+          "preset": "fallback-name",
+          "provider": "p",
+          "model": "m",
+          "effort": null,
+          "fast": false
+        },
+        "label": "x"
+      },
+      "descriptor": {
+        "agent": "a",
+        "preset": "fallback-name",
+        "provider": "p",
+        "model": "m",
+        "effort": null,
+        "fast": false
+      }
+    }
+  ]
+}

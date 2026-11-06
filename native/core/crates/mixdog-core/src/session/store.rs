@@ -49,6 +49,7 @@ use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::ItemRecord;
 use mixdog_store::schema::record::Record;
 use mixdog_store::sqlite::DirtyMark;
+use mixdog_store::sqlite::HistoryRow;
 use mixdog_store::sqlite::LineageLevel;
 use mixdog_store::sqlite::SqliteStore;
 use mixdog_store::summary::CatalogHead;
@@ -295,6 +296,32 @@ impl StoreThreads {
     ) -> Result<Record, CoreError> {
         log::read_frame_at(lane, dir, pos).map_err(|e| Self::read_error(id, e))
     }
+
+    /// The item record of one history row: its frame, its latest amend's body, and both
+    /// out-of-line slots read back.
+    fn history_item(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        row: &HistoryRow,
+    ) -> Result<ItemRecord, CoreError> {
+        let dir = self.dir(&row.session);
+        let Record::Item(mut item) =
+            log::read_frame(lane, &dir, row.pos, row.frame_len).map_err(|e| Self::read_error(id, e))?
+        else {
+            return Err(unexpected("item"));
+        };
+        if let Some((pos, len)) = row.amend {
+            let Record::Amend(amend) = log::read_frame(lane, &dir, pos, len).map_err(|e| Self::read_error(id, e))?
+            else {
+                return Err(unexpected("amend"));
+            };
+            item.body = amend.body;
+        }
+        item.body = self.resolve(lane, &item.body)?;
+        item.prompt = item.prompt.map(|prompt| self.resolve(lane, &prompt)).transpose()?;
+        Ok(item)
+    }
 }
 
 /// Context rows read per page.
@@ -471,23 +498,7 @@ impl ThreadStore for StoreThreads {
             .map_err(|e| internal("window", &e))?;
         let mut window = Vec::with_capacity(rows.len());
         for row in rows.iter().rev() {
-            let dir = self.dir(&row.session);
-            let Record::Item(mut item) = log::read_frame(lane, &dir, row.pos, row.frame_len)
-                .map_err(|e| Self::read_error(id, e))?
-            else {
-                return Err(unexpected("item"));
-            };
-            if let Some((pos, len)) = row.amend {
-                let Record::Amend(amend) =
-                    log::read_frame(lane, &dir, pos, len).map_err(|e| Self::read_error(id, e))?
-                else {
-                    return Err(unexpected("amend"));
-                };
-                item.body = amend.body;
-            }
-            item.body = self.resolve(lane, &item.body)?;
-            item.prompt = item.prompt.map(|prompt| self.resolve(lane, &prompt)).transpose()?;
-            window.push((row.ordinal, item));
+            window.push((row.ordinal, self.history_item(lane, id, row)?));
         }
         let prompts = self
             .index
@@ -586,6 +597,40 @@ impl ThreadStore for StoreThreads {
             .map_err(|e| internal("prompts", &e))?;
         // Oldest first, as the seam returns rows; only `prompt` is read by the caller.
         Ok(prompts.into_iter().rev().map(prompt_row).collect())
+    }
+
+    /// Every page of the lineage's history, as acked so far; a page after a rewind restarts
+    /// the read over the new history.
+    fn history_rows(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+    ) -> Result<Vec<ItemRecord>, CoreError> {
+        self.wait(self.projector.flush());
+        let dir = self.dir(id.as_str());
+        'read: loop {
+            let opened = log::open_log(lane, &dir, &self.blobs, &self.index)
+                .map_err(|e| Self::open_error(id, e))?;
+            let lineage = self.lineage(lane, &opened.fold)?;
+            let (mut rows, mut cursor) = (Vec::new(), None);
+            loop {
+                let (page, next) = match self.index.history_page_on_lane(lane, &lineage, opened.fold.base_cut, cursor, WINDOW_ROWS) {
+                    Ok(page) => page,
+                    Err(DbError::CursorStale) => continue 'read,
+                    Err(e) => return Err(internal("history", &e)),
+                };
+                for row in &page {
+                    rows.push(self.history_item(lane, id, row)?);
+                }
+                match next {
+                    Some(next) => cursor = Some(next),
+                    None => break,
+                }
+            }
+            // Pages run newest first; the seam returns rows oldest first.
+            rows.reverse();
+            return Ok(rows);
+        }
     }
 
     fn session_meta(

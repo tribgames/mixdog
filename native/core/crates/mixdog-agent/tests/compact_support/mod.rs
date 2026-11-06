@@ -28,6 +28,26 @@ macro_rules! golden {
     };
 }
 
+/// A session with no sensitive values: redaction changes nothing.
+pub struct NoRedaction;
+impl mixdog_agent::compact::dropped::Redactor for NoRedaction {
+    fn redact(&self, rows: Vec<Value>) -> Vec<Value> {
+        rows
+    }
+}
+
+/// A session with no attachments: no blob is ever read.
+pub struct NoBlobs;
+impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
+    fn text_within(
+        &self,
+        hex: &str,
+        _: u64,
+    ) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
+        panic!("attachment read {hex} in a golden without attachments")
+    }
+}
+
 pub fn replay_owner() -> ProviderId {
     ProviderId::from("golden")
 }

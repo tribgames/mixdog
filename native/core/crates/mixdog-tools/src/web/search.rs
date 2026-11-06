@@ -16,9 +16,8 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use super::cache::TtlCache;
+use super::cache::NodeCache;
 use super::cache::node_cache_key;
-use super::cache::node_entry_size;
 use super::format::clip;
 
 const CACHE_TTL: Duration = Duration::from_secs(30 * 60);
@@ -92,11 +91,49 @@ pub struct SearchPayload {
     pub usage: Option<serde_json::Value>,
 }
 
+impl SearchPayload {
+    /// The payload read back from a cached `node_payload` (possibly written by Node).
+    pub(super) fn from_node(stored: &Value) -> Option<Self> {
+        let response = stored.get("response")?;
+        let text = |value: &Value, key: &str| value.get(key).and_then(Value::as_str).map(str::to_string);
+        let results = response
+            .get("results")?
+            .as_array()?
+            .iter()
+            .map(|hit| {
+                Some(SearchHit {
+                    title: text(hit, "title")?,
+                    url: text(hit, "url")?,
+                    snippet: text(hit, "snippet").unwrap_or_default(),
+                    from_call: hit.get("source").and_then(Value::as_str) == Some("web_search_call"),
+                    published_date: text(hit, "publishedDate"),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let warnings = response
+            .get("warnings")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .unwrap_or_default();
+        Some(Self {
+            provider: text(stored, "provider").unwrap_or_else(|| NODE_PROVIDER.to_string()),
+            answer: text(response, "answer").unwrap_or_default(),
+            results,
+            warnings,
+            model: text(response, "model"),
+            usage: response.get("usage").filter(|usage| !usage.is_null()).cloned(),
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SearchArgs {
     pub query: String,
+    /// `keywords` was a list of one query (Node keys such a search by the list).
+    pub listed: bool,
     pub site: Option<String>,
-    pub locale: Option<String>,
+    /// A string such as `ko-KR`, or the object form with country/language/region/city/timezone.
+    pub locale: Option<Value>,
     pub context_size: String,
     pub max_results: usize,
 }
@@ -111,12 +148,20 @@ struct Flight {
 
 struct Core {
     provider: Option<Arc<dyn NativeWebSearch>>,
-    cache: TtlCache<SearchPayload>,
+    cache: Arc<NodeCache>,
     flights: Mutex<HashMap<String, Arc<Flight>>>,
 }
 
 pub struct SearchService {
     core: Arc<Core>,
+}
+
+/// A string locale as it is, an object as `JSON.stringify` writes it.
+fn locale_label(args: &SearchArgs) -> Option<String> {
+    args.locale.as_ref().map(|locale| match locale {
+        Value::String(text) => text.clone(),
+        other => mixdog_js::json_stringify(other),
+    })
 }
 
 fn build_prompt(args: &SearchArgs) -> String {
@@ -128,7 +173,7 @@ fn build_prompt(args: &SearchArgs) -> String {
     if let Some(site) = &args.site {
         lines.push(format!("Site/domain restriction: {site}"));
     }
-    if let Some(locale) = &args.locale {
+    if let Some(locale) = locale_label(args) {
         lines.push(format!("Locale: {locale}"));
     }
     lines.push(format!("Max results: {}", args.max_results));
@@ -141,14 +186,14 @@ fn build_prompt(args: &SearchArgs) -> String {
 /// Node `webSearchArgsForCacheKey`: `site` and `locale` are null when empty, the context size
 /// defaults to `low` and the result cap is clamped to 1..=20.
 fn cache_args(args: &SearchArgs) -> Value {
-    let present = |value: &Option<String>| match value.as_deref() {
-        Some(text) if !text.is_empty() => json!(text),
-        _ => Value::Null,
-    };
+    let query = mixdog_js::js_trim(&args.query);
     json!({
-        "keywords": mixdog_js::js_trim(&args.query),
-        "site": present(&args.site),
-        "locale": present(&args.locale),
+        "keywords": if args.listed { json!([query]) } else { json!(query) },
+        "site": match args.site.as_deref() {
+            Some(text) if !text.is_empty() => json!(text),
+            _ => Value::Null,
+        },
+        "locale": args.locale.clone().unwrap_or(Value::Null),
         "contextSize": if args.context_size.is_empty() { "low" } else { args.context_size.as_str() },
         "maxResults": args.max_results.clamp(1, 20),
     })
@@ -166,7 +211,7 @@ pub(super) fn cache_key(args: &SearchArgs) -> String {
 /// The payload Node caches for a search, as far as its size goes.
 pub(super) fn node_payload(payload: &SearchPayload, args: &SearchArgs, duration_ms: u64) -> Value {
     let cache = cache_args(args);
-    let query = cache["keywords"].clone();
+    let query = json!(mixdog_js::js_trim(&args.query));
     let results: Vec<Value> = payload
         .results
         .iter()
@@ -254,11 +299,11 @@ pub(super) fn normalize(result: NativeSearchResult, max_results: usize) -> Searc
 }
 
 impl SearchService {
-    pub fn new(provider: Option<Arc<dyn NativeWebSearch>>) -> Self {
+    pub fn new(provider: Option<Arc<dyn NativeWebSearch>>, cache: Arc<NodeCache>) -> Self {
         Self {
             core: Arc::new(Core {
                 provider,
-                cache: TtlCache::default(),
+                cache,
                 flights: Mutex::new(HashMap::new()),
             }),
         }
@@ -268,8 +313,10 @@ impl SearchService {
     /// provider call is cancelled once every caller waiting on it has left.
     pub async fn search(&self, args: &SearchArgs, cancel: &CancellationToken) -> Result<Arc<SearchPayload>, String> {
         let key = cache_key(args);
-        if let Some(hit) = self.core.cache.get(&key) {
-            return Ok(hit);
+        if let Some(stored) = self.core.cache.get(&key).await
+            && let Some(hit) = SearchPayload::from_node(&stored)
+        {
+            return Ok(Arc::new(hit));
         }
         let flight = {
             let mut flights = self.core.flights.lock().unwrap_or_else(|p| p.into_inner());
@@ -308,7 +355,7 @@ impl SearchService {
         let request = NativeSearchRequest {
             query: args.query.clone(),
             site: args.site.clone(),
-            locale: args.locale.clone(),
+            locale: locale_label(args),
             context_size: args.context_size.clone(),
             max_results: args.max_results,
             prompt: build_prompt(args),
@@ -327,8 +374,7 @@ impl SearchService {
                 let found = provider.search(request, flight_cancel).await?;
                 let payload = Arc::new(normalize(found, max_results));
                 let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-                let size = node_entry_size(&node_payload(&payload, &args, duration_ms), CACHE_TTL);
-                core.cache.put(key, payload.clone(), size, CACHE_TTL);
+                core.cache.put(key, node_payload(&payload, &args, duration_ms), CACHE_TTL, 0).await;
                 Ok(payload)
             }
             .await;
