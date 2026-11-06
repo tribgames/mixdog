@@ -95,7 +95,7 @@ pub(super) fn clean(value: Option<&Value>) -> String {
     }
 }
 
-fn truthy(value: Option<&Value>) -> bool {
+pub(super) fn truthy(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null) => false,
         Some(Value::Bool(b)) => *b,
@@ -127,7 +127,7 @@ fn unique(names: impl IntoIterator<Item = String>) -> Vec<String> {
     names.into_iter().filter(|n| seen.insert(n.clone())).collect()
 }
 
-fn tool_name(tool: &Value) -> String {
+pub(super) fn tool_name(tool: &Value) -> String {
     clean(tool.get("name"))
 }
 
@@ -223,7 +223,7 @@ fn lower(value: &Value) -> String {
     if truthy(Some(value)) { mixdog_js::value_to_string(value).to_lowercase() } else { String::new() }
 }
 
-fn permitted_by_session_policy(session: &Value, name: &str) -> bool {
+pub(super) fn permitted_by_session_policy(session: &Value, name: &str) -> bool {
     let name = name.to_lowercase();
     let excluded = session.get("schemaAllowedTools").and_then(Value::as_array).is_some_and(|allowed| !allowed.iter().any(|a| lower(a) == name));
     let denied = session.get("disallowedTools").and_then(Value::as_array).is_some_and(|denied| denied.iter().any(|d| lower(d) == name));
@@ -269,7 +269,7 @@ fn readonly_selectable(tool: &Value) -> bool {
 }
 
 /// Whether a bridge session's roster may name `tool`: only what its own policy lets it run.
-fn roster_permits(session: &Value, tool: &Value) -> bool {
+pub(super) fn roster_permits(session: &Value, tool: &Value) -> bool {
     if !is_tool_bridge_enabled(session) {
         return true;
     }
@@ -279,7 +279,7 @@ fn roster_permits(session: &Value, tool: &Value) -> bool {
     !(bridge_readonly_session(session) && !readonly_selectable(tool))
 }
 
-fn fixed_surface_session(session: &Value) -> bool {
+pub(super) fn fixed_surface_session(session: &Value) -> bool {
     matches!(session.get("deferredProviderMode").and_then(Value::as_str), Some("full" | "manifest" | "canonical")) && !is_tool_bridge_enabled(session)
 }
 

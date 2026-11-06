@@ -10,9 +10,13 @@
 // `inheritanceRouteTarget` returns (its window fields come from the already recorded
 // `session-context-meta` set), so the run does not depend on a provider catalog.
 process.env.TZ = 'UTC';
+// Import-time sweeps of the product delete from its data directory: keep that off the real one.
+process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'inheritance-fit-'));
 for (const name of Object.keys(process.env)) {
   if (name.startsWith('MIXDOG_AGENT_COMPACT_') || name.startsWith('MIXDOG_TOKEN_CALIBRATION_')) delete process.env[name];
 }
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 

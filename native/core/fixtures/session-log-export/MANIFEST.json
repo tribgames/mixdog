@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1787,
+      "bytes": 2111,
       "path": "session_log.json",
-      "sha256": "6130aaa581a741f3d4ff45522b8b4410c8174f21eaa774d23915bc70a40af7c4"
+      "sha256": "eb37ca2aaaf8df994ee2963e126d8bfac30d40ad833590ece46d14deb9052568"
     }
   ],
   "product": {
@@ -14,7 +14,7 @@
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 43481,
     "refComparison": {
-      "closestCommit": "62a9168072403ebb4ec3f7ca2732c9f2900ecbf3",
+      "closestCommit": "3fffd400c7638ddb799267dc5f1de555875946cf",
       "commitFilesMissingFromTree": 0,
       "exact": false,
       "filesDifferingFromCommit": 43481
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-log-export.mjs",
   "set": "session-log-export",
-  "totalBytes": 1787
+  "totalBytes": 2111
 }

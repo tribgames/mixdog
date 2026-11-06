@@ -49,7 +49,7 @@ pub struct PreparedTools {
     pub tool_spec: Value,
 }
 
-fn is_agent_owner(session: &Value) -> bool {
+pub(super) fn is_agent_owner(session: &Value) -> bool {
     session.get("owner").map(|o| clean(Some(o)).to_lowercase()).as_deref() == Some("agent")
 }
 

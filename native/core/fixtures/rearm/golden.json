@@ -1,0 +1,2278 @@
+{
+  "cases": [
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__alpha"
+            },
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "late MCP tools connected and never listed",
+      "returned": [
+        "mcp__srv__alpha",
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1"
+      },
+      "kind": "tools",
+      "name": "no session tools array",
+      "returned": null,
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredProviderMode": "full",
+        "id": "sess_1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      },
+      "kind": "tools",
+      "name": "a fixed full surface",
+      "returned": null,
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredProviderMode": "full",
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredProviderMode": "manifest",
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__alpha"
+            },
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a fixed manifest surface on the bridge is not fixed",
+      "returned": [
+        "mcp__srv__alpha",
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredProviderMode": "manifest",
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "promptIdentity": {
+          "hash": "h"
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      },
+      "kind": "tools",
+      "name": "a prompt identity of a lead",
+      "returned": null,
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "promptIdentity": {
+          "hash": "h"
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "owner": "agent",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__alpha"
+            },
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "promptIdentity": {
+          "hash": "h"
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a prompt identity of a delegated agent",
+      "returned": [
+        "mcp__srv__alpha",
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "owner": "agent",
+        "promptIdentity": {
+          "hash": "h"
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      },
+      "kind": "tools",
+      "name": "no announced list",
+      "returned": null,
+      "session": {
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "mcp__srv__alpha"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a tool the boot manifest listed",
+      "returned": [
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "mcp__srv__alpha"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__alpha"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a tool already loaded",
+      "returned": [
+        "mcp__srv__alpha"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredDiscoveredTools": [
+          "mcp__srv__alpha"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a tool the session discovered",
+      "returned": [
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredDiscoveredTools": [
+          "mcp__srv__alpha"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredCallableTools": "mcp__srv__beta",
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__alpha"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a tool callable",
+      "returned": [
+        "mcp__srv__alpha"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredCallableTools": "mcp__srv__beta",
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "an MCP tool no longer connected",
+      "returned": [
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "id": "sess_1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      },
+      "kind": "tools",
+      "name": "no connected snapshot",
+      "returned": null,
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the web_fetch tool",
+            "name": "web_fetch"
+          }
+        ],
+        "deferredMcpToolNames": [],
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "web_fetch"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a built-in tool the policy permits",
+      "returned": [
+        "web_fetch"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the web_fetch tool",
+            "name": "web_fetch"
+          }
+        ],
+        "deferredMcpToolNames": [],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the web_fetch tool",
+            "name": "web_fetch"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "disallowedTools": [
+          "Web_Fetch"
+        ],
+        "id": "sess_1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      },
+      "kind": "tools",
+      "name": "a built-in tool the session denies",
+      "returned": null,
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the web_fetch tool",
+            "name": "web_fetch"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "disallowedTools": [
+          "Web_Fetch"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the web_fetch tool",
+            "name": "web_fetch"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "schemaAllowedTools": [
+          "read"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      },
+      "kind": "tools",
+      "name": "a built-in tool outside the allowlist",
+      "returned": null,
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the web_fetch tool",
+            "name": "web_fetch"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "schemaAllowedTools": [
+          "read"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 1,
+        "disallowedTools": [
+          "mcp__srv__alpha"
+        ],
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a bridge roster that the policy refuses",
+      "returned": [
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "disallowedTools": [
+          "mcp__srv__alpha"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredSurfaceMode": "readonly",
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a read-only bridge roster",
+      "returned": [
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredSurfaceMode": "readonly",
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "x"
+          },
+          {
+            "description": "the   mcp__srv__alpha   tool",
+            "name": "  mcp__srv__alpha  "
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__alpha"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "an unnamed late tool",
+      "returned": [
+        "mcp__srv__alpha"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "x"
+          },
+          {
+            "description": "the   mcp__srv__alpha   tool",
+            "name": "  mcp__srv__alpha  "
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      },
+      "kind": "tools",
+      "name": "no late catalog",
+      "returned": null,
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__b__x tool",
+            "name": "mcp__b__x"
+          },
+          {
+            "description": "the mcp__B__y tool",
+            "name": "mcp__B__y"
+          },
+          {
+            "description": "the mcp__a__z tool",
+            "name": "mcp__a__z"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__b__x",
+          "mcp__B__y",
+          "mcp__a__z"
+        ],
+        "deferredToolDeltaRevision": 1,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__a__z"
+            },
+            {
+              "description": "",
+              "name": "mcp__b__x"
+            },
+            {
+              "description": "",
+              "name": "mcp__B__y"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "names sort by locale",
+      "returned": [
+        "mcp__b__x",
+        "mcp__B__y",
+        "mcp__a__z"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__b__x tool",
+            "name": "mcp__b__x"
+          },
+          {
+            "description": "the mcp__B__y tool",
+            "name": "mcp__B__y"
+          },
+          {
+            "description": "the mcp__a__z tool",
+            "name": "mcp__a__z"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__b__x",
+          "mcp__B__y",
+          "mcp__a__z"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 7,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__alpha"
+            },
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            },
+            {
+              "description": "old",
+              "name": "mcp__srv__zeta"
+            }
+          ],
+          "removed": [
+            "mcp__srv__gone"
+          ],
+          "removedServers": {
+            "mcp__srv__gone": "srv"
+          },
+          "revision": 7,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a pending delta is merged",
+      "returned": [
+        "mcp__srv__alpha",
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 4,
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "old",
+              "name": "mcp__srv__zeta"
+            }
+          ],
+          "removed": [
+            "mcp__srv__gone"
+          ],
+          "removedServers": {
+            "mcp__srv__gone": "srv"
+          },
+          "revision": 6,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 2,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            }
+          ],
+          "removed": [],
+          "revision": 2,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a pending removal of a re-armed tool cancels",
+      "returned": [
+        "mcp__srv__alpha",
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "pendingDeferredToolDelta": {
+          "added": [],
+          "removed": [
+            "mcp__srv__alpha"
+          ],
+          "removedServers": {
+            "mcp__srv__alpha": "srv"
+          },
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "deferredToolDeltaRevision": 2,
+        "id": "sess_1",
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "",
+              "name": "mcp__srv__alpha"
+            },
+            {
+              "description": "",
+              "name": "mcp__srv__beta"
+            },
+            {
+              "description": "word word word word word word word word word word word word word word word word…",
+              "name": "mcp__srv__zeta"
+            }
+          ],
+          "removed": [],
+          "revision": 2,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ],
+        "updatedAt": 1700000000000
+      },
+      "kind": "tools",
+      "name": "a pending delta with a long description",
+      "returned": [
+        "mcp__srv__alpha",
+        "mcp__srv__beta"
+      ],
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the mcp__srv__alpha tool",
+            "name": "mcp__srv__alpha"
+          },
+          {
+            "description": "the mcp__srv__beta tool",
+            "name": "mcp__srv__beta"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "pendingDeferredToolDelta": {
+          "added": [
+            {
+              "description": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word <tag>",
+              "name": "mcp__srv__zeta"
+            }
+          ],
+          "removed": [],
+          "revision": 1,
+          "type": "deferred_tools_delta",
+          "version": 1
+        },
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      },
+      "kind": "tools",
+      "name": "nothing late",
+      "returned": null,
+      "session": {
+        "deferredAnnouncedTools": [
+          "read",
+          "grep"
+        ],
+        "deferredLateToolCatalog": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          }
+        ],
+        "deferredMcpToolNames": [
+          "mcp__srv__alpha",
+          "mcp__srv__beta"
+        ],
+        "id": "sess_1",
+        "mcpInstructionHashes": {
+          "srv": "abc"
+        },
+        "mcpInstructionsAnnounced": [
+          "srv"
+        ],
+        "tools": [
+          {
+            "description": "the read tool",
+            "name": "read"
+          },
+          {
+            "description": "the load_tool tool",
+            "name": "load_tool"
+          }
+        ]
+      }
+    },
+    {
+      "after": {
+        "id": "s",
+        "promptSettingsRecheck": "compact"
+      },
+      "kind": "settings",
+      "name": "told and pending",
+      "returned": true,
+      "session": {
+        "id": "s",
+        "promptSettingsNotice": {
+          "revision": 2
+        },
+        "promptSettingsTold": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "after": {
+        "id": "s",
+        "promptSettingsRecheck": "compact"
+      },
+      "kind": "settings",
+      "name": "told only",
+      "returned": true,
+      "session": {
+        "id": "s",
+        "promptSettingsTold": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "after": {
+        "id": "s",
+        "promptSettingsRecheck": "compact"
+      },
+      "kind": "settings",
+      "name": "pending only",
+      "returned": true,
+      "session": {
+        "id": "s",
+        "promptSettingsNotice": {
+          "revision": 2
+        }
+      }
+    },
+    {
+      "after": {
+        "id": "s"
+      },
+      "kind": "settings",
+      "name": "neither",
+      "returned": false,
+      "session": {
+        "id": "s"
+      }
+    },
+    {
+      "after": {
+        "id": "s",
+        "promptIdentity": "h",
+        "promptSettingsTold": {
+          "a": 1
+        }
+      },
+      "kind": "settings",
+      "name": "a lead thread folds its settings",
+      "returned": false,
+      "session": {
+        "id": "s",
+        "promptIdentity": "h",
+        "promptSettingsTold": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "after": {
+        "id": "s",
+        "owner": "Agent",
+        "promptIdentity": "h",
+        "promptSettingsRecheck": "compact"
+      },
+      "kind": "settings",
+      "name": "a delegated agent is told again",
+      "returned": true,
+      "session": {
+        "id": "s",
+        "owner": "Agent",
+        "promptIdentity": "h",
+        "promptSettingsTold": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "after": {
+        "id": "s",
+        "promptSettingsRecheck": "compact"
+      },
+      "kind": "settings",
+      "name": "a recheck is replaced",
+      "returned": true,
+      "session": {
+        "id": "s",
+        "promptSettingsRecheck": true,
+        "promptSettingsTold": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "after": {
+        "id": "s",
+        "promptSettingsRecheck": "compact"
+      },
+      "kind": "settings",
+      "name": "empty told is falsy but an object is truthy",
+      "returned": true,
+      "session": {
+        "id": "s",
+        "promptSettingsTold": {}
+      }
+    },
+    {
+      "after": {
+        "id": "s",
+        "promptSettingsNotice": null,
+        "promptSettingsTold": null
+      },
+      "kind": "settings",
+      "name": "a null told",
+      "returned": false,
+      "session": {
+        "id": "s",
+        "promptSettingsNotice": null,
+        "promptSettingsTold": null
+      }
+    }
+  ],
+  "now": 1700000000000
+}

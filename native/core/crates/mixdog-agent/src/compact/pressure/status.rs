@@ -348,6 +348,9 @@ struct Policy {
     token_calibration: f64,
     tool_schema_signature: Option<String>,
     provider: Option<Value>,
+    /// `compactTargetTokens`: the gauge's post-compaction target.
+    compact_target_tokens: Option<f64>,
+    single_shot: bool,
 }
 
 /// `providerTokenCalibration(provider)`.
@@ -456,6 +459,8 @@ fn worker_policy(session: &Header, tools: &RequestTools<'_>, agent_mode: bool) -
         token_calibration: provider_token_calibration(get(session, "provider")),
         tool_schema_signature: Some(tool_schema_signature(tools)),
         provider: Some(or_null(get(session, "provider"))),
+        compact_target_tokens: Some(target),
+        single_shot,
     })))
 }
 
@@ -1043,4 +1048,169 @@ pub fn context_status(input: &StatusInput<'_>) -> Value {
 /// `estimateToolSchemaTokens(tools)`: the schema share of the request reserve (the two are one number).
 fn estimate_request_tokens(tools: &RequestTools<'_>) -> f64 {
     estimate_request_reserve_tokens(tools) as f64
+}
+
+// --- The manual compaction's plan (session/manager/compaction-runner.mjs) -------------
+
+/// The refusal of a forced compaction on a session with no window.
+pub const COMPACT_NO_WINDOW: &str = "compact: no context window is available for this session";
+
+/// `compactTargetBudget({ ...policy, force })`: the budget the summary is asked to fit.
+fn compact_target_budget(policy: &Policy, force: bool) -> Option<f64> {
+    let boundary = policy.boundary_tokens.filter(|b| *b >= 1.0)?;
+    let reserve = policy.reserve_tokens.filter(|r| finite(*r)).unwrap_or(0.0).max(0.0);
+    let gauge_target = policy.compact_target_tokens.filter(|t| *t >= 1.0).unwrap_or(boundary);
+    let calibration = policy_calibration(policy);
+    let request_reserve = policy_request_reserve(policy);
+    let raw = |value: f64| (value / calibration).floor().max(1.0);
+    let raw_boundary = raw(boundary);
+    let raw_target = (raw_boundary.min(raw(gauge_target)) - request_reserve).max(1.0);
+    let raw_trigger = policy.trigger_tokens.filter(|t| *t >= 1.0).map_or(0.0, |t| raw_boundary.min(raw(t)));
+    // The reserve is already raw, so it is compared and subtracted as it is.
+    let single_shot = policy.single_shot || (raw_trigger > 0.0 && reserve >= raw_trigger);
+    let legacy = raw_boundary.min(raw_target + reserve).max(1.0);
+    if single_shot || raw_trigger < 1.0 {
+        return Some(legacy);
+    }
+    let bounded = legacy.min(raw_trigger - 1.0).max(1.0);
+    // A forced (manual) compaction keeps a viable legacy budget when the no-repeat clamp would
+    // consume all the working space beyond the reserve.
+    Some(if force && bounded <= reserve { legacy } else { bounded })
+}
+
+/// The post-compaction numbers of a pass (`{ messages, tokens, messageTokens }`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct After {
+    pub messages: usize,
+    pub tokens: f64,
+    pub message_tokens: f64,
+}
+
+/// `sessionCompactionPlan`'s numbers: what a compaction reports from before it summarizes anything.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompactionPlan {
+    pub force: bool,
+    pub messages: usize,
+    pub boundary: f64,
+    pub before_message_tokens: f64,
+    pub trigger_tokens: f64,
+    pub buffer_tokens: f64,
+    pub buffer_ratio: f64,
+    pub budget: f64,
+    pub pressure_tokens: f64,
+    pub before_tokens: f64,
+    pub reserve_tokens: f64,
+}
+
+/// `sessionCompactionPlan(session, opts)` over the session header and its transcript snapshot: `Ok(None)`
+/// is Node's `null` (an automatic pass on a session that turned it off, a short transcript, or no
+/// window); the refusal is a forced compaction that has no window. `input.request_tools` are the
+/// tools of `resolveSessionCompactionPolicy`'s request, `input.session_tools` the session's own.
+pub fn compaction_plan(input: &StatusInput<'_>, auto_mode: bool, force: bool) -> Result<Option<CompactionPlan>, &'static str> {
+    let session = input.session;
+    let force = force || !auto_mode;
+    let compaction = get(session, "compaction").filter(|v| truthy(Some(v))).and_then(Value::as_object);
+    if auto_mode && compaction.is_some_and(|c| get(c, "auto") == Some(&Value::Bool(false))) {
+        return Ok(None);
+    }
+    let messages = input.messages;
+    if messages.len() < 3 && !force {
+        return Ok(None);
+    }
+    let Some(boundary) = first_positive(&[get(session, "compactBoundaryTokens"), get(session, "autoCompactTokenLimit"), get(session, "contextWindow")]) else {
+        return if force { Err(COMPACT_NO_WINDOW) } else { Ok(None) };
+    };
+    // `resolveSessionCompactionPolicy`: the session's policy with automatic compaction on.
+    let aligned = match worker_policy(session, &input.request_tools, true) {
+        Some(Worker::Policy(policy)) => Some(*policy),
+        // `{ auto: false }`: an object with none of the policy's fields.
+        Some(Worker::Off) => Some(Policy::default()),
+        None => None,
+    };
+    let before_message_tokens = input.meter.messages(messages) as f64;
+    let trigger_tokens = aligned.as_ref().and_then(|p| p.trigger_tokens).filter(|t| *t != 0.0).unwrap_or(boundary);
+    let buffer_tokens = aligned.as_ref().and_then(|p| p.buffer_tokens).unwrap_or_else(|| (boundary - trigger_tokens).max(0.0));
+    let buffer_ratio = aligned.as_ref().and_then(|p| p.buffer_ratio).unwrap_or(buffer_tokens / boundary);
+    let budget = aligned.as_ref().and_then(|p| compact_target_budget(p, force)).filter(|b| *b != 0.0).unwrap_or(boundary);
+    let pressure_tokens = if messages.is_empty() {
+        0.0
+    } else {
+        let estimated = number_or_zero(summarize_messages(messages, input.meter).get("estimatedTokens"));
+        round((estimated + estimate_request_reserve_tokens(&input.session_tools) as f64) * provider_token_calibration(get(session, "provider"))).max(0.0)
+    };
+    let gauge = aligned.as_ref().map_or(0.0, |policy| resolve_tokens(session, before_message_tokens, policy, messages, input).0);
+    // `compactDisplayBeforeTokens`: the context the provider last measured, while that reading is live.
+    let before_tokens = match positive_int(get(session, "lastContextTokens")) {
+        Some(last) if get(session, "lastContextTokensStaleAfterCompact") != Some(&Value::Bool(true)) => last,
+        _ if gauge != 0.0 => gauge,
+        _ => pressure_tokens,
+    };
+    let reserve_tokens = match aligned.as_ref().and_then(|p| p.reserve_tokens) {
+        Some(reserve) => reserve,
+        None => {
+            let request = estimate_request_reserve_tokens(&input.session_tools) as f64;
+            let configured = compaction
+                .and_then(|c| positive_int(get(c, "reservedTokens")))
+                .or_else(|| env_positive_int("MIXDOG_AGENT_COMPACT_RESERVED_TOKENS"))
+                .unwrap_or(0.0);
+            request + configured
+        }
+    };
+    Ok(Some(CompactionPlan { force, messages: messages.len(), boundary, before_message_tokens, trigger_tokens, buffer_tokens, buffer_ratio, budget, pressure_tokens, before_tokens, reserve_tokens }))
+}
+
+impl CompactionPlan {
+    /// `unchangedAfter(plan)`.
+    pub fn unchanged_after(&self) -> After {
+        After { messages: self.messages, tokens: self.before_tokens, message_tokens: self.before_message_tokens }
+    }
+
+    /// `compactionResult(plan, outcome, after, tail)`.
+    pub fn result(&self, outcome: Map<String, Value>, after: &After, tail: Map<String, Value>) -> Value {
+        let mut out = outcome;
+        for (key, value) in [
+            ("beforeMessages", json!(self.messages)),
+            ("afterMessages", json!(after.messages)),
+            ("beforeTokens", num(self.before_tokens)),
+            ("afterTokens", num(after.tokens)),
+            ("beforeMessageTokens", num(self.before_message_tokens)),
+            ("afterMessageTokens", num(after.message_tokens)),
+            ("pressureTokens", num(self.pressure_tokens)),
+            ("triggerTokens", num(self.trigger_tokens)),
+            ("bufferTokens", num(self.buffer_tokens)),
+            ("bufferRatio", num(self.buffer_ratio)),
+            ("boundaryTokens", num(self.boundary)),
+            ("budgetTokens", num(self.boundary)),
+            ("targetBudgetTokens", num(self.budget)),
+            ("reserveTokens", num(self.reserve_tokens)),
+        ] {
+            out.insert(key.to_owned(), value);
+        }
+        out.extend(tail);
+        Value::Object(out)
+    }
+
+    /// `runSessionCompaction`'s answer for a pass that is not forced and whose pressure is under
+    /// the trigger; `None` when the pass goes on.
+    pub fn below_threshold(&self) -> Option<Value> {
+        (!self.force && self.pressure_tokens < self.trigger_tokens).then(|| self.unchanged([("changed", json!(false)), ("reason", json!("below threshold"))]))
+    }
+
+    /// The answer of a pass a required reduction cannot be had from.
+    pub fn no_token_reduction(&self) -> Value {
+        self.unchanged([("changed", json!(false)), ("skipped", json!(true)), ("reason", json!("no_token_reduction"))])
+    }
+
+    fn unchanged<const N: usize>(&self, outcome: [(&str, Value); N]) -> Value {
+        let outcome = outcome.into_iter().map(|(key, value)| (key.to_owned(), value)).collect();
+        self.result(outcome, &self.unchanged_after(), Map::from_iter([("freshContext".to_owned(), Value::Bool(false))]))
+    }
+}
+
+/// The budget a forced (manual) compaction asks its summary to fit, for a session header.
+pub fn forced_target_budget(input: &StatusInput<'_>) -> Option<f64> {
+    match worker_policy(input.session, &input.request_tools, true) {
+        Some(Worker::Policy(policy)) => compact_target_budget(&policy, true),
+        _ => None,
+    }
 }

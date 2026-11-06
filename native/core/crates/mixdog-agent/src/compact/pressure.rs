@@ -29,9 +29,14 @@ mod rows;
 mod status;
 
 pub use rows::AttachmentBytes;
+pub use status::After;
+pub use status::COMPACT_NO_WINDOW;
+pub use status::CompactionPlan;
 pub use status::Route;
 pub use status::StatusInput;
+pub use status::compaction_plan;
 pub use status::context_status;
+pub use status::forced_target_budget;
 pub use status::summarize_messages;
 pub use rows::BlobError;
 pub(crate) use rows::node_base64;

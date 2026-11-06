@@ -4,9 +4,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 120165,
+      "bytes": 100436,
       "path": "golden.json",
-      "sha256": "6ae9ee38c3f87ee3cae24459132fca79be7d5c3a7c9b1124166e982b8ed1b69e"
+      "sha256": "1028c6a55dd1144d3369137f09c0cc9e4b7dfedda14573983bb8af48edcd690d"
     }
   ],
   "product": {
@@ -15,10 +15,10 @@
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 43481,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 1,
+      "closestCommit": "3fffd400c7638ddb799267dc5f1de555875946cf",
+      "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 34407
+      "filesDifferingFromCommit": 43481
     },
     "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
     "tree": "product tree loaded by the recorder",
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-context-status.mjs",
   "set": "context-status",
-  "totalBytes": 120165
+  "totalBytes": 100436
 }

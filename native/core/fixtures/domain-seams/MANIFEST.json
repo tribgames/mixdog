@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 65963,
+      "bytes": 67124,
       "path": "golden.json",
-      "sha256": "df2e13a52174b1f2cb62f0e3d8433364680ca25947deba2f9d72684342f6e5cf"
+      "sha256": "f1d1c2b7d591c5f475c52afef2b8abec468bba7d2d5043314f64db1ced7cc37a"
     }
   ],
   "product": {
@@ -14,10 +14,10 @@
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 43481,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 1,
+      "closestCommit": "3fffd400c7638ddb799267dc5f1de555875946cf",
+      "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 34407
+      "filesDifferingFromCommit": 43481
     },
     "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
     "tree": "product tree loaded by the recorder",
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-domain-seams.mjs",
   "set": "domain-seams",
-  "totalBytes": 65963
+  "totalBytes": 67124
 }

@@ -282,7 +282,7 @@ fn locale_order(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 /// `mergePendingDeferredToolDelta(session, { added, removed })`.
-fn merge_deferred_delta(session: &mut Header, added: &[(String, String)], removed: &[String], now: i64) {
+pub fn merge_deferred_delta(session: &mut Header, added: &[(String, String)], removed: &[String], now: i64) {
     let source = session.get("pendingDeferredToolDelta").filter(|delta| delta.is_object()).cloned().unwrap_or(Value::Null);
     let mut by_name: Vec<(String, String)> = Vec::new();
     for entry in array(source.get("added")) {

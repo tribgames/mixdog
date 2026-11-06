@@ -250,13 +250,26 @@ impl ThreadStore for MemStore {
 
     /// The header of the session record, as `decode` takes it.
     fn read_header(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
-        match self.records(id).first() {
-            Some((_, Record::Session(session))) => Ok(match &session.header {
-                Slot::Inline(header) => header.clone(),
-                _ => Header::new(),
-            }),
-            _ => Err(CoreError::ThreadNotFound { thread_id: id.clone() }),
+        let records = self.records(id);
+        let Some((_, Record::Session(session))) = records.first() else {
+            return Err(CoreError::ThreadNotFound { thread_id: id.clone() });
+        };
+        let mut header = match &session.header {
+            Slot::Inline(header) => header.clone(),
+            _ => Header::new(),
+        };
+        // The header fold: each change removes its `unset` keys, then merges its `set`.
+        for (_, record) in &records {
+            let Record::Meta(meta) = record else { continue };
+            let Slot::Inline(change) = &meta.change else { continue };
+            for key in &change.unset {
+                header.shift_remove(key);
+            }
+            for (key, value) in &change.set {
+                header.insert(key.clone(), value.clone());
+            }
         }
+        Ok(header)
     }
 
     fn read_log_id(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
@@ -357,6 +370,12 @@ impl ThreadStore for MemStore {
                         out.push((ItemId::from(item.iid.as_str().to_owned()), body));
                     }
                 }
+                // An amended row reads as its amend body, as the real store's context rows do.
+                Record::Amend(amend) => {
+                    if let (Slot::Inline(body), Some(row)) = (amend.body, out.iter_mut().find(|(iid, _)| iid.as_str() == amend.iid.as_str())) {
+                        row.1 = body;
+                    }
+                }
                 _ => {}
             }
         }
@@ -422,6 +441,7 @@ impl ThreadStore for MemStore {
         for (ordinal, record) in records {
             match record {
                 Record::Item(item) => rows.push((ordinal, item)),
+                Record::Amend(amend) => amend_row(&mut rows, &amend),
                 Record::Rewind(rewind) => {
                     rev += 1;
                     rows.retain(|(o, _)| *o < rewind.to_ordinal);
@@ -464,6 +484,13 @@ impl ThreadStore for MemStore {
     }
 }
 
+/// An amend replaces the body (and blob refs) of its live row, as the real store's readers see it.
+fn amend_row(rows: &mut [(u64, ItemRecord)], amend: &mixdog_store::schema::record::AmendRecord) {
+    if let Some((_, row)) = rows.iter_mut().find(|(_, row)| row.iid.as_str() == amend.iid.as_str()) {
+        row.body = amend.body.clone();
+    }
+}
+
 impl MemStore {
     /// The live item `iid` with its ordinal, its boundaries folded in as the real reader does.
     fn live_row(&self, id: &ThreadId, iid: &str) -> Option<(u64, ItemRecord)> {
@@ -472,6 +499,7 @@ impl MemStore {
         for (ordinal, record) in self.records(id) {
             match record {
                 Record::Item(item) => rows.push((ordinal, item)),
+                Record::Amend(amend) => amend_row(&mut rows, &amend),
                 Record::Rewind(rewind) => rows.retain(|(o, _)| *o < rewind.to_ordinal),
                 Record::ModelSwitch(switch) => switches.push(switch),
                 _ => {}

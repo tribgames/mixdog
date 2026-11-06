@@ -1,5 +1,56 @@
 {
-  "log": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"8ed203041a6665f29910c977\",\"id\":\"sess_export\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_export\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"updatedAt\":1700000000000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"tags\":[\"a\",\"b\"],\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"Read src/a.txt — and say \\\"hi\\\" 😀\\n\\ttab   line sep \\u0001\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"src/a.txt\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_1\",\"content\":\"line one\\nline two\"},{\"role\":\"assistant\",\"content\":\"Done.\",\"usage\":{\"input\":12,\"output\":3.5,\"cached\":0.1,\"big\":1e+21,\"small\":1e-7},\"flag\":null}]}\n",
-  "logId": "8ed203041a6665f29910c977",
-  "recordJson": "{\"id\":\"sess_export\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"messages\":[{\"role\":\"user\",\"content\":\"Read src/a.txt — and say \\\"hi\\\" 😀\\n\\ttab   line sep \\u0001\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"src/a.txt\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_1\",\"content\":\"line one\\nline two\"},{\"role\":\"assistant\",\"content\":\"Done.\",\"usage\":{\"input\":12,\"output\":3.5,\"cached\":0.1,\"big\":1e+21,\"small\":1e-7},\"flag\":null}],\"updatedAt\":1700000000000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"tags\":[\"a\",\"b\"],\"tools\":[]}"
+  "record": {
+    "id": "sess_export",
+    "owner": "user",
+    "agent": "lead",
+    "sourceType": "lead",
+    "closed": false,
+    "generation": 0,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Read src/a.txt — and say \"hi\" 😀\n\ttab   line sep \u0001"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_1",
+            "type": "function",
+            "function": {
+              "name": "read",
+              "arguments": "{\"path\":\"src/a.txt\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_1",
+        "content": "line one\nline two"
+      },
+      {
+        "role": "assistant",
+        "content": "Done.",
+        "usage": {
+          "input": 12,
+          "output": 3.5,
+          "cached": 0.1,
+          "big": 1e+21,
+          "small": 1e-7
+        },
+        "flag": null
+      }
+    ],
+    "updatedAt": 1700000000000,
+    "cwd": "C:\\mixdog-golden\\project",
+    "tags": [
+      "a",
+      "b"
+    ],
+    "tools": []
+  },
+  "logId": "aab9d679d4df4eddcea43b7a",
+  "log": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"aab9d679d4df4eddcea43b7a\",\"id\":\"sess_export\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_export\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"updatedAt\":1700000000000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"tags\":[\"a\",\"b\"],\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"Read src/a.txt — and say \\\"hi\\\" 😀\\n\\ttab   line sep \\u0001\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"src/a.txt\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_1\",\"content\":\"line one\\nline two\"},{\"role\":\"assistant\",\"content\":\"Done.\",\"usage\":{\"input\":12,\"output\":3.5,\"cached\":0.1,\"big\":1e+21,\"small\":1e-7},\"flag\":null}]}\n"
 }

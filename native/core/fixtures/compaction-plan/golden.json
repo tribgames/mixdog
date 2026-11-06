@@ -1,0 +1,3167 @@
+{
+  "cases": [
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "openai window with tools",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 533,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 533,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 50000,
+          "triggerTokens": 200000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "no tools",
+      "nativePrefix": 0,
+      "requestTools": [],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 372,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 372,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 372,
+          "reason": "below threshold",
+          "reserveTokens": 0,
+          "targetBudgetTokens": 50000,
+          "triggerTokens": 200000
+        }
+      },
+      "tools": []
+    },
+    {
+      "forcedBudget": 17857,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 100000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "claude-x",
+        "provider": "anthropic",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "anthropic calibration",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 746,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 746,
+          "boundaryTokens": 100000,
+          "budgetTokens": 100000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 746,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 17857,
+          "triggerTokens": 100000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 21739,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 100000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gemini-x",
+        "provider": "gemini",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "gemini calibration",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 613,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 613,
+          "boundaryTokens": 100000,
+          "budgetTokens": 100000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 613,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 21739,
+          "triggerTokens": 100000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 6000,
+      "forcedError": null,
+      "header": {
+        "compactBoundaryTokens": 24000,
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 64000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "explicit boundary below the window",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 533,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 533,
+          "boundaryTokens": 24000,
+          "budgetTokens": 24000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 6000,
+          "triggerTokens": 24000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 16000,
+      "forcedError": null,
+      "header": {
+        "autoCompactTokenLimit": 20000,
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 64000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "legacy auto limit below the boundary",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 533,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 533,
+          "boundaryTokens": 20000,
+          "budgetTokens": 20000,
+          "bufferRatio": 0.6875,
+          "bufferTokens": 44000,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 16000,
+          "triggerTokens": 20000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 4000,
+      "forcedError": null,
+      "header": {
+        "autoCompactTokenLimit": 12000,
+        "compaction": {
+          "auto": true
+        },
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai"
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "legacy auto limit only",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 533,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 533,
+          "boundaryTokens": 12000,
+          "budgetTokens": 12000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 4000,
+          "triggerTokens": 12000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50500,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true,
+          "reservedTokens": 500
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "configured reserve",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 533,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 533,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0.0025,
+          "bufferTokens": 500,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 661,
+          "targetBudgetTokens": 50500,
+          "triggerTokens": 199500
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true,
+          "mainBufferTokens": 4000
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "configured main buffer tokens",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 533,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 533,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0.02,
+          "bufferTokens": 4000,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 50000,
+          "triggerTokens": 196000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true,
+          "bufferTokens": 3000
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "owner": "agent",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "agent owner buffer",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 533,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 533,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0.015,
+          "bufferTokens": 3000,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 50000,
+          "triggerTokens": 197000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 30000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true,
+          "targetTokens": 30000
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "configured target tokens",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 533,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 533,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 30000,
+          "triggerTokens": 200000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "lastContextTokens": 1234,
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "last context tokens",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 1234,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 1234,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 50000,
+          "triggerTokens": 200000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "lastContextTokens": 1234,
+        "lastContextTokensStaleAfterCompact": true,
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "last context tokens stale after compact",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 533,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 533,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 50000,
+          "triggerTokens": 200000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineMessageCount": 6,
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselinePrefixSignature": "11c0735e167e59d94bd06292d05ea508532f349e3fa9daed2579c1ccc354e009",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineRequestReserveTokens": 161,
+        "contextPressureBaselineShapeSignature": "c65c90fcc77fa145a8505c54b6a6bf3b88ab9d82cd0e2df0e1a6f3eee79e7db4",
+        "contextPressureBaselineSource": "provider",
+        "contextPressureBaselineTokens": 5100,
+        "contextPressureBaselineToolSignature": "1312f8f294e87737e3713910788748e829893279f608c916459db8b790beb024",
+        "contextPressureBaselineUpdatedAt": 1800000000000,
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "lastContextTokensStaleAfterCompact": false,
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "provider baseline",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 5100,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 5100,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 533,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 50000,
+          "triggerTokens": 200000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineMessageCount": 6,
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselinePrefixSignature": "11c0735e167e59d94bd06292d05ea508532f349e3fa9daed2579c1ccc354e009",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineRequestReserveTokens": 161,
+        "contextPressureBaselineShapeSignature": "c65c90fcc77fa145a8505c54b6a6bf3b88ab9d82cd0e2df0e1a6f3eee79e7db4",
+        "contextPressureBaselineSource": "provider",
+        "contextPressureBaselineTokens": 5100,
+        "contextPressureBaselineToolSignature": "1312f8f294e87737e3713910788748e829893279f608c916459db8b790beb024",
+        "contextPressureBaselineUpdatedAt": 1800000000000,
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "lastContextTokensStaleAfterCompact": false,
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "provider baseline with a tool change",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        },
+        {
+          "description": "Find files",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "glob"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 372,
+          "afterMessages": 6,
+          "afterTokens": 5143,
+          "beforeMessageTokens": 372,
+          "beforeMessages": 6,
+          "beforeTokens": 5143,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 576,
+          "reason": "below threshold",
+          "reserveTokens": 204,
+          "targetBudgetTokens": 50000,
+          "triggerTokens": 200000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        },
+        {
+          "description": "Find files",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "glob"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineMessageCount": 6,
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselinePrefixSignature": "11c0735e167e59d94bd06292d05ea508532f349e3fa9daed2579c1ccc354e009",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineRequestReserveTokens": 161,
+        "contextPressureBaselineShapeSignature": "c65c90fcc77fa145a8505c54b6a6bf3b88ab9d82cd0e2df0e1a6f3eee79e7db4",
+        "contextPressureBaselineSource": "provider",
+        "contextPressureBaselineTokens": 5100,
+        "contextPressureBaselineToolSignature": "1312f8f294e87737e3713910788748e829893279f608c916459db8b790beb024",
+        "contextPressureBaselineUpdatedAt": 1800000000000,
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "lastContextTokensStaleAfterCompact": false,
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        },
+        {
+          "content": "later0 later1 later2 later3 later4 later5 later6 later7 later8 later9 later10 later11 later12 later13 later14 later15 later16 later17 later18 later19 later20 later21 later22 later23 later24 later25 later26 later27 later28 later29 later30 later31 later32 later33 later34 later35 later36 later37 later38 later39 later40 later41 later42 later43 later44 later45 later46 later47 later48 later49 later50 later51 later52 later53 later54 later55 later56 later57 later58 later59",
+          "role": "user"
+        }
+      ],
+      "name": "provider baseline then more messages",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 494,
+          "afterMessages": 7,
+          "afterTokens": 5222,
+          "beforeMessageTokens": 494,
+          "beforeMessages": 7,
+          "beforeTokens": 5222,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 655,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 50000,
+          "triggerTokens": 200000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": false
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "auto disabled by the session",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": null
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": false
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "owner": "agent",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "agent mode ignores a disabled auto",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": null
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "two messages",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": null
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        }
+      ],
+      "name": "three messages",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 186,
+          "afterMessages": 3,
+          "afterTokens": 347,
+          "beforeMessageTokens": 186,
+          "beforeMessages": 3,
+          "beforeTokens": 347,
+          "boundaryTokens": 200000,
+          "budgetTokens": 200000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 347,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 50000,
+          "triggerTokens": 200000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": null,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai"
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39",
+          "role": "assistant"
+        }
+      ],
+      "name": "no window",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": null
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 1999,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 2000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19 u0_20 u0_21 u0_22 u0_23 u0_24 u0_25 u0_26 u0_27 u0_28 u0_29 u0_30 u0_31 u0_32 u0_33 u0_34 u0_35 u0_36 u0_37 u0_38 u0_39 u0_40 u0_41 u0_42 u0_43 u0_44 u0_45 u0_46 u0_47 u0_48 u0_49 u0_50 u0_51 u0_52 u0_53 u0_54 u0_55 u0_56 u0_57 u0_58 u0_59 u0_60 u0_61 u0_62 u0_63 u0_64 u0_65 u0_66 u0_67 u0_68 u0_69 u0_70 u0_71 u0_72 u0_73 u0_74 u0_75 u0_76 u0_77 u0_78 u0_79 u0_80 u0_81 u0_82 u0_83 u0_84 u0_85 u0_86 u0_87 u0_88 u0_89 u0_90 u0_91 u0_92 u0_93 u0_94 u0_95 u0_96 u0_97 u0_98 u0_99 u0_100 u0_101 u0_102 u0_103 u0_104 u0_105 u0_106 u0_107 u0_108 u0_109 u0_110 u0_111 u0_112 u0_113 u0_114 u0_115 u0_116 u0_117 u0_118 u0_119",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19 a1_20 a1_21 a1_22 a1_23 a1_24 a1_25 a1_26 a1_27 a1_28 a1_29 a1_30 a1_31 a1_32 a1_33 a1_34 a1_35 a1_36 a1_37 a1_38 a1_39 a1_40 a1_41 a1_42 a1_43 a1_44 a1_45 a1_46 a1_47 a1_48 a1_49 a1_50 a1_51 a1_52 a1_53 a1_54 a1_55 a1_56 a1_57 a1_58 a1_59 a1_60 a1_61 a1_62 a1_63 a1_64 a1_65 a1_66 a1_67 a1_68 a1_69 a1_70 a1_71 a1_72 a1_73 a1_74 a1_75 a1_76 a1_77 a1_78 a1_79 a1_80 a1_81 a1_82 a1_83 a1_84 a1_85 a1_86 a1_87 a1_88 a1_89 a1_90 a1_91 a1_92 a1_93 a1_94 a1_95 a1_96 a1_97 a1_98 a1_99 a1_100 a1_101 a1_102 a1_103 a1_104 a1_105 a1_106 a1_107 a1_108 a1_109 a1_110 a1_111 a1_112 a1_113 a1_114 a1_115 a1_116 a1_117 a1_118 a1_119",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19 u2_20 u2_21 u2_22 u2_23 u2_24 u2_25 u2_26 u2_27 u2_28 u2_29 u2_30 u2_31 u2_32 u2_33 u2_34 u2_35 u2_36 u2_37 u2_38 u2_39 u2_40 u2_41 u2_42 u2_43 u2_44 u2_45 u2_46 u2_47 u2_48 u2_49 u2_50 u2_51 u2_52 u2_53 u2_54 u2_55 u2_56 u2_57 u2_58 u2_59 u2_60 u2_61 u2_62 u2_63 u2_64 u2_65 u2_66 u2_67 u2_68 u2_69 u2_70 u2_71 u2_72 u2_73 u2_74 u2_75 u2_76 u2_77 u2_78 u2_79 u2_80 u2_81 u2_82 u2_83 u2_84 u2_85 u2_86 u2_87 u2_88 u2_89 u2_90 u2_91 u2_92 u2_93 u2_94 u2_95 u2_96 u2_97 u2_98 u2_99 u2_100 u2_101 u2_102 u2_103 u2_104 u2_105 u2_106 u2_107 u2_108 u2_109 u2_110 u2_111 u2_112 u2_113 u2_114 u2_115 u2_116 u2_117 u2_118 u2_119",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19 a3_20 a3_21 a3_22 a3_23 a3_24 a3_25 a3_26 a3_27 a3_28 a3_29 a3_30 a3_31 a3_32 a3_33 a3_34 a3_35 a3_36 a3_37 a3_38 a3_39 a3_40 a3_41 a3_42 a3_43 a3_44 a3_45 a3_46 a3_47 a3_48 a3_49 a3_50 a3_51 a3_52 a3_53 a3_54 a3_55 a3_56 a3_57 a3_58 a3_59 a3_60 a3_61 a3_62 a3_63 a3_64 a3_65 a3_66 a3_67 a3_68 a3_69 a3_70 a3_71 a3_72 a3_73 a3_74 a3_75 a3_76 a3_77 a3_78 a3_79 a3_80 a3_81 a3_82 a3_83 a3_84 a3_85 a3_86 a3_87 a3_88 a3_89 a3_90 a3_91 a3_92 a3_93 a3_94 a3_95 a3_96 a3_97 a3_98 a3_99 a3_100 a3_101 a3_102 a3_103 a3_104 a3_105 a3_106 a3_107 a3_108 a3_109 a3_110 a3_111 a3_112 a3_113 a3_114 a3_115 a3_116 a3_117 a3_118 a3_119",
+          "role": "assistant"
+        },
+        {
+          "content": "u4_0 u4_1 u4_2 u4_3 u4_4 u4_5 u4_6 u4_7 u4_8 u4_9 u4_10 u4_11 u4_12 u4_13 u4_14 u4_15 u4_16 u4_17 u4_18 u4_19 u4_20 u4_21 u4_22 u4_23 u4_24 u4_25 u4_26 u4_27 u4_28 u4_29 u4_30 u4_31 u4_32 u4_33 u4_34 u4_35 u4_36 u4_37 u4_38 u4_39 u4_40 u4_41 u4_42 u4_43 u4_44 u4_45 u4_46 u4_47 u4_48 u4_49 u4_50 u4_51 u4_52 u4_53 u4_54 u4_55 u4_56 u4_57 u4_58 u4_59 u4_60 u4_61 u4_62 u4_63 u4_64 u4_65 u4_66 u4_67 u4_68 u4_69 u4_70 u4_71 u4_72 u4_73 u4_74 u4_75 u4_76 u4_77 u4_78 u4_79 u4_80 u4_81 u4_82 u4_83 u4_84 u4_85 u4_86 u4_87 u4_88 u4_89 u4_90 u4_91 u4_92 u4_93 u4_94 u4_95 u4_96 u4_97 u4_98 u4_99 u4_100 u4_101 u4_102 u4_103 u4_104 u4_105 u4_106 u4_107 u4_108 u4_109 u4_110 u4_111 u4_112 u4_113 u4_114 u4_115 u4_116 u4_117 u4_118 u4_119",
+          "role": "user"
+        },
+        {
+          "content": "a5_0 a5_1 a5_2 a5_3 a5_4 a5_5 a5_6 a5_7 a5_8 a5_9 a5_10 a5_11 a5_12 a5_13 a5_14 a5_15 a5_16 a5_17 a5_18 a5_19 a5_20 a5_21 a5_22 a5_23 a5_24 a5_25 a5_26 a5_27 a5_28 a5_29 a5_30 a5_31 a5_32 a5_33 a5_34 a5_35 a5_36 a5_37 a5_38 a5_39 a5_40 a5_41 a5_42 a5_43 a5_44 a5_45 a5_46 a5_47 a5_48 a5_49 a5_50 a5_51 a5_52 a5_53 a5_54 a5_55 a5_56 a5_57 a5_58 a5_59 a5_60 a5_61 a5_62 a5_63 a5_64 a5_65 a5_66 a5_67 a5_68 a5_69 a5_70 a5_71 a5_72 a5_73 a5_74 a5_75 a5_76 a5_77 a5_78 a5_79 a5_80 a5_81 a5_82 a5_83 a5_84 a5_85 a5_86 a5_87 a5_88 a5_89 a5_90 a5_91 a5_92 a5_93 a5_94 a5_95 a5_96 a5_97 a5_98 a5_99 a5_100 a5_101 a5_102 a5_103 a5_104 a5_105 a5_106 a5_107 a5_108 a5_109 a5_110 a5_111 a5_112 a5_113 a5_114 a5_115 a5_116 a5_117 a5_118 a5_119",
+          "role": "assistant"
+        },
+        {
+          "content": "u6_0 u6_1 u6_2 u6_3 u6_4 u6_5 u6_6 u6_7 u6_8 u6_9 u6_10 u6_11 u6_12 u6_13 u6_14 u6_15 u6_16 u6_17 u6_18 u6_19 u6_20 u6_21 u6_22 u6_23 u6_24 u6_25 u6_26 u6_27 u6_28 u6_29 u6_30 u6_31 u6_32 u6_33 u6_34 u6_35 u6_36 u6_37 u6_38 u6_39 u6_40 u6_41 u6_42 u6_43 u6_44 u6_45 u6_46 u6_47 u6_48 u6_49 u6_50 u6_51 u6_52 u6_53 u6_54 u6_55 u6_56 u6_57 u6_58 u6_59 u6_60 u6_61 u6_62 u6_63 u6_64 u6_65 u6_66 u6_67 u6_68 u6_69 u6_70 u6_71 u6_72 u6_73 u6_74 u6_75 u6_76 u6_77 u6_78 u6_79 u6_80 u6_81 u6_82 u6_83 u6_84 u6_85 u6_86 u6_87 u6_88 u6_89 u6_90 u6_91 u6_92 u6_93 u6_94 u6_95 u6_96 u6_97 u6_98 u6_99 u6_100 u6_101 u6_102 u6_103 u6_104 u6_105 u6_106 u6_107 u6_108 u6_109 u6_110 u6_111 u6_112 u6_113 u6_114 u6_115 u6_116 u6_117 u6_118 u6_119",
+          "role": "user"
+        },
+        {
+          "content": "a7_0 a7_1 a7_2 a7_3 a7_4 a7_5 a7_6 a7_7 a7_8 a7_9 a7_10 a7_11 a7_12 a7_13 a7_14 a7_15 a7_16 a7_17 a7_18 a7_19 a7_20 a7_21 a7_22 a7_23 a7_24 a7_25 a7_26 a7_27 a7_28 a7_29 a7_30 a7_31 a7_32 a7_33 a7_34 a7_35 a7_36 a7_37 a7_38 a7_39 a7_40 a7_41 a7_42 a7_43 a7_44 a7_45 a7_46 a7_47 a7_48 a7_49 a7_50 a7_51 a7_52 a7_53 a7_54 a7_55 a7_56 a7_57 a7_58 a7_59 a7_60 a7_61 a7_62 a7_63 a7_64 a7_65 a7_66 a7_67 a7_68 a7_69 a7_70 a7_71 a7_72 a7_73 a7_74 a7_75 a7_76 a7_77 a7_78 a7_79 a7_80 a7_81 a7_82 a7_83 a7_84 a7_85 a7_86 a7_87 a7_88 a7_89 a7_90 a7_91 a7_92 a7_93 a7_94 a7_95 a7_96 a7_97 a7_98 a7_99 a7_100 a7_101 a7_102 a7_103 a7_104 a7_105 a7_106 a7_107 a7_108 a7_109 a7_110 a7_111 a7_112 a7_113 a7_114 a7_115 a7_116 a7_117 a7_118 a7_119",
+          "role": "assistant"
+        }
+      ],
+      "name": "a tiny window",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 1496,
+          "afterMessages": 8,
+          "afterTokens": 1657,
+          "beforeMessageTokens": 1496,
+          "beforeMessages": 8,
+          "beforeTokens": 1657,
+          "boundaryTokens": 2000,
+          "budgetTokens": 2000,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 1657,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 1999,
+          "triggerTokens": 2000
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 599,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 600,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [
+        {
+          "content": "u0_0 u0_1 u0_2 u0_3 u0_4 u0_5 u0_6 u0_7 u0_8 u0_9 u0_10 u0_11 u0_12 u0_13 u0_14 u0_15 u0_16 u0_17 u0_18 u0_19",
+          "role": "user"
+        },
+        {
+          "content": "a1_0 a1_1 a1_2 a1_3 a1_4 a1_5 a1_6 a1_7 a1_8 a1_9 a1_10 a1_11 a1_12 a1_13 a1_14 a1_15 a1_16 a1_17 a1_18 a1_19",
+          "role": "assistant"
+        },
+        {
+          "content": "u2_0 u2_1 u2_2 u2_3 u2_4 u2_5 u2_6 u2_7 u2_8 u2_9 u2_10 u2_11 u2_12 u2_13 u2_14 u2_15 u2_16 u2_17 u2_18 u2_19",
+          "role": "user"
+        },
+        {
+          "content": "a3_0 a3_1 a3_2 a3_3 a3_4 a3_5 a3_6 a3_7 a3_8 a3_9 a3_10 a3_11 a3_12 a3_13 a3_14 a3_15 a3_16 a3_17 a3_18 a3_19",
+          "role": "assistant"
+        }
+      ],
+      "name": "a window the tools fill",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": {
+          "afterMessageTokens": 128,
+          "afterMessages": 4,
+          "afterTokens": 289,
+          "beforeMessageTokens": 128,
+          "beforeMessages": 4,
+          "beforeTokens": 289,
+          "boundaryTokens": 600,
+          "budgetTokens": 600,
+          "bufferRatio": 0,
+          "bufferTokens": 0,
+          "changed": false,
+          "freshContext": false,
+          "pressureTokens": 289,
+          "reason": "below threshold",
+          "reserveTokens": 161,
+          "targetBudgetTokens": 599,
+          "triggerTokens": 600
+        }
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    },
+    {
+      "forcedBudget": 50000,
+      "forcedError": null,
+      "header": {
+        "compaction": {
+          "auto": true
+        },
+        "contextWindow": 200000,
+        "effectiveContextWindowPercent": 100,
+        "id": "sess_plan1",
+        "model": "gpt-x",
+        "provider": "openai",
+        "rawContextWindow": 200000
+      },
+      "messages": [],
+      "name": "no messages",
+      "nativePrefix": 0,
+      "requestTools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ],
+      "result": {
+        "value": null
+      },
+      "tools": [
+        {
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Search files",
+          "inputSchema": {
+            "properties": {
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "grep"
+        },
+        {
+          "deferLoading": true,
+          "description": "Find deferred tools",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "tool_search"
+        }
+      ]
+    }
+  ],
+  "now": 1800000000000
+}
