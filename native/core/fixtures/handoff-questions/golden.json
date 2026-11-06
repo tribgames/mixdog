@@ -1,0 +1,1239 @@
+{
+  "note": "what the real 1.4.5 tool-approval.mjs queue publishes as handoffQuestions for each scripted step; `published: null` means it never published",
+  "scenarios": [
+    {
+      "name": "questions queue up in order and a duplicate offer changes nothing",
+      "steps": [
+        {
+          "answered": [],
+          "call": [
+            "create"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            "t1"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q2",
+            "t2"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            "t1"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offerTo",
+            "q9",
+            "elsewhere",
+            "t9"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        }
+      ]
+    },
+    {
+      "name": "a settled question stays as an answered record until its session asks again",
+      "steps": [
+        {
+          "answered": [],
+          "call": [
+            "create"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            "t1"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q2",
+            "t2"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q1",
+            {
+              "approved": true,
+              "record": "the answer"
+            }
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "record": "the answer",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q3",
+            "t1"
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            },
+            {
+              "id": "q3",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q2",
+            {
+              "approved": true,
+              "record": "second"
+            }
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "record": "second",
+              "sessionId": "t2"
+            },
+            {
+              "id": "q3",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q3",
+            {
+              "record": "third"
+            }
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "record": "second",
+              "sessionId": "t2"
+            },
+            {
+              "id": "q3",
+              "kind": "question",
+              "record": "third",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q4",
+            "t2"
+          ],
+          "published": [
+            {
+              "id": "q3",
+              "kind": "question",
+              "record": "third",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q4",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        }
+      ]
+    },
+    {
+      "name": "a withdrawal without a string record leaves no record",
+      "steps": [
+        {
+          "answered": [],
+          "call": [
+            "create"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            "t1"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q2",
+            "t2"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q1",
+            {
+              "approved": true,
+              "record": 7
+            }
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q2",
+            {
+              "approved": true
+            }
+          ],
+          "published": [],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q2"
+          ],
+          "published": [],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "unknown",
+            {
+              "record": "x"
+            }
+          ],
+          "published": [],
+          "returned": null
+        }
+      ]
+    },
+    {
+      "name": "a record whose request names no session is dropped by the next such question",
+      "steps": [
+        {
+          "answered": [],
+          "call": [
+            "create"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            null
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q1",
+            {
+              "record": "a"
+            }
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "record": "a"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q2",
+            ""
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": ""
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q3",
+            "t1"
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": ""
+            },
+            {
+              "id": "q3",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        }
+      ]
+    },
+    {
+      "name": "answering a copy forwards the answer to the owner and removes the copy",
+      "steps": [
+        {
+          "answered": [],
+          "call": [
+            "create"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            "t1",
+            "yes"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q2",
+            "t2",
+            "no"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q3",
+            "t3",
+            "truthy"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            },
+            {
+              "id": "q3",
+              "kind": "question",
+              "sessionId": "t3"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q4",
+            "t4",
+            "throws"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            },
+            {
+              "id": "q3",
+              "kind": "question",
+              "sessionId": "t3"
+            },
+            {
+              "id": "q4",
+              "kind": "question",
+              "sessionId": "t4"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [
+            [
+              true,
+              "because",
+              "DESKTOP-7",
+              [
+                [
+                  "a"
+                ]
+              ],
+              "reply text",
+              {
+                "x": 1
+              }
+            ]
+          ],
+          "call": [
+            "finish",
+            "q1",
+            true,
+            "because",
+            "DESKTOP-7",
+            [
+              [
+                "a"
+              ]
+            ],
+            "reply text",
+            {
+              "x": 1
+            }
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            },
+            {
+              "id": "q3",
+              "kind": "question",
+              "sessionId": "t3"
+            },
+            {
+              "id": "q4",
+              "kind": "question",
+              "sessionId": "t4"
+            }
+          ],
+          "returned": true
+        },
+        {
+          "answered": [
+            [
+              false,
+              "",
+              "",
+              null,
+              null,
+              null
+            ]
+          ],
+          "call": [
+            "finishBare",
+            "q2",
+            false
+          ],
+          "published": [
+            {
+              "id": "q3",
+              "kind": "question",
+              "sessionId": "t3"
+            },
+            {
+              "id": "q4",
+              "kind": "question",
+              "sessionId": "t4"
+            }
+          ],
+          "returned": false
+        },
+        {
+          "answered": [
+            [
+              true,
+              "",
+              "",
+              null,
+              null,
+              null
+            ]
+          ],
+          "call": [
+            "finishBare",
+            "q3",
+            true
+          ],
+          "published": [
+            {
+              "id": "q4",
+              "kind": "question",
+              "sessionId": "t4"
+            }
+          ],
+          "returned": false
+        },
+        {
+          "answered": [
+            [
+              true,
+              "",
+              "",
+              null,
+              null,
+              null
+            ]
+          ],
+          "call": [
+            "finishBare",
+            "q4",
+            true
+          ],
+          "published": [],
+          "returned": false
+        },
+        {
+          "answered": [],
+          "call": [
+            "finishBare",
+            "q1",
+            true
+          ],
+          "published": [],
+          "returned": false
+        },
+        {
+          "answered": [],
+          "call": [
+            "finishBare",
+            "nothing",
+            true
+          ],
+          "published": [],
+          "returned": false
+        }
+      ]
+    },
+    {
+      "name": "the owner settling an answered copy leaves no second record",
+      "steps": [
+        {
+          "answered": [],
+          "call": [
+            "create"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            "t1"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [
+            [
+              true,
+              "",
+              "",
+              null,
+              null,
+              null
+            ]
+          ],
+          "call": [
+            "finishBare",
+            "q1",
+            true
+          ],
+          "published": [],
+          "returned": true
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q1",
+            {
+              "approved": true,
+              "record": "done"
+            }
+          ],
+          "published": [],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q2",
+            "t1"
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q2",
+            {
+              "record": "kept"
+            }
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "record": "kept",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "finishBare",
+            "q2",
+            true
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "record": "kept",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": false
+        }
+      ]
+    },
+    {
+      "name": "a record is never answered here",
+      "steps": [
+        {
+          "answered": [],
+          "call": [
+            "create"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            "t1"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q1",
+            {
+              "record": "kept"
+            }
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "record": "kept",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "finishBare",
+            "q1",
+            true
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "record": "kept",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": false
+        }
+      ]
+    },
+    {
+      "name": "a copy of a session that reloads is adopted from the pending requests",
+      "steps": [
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            "t1"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q2",
+            "t2"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "create"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "adopt"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "adopt"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "session",
+            "h2"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q3",
+            "t3"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        }
+      ]
+    },
+    {
+      "name": "the copies follow the session id the runtime has now",
+      "steps": [
+        {
+          "answered": [],
+          "call": [
+            "create"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "session",
+            "h2"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            "t1"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offerTo",
+            "q2",
+            "h2",
+            "t2"
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "session",
+            "h1"
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "adopt"
+          ],
+          "published": [
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            },
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        }
+      ]
+    },
+    {
+      "name": "closing drops every copy and record silently and refuses new ones",
+      "steps": [
+        {
+          "answered": [],
+          "call": [
+            "create"
+          ],
+          "published": null,
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q1",
+            "t1"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q2",
+            "t2"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "withdraw",
+            "q1",
+            {
+              "record": "kept"
+            }
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "record": "kept",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "dispose"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "record": "kept",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "offer",
+            "q3",
+            "t3"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "record": "kept",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "adopt"
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "record": "kept",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "answered": [],
+          "call": [
+            "finishBare",
+            "q2",
+            true
+          ],
+          "published": [
+            {
+              "id": "q1",
+              "kind": "question",
+              "record": "kept",
+              "sessionId": "t1"
+            },
+            {
+              "id": "q2",
+              "kind": "question",
+              "sessionId": "t2"
+            }
+          ],
+          "returned": false
+        }
+      ]
+    }
+  ]
+}

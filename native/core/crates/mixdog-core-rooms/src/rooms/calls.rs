@@ -89,8 +89,13 @@ impl Run {
         self.calls.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    fn pending(&self) -> MutexGuard<'_, Option<Request>> {
+    pub(crate) fn pending(&self) -> MutexGuard<'_, Option<Request>> {
         self.pending.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The stop button was pressed (`RoomCalls::stop`).
+    pub(crate) fn set_stopped(&self) {
+        self.stop.store(true, Ordering::SeqCst);
     }
 
     /// The stop button was pressed: no one else gets a turn.
@@ -297,7 +302,7 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
         };
         cancel_all(&queued);
         let Some(active) = active else { return false };
-        active.stop.store(true, Ordering::SeqCst);
+        active.set_stopped();
         if let Some(pending) = active.pending().take() {
             cancel_all(&pending.calls);
         }

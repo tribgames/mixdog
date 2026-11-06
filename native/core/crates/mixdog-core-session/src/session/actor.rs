@@ -564,6 +564,7 @@ impl SessionActor {
             }
             Init::Open => self.recover(),
         }
+        self.deps.runtime_hooks.started(&self.id);
         self.load_persisted_prompts();
         self.pump();
         // A thread opened for a caller that never attaches a feed (a worker, a headless run) has
@@ -596,6 +597,7 @@ impl SessionActor {
                 break;
             }
         }
+        self.deps.runtime_hooks.stopped(&self.id);
     }
 
     /// `Ctl::Delete`: see its doc.

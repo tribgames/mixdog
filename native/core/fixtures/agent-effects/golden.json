@@ -1,0 +1,280 @@
+{
+  "save with a route object": {
+    "result": {
+      "ok": {
+        "id": "scout"
+      }
+    },
+    "calls": [
+      [
+        "setAgentRoute",
+        "scout",
+        {
+          "provider": "openai",
+          "model": "gpt-6"
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-6"
+        }
+      ],
+      [
+        "publishAgentProfileChange"
+      ]
+    ]
+  },
+  "save with a string route": {
+    "result": {
+      "ok": {
+        "id": "scout"
+      }
+    },
+    "calls": [
+      [
+        "setAgentRoute",
+        "scout",
+        "abc",
+        {
+          "0": "a",
+          "1": "b",
+          "2": "c"
+        }
+      ],
+      [
+        "publishAgentProfileChange"
+      ]
+    ]
+  },
+  "save with a array route": {
+    "result": {
+      "ok": {
+        "id": "scout"
+      }
+    },
+    "calls": [
+      [
+        "setAgentRoute",
+        "scout",
+        [
+          "x",
+          "y"
+        ],
+        {
+          "0": "x",
+          "1": "y"
+        }
+      ],
+      [
+        "publishAgentProfileChange"
+      ]
+    ]
+  },
+  "save with a number route": {
+    "result": {
+      "ok": {
+        "id": "scout"
+      }
+    },
+    "calls": [
+      [
+        "setAgentRoute",
+        "scout",
+        5,
+        {}
+      ],
+      [
+        "publishAgentProfileChange"
+      ]
+    ]
+  },
+  "save with a true route": {
+    "result": {
+      "ok": {
+        "id": "scout"
+      }
+    },
+    "calls": [
+      [
+        "setAgentRoute",
+        "scout",
+        true,
+        {}
+      ],
+      [
+        "publishAgentProfileChange"
+      ]
+    ]
+  },
+  "save with a empty array route": {
+    "result": {
+      "ok": {
+        "id": "scout"
+      }
+    },
+    "calls": [
+      [
+        "setAgentRoute",
+        "scout",
+        [],
+        {}
+      ],
+      [
+        "publishAgentProfileChange"
+      ]
+    ]
+  },
+  "save with a empty string route": {
+    "result": {
+      "ok": {
+        "id": "scout"
+      }
+    },
+    "calls": [
+      [
+        "publishAgentProfileChange"
+      ]
+    ]
+  },
+  "save without a route": {
+    "result": {
+      "ok": {
+        "id": "scout"
+      }
+    },
+    "calls": [
+      [
+        "publishAgentProfileChange"
+      ]
+    ]
+  },
+  "archive": {
+    "result": {
+      "ok": {
+        "id": "scout",
+        "deleted": true,
+        "revertedToBuiltIn": false
+      }
+    },
+    "calls": [
+      [
+        "publishAgentProfileChange"
+      ]
+    ]
+  },
+  "restore": {
+    "result": {
+      "ok": {
+        "id": "scout"
+      }
+    },
+    "calls": [
+      [
+        "publishAgentProfileChange"
+      ],
+      [
+        "reloadChannels"
+      ]
+    ]
+  },
+  "restore with a failing reload": {
+    "result": {
+      "error": "agent \"scout\" was restored, but its schedules could not be re-armed (worker down); they are re-armed by the next schedule reload or restart"
+    },
+    "calls": [
+      [
+        "publishAgentProfileChange"
+      ],
+      [
+        "publishAgentProfileChange"
+      ],
+      [
+        "reloadChannels"
+      ]
+    ]
+  },
+  "purge removing routines": {
+    "result": {
+      "ok": {
+        "id": "purger",
+        "purged": true,
+        "routines": {
+          "schedules": [
+            "mail-review"
+          ],
+          "webhooks": [
+            "scout-hook"
+          ]
+        }
+      }
+    },
+    "calls": [
+      [
+        "deleteOwnedRoutines",
+        "purger"
+      ],
+      [
+        "reloadChannelsSoon"
+      ],
+      [
+        "deleteOwnedRoutines",
+        "purger"
+      ]
+    ]
+  },
+  "purge removing nothing": {
+    "result": {
+      "ok": {
+        "id": "empty",
+        "purged": true
+      }
+    },
+    "calls": [
+      [
+        "deleteOwnedRoutines",
+        "empty"
+      ],
+      [
+        "deleteOwnedRoutines",
+        "empty"
+      ]
+    ]
+  },
+  "purge only webhooks removed": {
+    "result": {
+      "ok": {
+        "id": "hooker",
+        "purged": true,
+        "routines": {
+          "schedules": [],
+          "webhooks": [
+            "h"
+          ]
+        }
+      }
+    },
+    "calls": [
+      [
+        "deleteOwnedRoutines",
+        "hooker"
+      ],
+      [
+        "reloadChannelsSoon"
+      ],
+      [
+        "deleteOwnedRoutines",
+        "hooker"
+      ]
+    ]
+  },
+  "purge with a failing delete": {
+    "result": {
+      "error": "connection terminated"
+    },
+    "calls": [
+      [
+        "deleteOwnedRoutines",
+        "failing"
+      ]
+    ]
+  }
+}

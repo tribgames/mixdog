@@ -54,7 +54,9 @@ pub trait RouteStatusline: Send + Sync {
     fn write(&self, session: &str, route: &Route, client_host_pid: Option<u64>);
 }
 
-/// `invalidateContextStatusCache`: the context gauge re-measures at its next read.
+/// `invalidateContextStatusCache`: drop the context gauge's memo for the thread. Node's gauge
+/// memoizes its last status; the Rust gauge measures live on every read, so its implementation
+/// (`LiveGauge`) has nothing to drop.
 pub trait ContextStatusCache: Send + Sync {
     fn invalidate(&self, thread: &ThreadId);
 }

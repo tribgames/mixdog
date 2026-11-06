@@ -1,0 +1,310 @@
+{
+  "cases": [
+    {
+      "id": "preset-object",
+      "request": {
+        "preset": {
+          "provider": "p",
+          "model": "m"
+        },
+        "timeout": 120000
+      },
+      "prompt": "classify these rows",
+      "dispatched": {
+        "dispatchId": true,
+        "agent": "cycle1-agent",
+        "options": {
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false
+        },
+        "params": {
+          "prompt": "classify these rows",
+          "preset": {
+            "provider": "p",
+            "model": "m"
+          },
+          "idleTimeoutMs": 120000
+        }
+      },
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "preset-name",
+      "request": {
+        "preset": "test",
+        "timeout": 60000
+      },
+      "prompt": "p",
+      "dispatched": {
+        "dispatchId": true,
+        "agent": "cycle1-agent",
+        "options": {
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false
+        },
+        "params": {
+          "prompt": "p",
+          "preset": "test",
+          "idleTimeoutMs": 60000
+        }
+      },
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "no-preset",
+      "request": {
+        "preset": null,
+        "timeout": 60000
+      },
+      "prompt": "p",
+      "dispatched": {
+        "dispatchId": true,
+        "agent": "cycle1-agent",
+        "options": {
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false
+        },
+        "params": {
+          "prompt": "p",
+          "idleTimeoutMs": 60000
+        }
+      },
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "null-preset",
+      "request": {
+        "preset": null,
+        "timeout": 60000
+      },
+      "prompt": "p",
+      "dispatched": {
+        "dispatchId": true,
+        "agent": "cycle1-agent",
+        "options": {
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false
+        },
+        "params": {
+          "prompt": "p",
+          "idleTimeoutMs": 60000
+        }
+      },
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "empty-preset-name",
+      "request": {
+        "preset": "",
+        "timeout": 60000
+      },
+      "prompt": "p",
+      "dispatched": {
+        "dispatchId": true,
+        "agent": "cycle1-agent",
+        "options": {
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false
+        },
+        "params": {
+          "prompt": "p",
+          "idleTimeoutMs": 60000
+        }
+      },
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "timeout-below-floor",
+      "request": {
+        "preset": "test",
+        "timeout": 500
+      },
+      "prompt": "p",
+      "dispatched": {
+        "dispatchId": true,
+        "agent": "cycle1-agent",
+        "options": {
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false
+        },
+        "params": {
+          "prompt": "p",
+          "preset": "test",
+          "idleTimeoutMs": 1000
+        }
+      },
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "timeout-zero",
+      "request": {
+        "preset": "test",
+        "timeout": 0
+      },
+      "prompt": "p",
+      "dispatched": {
+        "dispatchId": true,
+        "agent": "cycle1-agent",
+        "options": {
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false
+        },
+        "params": {
+          "prompt": "p",
+          "preset": "test",
+          "idleTimeoutMs": 1000
+        }
+      },
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "timeout-fractional",
+      "request": {
+        "preset": "test",
+        "timeout": 1500.5
+      },
+      "prompt": "p",
+      "dispatched": {
+        "dispatchId": true,
+        "agent": "cycle1-agent",
+        "options": {
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false
+        },
+        "params": {
+          "prompt": "p",
+          "preset": "test",
+          "idleTimeoutMs": 1500.5
+        }
+      },
+      "outcome": {
+        "ok": "reply text"
+      }
+    },
+    {
+      "id": "empty-prompt",
+      "request": {
+        "preset": "test",
+        "timeout": 60000
+      },
+      "prompt": "",
+      "dispatched": null,
+      "outcome": {
+        "error": "agent dispatch prompt required for \"cycle1-agent\""
+      }
+    },
+    {
+      "id": "dispatch-fails",
+      "request": {
+        "preset": "test",
+        "timeout": 60000
+      },
+      "prompt": "p",
+      "dispatched": {
+        "dispatchId": true,
+        "agent": "cycle1-agent",
+        "options": {
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false
+        },
+        "params": {
+          "prompt": "p",
+          "preset": "test",
+          "idleTimeoutMs": 60000
+        }
+      },
+      "outcome": {
+        "error": "provider exploded"
+      }
+    },
+    {
+      "id": "empty-reply",
+      "request": {
+        "preset": "test",
+        "timeout": 60000
+      },
+      "prompt": "p",
+      "dispatched": {
+        "dispatchId": true,
+        "agent": "cycle1-agent",
+        "options": {
+          "taskType": "maintenance",
+          "sourceType": "memory-cycle",
+          "brief": false
+        },
+        "params": {
+          "prompt": "p",
+          "preset": "test",
+          "idleTimeoutMs": 60000
+        }
+      },
+      "outcome": {
+        "ok": ""
+      }
+    }
+  ],
+  "ended": [
+    {
+      "id": "deadline",
+      "request": {
+        "timeout": 1000
+      },
+      "dispatched": true,
+      "run": {
+        "aborted": true,
+        "reason": "agent broker request timed out after 6000ms"
+      },
+      "outcome": {
+        "error": "agent broker request timed out after 6000ms"
+      }
+    },
+    {
+      "id": "cancelled-before-the-call",
+      "request": {
+        "timeout": 60000
+      },
+      "dispatched": false,
+      "run": null,
+      "outcome": {
+        "error": "agent broker request canceled"
+      }
+    },
+    {
+      "id": "cancelled-while-running",
+      "request": {
+        "timeout": 60000
+      },
+      "dispatched": true,
+      "run": {
+        "aborted": true,
+        "reason": "agent broker request canceled"
+      },
+      "outcome": {
+        "error": "agent broker request canceled"
+      }
+    }
+  ]
+}

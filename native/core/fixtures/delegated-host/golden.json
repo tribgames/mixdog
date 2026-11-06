@@ -1,0 +1,1727 @@
+{
+  "note": "what the real 1.4.5 delegated-approval-host.mjs does for each scripted step; `answer` is the label of the answer callback",
+  "scenarios": [
+    {
+      "name": "a hand-off needs a run, a task, a chat, and not itself",
+      "steps": [
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "",
+              "taskSessionId": "t1",
+              "title": "T"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "",
+              "title": "T"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "T"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "t1",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "T"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": []
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "t1"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": [
+            [
+              "h1",
+              {
+                "title": ""
+              }
+            ]
+          ]
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h2",
+              "runId": 7,
+              "taskSessionId": "t1",
+              "title": 9
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": [
+            [
+              "h1",
+              {
+                "title": ""
+              }
+            ],
+            [
+              "h2",
+              {
+                "title": "9"
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a chat is listed once with its latest title, last noted last",
+      "steps": [
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "One"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h2",
+              "runId": "r2",
+              "taskSessionId": "t1",
+              "title": "Two"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": [
+            [
+              "h1",
+              {
+                "title": "One"
+              }
+            ],
+            [
+              "h2",
+              {
+                "title": "Two"
+              }
+            ]
+          ]
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r3",
+              "taskSessionId": "t1",
+              "title": "Three"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": [
+            [
+              "h2",
+              {
+                "title": "Two"
+              }
+            ],
+            [
+              "h1",
+              {
+                "title": "Three"
+              }
+            ]
+          ]
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "Again"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": [
+            [
+              "h2",
+              {
+                "title": "Two"
+              }
+            ],
+            [
+              "h1",
+              {
+                "title": "Three"
+              }
+            ]
+          ]
+        },
+        {
+          "call": [
+            "end",
+            "r3"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": [
+            [
+              "h1",
+              {
+                "title": "Again"
+              }
+            ],
+            [
+              "h2",
+              {
+                "title": "Two"
+              }
+            ]
+          ]
+        },
+        {
+          "call": [
+            "end",
+            "r1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": [
+            [
+              "h2",
+              {
+                "title": "Two"
+              }
+            ]
+          ]
+        },
+        {
+          "call": [
+            "end",
+            "r2"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": []
+        },
+        {
+          "call": [
+            "end",
+            "never-noted"
+          ],
+          "events": [],
+          "returned": null
+        }
+      ]
+    },
+    {
+      "name": "an ended hand-off is never noted again",
+      "steps": [
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "One"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "end",
+            "r1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": []
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "One"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": []
+        },
+        {
+          "call": [
+            "end",
+            "r9"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r9",
+              "taskSessionId": "t1",
+              "title": "Nine"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "chats",
+            "t1"
+          ],
+          "events": [],
+          "returned": []
+        }
+      ]
+    },
+    {
+      "name": "a request reaches every chat handing the session work, one copy each",
+      "steps": [
+        {
+          "call": [
+            "register",
+            "home",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "register",
+            "other",
+            "h2"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "register",
+            "task",
+            "t1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "Fix login"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "toHandoffs",
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "t1"
+              },
+              "sessionId": "t1"
+            }
+          ],
+          "events": [
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "a",
+                "id": "ap1",
+                "request": {
+                  "handoff": {
+                    "title": "Fix login"
+                  },
+                  "id": "ap1",
+                  "kind": "approval",
+                  "sessionId": "t1",
+                  "surfaceSessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "home"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "handoff": {
+                  "title": "Fix login"
+                },
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "t1",
+                "surfaceSessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ]
+        },
+        {
+          "call": [
+            "open",
+            "h2"
+          ],
+          "events": [],
+          "returned": []
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h2",
+              "runId": "r2",
+              "taskSessionId": "t1",
+              "title": "Fix login too"
+            }
+          ],
+          "events": [
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "a",
+                "id": "ap1",
+                "request": {
+                  "handoff": {
+                    "title": "Fix login too"
+                  },
+                  "id": "ap1",
+                  "kind": "approval",
+                  "sessionId": "t1",
+                  "surfaceSessionId": "h2"
+                },
+                "sessionId": "h2"
+              },
+              "queue": "other"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h2"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "handoff": {
+                  "title": "Fix login too"
+                },
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "t1",
+                "surfaceSessionId": "h2"
+              },
+              "sessionId": "h2"
+            }
+          ]
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r3",
+              "taskSessionId": "t1",
+              "title": "Third"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "end",
+            "r1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "handoff": {
+                  "title": "Fix login"
+                },
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "t1",
+                "surfaceSessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ]
+        },
+        {
+          "call": [
+            "end",
+            "r3"
+          ],
+          "events": [
+            {
+              "call": "withdraw",
+              "id": "ap1",
+              "queue": "home",
+              "result": null
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": []
+        },
+        {
+          "call": [
+            "open",
+            "h2"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "handoff": {
+                  "title": "Fix login too"
+                },
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "t1",
+                "surfaceSessionId": "h2"
+              },
+              "sessionId": "h2"
+            }
+          ]
+        },
+        {
+          "call": [
+            "withdraw",
+            "ap1",
+            {
+              "approved": true,
+              "device": "DESKTOP-7"
+            }
+          ],
+          "events": [
+            {
+              "call": "withdraw",
+              "id": "ap1",
+              "queue": "home",
+              "result": {
+                "approved": true,
+                "device": "DESKTOP-7"
+              }
+            },
+            {
+              "call": "withdraw",
+              "id": "ap1",
+              "queue": "other",
+              "result": {
+                "approved": true,
+                "device": "DESKTOP-7"
+              }
+            },
+            {
+              "call": "withdraw",
+              "id": "ap1",
+              "queue": "task",
+              "result": {
+                "approved": true,
+                "device": "DESKTOP-7"
+              }
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h2"
+          ],
+          "events": [],
+          "returned": []
+        },
+        {
+          "call": [
+            "withdraw",
+            "ap1"
+          ],
+          "events": [],
+          "returned": null
+        }
+      ]
+    },
+    {
+      "name": "questions are copied the same way and settle with their record",
+      "steps": [
+        {
+          "call": [
+            "register",
+            "home",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "Ask"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "toHandoffs",
+            {
+              "answer": "q",
+              "id": "q1",
+              "request": {
+                "id": "q1",
+                "kind": "question",
+                "sessionId": "t1"
+              },
+              "sessionId": "t1"
+            }
+          ],
+          "events": [
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "q",
+                "id": "q1",
+                "request": {
+                  "handoff": {
+                    "title": "Ask"
+                  },
+                  "id": "q1",
+                  "kind": "question",
+                  "sessionId": "t1",
+                  "surfaceSessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "home"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "toHandoffs",
+            {
+              "answer": "a",
+              "id": "ap2",
+              "request": {
+                "id": "ap2",
+                "kind": "approval",
+                "sessionId": "t2"
+              },
+              "sessionId": "t2"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r2",
+              "taskSessionId": "t2",
+              "title": "Other task"
+            }
+          ],
+          "events": [
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "a",
+                "id": "ap2",
+                "request": {
+                  "handoff": {
+                    "title": "Other task"
+                  },
+                  "id": "ap2",
+                  "kind": "approval",
+                  "sessionId": "t2",
+                  "surfaceSessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "home"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "q",
+              "id": "q1",
+              "request": {
+                "handoff": {
+                  "title": "Ask"
+                },
+                "id": "q1",
+                "kind": "question",
+                "sessionId": "t1",
+                "surfaceSessionId": "h1"
+              },
+              "sessionId": "h1"
+            },
+            {
+              "answer": "a",
+              "id": "ap2",
+              "request": {
+                "handoff": {
+                  "title": "Other task"
+                },
+                "id": "ap2",
+                "kind": "approval",
+                "sessionId": "t2",
+                "surfaceSessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ]
+        },
+        {
+          "call": [
+            "withdraw",
+            "q1",
+            {
+              "approved": true,
+              "record": "answered"
+            }
+          ],
+          "events": [
+            {
+              "call": "withdraw",
+              "id": "q1",
+              "queue": "home",
+              "result": {
+                "approved": true,
+                "record": "answered"
+              }
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "a",
+              "id": "ap2",
+              "request": {
+                "handoff": {
+                  "title": "Other task"
+                },
+                "id": "ap2",
+                "kind": "approval",
+                "sessionId": "t2",
+                "surfaceSessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ]
+        },
+        {
+          "call": [
+            "end",
+            "r2"
+          ],
+          "events": [
+            {
+              "call": "withdraw",
+              "id": "ap2",
+              "queue": "home",
+              "result": null
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": []
+        }
+      ]
+    },
+    {
+      "name": "a chat that is not loaded gets its copy once the opener has brought it up",
+      "steps": [
+        {
+          "call": [
+            "opener",
+            "ok"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "registerOnOpen",
+            "home",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "Late"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "toHandoffs",
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "t1"
+              },
+              "sessionId": "t1"
+            }
+          ],
+          "events": [
+            {
+              "opener": "h1"
+            },
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "a",
+                "id": "ap1",
+                "request": {
+                  "handoff": {
+                    "title": "Late"
+                  },
+                  "id": "ap1",
+                  "kind": "approval",
+                  "sessionId": "t1",
+                  "surfaceSessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "home"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "handoff": {
+                  "title": "Late"
+                },
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "t1",
+                "surfaceSessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ]
+        },
+        {
+          "call": [
+            "withdraw",
+            "ap1"
+          ],
+          "events": [
+            {
+              "call": "withdraw",
+              "id": "ap1",
+              "queue": "home",
+              "result": null
+            }
+          ],
+          "returned": null
+        }
+      ]
+    },
+    {
+      "name": "an opener that fails leaves the copy undelivered",
+      "steps": [
+        {
+          "call": [
+            "opener",
+            "reject"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "Late"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "toHandoffs",
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "t1"
+              },
+              "sessionId": "t1"
+            }
+          ],
+          "events": [
+            {
+              "opener": "h1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "register",
+            "home",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "handoff": {
+                  "title": "Late"
+                },
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "t1",
+                "surfaceSessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a request settled while the opener runs is not offered afterwards",
+      "steps": [
+        {
+          "call": [
+            "opener",
+            "ok"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "registerOnOpen",
+            "home",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "withdrawOnOpen",
+            "ap1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "approval",
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ],
+          "events": [
+            {
+              "opener": "h1"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": []
+        }
+      ]
+    },
+    {
+      "name": "a sub-agent request is shown by the top-level chat only",
+      "steps": [
+        {
+          "call": [
+            "register",
+            "home",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "register",
+            "sub",
+            "s1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "approval",
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ],
+          "events": [
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "a",
+                "id": "ap1",
+                "request": {
+                  "id": "ap1",
+                  "kind": "approval",
+                  "sessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "home"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "approval",
+            {
+              "answer": "a",
+              "id": "ap2",
+              "request": {
+                "id": "ap2",
+                "kind": "approval",
+                "sessionId": "h2"
+              },
+              "sessionId": "h2"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ]
+        },
+        {
+          "call": [
+            "open",
+            "h2"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "a",
+              "id": "ap2",
+              "request": {
+                "id": "ap2",
+                "kind": "approval",
+                "sessionId": "h2"
+              },
+              "sessionId": "h2"
+            }
+          ]
+        },
+        {
+          "call": [
+            "open",
+            "s1"
+          ],
+          "events": [],
+          "returned": []
+        },
+        {
+          "call": [
+            "withdraw",
+            "ap1",
+            {
+              "approved": false,
+              "device": "D"
+            }
+          ],
+          "events": [
+            {
+              "call": "withdraw",
+              "id": "ap1",
+              "queue": "home",
+              "result": {
+                "approved": false,
+                "device": "D"
+              }
+            },
+            {
+              "call": "withdraw",
+              "id": "ap1",
+              "queue": "sub",
+              "result": {
+                "approved": false,
+                "device": "D"
+              }
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "withdraw",
+            "ap1",
+            {
+              "approved": false,
+              "device": "D"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": []
+        }
+      ]
+    },
+    {
+      "name": "a request delegated twice under one id keeps its place and the newest request",
+      "steps": [
+        {
+          "call": [
+            "register",
+            "home",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "approval",
+            {
+              "answer": "first",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ],
+          "events": [
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "first",
+                "id": "ap1",
+                "request": {
+                  "id": "ap1",
+                  "kind": "approval",
+                  "sessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "home"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "approval",
+            {
+              "answer": "second",
+              "id": "ap2",
+              "request": {
+                "id": "ap2",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ],
+          "events": [
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "second",
+                "id": "ap2",
+                "request": {
+                  "id": "ap2",
+                  "kind": "approval",
+                  "sessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "home"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "approval",
+            {
+              "answer": "third",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ],
+          "events": [
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "third",
+                "id": "ap1",
+                "request": {
+                  "id": "ap1",
+                  "kind": "approval",
+                  "sessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "home"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "third",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            },
+            {
+              "answer": "second",
+              "id": "ap2",
+              "request": {
+                "id": "ap2",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "queues that are disposed or unregistered are not offered",
+      "steps": [
+        {
+          "call": [
+            "register",
+            "a",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "register",
+            "b",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "dispose",
+            "a"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "approval",
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ],
+          "events": [
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "a",
+                "id": "ap1",
+                "request": {
+                  "id": "ap1",
+                  "kind": "approval",
+                  "sessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "b"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "unregister",
+            "b"
+          ],
+          "events": [],
+          "returned": true
+        },
+        {
+          "call": [
+            "approval",
+            {
+              "answer": "a",
+              "id": "ap2",
+              "request": {
+                "id": "ap2",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "open",
+            "h1"
+          ],
+          "events": [],
+          "returned": [
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            },
+            {
+              "answer": "a",
+              "id": "ap2",
+              "request": {
+                "id": "ap2",
+                "kind": "approval",
+                "sessionId": "h1"
+              },
+              "sessionId": "h1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "two queues of one chat both get the copy",
+      "steps": [
+        {
+          "call": [
+            "register",
+            "a",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "register",
+            "b",
+            "h1"
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "note",
+            {
+              "homeSessionId": "h1",
+              "runId": "r1",
+              "taskSessionId": "t1",
+              "title": "Both"
+            }
+          ],
+          "events": [],
+          "returned": null
+        },
+        {
+          "call": [
+            "toHandoffs",
+            {
+              "answer": "a",
+              "id": "ap1",
+              "request": {
+                "id": "ap1",
+                "kind": "approval",
+                "sessionId": "t1"
+              },
+              "sessionId": "t1"
+            }
+          ],
+          "events": [
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "a",
+                "id": "ap1",
+                "request": {
+                  "handoff": {
+                    "title": "Both"
+                  },
+                  "id": "ap1",
+                  "kind": "approval",
+                  "sessionId": "t1",
+                  "surfaceSessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "a"
+            },
+            {
+              "call": "offer",
+              "delegated": {
+                "answer": "a",
+                "id": "ap1",
+                "request": {
+                  "handoff": {
+                    "title": "Both"
+                  },
+                  "id": "ap1",
+                  "kind": "approval",
+                  "sessionId": "t1",
+                  "surfaceSessionId": "h1"
+                },
+                "sessionId": "h1"
+              },
+              "queue": "b"
+            }
+          ],
+          "returned": null
+        },
+        {
+          "call": [
+            "withdraw",
+            "ap1"
+          ],
+          "events": [
+            {
+              "call": "withdraw",
+              "id": "ap1",
+              "queue": "a",
+              "result": null
+            },
+            {
+              "call": "withdraw",
+              "id": "ap1",
+              "queue": "b",
+              "result": null
+            }
+          ],
+          "returned": null
+        }
+      ]
+    }
+  ]
+}

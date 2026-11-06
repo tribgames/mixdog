@@ -40,6 +40,16 @@ impl CatalogService {
     }
 }
 
+impl CatalogService {
+    /// The pricing view whether or not the tables are resident: what Node's `priceUsage` and
+    /// `pricingCatalogRevisionSync` read after `warmCatalogFromDisk`, which finds nothing to load
+    /// on a machine with no cache. Cold, a model no table names is unpriced and the revision is
+    /// the empty-tables one (both recorded from Node). The usage-ledger refresh runs on this.
+    pub fn pricing_unchecked(self: &Arc<Self>) -> PricingCatalog {
+        PricingCatalog { service: self.clone() }
+    }
+}
+
 /// priceUsage for a send whose catalog may still be cold: a model no table names is unpriced
 /// (model-not-found), as in Node. Ledger rows are written whether or not the tables are loaded.
 pub struct CatalogPricing(pub Arc<CatalogService>);

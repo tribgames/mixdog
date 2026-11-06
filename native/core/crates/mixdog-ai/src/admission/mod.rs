@@ -11,6 +11,11 @@
 //! round-robin by owner so one session cannot starve another. A request that is
 //! dropped while queued leaves the queue; a granted but unclaimed slot is
 //! released.
+//!
+//! A permit may carry its run's [`RunLiveness`]. On a lane with an
+//! `unattended_lease`, a permit whose run is unattended and has made no progress
+//! for that long gives its slot back; the run itself is not ended and stays
+//! abortable. An attended run's permit is never reclaimed (SPEC §4.9).
 
 mod lane;
 
@@ -27,3 +32,4 @@ pub use lane::LaneSnapshot;
 pub use lane::Outcome;
 pub use lane::Permit;
 pub use lane::Priority;
+pub use lane::RunLiveness;

@@ -11,6 +11,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use mixdog_rt::Scope;
+use mixdog_rt::Scoped;
 use rtc::peer_connection::configuration::RTCOfferOptions;
 use rtc::peer_connection::transport::RTCIceServerTransportProtocol;
 use tokio::sync::mpsc;
@@ -71,15 +73,14 @@ impl PeerBudget {
     /// Runs `work`; when it outlasts the budget or the connection was closed, drops it and
     /// reports a fault naming `what`.
     pub(crate) async fn step<T>(&self, what: &'static str, work: impl Future<Output = T>) -> Result<T, PeerFault> {
-        tokio::select! {
-            biased;
-            () = self.cancel.cancelled() => {
-                Err(PeerFault::new(PeerFailure::PeerHostUnavailable, "connection closed"))
-            }
-            () = tokio::time::sleep(STEP_BUDGET) => {
+        // The tokio clock, so a paused test clock moves the deadline too.
+        let deadline = (tokio::time::Instant::now() + STEP_BUDGET).into_std();
+        match Scope::new().cancel(&self.cancel).deadline(Some(deadline)).run(work).await {
+            Scoped::Done(out) => Ok(out),
+            Scoped::Cancelled => Err(PeerFault::new(PeerFailure::PeerHostUnavailable, "connection closed")),
+            Scoped::DeadlineExceeded => {
                 Err(PeerFault::new(PeerFailure::PeerHostUnavailable, format!("{what} timed out")))
             }
-            out = work => Ok(out),
         }
     }
 }

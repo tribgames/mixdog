@@ -1,0 +1,179 @@
+{
+  "cases": [
+    {
+      "header": {
+        "agent": "lead",
+        "clientHostPid": null,
+        "cwd": "D:\\mixdog-twin\\import-session\\project",
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "D:\\mixdog-twin\\import-session\\project"
+        },
+        "importOrigin": {
+          "foreignSessionId": "foreign-1",
+          "importedAt": 1700000000000,
+          "key": "codex:foreign-1",
+          "source": "codex",
+          "sourceCwd": "D:\\mixdog-twin\\import-session\\project",
+          "sourcePath": "D:\\mixdog-twin\\import-session\\rollout-a.jsonl",
+          "version": 1
+        },
+        "lane": "cli",
+        "mcpScopeId": null,
+        "model": "fake-model",
+        "owner": "cli",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "provider": "conversation-import-twin",
+        "sourceName": "main",
+        "sourceType": "lead",
+        "title": "Next step please",
+        "visibility": null
+      },
+      "ingested": [
+        {
+          "idIsSession": true,
+          "messages": 3,
+          "withSystem": 7
+        }
+      ],
+      "ingestedId": true,
+      "input": {
+        "cwd": "D:\\mixdog-twin\\import-session\\project",
+        "importedAt": 1700000000000,
+        "source": "codex",
+        "sourcePath": "D:\\mixdog-twin\\import-session\\rollout-a.jsonl",
+        "text": "{\"type\":\"session_meta\",\"payload\":{\"id\":\"foreign-1\",\"cwd\":\"D:\\\\mixdog-twin\\\\import-session\\\\project\"}}\n{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Earlier reply\"}]}}\n{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"shell\",\"arguments\":\"{\\\"cmd\\\":\\\"ls\\\"}\"}}\n{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Next step please\"}]}}"
+      },
+      "name": "project-with-tools",
+      "providerSends": 0,
+      "rows": [
+        {
+          "content": "[Imported conversation continues from an earlier assistant reply.]",
+          "meta": {
+            "source": "import",
+            "transcript": {
+              "at": 1700000000000,
+              "messageId": "<msg_32hex>"
+            }
+          },
+          "role": "user"
+        },
+        {
+          "content": "Earlier reply\n\n[ran tools: shell ×1]",
+          "meta": {
+            "importedToolRuns": [
+              {
+                "end": 36,
+                "start": 15,
+                "tools": [
+                  {
+                    "count": 1,
+                    "name": "shell"
+                  }
+                ]
+              }
+            ],
+            "source": "import",
+            "transcript": {
+              "at": 1700000000000,
+              "messageId": "<msg_32hex>"
+            }
+          },
+          "role": "assistant"
+        },
+        {
+          "content": "Next step please",
+          "meta": {
+            "source": "import",
+            "transcript": {
+              "at": 1700000000000,
+              "messageId": "<msg_32hex>"
+            }
+          },
+          "role": "user"
+        }
+      ],
+      "systemRowsFirst": true
+    },
+    {
+      "header": {
+        "agent": "lead",
+        "clientHostPid": null,
+        "cwd": {
+          "absent": true
+        },
+        "desktopSession": {
+          "classification": "task",
+          "projectPath": null
+        },
+        "importOrigin": {
+          "foreignSessionId": "foreign-2",
+          "importedAt": 1700000000000,
+          "key": "codex:foreign-2",
+          "source": "codex",
+          "sourceCwd": null,
+          "sourcePath": "D:\\mixdog-twin\\import-session\\rollout-b.jsonl",
+          "version": 1
+        },
+        "lane": "cli",
+        "mcpScopeId": null,
+        "model": "fake-model",
+        "owner": "cli",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "provider": "conversation-import-twin",
+        "sourceName": "main",
+        "sourceType": "lead",
+        "title": "Hello there",
+        "visibility": null
+      },
+      "ingested": [
+        {
+          "idIsSession": true,
+          "messages": 2,
+          "withSystem": 6
+        }
+      ],
+      "ingestedId": true,
+      "input": {
+        "cwd": null,
+        "importedAt": 1700000000000,
+        "source": "codex",
+        "sourcePath": "D:\\mixdog-twin\\import-session\\rollout-b.jsonl",
+        "text": "{\"type\":\"session_meta\",\"payload\":{\"id\":\"foreign-2\",\"cwd\":\"\"}}\n{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Hello there\"}]}}\n{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hi!\"}]}}"
+      },
+      "name": "task-no-cwd",
+      "providerSends": 0,
+      "rows": [
+        {
+          "content": "Hello there",
+          "meta": {
+            "source": "import",
+            "transcript": {
+              "at": 1700000000000,
+              "messageId": "<msg_32hex>"
+            }
+          },
+          "role": "user"
+        },
+        {
+          "content": "Hi!",
+          "meta": {
+            "source": "import",
+            "transcript": {
+              "at": 1700000000000,
+              "messageId": "<msg_32hex>"
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "systemRowsFirst": true
+    }
+  ],
+  "clock": 1700000000000,
+  "domain": "import-session-twin",
+  "pin": "D:\\mixdog-twin\\import-session",
+  "recorder": "benchmarks/rust-core/recorders/record-import-session.mjs"
+}

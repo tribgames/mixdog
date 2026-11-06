@@ -1,0 +1,34 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-room-answer.mjs --tree <tree>",
+  "emptyTurns": 17,
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 38539,
+      "path": "golden.json",
+      "sha256": "446f130dfa4f2df2b09f83574d0e30db551a05f98751c10f61a93e1b1de47f14"
+    }
+  ],
+  "finalAnswers": 30,
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "4bccf9ad2a2b9a9ebb2a9c2f45a186e527ef31cf",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 43481
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-room-answer.mjs",
+  "set": "room-answer",
+  "spokenText": 48,
+  "toolSummaries": 10,
+  "totalBytes": 38539
+}

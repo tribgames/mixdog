@@ -1,0 +1,2128 @@
+{
+  "failures": [
+    {
+      "calls": [],
+      "held": [],
+      "left": [],
+      "name": "nothing held posts nothing",
+      "script": {},
+      "threw": null
+    },
+    {
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "at": 1001,
+              "failed": true,
+              "id": "row_n1",
+              "kind": "pass",
+              "name": "Alpha",
+              "names": [
+                "Alpha"
+              ],
+              "reason": [
+                "boom"
+              ],
+              "speaker": "alpha",
+              "text": ""
+            }
+          ]
+        ]
+      ],
+      "held": [
+        [
+          "alpha",
+          "Alpha",
+          "boom"
+        ]
+      ],
+      "left": [],
+      "name": "one failure",
+      "script": {},
+      "threw": null
+    },
+    {
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "at": 1001,
+              "failed": true,
+              "id": "row_n1",
+              "kind": "pass",
+              "name": "Alpha",
+              "names": [
+                "Alpha",
+                "Git Hub",
+                "Bench"
+              ],
+              "reason": [
+                "boom",
+                "later"
+              ],
+              "speaker": "alpha",
+              "text": ""
+            }
+          ]
+        ]
+      ],
+      "held": [
+        [
+          "alpha",
+          "Alpha",
+          "boom"
+        ],
+        [
+          "gh",
+          "Git Hub",
+          ""
+        ],
+        [
+          "bench",
+          "Alpha",
+          "boom"
+        ],
+        [
+          "x",
+          "Bench",
+          "later"
+        ]
+      ],
+      "left": [],
+      "name": "names and reasons are listed once, in first-seen order",
+      "script": {},
+      "threw": null
+    },
+    {
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "at": 1001,
+              "failed": true,
+              "id": "row_n1",
+              "kind": "pass",
+              "name": "Alpha",
+              "names": [
+                "Alpha",
+                "Git Hub"
+              ],
+              "reason": [],
+              "speaker": "alpha",
+              "text": ""
+            }
+          ]
+        ]
+      ],
+      "held": [
+        [
+          "alpha",
+          "Alpha",
+          ""
+        ],
+        [
+          "gh",
+          "Git Hub",
+          ""
+        ]
+      ],
+      "left": [],
+      "name": "no reason at all",
+      "script": {},
+      "threw": null
+    },
+    {
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "at": 1001,
+              "failed": true,
+              "id": "row_n1",
+              "kind": "pass",
+              "name": "Alpha",
+              "names": [
+                "Alpha"
+              ],
+              "reason": [
+                "boom"
+              ],
+              "speaker": "alpha",
+              "text": ""
+            }
+          ]
+        ]
+      ],
+      "held": [
+        [
+          "alpha",
+          "Alpha",
+          "boom"
+        ]
+      ],
+      "left": [],
+      "name": "a post that fails still empties the held list",
+      "script": {
+        "postFails": "disk full"
+      },
+      "threw": "disk full"
+    }
+  ],
+  "note": "what the real 1.4.5 desktop agent-room-turn.ts does with a scripted host; `now` counts up from 1000, ids are n1, n2, ...",
+  "polls": [
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ]
+      ],
+      "halts": {},
+      "name": "the first read has the answer",
+      "result": {
+        "answer": {
+          "at": 2000,
+          "id": 9,
+          "status": "done",
+          "text": "ok"
+        },
+        "snapshot": {
+          "busy": false,
+          "items": [
+            {
+              "id": "a",
+              "kind": "assistant",
+              "text": "ok"
+            },
+            {
+              "at": 2000,
+              "finalAssistantId": "a",
+              "id": 9,
+              "kind": "turndone",
+              "status": "done"
+            }
+          ]
+        }
+      },
+      "script": {
+        "snapshots": [
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          3,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ]
+      ],
+      "halts": {},
+      "name": "busy reads first, then the answer",
+      "result": {
+        "answer": {
+          "at": 2000,
+          "id": 9,
+          "status": "done",
+          "text": "ok"
+        },
+        "snapshot": {
+          "busy": false,
+          "items": [
+            {
+              "id": "a",
+              "kind": "assistant",
+              "text": "ok"
+            },
+            {
+              "at": 2000,
+              "finalAssistantId": "a",
+              "id": 9,
+              "kind": "turndone",
+              "status": "done"
+            }
+          ]
+        }
+      },
+      "script": {
+        "snapshots": [
+          {
+            "busy": true,
+            "items": []
+          },
+          {
+            "busy": true,
+            "items": [],
+            "streamingTail": "x"
+          },
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ]
+      ],
+      "halts": {},
+      "name": "an answer from before the start is not this turn",
+      "result": {
+        "answer": {
+          "at": 2000,
+          "id": 9,
+          "status": "done",
+          "text": "ok"
+        },
+        "snapshot": {
+          "busy": false,
+          "items": [
+            {
+              "id": "a",
+              "kind": "assistant",
+              "text": "ok"
+            },
+            {
+              "at": 2000,
+              "finalAssistantId": "a",
+              "id": 9,
+              "kind": "turndone",
+              "status": "done"
+            }
+          ]
+        }
+      },
+      "script": {
+        "snapshots": [
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 1000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          },
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          3,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "halted",
+          4,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "halted",
+          5,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ]
+      ],
+      "halts": {},
+      "name": "an approval card is republished when it changes",
+      "result": {
+        "answer": {
+          "at": 2000,
+          "id": 9,
+          "status": "done",
+          "text": "ok"
+        },
+        "snapshot": {
+          "busy": false,
+          "items": [
+            {
+              "id": "a",
+              "kind": "assistant",
+              "text": "ok"
+            },
+            {
+              "at": 2000,
+              "finalAssistantId": "a",
+              "id": 9,
+              "kind": "turndone",
+              "status": "done"
+            }
+          ]
+        }
+      },
+      "script": {
+        "snapshots": [
+          {
+            "busy": true,
+            "items": [],
+            "toolApproval": {
+              "id": "a1"
+            }
+          },
+          {
+            "busy": true,
+            "items": [],
+            "toolApproval": {
+              "id": "a1"
+            }
+          },
+          {
+            "busy": true,
+            "items": [],
+            "toolApproval": {
+              "id": "a2"
+            }
+          },
+          {
+            "busy": true,
+            "items": []
+          },
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "republish"
+        ]
+      ],
+      "halts": {},
+      "name": "an approval the state already shows is not republished",
+      "result": {
+        "answer": {
+          "at": 2000,
+          "id": 9,
+          "status": "done",
+          "text": "ok"
+        },
+        "snapshot": {
+          "busy": false,
+          "items": [
+            {
+              "id": "a",
+              "kind": "assistant",
+              "text": "ok"
+            },
+            {
+              "at": 2000,
+              "finalAssistantId": "a",
+              "id": 9,
+              "kind": "turndone",
+              "status": "done"
+            }
+          ]
+        }
+      },
+      "script": {
+        "snapshots": [
+          {
+            "busy": true,
+            "items": [],
+            "toolApproval": {
+              "id": 7
+            }
+          },
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {
+        "approval": {
+          "id": "7"
+        }
+      },
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ]
+      ],
+      "halts": {},
+      "name": "a finished turn without text is an empty answer",
+      "result": {
+        "answer": {
+          "at": 2000,
+          "id": 5,
+          "status": "done",
+          "text": ""
+        },
+        "snapshot": {
+          "busy": false,
+          "items": [
+            {
+              "at": 1,
+              "id": "u",
+              "kind": "user"
+            },
+            {
+              "at": 2000,
+              "id": 5,
+              "kind": "turndone",
+              "status": "done"
+            }
+          ]
+        }
+      },
+      "script": {
+        "snapshots": [
+          {
+            "busy": true,
+            "items": []
+          },
+          {
+            "busy": false,
+            "items": [
+              {
+                "at": 1,
+                "id": "u",
+                "kind": "user"
+              },
+              {
+                "at": 2000,
+                "id": 5,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ]
+      ],
+      "halts": {},
+      "name": "a stop that lands during a read ends the wait",
+      "result": "stopped",
+      "script": {
+        "snapshots": [
+          {
+            "busy": true,
+            "items": []
+          },
+          {
+            "busy": true,
+            "items": []
+          },
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 2
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          "superseded"
+        ]
+      ],
+      "halts": {
+        "1": "superseded"
+      },
+      "name": "a halt before the first read",
+      "result": "superseded",
+      "script": {
+        "snapshots": [
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          3,
+          "unavailable"
+        ]
+      ],
+      "halts": {
+        "3": "unavailable"
+      },
+      "name": "a halt after two reads",
+      "result": "unavailable",
+      "script": {
+        "snapshots": [
+          {
+            "busy": true,
+            "items": []
+          },
+          {
+            "busy": true,
+            "items": []
+          },
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          3,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          4,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          5,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          6,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ]
+      ],
+      "halts": {},
+      "name": "five failed reads in a row then success",
+      "result": {
+        "answer": {
+          "at": 2000,
+          "id": 9,
+          "status": "done",
+          "text": "ok"
+        },
+        "snapshot": {
+          "busy": false,
+          "items": [
+            {
+              "id": "a",
+              "kind": "assistant",
+              "text": "ok"
+            },
+            {
+              "at": 2000,
+              "finalAssistantId": "a",
+              "id": 9,
+              "kind": "turndone",
+              "status": "done"
+            }
+          ]
+        }
+      },
+      "script": {
+        "snapshots": [
+          {
+            "throw": "e1"
+          },
+          {
+            "throw": "e2"
+          },
+          {
+            "throw": "e3"
+          },
+          {
+            "throw": "e4"
+          },
+          {
+            "throw": "e5"
+          },
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          3,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          4,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          5,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          6,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          7,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          8,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ]
+      ],
+      "halts": {},
+      "name": "failed reads that are not in a row never end the wait",
+      "result": {
+        "answer": {
+          "at": 2000,
+          "id": 9,
+          "status": "done",
+          "text": "ok"
+        },
+        "snapshot": {
+          "busy": false,
+          "items": [
+            {
+              "id": "a",
+              "kind": "assistant",
+              "text": "ok"
+            },
+            {
+              "at": 2000,
+              "finalAssistantId": "a",
+              "id": 9,
+              "kind": "turndone",
+              "status": "done"
+            }
+          ]
+        }
+      },
+      "script": {
+        "snapshots": [
+          {
+            "throw": "e1"
+          },
+          {
+            "busy": true,
+            "items": []
+          },
+          {
+            "throw": "e2"
+          },
+          {
+            "throw": "e3"
+          },
+          {
+            "throw": "e4"
+          },
+          {
+            "throw": "e5"
+          },
+          {
+            "throw": "e6"
+          },
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          3,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          4,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          5,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          6,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          7,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ]
+      ],
+      "halts": {},
+      "name": "six failed reads in a row end it with the error",
+      "result": {
+        "threw": "e6"
+      },
+      "script": {
+        "snapshots": [
+          {
+            "busy": true,
+            "items": []
+          },
+          {
+            "throw": "e1"
+          },
+          {
+            "throw": "e2"
+          },
+          {
+            "throw": "e3"
+          },
+          {
+            "throw": "e4"
+          },
+          {
+            "throw": "e5"
+          },
+          {
+            "throw": "e6"
+          },
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    },
+    {
+      "approval": null,
+      "calls": [
+        [
+          "halted",
+          1,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ],
+        [
+          "halted",
+          2,
+          null
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess1"
+        ]
+      ],
+      "halts": {},
+      "name": "a null snapshot is not an answer",
+      "result": {
+        "answer": {
+          "at": 2000,
+          "id": 9,
+          "status": "done",
+          "text": "ok"
+        },
+        "snapshot": {
+          "busy": false,
+          "items": [
+            {
+              "id": "a",
+              "kind": "assistant",
+              "text": "ok"
+            },
+            {
+              "at": 2000,
+              "finalAssistantId": "a",
+              "id": 9,
+              "kind": "turndone",
+              "status": "done"
+            }
+          ]
+        }
+      },
+      "script": {
+        "snapshots": [
+          null,
+          {
+            "busy": false,
+            "items": [
+              {
+                "id": "a",
+                "kind": "assistant",
+                "text": "ok"
+              },
+              {
+                "at": 2000,
+                "finalAssistantId": "a",
+                "id": 9,
+                "kind": "turndone",
+                "status": "done"
+              }
+            ]
+          }
+        ]
+      },
+      "state": {},
+      "stopAtRead": 0
+    }
+  ],
+  "speech": [
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 1500
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "All good."
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": true,
+      "lastAt": 1001,
+      "lastSpeaker": "bench",
+      "memberSession": "sess1",
+      "name": "plain words",
+      "result": {
+        "mention": "",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "All good.",
+      "waiting": true,
+      "waitingAfter": false
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "All good."
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": true,
+      "lastAt": 1001,
+      "lastSpeaker": "bench",
+      "memberSession": "",
+      "name": "no member session",
+      "result": {
+        "mention": "",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "All good.",
+      "waiting": true,
+      "waitingAfter": false
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 1500
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "@Alpha can you check this?",
+              "to": [
+                "alpha"
+              ],
+              "toName": [
+                "Alpha"
+              ]
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": true,
+      "lastAt": 1001,
+      "lastSpeaker": "bench",
+      "memberSession": "sess1",
+      "name": "a mention of a peer",
+      "result": {
+        "mention": "alpha",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "@Alpha can you check this?",
+      "waiting": true,
+      "waitingAfter": false
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 1500
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "thanks @gh",
+              "to": [
+                "gh"
+              ],
+              "toName": [
+                "Git Hub"
+              ]
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": true,
+      "lastAt": 1001,
+      "lastSpeaker": "bench",
+      "memberSession": "sess1",
+      "name": "a mention by id",
+      "result": {
+        "mention": "gh",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "thanks @gh",
+      "waiting": true,
+      "waitingAfter": false
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 1500
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "@Bench and @Nobody"
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": true,
+      "lastAt": 1001,
+      "lastSpeaker": "bench",
+      "memberSession": "sess1",
+      "name": "a mention of itself or an unknown name stays plain",
+      "result": {
+        "mention": "",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "@Bench and @Nobody",
+      "waiting": true,
+      "waitingAfter": false
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 1500
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "bench",
+              "speaker": "bench",
+              "text": "hey @alpha",
+              "to": [
+                "alpha"
+              ],
+              "toName": [
+                "alpha"
+              ]
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": false,
+      "lastAt": 1001,
+      "lastSpeaker": "bench",
+      "memberSession": "sess1",
+      "name": "a mention with no label for the peer",
+      "result": {
+        "mention": "alpha",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "hey @alpha",
+      "waiting": true,
+      "waitingAfter": false
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 1500
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "done",
+              "tools": [
+                {
+                  "name": "shell",
+                  "summary": "ok"
+                },
+                {
+                  "name": "read",
+                  "summary": "{\"b\":1}"
+                }
+              ]
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": true,
+      "lastAt": 1001,
+      "lastSpeaker": "bench",
+      "memberSession": "sess1",
+      "name": "the tools of the turn",
+      "result": {
+        "mention": "",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user"
+          },
+          {
+            "at": 1600,
+            "kind": "tool",
+            "name": "shell",
+            "result": "ok"
+          },
+          {
+            "at": 1700,
+            "kind": "tool",
+            "name": "read",
+            "result": {
+              "b": 1
+            }
+          }
+        ]
+      },
+      "startedAt": 1500,
+      "text": "done",
+      "waiting": true,
+      "waitingAfter": false
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 5000
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "done"
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": true,
+      "lastAt": 1001,
+      "lastSpeaker": "bench",
+      "memberSession": "sess1",
+      "name": "no tool after the start",
+      "result": {
+        "mention": "",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": {
+        "busy": false,
+        "items": [
+          {
+            "at": 1,
+            "id": "u",
+            "kind": "user"
+          },
+          {
+            "at": 1600,
+            "kind": "tool",
+            "name": "shell",
+            "result": "ok"
+          },
+          {
+            "at": 1700,
+            "kind": "tool",
+            "name": "read",
+            "result": {
+              "b": 1
+            }
+          }
+        ]
+      },
+      "startedAt": 5000,
+      "text": "done",
+      "waiting": true,
+      "waitingAfter": false
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "at": 1002,
+              "failed": true,
+              "id": "row_n2",
+              "kind": "pass",
+              "name": "Alpha",
+              "names": [
+                "Alpha"
+              ],
+              "reason": [
+                "boom"
+              ],
+              "speaker": "alpha",
+              "text": ""
+            }
+          ]
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 1500
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "back"
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [
+        [
+          "alpha",
+          "Alpha",
+          "boom"
+        ]
+      ],
+      "labelled": true,
+      "lastAt": 1001,
+      "lastSpeaker": "bench",
+      "memberSession": "sess1",
+      "name": "held failures are posted first",
+      "result": {
+        "mention": "",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "back",
+      "waiting": true,
+      "waitingAfter": false
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 1500
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "plain"
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": true,
+      "lastAt": 1001,
+      "lastSpeaker": "bench",
+      "memberSession": "sess1",
+      "name": "not waiting any more",
+      "result": {
+        "mention": "",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "plain",
+      "waiting": false,
+      "waitingAfter": false
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 1500
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "plain"
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": true,
+      "lastAt": null,
+      "lastSpeaker": null,
+      "memberSession": "sess1",
+      "name": "a failing post keeps the user waiting",
+      "result": {
+        "threw": "disk full"
+      },
+      "script": {
+        "postFails": "disk full"
+      },
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "plain",
+      "waiting": true,
+      "waitingAfter": true
+    },
+    {
+      "agentId": "bench",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "at": 1002,
+              "failed": true,
+              "id": "row_n2",
+              "kind": "pass",
+              "name": "Alpha",
+              "names": [
+                "Alpha"
+              ],
+              "reason": [
+                "boom"
+              ],
+              "speaker": "alpha",
+              "text": ""
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [
+        [
+          "alpha",
+          "Alpha",
+          "boom"
+        ]
+      ],
+      "labelled": true,
+      "lastAt": null,
+      "lastSpeaker": null,
+      "memberSession": "sess1",
+      "name": "a failing failures post stops before the speech",
+      "result": {
+        "threw": "disk full"
+      },
+      "script": {
+        "postFails": "disk full"
+      },
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "plain",
+      "waiting": true,
+      "waitingAfter": true
+    },
+    {
+      "agentId": "stranger",
+      "calls": [
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess1",
+                "since": 1500
+              },
+              "at": 1001,
+              "id": "row_n1",
+              "kind": "speech",
+              "name": "stranger",
+              "speaker": "stranger",
+              "text": "hi"
+            }
+          ]
+        ]
+      ],
+      "failuresLeft": [],
+      "held": [],
+      "labelled": false,
+      "lastAt": 1001,
+      "lastSpeaker": "stranger",
+      "memberSession": "sess1",
+      "name": "a speaker with no label",
+      "result": {
+        "mention": "",
+        "result": "speech"
+      },
+      "script": {},
+      "snapshot": null,
+      "startedAt": 1500,
+      "text": "hi",
+      "waiting": true,
+      "waitingAfter": false
+    }
+  ]
+}

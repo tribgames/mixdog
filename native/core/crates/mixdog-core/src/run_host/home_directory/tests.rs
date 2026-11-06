@@ -28,15 +28,14 @@ impl AgentEvidence for NoEvidence {
 }
 
 fn write(path: std::path::PathBuf, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
+    crate::run_host::fixture_fs::write(path, text);
 }
 
 async fn directory(dir: &std::path::Path) -> DefinitionsDirectory {
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let config_path = dir.join("mixdog-config.json");
-    std::fs::write(&config_path, serde_json::to_vec(&json!({ "agent": {} })).unwrap()).unwrap();
+    crate::run_host::fixture_fs::write(&config_path, serde_json::to_vec(&json!({ "agent": {} })).unwrap());
     let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
     let (shipped, data) = (dir.join("shipped"), dir.join("data"));
     let agents = AgentDefinitions::new(&shipped, &data, tokens.interactive_io, AgentRoutes::new(config, &data), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.join("task"));

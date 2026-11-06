@@ -1,0 +1,5964 @@
+{
+  "domain": "usage-ledger-source-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-usage-ledger-source.mjs",
+  "defaultPath": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+  "cold": {
+    "revision": "0f552c21b93fb2790532a228c4cd9089dca31e7c7c6cc71cf4160b8b4c0ff53c",
+    "prices": [
+      {
+        "args": {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-5",
+          "pricingModel": null,
+          "requestedModel": "claude-sonnet-4-5",
+          "inputTokensKnown": true,
+          "uncachedInputTokens": 1200,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 800,
+          "cacheWrite1hTokens": 100,
+          "requestServiceTier": "priority",
+          "serviceTier": null,
+          "kind": "api",
+          "ts": 1800000000000,
+          "historical": false
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":\"claude-sonnet-4-5\",\"pricingModel\":\"claude-sonnet-4-5\",\"pricingProvider\":\"anthropic\",\"pricingSource\":null,\"requestServiceTier\":\"priority\",\"cacheWrite1hTokens\":100,\"unpricedReason\":\"model-not-found\"}"
+      },
+      {
+        "args": {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-5",
+          "pricingModel": "claude-sonnet-4-5",
+          "requestedModel": null,
+          "inputTokensKnown": false,
+          "uncachedInputTokens": 0,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 0,
+          "cacheWrite1hTokens": null,
+          "requestServiceTier": null,
+          "serviceTier": null,
+          "kind": "api",
+          "ts": 1800000000000,
+          "historical": true
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":null,\"pricingModel\":\"claude-sonnet-4-5\",\"pricingProvider\":\"anthropic\",\"pricingSource\":null,\"inputTokensKnown\":false,\"unpricedReason\":\"unmeasured-input\"}"
+      },
+      {
+        "args": {
+          "provider": "openai-oauth",
+          "model": "gpt-5",
+          "pricingModel": null,
+          "requestedModel": "gpt-5",
+          "inputTokensKnown": true,
+          "uncachedInputTokens": 1200,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 800,
+          "cacheWrite1hTokens": 100,
+          "requestServiceTier": "priority",
+          "serviceTier": null,
+          "kind": "oauth",
+          "ts": 1800000000000,
+          "historical": false
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":\"gpt-5\",\"pricingModel\":\"gpt-5\",\"pricingProvider\":\"openai-oauth\",\"pricingSource\":null,\"requestServiceTier\":\"priority\",\"cacheWrite1hTokens\":100,\"unpricedReason\":\"model-not-found\"}"
+      },
+      {
+        "args": {
+          "provider": "openai-oauth",
+          "model": "gpt-5",
+          "pricingModel": "gpt-5",
+          "requestedModel": null,
+          "inputTokensKnown": false,
+          "uncachedInputTokens": 0,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 0,
+          "cacheWrite1hTokens": null,
+          "requestServiceTier": null,
+          "serviceTier": null,
+          "kind": "oauth",
+          "ts": 1800000000000,
+          "historical": true
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":null,\"pricingModel\":\"gpt-5\",\"pricingProvider\":\"openai-oauth\",\"pricingSource\":null,\"inputTokensKnown\":false,\"unpricedReason\":\"unmeasured-input\"}"
+      },
+      {
+        "args": {
+          "provider": "openai",
+          "model": "gpt-4o",
+          "pricingModel": null,
+          "requestedModel": "gpt-4o",
+          "inputTokensKnown": true,
+          "uncachedInputTokens": 1200,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 800,
+          "cacheWrite1hTokens": 100,
+          "requestServiceTier": "priority",
+          "serviceTier": null,
+          "kind": "api",
+          "ts": 1800000000000,
+          "historical": false
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":\"gpt-4o\",\"pricingModel\":\"gpt-4o\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"requestServiceTier\":\"priority\",\"cacheWrite1hTokens\":100,\"unpricedReason\":\"model-not-found\"}"
+      },
+      {
+        "args": {
+          "provider": "openai",
+          "model": "gpt-4o",
+          "pricingModel": "gpt-4o",
+          "requestedModel": null,
+          "inputTokensKnown": false,
+          "uncachedInputTokens": 0,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 0,
+          "cacheWrite1hTokens": null,
+          "requestServiceTier": null,
+          "serviceTier": null,
+          "kind": "api",
+          "ts": 1800000000000,
+          "historical": true
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":null,\"pricingModel\":\"gpt-4o\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"inputTokensKnown\":false,\"unpricedReason\":\"unmeasured-input\"}"
+      },
+      {
+        "args": {
+          "provider": "google",
+          "model": "gemini-2.5-pro",
+          "pricingModel": null,
+          "requestedModel": "gemini-2.5-pro",
+          "inputTokensKnown": true,
+          "uncachedInputTokens": 1200,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 800,
+          "cacheWrite1hTokens": 100,
+          "requestServiceTier": "priority",
+          "serviceTier": null,
+          "kind": "api",
+          "ts": 1800000000000,
+          "historical": false
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":\"gemini-2.5-pro\",\"pricingModel\":\"gemini-2.5-pro\",\"pricingProvider\":\"google\",\"pricingSource\":null,\"requestServiceTier\":\"priority\",\"cacheWrite1hTokens\":100,\"unpricedReason\":\"model-not-found\"}"
+      },
+      {
+        "args": {
+          "provider": "google",
+          "model": "gemini-2.5-pro",
+          "pricingModel": "gemini-2.5-pro",
+          "requestedModel": null,
+          "inputTokensKnown": false,
+          "uncachedInputTokens": 0,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 0,
+          "cacheWrite1hTokens": null,
+          "requestServiceTier": null,
+          "serviceTier": null,
+          "kind": "api",
+          "ts": 1800000000000,
+          "historical": true
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":null,\"pricingModel\":\"gemini-2.5-pro\",\"pricingProvider\":\"google\",\"pricingSource\":null,\"inputTokensKnown\":false,\"unpricedReason\":\"unmeasured-input\"}"
+      },
+      {
+        "args": {
+          "provider": "mixdog-local",
+          "model": "local-model",
+          "pricingModel": null,
+          "requestedModel": "local-model",
+          "inputTokensKnown": true,
+          "uncachedInputTokens": 1200,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 800,
+          "cacheWrite1hTokens": 100,
+          "requestServiceTier": "priority",
+          "serviceTier": null,
+          "kind": "local",
+          "ts": 1800000000000,
+          "historical": false
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":\"local-model\",\"pricingModel\":\"local-model\",\"pricingProvider\":\"mixdog-local\",\"pricingSource\":null,\"requestServiceTier\":\"priority\",\"cacheWrite1hTokens\":100,\"unpricedReason\":\"model-not-found\"}"
+      },
+      {
+        "args": {
+          "provider": "mixdog-local",
+          "model": "local-model",
+          "pricingModel": "local-model",
+          "requestedModel": null,
+          "inputTokensKnown": false,
+          "uncachedInputTokens": 0,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 0,
+          "cacheWrite1hTokens": null,
+          "requestServiceTier": null,
+          "serviceTier": null,
+          "kind": "local",
+          "ts": 1800000000000,
+          "historical": true
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":null,\"pricingModel\":\"local-model\",\"pricingProvider\":\"mixdog-local\",\"pricingSource\":null,\"inputTokensKnown\":false,\"unpricedReason\":\"unmeasured-input\"}"
+      },
+      {
+        "args": {
+          "provider": "deepseek",
+          "model": "deepseek-chat",
+          "pricingModel": null,
+          "requestedModel": "deepseek-chat",
+          "inputTokensKnown": true,
+          "uncachedInputTokens": 1200,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 800,
+          "cacheWrite1hTokens": 100,
+          "requestServiceTier": "priority",
+          "serviceTier": null,
+          "kind": "api",
+          "ts": 1800000000000,
+          "historical": false
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":\"deepseek-chat\",\"pricingModel\":\"deepseek-chat\",\"pricingProvider\":\"deepseek\",\"pricingSource\":null,\"requestServiceTier\":\"priority\",\"cacheWrite1hTokens\":100,\"unpricedReason\":\"model-not-found\"}"
+      },
+      {
+        "args": {
+          "provider": "deepseek",
+          "model": "deepseek-chat",
+          "pricingModel": "deepseek-chat",
+          "requestedModel": null,
+          "inputTokensKnown": false,
+          "uncachedInputTokens": 0,
+          "outputTokens": 350,
+          "cacheReadTokens": 4000,
+          "cacheWriteTokens": 0,
+          "cacheWrite1hTokens": null,
+          "requestServiceTier": null,
+          "serviceTier": null,
+          "kind": "api",
+          "ts": 1800000000000,
+          "historical": true
+        },
+        "costUsd": null,
+        "rates": "{\"requestedModel\":null,\"pricingModel\":\"deepseek-chat\",\"pricingProvider\":\"deepseek\",\"pricingSource\":null,\"inputTokensKnown\":false,\"unpricedReason\":\"unmeasured-input\"}"
+      }
+    ]
+  },
+  "flows": [
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": null
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": null
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "b"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": null
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 2,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 2,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 2,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 2,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 2,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 2,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 2,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "close"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 2,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/b/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "env",
+          "value": "b"
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/b/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": ""
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "c"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 1,
+          "path": "<root>/led/c/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "a"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/led/a/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/led/a/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": "c"
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "op": "path",
+          "path": "<root>/led/c/ledger.sqlite"
+        },
+        {
+          "op": "env",
+          "value": null
+        },
+        {
+          "op": "ifOpen",
+          "open": false
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "ifOpen",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "path",
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "get",
+          "open": true,
+          "instance": 0,
+          "path": "<root>/mixdog_data_dir/usage/ledger.sqlite",
+          "fileExists": true
+        },
+        {
+          "op": "env",
+          "value": "b"
+        }
+      ]
+    }
+  ]
+}

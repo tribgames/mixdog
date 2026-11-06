@@ -1054,6 +1054,7 @@ impl Rig {
             devices: Arc::new(NamedDevices),
             clock: self.clock.clone(),
             turn_starts: self.turn_starts.clone(),
+            runtime_hooks: Arc::new(super::runtime_hooks::NoRuntimeHooks),
             turn_review: Arc::new(mixdog_core_review::turn_review::testing::test_review(&self._data.path().join("turn-review"))),
             route_change: self.route_change.clone(),
             deletion: self.deletes.clone(),

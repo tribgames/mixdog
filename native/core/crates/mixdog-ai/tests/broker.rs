@@ -1,11 +1,16 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_ai::admission::Admission;
 use mixdog_ai::admission::AdmissionRequest;
+use mixdog_ai::admission::Lane;
 use mixdog_ai::admission::LaneKey;
 use mixdog_ai::admission::LaneSettings;
+use mixdog_ai::admission::RunLiveness;
 use mixdog_ai::broker::AttemptSink;
 use mixdog_ai::broker::ModelBroker;
 use mixdog_ai::broker::ModelProxyTransport;
@@ -14,6 +19,7 @@ use mixdog_ai::broker::SendError;
 use mixdog_ai::broker::SendRequest;
 use mixdog_ai::broker::execute_via_proxy;
 use mixdog_ai::retry::StandardRetryDecider;
+use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::mock::MockAttempt;
 use mixdog_core_api::domain::mock::MockProvider;
 use mixdog_core_api::domain::provider::Content;
@@ -21,12 +27,18 @@ use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorResponse;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
+use mixdog_core_api::domain::provider::ModelStream;
+use mixdog_core_api::domain::provider::ProviderAdapter;
+use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::Usage;
+use mixdog_core_api::domain::provider::WireCodec;
+use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::JsonValue;
+use mixdog_protocol::ProviderId;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
@@ -187,4 +199,168 @@ async fn proxy_streams_events_and_never_runs_after_cancel() {
         execute_via_proxy(&Echo, JsonValue::from(2), &mut |_| {}, &cancel).await,
         Err(ProxyError::Cancelled)
     );
+}
+/// A provider whose stream plays `script`, each event after its delay, and
+/// then goes silent for good.
+struct Scripted {
+    inner: MockProvider,
+    script: Mutex<Option<VecDeque<(Duration, StreamEvent)>>>,
+}
+
+struct ScriptedStream(VecDeque<(Duration, StreamEvent)>);
+
+#[async_trait]
+impl ModelStream for ScriptedStream {
+    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+        let Some((after, event)) = self.0.pop_front() else {
+            return std::future::pending().await;
+        };
+        tokio::time::sleep(after).await;
+        Some(Ok(event))
+    }
+
+    fn delivery(&self) -> DeliveryState {
+        DeliveryState::Accepted
+    }
+}
+
+#[async_trait]
+impl ProviderAdapter for Scripted {
+    fn id(&self) -> &ProviderId {
+        self.inner.id()
+    }
+
+    fn codec(&self) -> &dyn WireCodec {
+        self.inner.codec()
+    }
+
+    fn retry_policy(&self) -> &RetryPolicy {
+        self.inner.retry_policy()
+    }
+
+    fn keepalive(&self) -> &KeepaliveSchedule {
+        self.inner.keepalive()
+    }
+
+    async fn attempt(&self, _: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let script = self.script.lock().unwrap().take().expect("one attempt");
+        Ok(Box::new(ScriptedStream(script)))
+    }
+}
+
+const LEASE: Duration = Duration::from_secs(60);
+
+struct Run {
+    admission: Arc<Admission>,
+    lane: Arc<Lane>,
+    abort: CancellationToken,
+    send: tokio::task::JoinHandle<Result<u32, SendError>>,
+}
+
+/// A send on a one-slot lane with a 60 s unattended lease, over a stream that
+/// plays `script` and then says nothing.
+fn start(attended: bool, script: Vec<(Duration, StreamEvent)>) -> Run {
+    mixdog_rt::testing::tokens();
+    let admission = Arc::new(Admission::new());
+    let lane = admission.lane(
+        &LaneKey::new("mock".into(), "default"),
+        LaneSettings {
+            concurrency: Some(1),
+            unattended_lease: Some(LEASE),
+            ..LaneSettings::default()
+        },
+    );
+    let broker = ModelBroker::new(admission.clone(), Arc::new(StandardRetryDecider));
+    let request = SendRequest {
+        request: Arc::new(ModelRequest {
+            model: "m".into(),
+            messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
+            tools: Vec::new(),
+            options: RequestOptions::default(),
+        }),
+        lane: lane.clone(),
+        admission: AdmissionRequest {
+            liveness: Some(RunLiveness::new(attended)),
+            ..AdmissionRequest::default()
+        },
+    };
+    let provider = Scripted {
+        inner: MockProvider::new([]),
+        script: Mutex::new(Some(script.into())),
+    };
+    let abort = CancellationToken::new();
+    let send = {
+        let abort = abort.clone();
+        tokio::spawn(async move { broker.send(&provider, request, &mut Sink::default(), &abort).await })
+    };
+    Run { admission, lane, abort, send }
+}
+
+/// Moves paused time forward one second at a time, letting every task it woke
+/// run, so an event due mid-way sees the time it was due.
+async fn settle(total: Duration) {
+    let mut left = total;
+    loop {
+        let step = left.min(Duration::from_secs(1));
+        tokio::time::advance(step).await;
+        left -= step;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        if left.is_zero() {
+            break;
+        }
+    }
+}
+
+fn held(admission: &Admission) -> usize {
+    admission.snapshot()[0].active
+}
+
+fn keepalives() -> Vec<(Duration, StreamEvent)> {
+    (0..5).map(|_| (Duration::from_secs(10), StreamEvent::ProviderKeepalive)).collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_silent_unattended_send_returns_its_permit_and_stays_abortable() {
+    let run = start(false, keepalives());
+    settle(Duration::ZERO).await;
+    assert_eq!(held(&run.admission), 1);
+    // Keepalives at 10..50 s are not progress.
+    settle(LEASE - Duration::from_secs(1)).await;
+    assert_eq!(held(&run.admission), 1);
+    settle(Duration::from_secs(1)).await;
+    assert_eq!(held(&run.admission), 0);
+    let other = run
+        .admission
+        .acquire(&run.lane, AdmissionRequest::default(), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(!run.send.is_finished(), "the silent run is still alive");
+    run.abort.cancel();
+    assert!(matches!(run.send.await.unwrap(), Err(SendError::Cancelled)));
+    assert_eq!(held(&run.admission), 1, "its end returned nothing a second time");
+    drop(other);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_silent_attended_send_keeps_its_permit() {
+    let run = start(true, keepalives());
+    settle(Duration::ZERO).await;
+    settle(LEASE * 10).await;
+    assert_eq!(held(&run.admission), 1);
+    assert!(!run.send.is_finished());
+    run.abort.cancel();
+    assert!(matches!(run.send.await.unwrap(), Err(SendError::Cancelled)));
+    assert_eq!(held(&run.admission), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn content_moves_the_lease_of_an_unattended_send() {
+    let run = start(false, vec![(Duration::from_secs(40), StreamEvent::TextDelta("x".into()))]);
+    settle(Duration::ZERO).await;
+    settle(Duration::from_secs(99)).await;
+    assert_eq!(held(&run.admission), 1, "99 s in, 59 s after the text");
+    settle(Duration::from_secs(1)).await;
+    assert_eq!(held(&run.admission), 0, "60 s after the text");
 }

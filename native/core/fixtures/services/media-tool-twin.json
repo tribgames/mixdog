@@ -1,0 +1,5616 @@
+{
+  "clock": 1700000000000,
+  "domain": "media-tool-twin",
+  "laneSets": {
+    "broken-only": [
+      {
+        "authType": "oauth",
+        "authenticated": true,
+        "catalogError": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.",
+        "catalogErrorCode": "MEDIA_CATALOG_UNAVAILABLE",
+        "id": "antigravity-oauth",
+        "image": null,
+        "kinds": [],
+        "label": "Google Antigravity",
+        "supportedKinds": [
+          "image"
+        ],
+        "video": null
+      }
+    ],
+    "broken-two": [
+      {
+        "authType": "oauth",
+        "authenticated": true,
+        "catalogError": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.",
+        "catalogErrorCode": "MEDIA_CATALOG_UNAVAILABLE",
+        "id": "antigravity-oauth",
+        "image": null,
+        "kinds": [],
+        "label": "Google Antigravity",
+        "supportedKinds": [
+          "image"
+        ],
+        "video": null
+      },
+      {
+        "authType": "oauth",
+        "authenticated": true,
+        "catalogError": "Second lane failed.",
+        "catalogErrorCode": "MEDIA_CATALOG_UNAVAILABLE",
+        "id": "x2",
+        "image": null,
+        "kinds": [],
+        "label": "Google Antigravity",
+        "supportedKinds": [
+          "image"
+        ],
+        "video": null
+      }
+    ],
+    "empty": [],
+    "full": [
+      {
+        "authType": "oauth",
+        "authenticated": true,
+        "id": "openai-oauth",
+        "image": {
+          "controls": {},
+          "defaultModel": "gpt-image-2",
+          "models": [
+            {
+              "controls": {
+                "background": [
+                  "auto",
+                  "transparent",
+                  "opaque"
+                ],
+                "maxReferences": 5
+              },
+              "description": "ChatGPT image engine.",
+              "id": "gpt-image-2",
+              "label": "GPT Image 2",
+              "requestModel": "gpt-5.5"
+            },
+            {
+              "controls": {
+                "maxReferences": 2,
+                "quality": [
+                  "auto",
+                  "high"
+                ],
+                "size": [
+                  "auto",
+                  "1536x1024",
+                  "1024x1536",
+                  "1024x1024"
+                ]
+              },
+              "id": "gpt-sized",
+              "label": "GPT Sized"
+            }
+          ]
+        },
+        "kinds": [
+          "image"
+        ],
+        "label": "OpenAI Images",
+        "supportedKinds": [
+          "image"
+        ],
+        "video": null
+      },
+      {
+        "authType": "api-key",
+        "authenticated": true,
+        "id": "xai",
+        "image": {
+          "controls": {},
+          "defaultModel": "grok-imagine-image",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 5,
+                "resolution": [
+                  "1k",
+                  "2k"
+                ]
+              },
+              "id": "grok-imagine-image",
+              "label": "Grok Imagine Image"
+            }
+          ]
+        },
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "label": "Grok Imagine",
+        "supportedKinds": [
+          "image",
+          "video"
+        ],
+        "video": {
+          "controls": {},
+          "defaultModel": "grok-imagine-video",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "durationRange": [
+                  1,
+                  15
+                ],
+                "maxReferences": 7,
+                "resolution": [
+                  "480p",
+                  "720p",
+                  "1080p"
+                ]
+              },
+              "id": "grok-imagine-video",
+              "label": "Grok Imagine Video"
+            }
+          ]
+        }
+      },
+      {
+        "authType": "api-key",
+        "authenticated": true,
+        "id": "gemini",
+        "image": {
+          "controls": {},
+          "defaultModel": "gemini-2.5-flash-image",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 3
+              },
+              "id": "gemini-2.5-flash-image",
+              "label": "Nano Banana"
+            },
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 3
+              },
+              "id": "gemini-3-pro-image",
+              "label": "Nano Banana Pro"
+            }
+          ]
+        },
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "label": "Google Gemini",
+        "supportedKinds": [
+          "image",
+          "video"
+        ],
+        "video": {
+          "controls": {},
+          "defaultModel": "veo-3.1",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "16:9",
+                  "9:16"
+                ],
+                "durations": [
+                  4,
+                  6,
+                  8
+                ],
+                "maxReferences": 1,
+                "resolution": [
+                  "720p",
+                  "1080p"
+                ]
+              },
+              "id": "veo-3.1",
+              "label": "Veo 3.1"
+            }
+          ]
+        }
+      },
+      {
+        "authType": "api-key",
+        "authenticated": true,
+        "id": "openrouter",
+        "image": {
+          "controls": {},
+          "defaultModel": "flux-1",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 16,
+                "quality": [
+                  "low",
+                  "high"
+                ],
+                "resolution": [
+                  "1k",
+                  "2k"
+                ]
+              },
+              "id": "flux-1",
+              "label": "Flux 1"
+            }
+          ]
+        },
+        "kinds": [
+          "image"
+        ],
+        "label": "OpenRouter",
+        "supportedKinds": [
+          "image"
+        ],
+        "video": null
+      },
+      {
+        "authType": "api-key",
+        "authenticated": false,
+        "id": "nano-gpt",
+        "image": null,
+        "kinds": [],
+        "label": "NanoGPT",
+        "supportedKinds": [
+          "image"
+        ],
+        "video": null
+      },
+      {
+        "authType": "oauth",
+        "authenticated": true,
+        "catalogError": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.",
+        "catalogErrorCode": "MEDIA_CATALOG_UNAVAILABLE",
+        "id": "antigravity-oauth",
+        "image": null,
+        "kinds": [],
+        "label": "Google Antigravity",
+        "supportedKinds": [
+          "image"
+        ],
+        "video": null
+      },
+      {
+        "authType": "oauth",
+        "authenticated": true,
+        "catalogWarning": "Using the last successful model catalog. Model catalog unavailable.",
+        "id": "grok-oauth",
+        "image": {
+          "controls": {},
+          "defaultModel": "grok-imagine-image",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 5
+              },
+              "id": "grok-imagine-image",
+              "label": "Grok Imagine Image"
+            }
+          ]
+        },
+        "kinds": [
+          "image"
+        ],
+        "label": "Grok Imagine",
+        "supportedKinds": [
+          "image"
+        ],
+        "video": null
+      }
+    ],
+    "no-openai": [
+      {
+        "authType": "api-key",
+        "authenticated": true,
+        "id": "xai",
+        "image": {
+          "controls": {},
+          "defaultModel": "grok-imagine-image",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 5,
+                "resolution": [
+                  "1k",
+                  "2k"
+                ]
+              },
+              "id": "grok-imagine-image",
+              "label": "Grok Imagine Image"
+            }
+          ]
+        },
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "label": "Grok Imagine",
+        "supportedKinds": [
+          "image",
+          "video"
+        ],
+        "video": {
+          "controls": {},
+          "defaultModel": "grok-imagine-video",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "durationRange": [
+                  1,
+                  15
+                ],
+                "maxReferences": 7,
+                "resolution": [
+                  "480p",
+                  "720p",
+                  "1080p"
+                ]
+              },
+              "id": "grok-imagine-video",
+              "label": "Grok Imagine Video"
+            }
+          ]
+        }
+      },
+      {
+        "authType": "api-key",
+        "authenticated": true,
+        "id": "gemini",
+        "image": {
+          "controls": {},
+          "defaultModel": "gemini-2.5-flash-image",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 3
+              },
+              "id": "gemini-2.5-flash-image",
+              "label": "Nano Banana"
+            },
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 3
+              },
+              "id": "gemini-3-pro-image",
+              "label": "Nano Banana Pro"
+            }
+          ]
+        },
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "label": "Google Gemini",
+        "supportedKinds": [
+          "image",
+          "video"
+        ],
+        "video": {
+          "controls": {},
+          "defaultModel": "veo-3.1",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "16:9",
+                  "9:16"
+                ],
+                "durations": [
+                  4,
+                  6,
+                  8
+                ],
+                "maxReferences": 1,
+                "resolution": [
+                  "720p",
+                  "1080p"
+                ]
+              },
+              "id": "veo-3.1",
+              "label": "Veo 3.1"
+            }
+          ]
+        }
+      },
+      {
+        "authType": "api-key",
+        "authenticated": true,
+        "id": "openrouter",
+        "image": {
+          "controls": {},
+          "defaultModel": "flux-1",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 16,
+                "quality": [
+                  "low",
+                  "high"
+                ],
+                "resolution": [
+                  "1k",
+                  "2k"
+                ]
+              },
+              "id": "flux-1",
+              "label": "Flux 1"
+            }
+          ]
+        },
+        "kinds": [
+          "image"
+        ],
+        "label": "OpenRouter",
+        "supportedKinds": [
+          "image"
+        ],
+        "video": null
+      }
+    ],
+    "signed-out-only": [
+      {
+        "authType": "api-key",
+        "authenticated": false,
+        "id": "nano-gpt",
+        "image": null,
+        "kinds": [],
+        "label": "NanoGPT",
+        "supportedKinds": [
+          "image"
+        ],
+        "video": null
+      }
+    ],
+    "xai-gemini": [
+      {
+        "authType": "api-key",
+        "authenticated": true,
+        "id": "xai",
+        "image": {
+          "controls": {},
+          "defaultModel": "grok-imagine-image",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 5,
+                "resolution": [
+                  "1k",
+                  "2k"
+                ]
+              },
+              "id": "grok-imagine-image",
+              "label": "Grok Imagine Image"
+            }
+          ]
+        },
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "label": "Grok Imagine",
+        "supportedKinds": [
+          "image",
+          "video"
+        ],
+        "video": {
+          "controls": {},
+          "defaultModel": "grok-imagine-video",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "durationRange": [
+                  1,
+                  15
+                ],
+                "maxReferences": 7,
+                "resolution": [
+                  "480p",
+                  "720p",
+                  "1080p"
+                ]
+              },
+              "id": "grok-imagine-video",
+              "label": "Grok Imagine Video"
+            }
+          ]
+        }
+      },
+      {
+        "authType": "api-key",
+        "authenticated": true,
+        "id": "gemini",
+        "image": {
+          "controls": {},
+          "defaultModel": "gemini-2.5-flash-image",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 3
+              },
+              "id": "gemini-2.5-flash-image",
+              "label": "Nano Banana"
+            },
+            {
+              "controls": {
+                "aspectRatio": [
+                  "auto",
+                  "1:1",
+                  "16:9",
+                  "9:16",
+                  "4:3",
+                  "3:4"
+                ],
+                "maxReferences": 3
+              },
+              "id": "gemini-3-pro-image",
+              "label": "Nano Banana Pro"
+            }
+          ]
+        },
+        "kinds": [
+          "image",
+          "video"
+        ],
+        "label": "Google Gemini",
+        "supportedKinds": [
+          "image",
+          "video"
+        ],
+        "video": {
+          "controls": {},
+          "defaultModel": "veo-3.1",
+          "models": [
+            {
+              "controls": {
+                "aspectRatio": [
+                  "16:9",
+                  "9:16"
+                ],
+                "durations": [
+                  4,
+                  6,
+                  8
+                ],
+                "maxReferences": 1,
+                "resolution": [
+                  "720p",
+                  "1080p"
+                ]
+              },
+              "id": "veo-3.1",
+              "label": "Veo 3.1"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-media-tool.mjs",
+  "scenarios": [
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "list"
+          },
+          "isError": false,
+          "reply": {
+            "catalogErrors": [
+              {
+                "code": "MEDIA_CATALOG_UNAVAILABLE",
+                "error": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.",
+                "lane": "antigravity-oauth"
+              }
+            ],
+            "catalogWarnings": [
+              {
+                "lane": "grok-oauth",
+                "warning": "Using the last successful model catalog. Model catalog unavailable."
+              }
+            ],
+            "lanes": [
+              {
+                "authType": "oauth",
+                "id": "openai-oauth",
+                "image": "gpt-image-2",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenAI Images"
+              },
+              {
+                "authType": "api-key",
+                "id": "xai",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Grok Imagine",
+                "video": "grok-imagine-video"
+              },
+              {
+                "authType": "api-key",
+                "id": "gemini",
+                "image": "gemini-2.5-flash-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Google Gemini",
+                "video": "veo-3.1"
+              },
+              {
+                "authType": "api-key",
+                "id": "openrouter",
+                "image": "flux-1",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenRouter"
+              },
+              {
+                "authType": "oauth",
+                "id": "antigravity-oauth",
+                "kinds": [],
+                "label": "Google Antigravity"
+              },
+              {
+                "authType": "oauth",
+                "id": "grok-oauth",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image"
+                ],
+                "label": "Grok Imagine"
+              }
+            ],
+            "ok": true,
+            "signedOut": [
+              "nano-gpt"
+            ]
+          }
+        },
+        {
+          "args": {
+            "action": " LIST "
+          },
+          "isError": false,
+          "reply": {
+            "catalogErrors": [
+              {
+                "code": "MEDIA_CATALOG_UNAVAILABLE",
+                "error": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.",
+                "lane": "antigravity-oauth"
+              }
+            ],
+            "catalogWarnings": [
+              {
+                "lane": "grok-oauth",
+                "warning": "Using the last successful model catalog. Model catalog unavailable."
+              }
+            ],
+            "lanes": [
+              {
+                "authType": "oauth",
+                "id": "openai-oauth",
+                "image": "gpt-image-2",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenAI Images"
+              },
+              {
+                "authType": "api-key",
+                "id": "xai",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Grok Imagine",
+                "video": "grok-imagine-video"
+              },
+              {
+                "authType": "api-key",
+                "id": "gemini",
+                "image": "gemini-2.5-flash-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Google Gemini",
+                "video": "veo-3.1"
+              },
+              {
+                "authType": "api-key",
+                "id": "openrouter",
+                "image": "flux-1",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenRouter"
+              },
+              {
+                "authType": "oauth",
+                "id": "antigravity-oauth",
+                "kinds": [],
+                "label": "Google Antigravity"
+              },
+              {
+                "authType": "oauth",
+                "id": "grok-oauth",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image"
+                ],
+                "label": "Grok Imagine"
+              }
+            ],
+            "ok": true,
+            "signedOut": [
+              "nano-gpt"
+            ]
+          }
+        },
+        {
+          "args": {
+            "action": "list",
+            "kind": "image"
+          },
+          "isError": false,
+          "reply": {
+            "catalogErrors": [
+              {
+                "code": "MEDIA_CATALOG_UNAVAILABLE",
+                "error": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.",
+                "lane": "antigravity-oauth"
+              }
+            ],
+            "catalogWarnings": [
+              {
+                "lane": "grok-oauth",
+                "warning": "Using the last successful model catalog. Model catalog unavailable."
+              }
+            ],
+            "kind": "image",
+            "lanes": [
+              {
+                "defaultModel": "gpt-image-2",
+                "id": "openai-oauth",
+                "label": "OpenAI Images",
+                "models": [
+                  "gpt-image-2",
+                  "gpt-sized"
+                ]
+              },
+              {
+                "defaultModel": "grok-imagine-image",
+                "id": "xai",
+                "label": "Grok Imagine",
+                "models": [
+                  "grok-imagine-image"
+                ]
+              },
+              {
+                "defaultModel": "gemini-2.5-flash-image",
+                "id": "gemini",
+                "label": "Google Gemini",
+                "models": [
+                  "gemini-2.5-flash-image",
+                  "gemini-3-pro-image"
+                ]
+              },
+              {
+                "defaultModel": "flux-1",
+                "id": "openrouter",
+                "label": "OpenRouter",
+                "models": [
+                  "flux-1"
+                ]
+              },
+              {
+                "defaultModel": "grok-imagine-image",
+                "id": "grok-oauth",
+                "label": "Grok Imagine",
+                "models": [
+                  "grok-imagine-image"
+                ]
+              }
+            ],
+            "ok": true,
+            "remembered": {
+              "lane": "xai",
+              "model": "grok-imagine-image"
+            },
+            "signedOut": [
+              "nano-gpt"
+            ]
+          }
+        },
+        {
+          "args": {
+            "action": "list",
+            "kind": "video"
+          },
+          "isError": false,
+          "reply": {
+            "catalogErrors": [
+              {
+                "code": "MEDIA_CATALOG_UNAVAILABLE",
+                "error": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.",
+                "lane": "antigravity-oauth"
+              }
+            ],
+            "catalogWarnings": [
+              {
+                "lane": "grok-oauth",
+                "warning": "Using the last successful model catalog. Model catalog unavailable."
+              }
+            ],
+            "kind": "video",
+            "lanes": [
+              {
+                "defaultModel": "grok-imagine-video",
+                "id": "xai",
+                "label": "Grok Imagine",
+                "models": [
+                  "grok-imagine-video"
+                ]
+              },
+              {
+                "defaultModel": "veo-3.1",
+                "id": "gemini",
+                "label": "Google Gemini",
+                "models": [
+                  "veo-3.1"
+                ]
+              }
+            ],
+            "ok": true,
+            "signedOut": [
+              "nano-gpt"
+            ]
+          }
+        },
+        {
+          "args": {
+            "action": "list",
+            "kind": "image",
+            "model": "flux-1"
+          },
+          "isError": false,
+          "reply": {
+            "kind": "image",
+            "models": [
+              {
+                "controls": {
+                  "aspectRatio": [
+                    "auto",
+                    "1:1",
+                    "16:9",
+                    "9:16",
+                    "4:3",
+                    "3:4"
+                  ],
+                  "maxReferences": 16,
+                  "quality": [
+                    "low",
+                    "high"
+                  ],
+                  "resolution": [
+                    "1k",
+                    "2k"
+                  ]
+                },
+                "id": "flux-1",
+                "label": "Flux 1",
+                "lane": "openrouter"
+              }
+            ],
+            "ok": true
+          }
+        },
+        {
+          "args": {
+            "action": "list",
+            "kind": "image",
+            "model": "nope"
+          },
+          "isError": true,
+          "reply": {
+            "action": "list",
+            "available": [
+              "openai-oauth/gpt-image-2",
+              "openai-oauth/gpt-sized",
+              "xai/grok-imagine-image",
+              "gemini/gemini-2.5-flash-image",
+              "gemini/gemini-3-pro-image",
+              "openrouter/flux-1",
+              "grok-oauth/grok-imagine-image"
+            ],
+            "error": "model \"nope\" is not available for image on a signed-in lane",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "list",
+            "kind": "audio"
+          },
+          "isError": true,
+          "reply": {
+            "action": "list",
+            "error": "kind must be one of image, video",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "list",
+            "kind": "video",
+            "model": "veo-3.1"
+          },
+          "isError": false,
+          "reply": {
+            "kind": "video",
+            "models": [
+              {
+                "controls": {
+                  "aspectRatio": [
+                    "16:9",
+                    "9:16"
+                  ],
+                  "durations": [
+                    4,
+                    6,
+                    8
+                  ],
+                  "maxReferences": 1,
+                  "resolution": [
+                    "720p",
+                    "1080p"
+                  ]
+                },
+                "id": "veo-3.1",
+                "label": "Veo 3.1",
+                "lane": "gemini"
+              }
+            ],
+            "ok": true
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "list",
+      "scenario": {
+        "lanes": "full",
+        "name": "list",
+        "remembered": {
+          "image": {
+            "kind": "image",
+            "lane": "xai",
+            "model": "grok-imagine-image"
+          }
+        }
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "list",
+            "kind": "image"
+          },
+          "isError": false,
+          "reply": {
+            "kind": "image",
+            "lanes": [
+              {
+                "defaultModel": "grok-imagine-image",
+                "id": "xai",
+                "label": "Grok Imagine",
+                "models": [
+                  "grok-imagine-image"
+                ]
+              },
+              {
+                "defaultModel": "gemini-2.5-flash-image",
+                "id": "gemini",
+                "label": "Google Gemini",
+                "models": [
+                  "gemini-2.5-flash-image",
+                  "gemini-3-pro-image"
+                ]
+              }
+            ],
+            "ok": true,
+            "remembered": {
+              "lane": "gemini",
+              "model": "gemini-3-pro-image"
+            }
+          }
+        },
+        {
+          "args": {
+            "action": "list",
+            "kind": "video"
+          },
+          "isError": false,
+          "reply": {
+            "kind": "video",
+            "lanes": [
+              {
+                "defaultModel": "grok-imagine-video",
+                "id": "xai",
+                "label": "Grok Imagine",
+                "models": [
+                  "grok-imagine-video"
+                ]
+              },
+              {
+                "defaultModel": "veo-3.1",
+                "id": "gemini",
+                "label": "Google Gemini",
+                "models": [
+                  "veo-3.1"
+                ]
+              }
+            ],
+            "ok": true
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "list-pinned-and-clean",
+      "scenario": {
+        "lanes": "xai-gemini",
+        "name": "list-pinned-and-clean",
+        "pins": {
+          "image": {
+            "account": "",
+            "kind": "image",
+            "lane": "gemini",
+            "model": "gemini-3-pro-image"
+          }
+        }
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "list"
+          },
+          "isError": false,
+          "reply": {
+            "lanes": [],
+            "ok": true
+          }
+        },
+        {
+          "args": {
+            "action": "list",
+            "kind": "image"
+          },
+          "isError": false,
+          "reply": {
+            "kind": "image",
+            "lanes": [],
+            "ok": true
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "list-empty",
+      "scenario": {
+        "lanes": "empty",
+        "name": "list-empty"
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {},
+          "isError": true,
+          "reply": {
+            "action": "",
+            "error": "Unsupported media action \"\"; use list, generate, status, cancel",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "frobnicate"
+          },
+          "isError": true,
+          "reply": {
+            "action": "frobnicate",
+            "error": "Unsupported media action \"frobnicate\"; use list, generate, status, cancel",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": null
+          },
+          "isError": true,
+          "reply": {
+            "action": "",
+            "error": "Unsupported media action \"\"; use list, generate, status, cancel",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": 7
+          },
+          "isError": true,
+          "reply": {
+            "action": "7",
+            "error": "Unsupported media action \"7\"; use list, generate, status, cancel",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "unsupported-action",
+      "scenario": {
+        "lanes": "full",
+        "name": "unsupported-action"
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generate requires kind: image | video",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "audio"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generate requires kind: image | video",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generate requires prompt: the subject, the treatment, the mood, the framing, and what must not appear",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "prompt": "  "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generate requires prompt: the subject, the treatment, the mood, the framing, and what must not appear",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "prompt": "x"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generate requires path: where to write the file",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "nano-gpt",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "lane \"nano-gpt\" is not signed in or does not generate image",
+            "lanes": [
+              {
+                "authType": "oauth",
+                "id": "openai-oauth",
+                "image": "gpt-image-2",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenAI Images"
+              },
+              {
+                "authType": "api-key",
+                "id": "xai",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Grok Imagine",
+                "video": "grok-imagine-video"
+              },
+              {
+                "authType": "api-key",
+                "id": "gemini",
+                "image": "gemini-2.5-flash-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Google Gemini",
+                "video": "veo-3.1"
+              },
+              {
+                "authType": "api-key",
+                "id": "openrouter",
+                "image": "flux-1",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenRouter"
+              },
+              {
+                "authType": "oauth",
+                "id": "grok-oauth",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image"
+                ],
+                "label": "Grok Imagine"
+              }
+            ],
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "antigravity-oauth",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.",
+            "lanes": [
+              {
+                "authType": "oauth",
+                "id": "openai-oauth",
+                "image": "gpt-image-2",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenAI Images"
+              },
+              {
+                "authType": "api-key",
+                "id": "xai",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Grok Imagine",
+                "video": "grok-imagine-video"
+              },
+              {
+                "authType": "api-key",
+                "id": "gemini",
+                "image": "gemini-2.5-flash-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Google Gemini",
+                "video": "veo-3.1"
+              },
+              {
+                "authType": "api-key",
+                "id": "openrouter",
+                "image": "flux-1",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenRouter"
+              },
+              {
+                "authType": "oauth",
+                "id": "grok-oauth",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image"
+                ],
+                "label": "Grok Imagine"
+              }
+            ],
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "nowhere",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "lane \"nowhere\" is not signed in or does not generate image",
+            "lanes": [
+              {
+                "authType": "oauth",
+                "id": "openai-oauth",
+                "image": "gpt-image-2",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenAI Images"
+              },
+              {
+                "authType": "api-key",
+                "id": "xai",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Grok Imagine",
+                "video": "grok-imagine-video"
+              },
+              {
+                "authType": "api-key",
+                "id": "gemini",
+                "image": "gemini-2.5-flash-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Google Gemini",
+                "video": "veo-3.1"
+              },
+              {
+                "authType": "api-key",
+                "id": "openrouter",
+                "image": "flux-1",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenRouter"
+              },
+              {
+                "authType": "oauth",
+                "id": "grok-oauth",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image"
+                ],
+                "label": "Grok Imagine"
+              }
+            ],
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "model": "nope",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "available": [
+              "grok-imagine-image"
+            ],
+            "error": "model \"nope\" is not available on xai for image",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "video",
+            "lane": "openrouter",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "lane \"openrouter\" is not signed in or does not generate video",
+            "lanes": [
+              {
+                "authType": "api-key",
+                "id": "xai",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Grok Imagine",
+                "video": "grok-imagine-video"
+              },
+              {
+                "authType": "api-key",
+                "id": "gemini",
+                "image": "gemini-2.5-flash-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Google Gemini",
+                "video": "veo-3.1"
+              }
+            ],
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-validation",
+      "scenario": {
+        "lanes": "full",
+        "name": "generate-validation"
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-lane-pick\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\generate-lane-pick\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "model": "grok-imagine-image",
+            "path": "out/two",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\generate-lane-pick\\cwd\\out\\two.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": " ",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generate requires path: where to write the file",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-lane-pick",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "generate-lane-pick"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/out/two.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "gemini",
+            "laneSource": "remembered",
+            "model": "gemini-3-pro-image",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-remembered\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\generate-remembered\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "model": "flux-1",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "available": [
+              "gemini-2.5-flash-image",
+              "gemini-3-pro-image"
+            ],
+            "error": "model \"flux-1\" is not available on gemini for image",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-remembered",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "generate-remembered",
+        "remembered": {
+          "image": {
+            "kind": "image",
+            "lane": "gemini",
+            "model": "gemini-3-pro-image"
+          }
+        }
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "gemini",
+          "model": "gemini-3-pro-image",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "gemini",
+            "laneSource": "remembered",
+            "model": "gemini-2.5-flash-image",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-remembered-model-gone\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-remembered-model-gone",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "generate-remembered-model-gone",
+        "remembered": {
+          "image": {
+            "kind": "image",
+            "lane": "gemini",
+            "model": "retired-model"
+          }
+        }
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "first",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\generate-remembered-lane-gone\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-remembered-lane-gone",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "xai-gemini",
+        "name": "generate-remembered-lane-gone",
+        "remembered": {
+          "image": {
+            "kind": "image",
+            "lane": "openai-oauth",
+            "model": ""
+          }
+        }
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "pinned",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\generate-pinned\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "gemini",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "gemini",
+            "laneSource": "requested",
+            "model": "gemini-2.5-flash-image",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-pinned\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "model": "gemini-3-pro-image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "gemini",
+            "laneSource": "remembered",
+            "model": "gemini-3-pro-image",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-pinned\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-pinned",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "generate-pinned",
+        "pins": {
+          "image": {
+            "account": "",
+            "kind": "image",
+            "lane": "xai",
+            "model": "grok-imagine-image"
+          }
+        },
+        "remembered": {
+          "image": {
+            "kind": "image",
+            "lane": "gemini",
+            "model": ""
+          }
+        }
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "gemini",
+          "model": "gemini-3-pro-image",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "Unknown OAuth provider.",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\generate-pinned-account\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-pinned-account",
+      "scenario": {
+        "accountProviders": {
+          "gemini": "gemini"
+        },
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "generate-pinned-account",
+        "pins": {
+          "image": {
+            "account": "work",
+            "kind": "image",
+            "lane": "gemini",
+            "model": ""
+          }
+        }
+      },
+      "scopes": [
+        [
+          "gemini",
+          "work"
+        ]
+      ],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "pinned",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\generate-pinned-account-valid\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "gemini",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "gemini",
+            "laneSource": "requested",
+            "model": "gemini-2.5-flash-image",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-pinned-account-valid\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-pinned-account-valid",
+      "scenario": {
+        "accountProviders": {
+          "xai": "grok-oauth"
+        },
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "generate-pinned-account-valid",
+        "pins": {
+          "image": {
+            "account": "11111111-2222-3333-4444-555555555555",
+            "kind": "image",
+            "lane": "xai",
+            "model": ""
+          }
+        }
+      },
+      "scopes": [
+        [
+          "grok-oauth",
+          "11111111-2222-3333-4444-555555555555"
+        ]
+      ],
+      "starts": [
+        {
+          "account": "11111111-2222-3333-4444-555555555555",
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "Invalid provider account id.",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-pinned-account-bad-id",
+      "scenario": {
+        "accountProviders": {
+          "xai": "grok-oauth"
+        },
+        "lanes": "full",
+        "name": "generate-pinned-account-bad-id",
+        "pins": {
+          "image": {
+            "account": "work",
+            "kind": "image",
+            "lane": "xai",
+            "model": ""
+          }
+        }
+      },
+      "scopes": [
+        [
+          "grok-oauth",
+          "work"
+        ]
+      ],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "pinned",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\generate-pinned-account-no-provider\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-pinned-account-no-provider",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "generate-pinned-account-no-provider",
+        "pins": {
+          "image": {
+            "account": "work",
+            "kind": "image",
+            "lane": "xai",
+            "model": ""
+          }
+        }
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "lane \"openai-oauth\" is not signed in or does not generate image",
+            "lanes": [
+              {
+                "authType": "api-key",
+                "id": "xai",
+                "image": "grok-imagine-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Grok Imagine",
+                "video": "grok-imagine-video"
+              },
+              {
+                "authType": "api-key",
+                "id": "gemini",
+                "image": "gemini-2.5-flash-image",
+                "kinds": [
+                  "image",
+                  "video"
+                ],
+                "label": "Google Gemini",
+                "video": "veo-3.1"
+              },
+              {
+                "authType": "api-key",
+                "id": "openrouter",
+                "image": "flux-1",
+                "kinds": [
+                  "image"
+                ],
+                "label": "OpenRouter"
+              }
+            ],
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-pinned-lane-missing",
+      "scenario": {
+        "lanes": "no-openai",
+        "name": "generate-pinned-lane-missing",
+        "pins": {
+          "image": {
+            "account": "",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "model": ""
+          }
+        }
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.",
+            "lanes": [],
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "antigravity-oauth",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.",
+            "lanes": [],
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-broken-catalog",
+      "scenario": {
+        "lanes": "broken-only",
+        "name": "generate-broken-catalog"
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "Google Antigravity (Account): Model catalog unavailable. Retry after checking the provider connection.\nSecond lane failed.",
+            "lanes": [],
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-broken-two",
+      "scenario": {
+        "lanes": "broken-two",
+        "name": "generate-broken-two"
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "No signed-in lane generates image (Settings → Providers). Use user-supplied files or continue without media.",
+            "lanes": [],
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "video",
+            "path": "v.mp4",
+            "prompt": "p"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "No signed-in lane generates video (Settings → Providers). Use user-supplied files or continue without media.",
+            "lanes": [],
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-signed-out",
+      "scenario": {
+        "lanes": "signed-out-only",
+        "name": "generate-signed-out"
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "aspect": "16:9",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "ChatGPT selects image output settings; explicit size and quality are not supported on this connection.",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "resolution": "2k"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "ChatGPT selects image output settings; explicit size and quality are not supported on this connection.",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "quality": "high"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "ChatGPT selects image output settings; explicit size and quality are not supported on this connection.",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "aspect": "auto",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "requested",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\options-openai\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "background": "transparent",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "requested",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {
+              "background": "transparent"
+            },
+            "output": "{root}\\s\\options-openai\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "background": "auto",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "requested",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\options-openai\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "background": "checker",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "background \"checker\" is not supported by this model; use one of auto, transparent, opaque",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "model": "gpt-sized",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "requested",
+            "model": "gpt-sized",
+            "ok": true,
+            "options": {
+              "quality": "auto",
+              "size": "auto"
+            },
+            "output": "{root}\\s\\options-openai\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "aspect": "9:16",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "model": "gpt-sized",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "quality": "high"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "requested",
+            "model": "gpt-sized",
+            "ok": true,
+            "options": {
+              "quality": "high",
+              "size": "1024x1536"
+            },
+            "output": "{root}\\s\\options-openai\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "aspect": "21:9",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "model": "gpt-sized",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "aspect \"21:9\" has no size on openai-oauth; use one of 16:9, 4:3, 3:2, 9:16, 3:4, 2:3, 1:1",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "model": "gpt-sized",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "quality": "ultra"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "quality \"ultra\" is not supported by this model; use one of auto, high",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "aspect": "1:1",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "model": "gpt-sized",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "requested",
+            "model": "gpt-sized",
+            "ok": true,
+            "options": {
+              "quality": "auto",
+              "size": "1024x1024"
+            },
+            "output": "{root}\\s\\options-openai\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "options-openai",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "options-openai"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {
+            "background": "transparent"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-sized",
+          "options": {
+            "quality": "auto",
+            "size": "auto"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-sized",
+          "options": {
+            "quality": "high",
+            "size": "1024x1536"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-sized",
+          "options": {
+            "quality": "auto",
+            "size": "1024x1024"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "aspect": "16:9",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "resolution": "1k"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "aspectRatio": "16:9",
+              "resolution": "1k"
+            },
+            "output": "{root}\\s\\options-other-lanes\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\options-other-lanes\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "aspect": "21:9",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "aspect \"21:9\" is not supported by this model; use one of auto, 1:1, 16:9, 9:16, 4:3, 3:4",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "resolution": "8k"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "resolution \"8k\" is not supported by this model; use one of 1k, 2k",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "quality": "high"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "quality \"high\" is not supported by this model",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "openrouter",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openrouter",
+            "laneSource": "requested",
+            "model": "flux-1",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\options-other-lanes\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "openrouter",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "quality": "high",
+            "resolution": "1k"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openrouter",
+            "laneSource": "requested",
+            "model": "flux-1",
+            "ok": true,
+            "options": {
+              "quality": "high",
+              "resolution": "1k"
+            },
+            "output": "{root}\\s\\options-other-lanes\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "openrouter",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "quality": "mid"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "quality \"mid\" is not supported by this model; use one of low, high",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "aspect": "4:3",
+            "kind": "image",
+            "lane": "gemini",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "gemini",
+            "laneSource": "requested",
+            "model": "gemini-2.5-flash-image",
+            "ok": true,
+            "options": {
+              "aspectRatio": "4:3"
+            },
+            "output": "{root}\\s\\options-other-lanes\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "options-other-lanes",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "options-other-lanes"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "aspectRatio": "16:9",
+            "resolution": "1k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openrouter",
+          "model": "flux-1",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openrouter",
+          "model": "flux-1",
+          "options": {
+            "quality": "high",
+            "resolution": "1k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "options": {
+            "aspectRatio": "4:3"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "duration": 5,
+            "kind": "video",
+            "lane": "xai",
+            "path": "v.mp4",
+            "prompt": "p"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-video",
+            "ok": true,
+            "options": {
+              "duration": 5
+            },
+            "output": "{root}\\s\\options-video\\cwd\\v.mp4",
+            "prompt": "p",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "duration": 99,
+            "kind": "video",
+            "lane": "xai",
+            "path": "v.mp4",
+            "prompt": "p"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "duration 99s is outside 1-15s",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "duration": "7",
+            "kind": "video",
+            "lane": "xai",
+            "path": "v.mp4",
+            "prompt": "p"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-video",
+            "ok": true,
+            "options": {
+              "duration": 7
+            },
+            "output": "{root}\\s\\options-video\\cwd\\v.mp4",
+            "prompt": "p",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "duration": "soon",
+            "kind": "video",
+            "lane": "xai",
+            "path": "v.mp4",
+            "prompt": "p"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-video",
+            "ok": true,
+            "options": {
+              "duration": null
+            },
+            "output": "{root}\\s\\options-video\\cwd\\v.mp4",
+            "prompt": "p",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "duration": 6,
+            "kind": "video",
+            "lane": "gemini",
+            "path": "v.mp4",
+            "prompt": "p"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "gemini",
+            "laneSource": "requested",
+            "model": "veo-3.1",
+            "ok": true,
+            "options": {
+              "duration": 6
+            },
+            "output": "{root}\\s\\options-video\\cwd\\v.mp4",
+            "prompt": "p",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "duration": 5,
+            "kind": "video",
+            "lane": "gemini",
+            "path": "v.mp4",
+            "prompt": "p"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "duration 5s is not supported; use one of 4, 6, 8",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "aspect": "9:16",
+            "kind": "video",
+            "lane": "gemini",
+            "path": "v.mp4",
+            "prompt": "p",
+            "resolution": "1080p"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "gemini",
+            "laneSource": "requested",
+            "model": "veo-3.1",
+            "ok": true,
+            "options": {
+              "aspectRatio": "9:16",
+              "resolution": "1080p"
+            },
+            "output": "{root}\\s\\options-video\\cwd\\v.mp4",
+            "prompt": "p",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "duration": null,
+            "kind": "video",
+            "lane": "gemini",
+            "path": "v.mp4",
+            "prompt": "p"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "gemini",
+            "laneSource": "requested",
+            "model": "veo-3.1",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\options-video\\cwd\\v.mp4",
+            "prompt": "p",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "duration": 5,
+            "kind": "image",
+            "lane": "xai",
+            "path": "i.png",
+            "prompt": "p"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\options-video\\cwd\\i.png",
+            "prompt": "p",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "options-video",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "options-video"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "video",
+          "lane": "xai",
+          "model": "grok-imagine-video",
+          "options": {
+            "duration": 5
+          },
+          "prompt": "p",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "video",
+          "lane": "xai",
+          "model": "grok-imagine-video",
+          "options": {
+            "duration": 7
+          },
+          "prompt": "p",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "video",
+          "lane": "xai",
+          "model": "grok-imagine-video",
+          "options": {
+            "duration": null
+          },
+          "prompt": "p",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "video",
+          "lane": "gemini",
+          "model": "veo-3.1",
+          "options": {
+            "duration": 6
+          },
+          "prompt": "p",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "video",
+          "lane": "gemini",
+          "model": "veo-3.1",
+          "options": {
+            "aspectRatio": "9:16",
+            "resolution": "1080p"
+          },
+          "prompt": "p",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "video",
+          "lane": "gemini",
+          "model": "veo-3.1",
+          "options": {},
+          "prompt": "p",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "p",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/i.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/v.mp4": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": [
+              "{root}/refs/a.png"
+            ]
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\references\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 1
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": [
+              "{root}/refs/a.png",
+              " {root}/refs/b.JPG ",
+              "",
+              null
+            ]
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\references\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 2
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": [
+              "{root}/refs/c.txt"
+            ]
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "reference \"{root}\\s\\references/refs/c.txt\" is not a png/jpg/webp/gif image",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": [
+              "{root}/refs/missing.png"
+            ]
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "code": "ENOENT",
+            "error": "ENOENT: no such file or directory, open '{root}\\s\\references\\refs\\missing.png'",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": [
+              "{root}/refs/big.png"
+            ]
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "reference \"{root}\\s\\references/refs/big.png\" exceeds 12 MB",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": [
+              "{root}/refs/noext"
+            ]
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "reference \"{root}\\s\\references/refs/noext\" is not a png/jpg/webp/gif image",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": "{root}/refs/a.png"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\references\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": []
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "ok": true,
+            "options": {
+              "resolution": "2k"
+            },
+            "output": "{root}\\s\\references\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": [
+              "{root}/refs/a.png",
+              "{root}/refs/a.png",
+              "{root}/refs/a.png",
+              "{root}/refs/a.png",
+              "{root}/refs/a.png",
+              "{root}/refs/a.png"
+            ]
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "this model takes at most 5 reference image(s); 6 given",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "model": "gpt-sized",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": [
+              "{root}/refs/a.png",
+              "{root}/refs/b.JPG",
+              "{root}/refs/d.webp"
+            ]
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "this model takes at most 2 reference image(s); 3 given",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "video",
+            "lane": "gemini",
+            "path": "v.mp4",
+            "prompt": "p",
+            "references": [
+              "{root}/refs/a.png",
+              "{root}/refs/b.JPG"
+            ]
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "this model takes at most 1 reference image(s); 2 given",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "openrouter",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "references": [
+              "refs-relative.png"
+            ]
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "code": "ENOENT",
+            "error": "ENOENT: no such file or directory, open '{root}\\s\\references\\cwd\\refs-relative.png'",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "references",
+      "scenario": {
+        "files": [
+          {
+            "path": "{root}/refs/a.png",
+            "text": "PNGBYTES"
+          },
+          {
+            "path": "{root}/refs/b.JPG",
+            "text": "JPGBYTES"
+          },
+          {
+            "path": "{root}/refs/c.txt",
+            "text": "text"
+          },
+          {
+            "path": "{root}/refs/d.webp",
+            "text": "WEBP"
+          },
+          {
+            "path": "{root}/refs/big.png",
+            "size": 12582913
+          },
+          {
+            "path": "{root}/refs/noext",
+            "text": "x"
+          }
+        ],
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "references"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [
+            {
+              "base64": "UE5HQllURVM=",
+              "mime": "image/png"
+            }
+          ],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [
+            {
+              "base64": "UE5HQllURVM=",
+              "mime": "image/png"
+            },
+            {
+              "base64": "SlBHQllURVM=",
+              "mime": "image/jpeg"
+            }
+          ],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "refs/": null,
+        "refs/a.png": {
+          "sha256": "541fec54762aeccf6a39ef929d558b7f8894f4332910eb7d4048ebbc34a7847f",
+          "size": 8
+        },
+        "refs/b.JPG": {
+          "sha256": "82644ef6a67ea902095f524a69f44efb1714afbf916b3f230ad3f04615e6fcac",
+          "size": 8
+        },
+        "refs/big.png": {
+          "sha256": "eaa3785e1d69cf29981a89f4093bcd80b1f4bd16ab2333248735ee429f308b16",
+          "size": 12582913
+        },
+        "refs/c.txt": {
+          "sha256": "982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1",
+          "size": 4
+        },
+        "refs/d.webp": {
+          "sha256": "9514df11c4eeede6c0cdda29e0b28f97ba94474b27a7a8864cc5f1c0ee0c470e",
+          "size": 4
+        },
+        "refs/noext": {
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "size": 1
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "plain",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-paths\\cwd\\plain.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "dir/inner/pic.jpg",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-paths\\cwd\\dir\\inner\\pic.jpg",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "../up/pic.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-paths\\up\\pic.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "{root}/abs/out.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-paths/abs/out.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "dotted.",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-paths\\cwd\\dotted.",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": ".hidden",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-paths\\cwd\\.hidden.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "a/b.c/d",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-paths\\cwd\\a\\b.c\\d.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-paths",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "generate-paths"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "abs/": null,
+        "abs/out.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/.hidden.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/a/": null,
+        "cwd/a/b.c/": null,
+        "cwd/a/b.c/d.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/dir/": null,
+        "cwd/dir/inner/": null,
+        "cwd/dir/inner/pic.jpg": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/dotted.": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/plain.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "up/": null,
+        "up/pic.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "the generated asset is not readable from the media store",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-asset-missing",
+      "scenario": {
+        "job": {
+          "assetId": "ghost",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "missingAssets": [
+          "ghost"
+        ],
+        "name": "generate-asset-missing"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "code": "ENOENT",
+            "error": "ENOENT: no such file or directory, copyfile '{root}\\s\\copy-failures\\assets\\asset-nofile.png' -> '{root}\\s\\copy-failures\\cwd\\out\\fox.png'",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "blocker/inner.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "code": "EEXIST",
+            "error": "EEXIST: file already exists, mkdir '{root}\\s\\copy-failures\\cwd\\blocker'",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": "j-done",
+            "path": "got/it.png"
+          },
+          "isError": true,
+          "reply": {
+            "action": "status",
+            "code": "ENOENT",
+            "error": "ENOENT: no such file or directory, copyfile '{root}\\s\\copy-failures\\assets\\asset-nofile.png' -> '{root}\\s\\copy-failures\\cwd\\got\\it.png'",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": "j-done",
+            "path": "blocker/x.png"
+          },
+          "isError": true,
+          "reply": {
+            "action": "status",
+            "code": "EEXIST",
+            "error": "EEXIST: file already exists, mkdir '{root}\\s\\copy-failures\\cwd\\blocker'",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "copy-failures",
+      "scenario": {
+        "files": [
+          {
+            "path": "{root}/cwd/blocker",
+            "text": "a file"
+          }
+        ],
+        "job": {
+          "assetId": "asset-nofile",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "copy-failures",
+        "seeds": [
+          {
+            "assetId": "asset-nofile",
+            "endedAt": 1699999996000,
+            "error": null,
+            "id": "j-done",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "options": {},
+            "progress": 100,
+            "startedAt": 1699999991000,
+            "status": "done"
+          }
+        ]
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/blocker": {
+          "sha256": "7365d029861e32c521f8089b00a6fb32daf0615025b69b599d1ce53501b845c2",
+          "size": 6
+        },
+        "cwd/got/": null,
+        "cwd/out/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generation failed on openai-oauth/gpt-image-2: provider said no",
+            "job": "job-1",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generation failed on xai/grok-imagine-image: provider said no",
+            "job": "job-2",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-job-failed",
+      "scenario": {
+        "job": {
+          "error": "provider said no",
+          "outcome": "failed"
+        },
+        "lanes": "full",
+        "name": "generate-job-failed"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generation failed on openai-oauth/gpt-image-2: failed",
+            "job": "job-1",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-job-failed-silent",
+      "scenario": {
+        "job": {
+          "error": "",
+          "outcome": "failed"
+        },
+        "lanes": "full",
+        "name": "generate-job-failed-silent"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "code": "MEDIA_TOO_MANY_JOBS",
+            "error": "too many media generations are already running (4/4)",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-start-error",
+      "scenario": {
+        "job": {
+          "code": "MEDIA_TOO_MANY_JOBS",
+          "message": "too many media generations are already running (4/4)",
+          "outcome": "start-error"
+        },
+        "lanes": "full",
+        "name": "generate-start-error"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "boom",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-start-error-plain",
+      "scenario": {
+        "job": {
+          "message": "boom",
+          "outcome": "start-error"
+        },
+        "lanes": "full",
+        "name": "generate-start-error-plain"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "wait": false
+          },
+          "isError": false,
+          "reply": {
+            "assetId": null,
+            "elapsedMs": 0,
+            "error": null,
+            "job": "job-1",
+            "kind": "image",
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "nextAction": "Poll media status job:job-1 path:out/fox.png; the file is written when status is done.",
+            "ok": true,
+            "options": {},
+            "progress": 0,
+            "prompt": "a red fox",
+            "referenceCount": 0,
+            "status": "running"
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "aspect": "1:1",
+            "kind": "image",
+            "lane": "xai",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "wait": false
+          },
+          "isError": false,
+          "reply": {
+            "assetId": null,
+            "elapsedMs": 0,
+            "error": null,
+            "job": "job-2",
+            "kind": "image",
+            "lane": "xai",
+            "laneSource": "requested",
+            "model": "grok-imagine-image",
+            "nextAction": "Poll media status job:job-2 path:out/fox.png; the file is written when status is done.",
+            "ok": true,
+            "options": {
+              "aspectRatio": "1:1",
+              "resolution": "2k"
+            },
+            "progress": 0,
+            "prompt": "a red fox",
+            "referenceCount": 0,
+            "status": "running"
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "wait": "false"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-no-wait\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        },
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox ",
+            "wait": 0
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-no-wait\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-no-wait",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done"
+        },
+        "lanes": "full",
+        "name": "generate-no-wait"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "xai",
+          "model": "grok-imagine-image",
+          "options": {
+            "aspectRatio": "1:1",
+            "resolution": "2k"
+          },
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        },
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generation is still running after 180s on openai-oauth; poll media status job:job-1",
+            "job": "job-1",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-timeout-image",
+      "scenario": {
+        "job": {
+          "outcome": "never"
+        },
+        "lanes": "full",
+        "name": "generate-timeout-image"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "video",
+            "lane": "xai",
+            "path": "v.mp4",
+            "prompt": "p"
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generation is still running after 900s on xai; poll media status job:job-1",
+            "job": "job-1",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-timeout-video",
+      "scenario": {
+        "job": {
+          "outcome": "never"
+        },
+        "lanes": "full",
+        "name": "generate-timeout-video"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "video",
+          "lane": "xai",
+          "model": "grok-imagine-video",
+          "options": {},
+          "prompt": "p",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": true,
+          "reply": {
+            "action": "generate",
+            "error": "generation canceled",
+            "ok": false
+          }
+        }
+      ],
+      "cancels": [
+        "job-1"
+      ],
+      "name": "generate-abort",
+      "scenario": {
+        "abortAfterGets": 1,
+        "job": {
+          "outcome": "never"
+        },
+        "lanes": "full",
+        "name": "generate-abort"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "generate",
+            "kind": "image",
+            "path": "out/fox.png",
+            "prompt": " a red fox "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 1234,
+            "lane": "openai-oauth",
+            "laneSource": "first",
+            "model": "gpt-image-2",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\generate-slow-done\\cwd\\out\\fox.png",
+            "prompt": "a red fox",
+            "referenceCount": 0
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "generate-slow-done",
+      "scenario": {
+        "job": {
+          "assetId": "asset-1",
+          "outcome": "done",
+          "polls": 3
+        },
+        "lanes": "full",
+        "name": "generate-slow-done"
+      },
+      "scopes": [],
+      "starts": [
+        {
+          "kind": "image",
+          "lane": "openai-oauth",
+          "model": "gpt-image-2",
+          "options": {},
+          "prompt": "a red fox",
+          "references": [],
+          "sessionId": "sess-1",
+          "sourceType": "lead"
+        }
+      ],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/out/": null,
+        "cwd/out/fox.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "status"
+          },
+          "isError": true,
+          "reply": {
+            "action": "status",
+            "error": "status requires job",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": "nope"
+          },
+          "isError": true,
+          "reply": {
+            "action": "status",
+            "error": "job \"nope\" is not known (finished jobs expire after 10 minutes)",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": "j-run"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": null,
+            "elapsedMs": 5000,
+            "error": null,
+            "job": "j-run",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "ok": true,
+            "options": {
+              "a": 1
+            },
+            "progress": 40,
+            "status": "running"
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": " j-done "
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 5000,
+            "error": null,
+            "job": "j-done",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "ok": true,
+            "options": {},
+            "progress": 100,
+            "status": "done"
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": "j-done",
+            "path": "got/it.png"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 5000,
+            "error": null,
+            "job": "j-done",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\status\\cwd\\got\\it.png",
+            "progress": 100,
+            "status": "done"
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": "j-done",
+            "path": "got/it"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 5000,
+            "error": null,
+            "job": "j-done",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "ok": true,
+            "options": {},
+            "output": "{root}\\s\\status\\cwd\\got\\it.png",
+            "progress": 100,
+            "status": "done"
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": "j-fail",
+            "path": "x.png"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": null,
+            "elapsedMs": 1000,
+            "error": "bad",
+            "job": "j-fail",
+            "kind": "video",
+            "lane": "gemini",
+            "model": "v",
+            "ok": false,
+            "options": {},
+            "progress": 10,
+            "status": "failed"
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": "j-canceled"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": null,
+            "elapsedMs": 1000,
+            "error": "canceled",
+            "job": "j-canceled",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "ok": true,
+            "options": {},
+            "progress": 0,
+            "status": "canceled"
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": "j-future"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "elapsedMs": 0,
+            "error": null,
+            "job": "j-future",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "ok": true,
+            "options": {},
+            "progress": 100,
+            "status": "done"
+          }
+        },
+        {
+          "args": {
+            "action": "status",
+            "job": "j-run",
+            "path": "x.png"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": null,
+            "elapsedMs": 5000,
+            "error": null,
+            "job": "j-run",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "ok": true,
+            "options": {
+              "a": 1
+            },
+            "progress": 40,
+            "status": "running"
+          }
+        }
+      ],
+      "cancels": [],
+      "name": "status",
+      "scenario": {
+        "lanes": "full",
+        "name": "status",
+        "seeds": [
+          {
+            "assetId": null,
+            "endedAt": null,
+            "error": null,
+            "id": "j-run",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "options": {
+              "a": 1
+            },
+            "progress": 40,
+            "startedAt": 1699999995000,
+            "status": "running"
+          },
+          {
+            "assetId": "asset-1",
+            "endedAt": 1699999996000,
+            "error": null,
+            "id": "j-done",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "options": {},
+            "progress": 100,
+            "startedAt": 1699999991000,
+            "status": "done"
+          },
+          {
+            "assetId": null,
+            "endedAt": 1699999992000,
+            "error": "bad",
+            "id": "j-fail",
+            "kind": "video",
+            "lane": "gemini",
+            "model": "v",
+            "options": {},
+            "progress": 10,
+            "startedAt": 1699999991000,
+            "status": "failed"
+          },
+          {
+            "assetId": null,
+            "endedAt": 1699999992000,
+            "error": "canceled",
+            "id": "j-canceled",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "options": {},
+            "progress": 0,
+            "startedAt": 1699999991000,
+            "status": "canceled"
+          },
+          {
+            "assetId": "asset-1",
+            "endedAt": 1700000000000,
+            "error": null,
+            "id": "j-future",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "options": {},
+            "progress": 100,
+            "startedAt": 1700000000050,
+            "status": "done"
+          }
+        ]
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null,
+        "cwd/got/": null,
+        "cwd/got/it.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        }
+      }
+    },
+    {
+      "calls": [
+        {
+          "args": {
+            "action": "cancel"
+          },
+          "isError": true,
+          "reply": {
+            "action": "cancel",
+            "error": "cancel requires job",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "cancel",
+            "job": "nope"
+          },
+          "isError": true,
+          "reply": {
+            "action": "cancel",
+            "error": "job \"nope\" is not known",
+            "ok": false
+          }
+        },
+        {
+          "args": {
+            "action": "cancel",
+            "job": "j-done"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": "asset-1",
+            "canceled": false,
+            "elapsedMs": 5000,
+            "error": null,
+            "job": "j-done",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "ok": true,
+            "options": {},
+            "progress": 100,
+            "status": "done"
+          }
+        },
+        {
+          "args": {
+            "action": "cancel",
+            "job": "j-run"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": null,
+            "canceled": true,
+            "elapsedMs": 5500,
+            "error": "canceled",
+            "job": "j-run",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "ok": true,
+            "options": {},
+            "progress": 40,
+            "status": "canceled"
+          }
+        },
+        {
+          "args": {
+            "action": "cancel",
+            "job": "j-run"
+          },
+          "isError": false,
+          "reply": {
+            "assetId": null,
+            "canceled": false,
+            "elapsedMs": 5500,
+            "error": "canceled",
+            "job": "j-run",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "ok": true,
+            "options": {},
+            "progress": 40,
+            "status": "canceled"
+          }
+        }
+      ],
+      "cancels": [
+        "j-done",
+        "j-run",
+        "j-run"
+      ],
+      "name": "cancel",
+      "scenario": {
+        "lanes": "full",
+        "name": "cancel",
+        "seeds": [
+          {
+            "assetId": null,
+            "endedAt": null,
+            "error": null,
+            "id": "j-run",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "options": {},
+            "progress": 40,
+            "startedAt": 1699999995000,
+            "status": "running"
+          },
+          {
+            "assetId": "asset-1",
+            "endedAt": 1699999996000,
+            "error": null,
+            "id": "j-done",
+            "kind": "image",
+            "lane": "xai",
+            "model": "m",
+            "options": {},
+            "progress": 100,
+            "startedAt": 1699999991000,
+            "status": "done"
+          }
+        ]
+      },
+      "scopes": [],
+      "starts": [],
+      "tree": {
+        "assets/": null,
+        "assets/asset-1.png": {
+          "sha256": "9dfe447d08bb824fc324aa2d19d1c3d3f630af9c33655d8f12821ab7b649f75e",
+          "size": 13
+        },
+        "cwd/": null
+      }
+    }
+  ]
+}

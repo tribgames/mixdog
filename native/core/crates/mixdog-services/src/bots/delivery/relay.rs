@@ -221,7 +221,7 @@ impl AgentHomeDelivery {
         // A room member relays in its room (the room host runs that turn), any other thread in a
         // hidden turn of its own.
         let started = if room_member_of_session(home).is_some() {
-            let follow = WakeFollow { queue: Arc::clone(&self.queue), home: home.to_string(), batch_id: batch_id.clone() };
+            let follow = WakeFollow::of_batch(Arc::clone(&self.queue), home.to_string(), batch_id.clone());
             self.room_relay.relay(home, &prompt, options, follow).await
         } else if let Some(surface) = self.live.get() {
             surface.wake(home, &prompt, options).await

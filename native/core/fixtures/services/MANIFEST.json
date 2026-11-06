@@ -1,6 +1,6 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-setup-local-voice.mjs --tree <tree>",
-  "fileCount": 10,
+  "fileCount": 13,
   "files": [
     {
       "bytes": 78554,
@@ -23,6 +23,11 @@
       "sha256": "e2ee92068540f47174ae769b64a8c213e5480dfea690a4bd1f0fdb3a88a1f631"
     },
     {
+      "bytes": 26913,
+      "path": "media-accounts-twin.json",
+      "sha256": "02608397e275281e845ca750a3a5b44364b8bf92cb60fc9344a7f893ea9f9007"
+    },
+    {
       "bytes": 15152,
       "path": "media-download-twin.json",
       "sha256": "0a24a0b2b21ea82682d8ff73ece73bc462b7fad46f3688cafde4ec00529caeb9"
@@ -31,6 +36,11 @@
       "bytes": 282903,
       "path": "media-lanes-twin.json",
       "sha256": "0e4a8c32e6eb6d884038d152b6b1c2e3ed9051adf8bd467a20318968c14e8bd5"
+    },
+    {
+      "bytes": 148906,
+      "path": "media-tool-twin.json",
+      "sha256": "985a077dd73b1f06dd8904a39fce4f183c898aeb6f03799196fc2790bc70e13f"
     },
     {
       "bytes": 33713,
@@ -55,11 +65,11 @@
   ],
   "product": {
     "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
-    "commit": "d47494aa5fd9662170425a26adc3498a19dd658d",
+    "commit": "ad3aefe0604ca2371dac995fb47fc30e872ad5b2",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9248,
     "refComparison": {
-      "closestCommit": "d47494aa5fd9662170425a26adc3498a19dd658d",
+      "closestCommit": "ad3aefe0604ca2371dac995fb47fc30e872ad5b2",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -71,5 +81,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-setup-local-voice.mjs",
   "set": "services",
-  "totalBytes": 1750611
+  "totalBytes": 1988979
 }

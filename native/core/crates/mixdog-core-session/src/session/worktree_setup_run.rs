@@ -279,7 +279,7 @@ impl SetupRunner {
         commands: Vec<SetupCommand>,
         cancel: &CancellationToken,
         options: &RunOptions,
-        on_progress: &mut dyn FnMut(SetupEvent),
+        on_progress: &mut (dyn FnMut(SetupEvent) + Send),
     ) -> SetupReport {
         let total = commands.len();
         let mut steps = Vec::new();
@@ -328,7 +328,7 @@ impl SetupRunner {
         entry: &SetupCommand,
         cancel: &CancellationToken,
         options: &RunOptions,
-        progress: &mut dyn FnMut(&OutputWindow),
+        progress: &mut (dyn FnMut(&OutputWindow) + Send),
     ) -> SetupStep {
         let started = Instant::now();
         let mut output = OutputWindow::new(options.output_bytes);
