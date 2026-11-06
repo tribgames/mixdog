@@ -78,9 +78,9 @@ struct SourceLine {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ApplyOptions {
-    fuzz_factor: usize,
-    reject_partial: bool,
+pub struct ApplyOptions {
+    pub fuzz_factor: usize,
+    pub reject_partial: bool,
 }
 
 impl Default for ApplyOptions {
@@ -93,21 +93,21 @@ impl Default for ApplyOptions {
 }
 
 #[derive(Debug, Clone)]
-struct FailedEntry {
-    descriptor: String,
-    reason: String,
+pub struct FailedEntry {
+    pub descriptor: String,
+    pub reason: String,
 }
 
 #[derive(Debug)]
-struct ApplyStats {
-    files: usize,
-    failed: Vec<FailedEntry>,
-    read_ms: f64,
-    apply_ms: f64,
-    hash_ms: f64,
-    write_ms: f64,
-    total_ms: f64,
-    content_hashes: Vec<String>,
+pub struct ApplyStats {
+    pub files: usize,
+    pub failed: Vec<FailedEntry>,
+    pub read_ms: f64,
+    pub apply_ms: f64,
+    pub hash_ms: f64,
+    pub write_ms: f64,
+    pub total_ms: f64,
+    pub content_hashes: Vec<String>,
 }
 
 struct AppliedFile {
@@ -125,7 +125,7 @@ const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
 #[no_mangle]
 pub static MIXDOG_PATCH_ENGINE_CONTRACT: [u8; 30] = *b"mixdog-patch-engine-contract:3";
 
-const ENGINE_CONTRACT_MARKER: &str = "mixdog-patch-engine-contract:3";
+pub const ENGINE_CONTRACT_MARKER: &str = "mixdog-patch-engine-contract:3";
 
 fn strip_utf8_bom(bytes: &[u8]) -> &[u8] {
     if bytes.starts_with(UTF8_BOM) {
@@ -351,7 +351,7 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-fn apply_patch_to_base(
+pub fn apply_patch_to_base(
     base: &Path,
     patch: &str,
     dry_run: bool,

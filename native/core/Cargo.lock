@@ -4015,7 +4015,9 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
+ "tracing",
  "unicode-normalization",
+ "unicode-segmentation",
  "url",
  "uuid",
 ]
@@ -4050,6 +4052,7 @@ dependencies = [
  "mixdog-rt",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4183,6 +4186,17 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "mixdog-patch"
+version = "0.7.34"
+dependencies = [
+ "memchr",
+ "sha2 0.10.9",
+ "unicode-normalization",
+ "windows-sys 0.60.2",
+ "winresource",
 ]
 
 [[package]]
@@ -4449,6 +4463,7 @@ dependencies = [
  "mixdog-core-api",
  "mixdog-graph",
  "mixdog-js",
+ "mixdog-patch",
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-sandboxing",

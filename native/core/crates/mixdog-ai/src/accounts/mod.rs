@@ -615,7 +615,7 @@ impl AccountStore {
                 file::update_roster(lane, &path, |roster| {
                     if keep.is_empty() {
                         if let Some(providers) = roster["providers"].as_object_mut() {
-                            providers.remove(&name);
+                            providers.shift_remove(&name);
                         }
                         return Ok(());
                     }

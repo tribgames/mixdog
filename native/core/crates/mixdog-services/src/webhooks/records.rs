@@ -354,7 +354,7 @@ impl EndpointRecords for StateWebhookStore {
                     map.insert(run_id, entry);
                 }
                 None => {
-                    map.remove(&run_id);
+                    map.shift_remove(&run_id);
                 }
             }
             e.result_delivery = (!map.is_empty()).then_some(Value::Object(map));

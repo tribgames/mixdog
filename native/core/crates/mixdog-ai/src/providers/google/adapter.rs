@@ -120,7 +120,7 @@ impl GoogleAdapter {
             if effort.is_none()
                 && let Some(Value::Object(params)) = routed.options.model_parameters.as_mut()
             {
-                params.remove("thinkingLevel");
+                params.shift_remove("thinkingLevel");
             }
             routed.options.effort = effort;
         }

@@ -2,6 +2,7 @@
 //! then the optional render stage, all inside one budget. Pages on the same host
 //! take turns with a short gap; other hosts never wait on them.
 
+use super::lanes;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -159,6 +160,10 @@ struct Trace {
 }
 
 struct HostGate {
+    #[allow(
+        clippy::disallowed_types,
+        reason = "held across the host's whole operation on purpose: it queues same-host callers in turn"
+    )]
     ready_at: tokio::sync::Mutex<Instant>,
 }
 
@@ -181,9 +186,9 @@ impl HostPacer {
                     .try_lock()
                     .map_or(true, |ready| *ready > Instant::now())
         });
-        let gate = Arc::new(HostGate {
-            ready_at: tokio::sync::Mutex::new(Instant::now()),
-        });
+        #[allow(clippy::disallowed_types, reason = "see HostGate::ready_at")]
+        let ready_at = tokio::sync::Mutex::new(Instant::now());
+        let gate = Arc::new(HostGate { ready_at });
         hosts.insert(host.to_string(), gate.clone());
         gate
     }
@@ -427,7 +432,7 @@ impl Pipeline {
             document = self.fetcher.fetch_document(&target, &session).await?;
         }
         let final_url = document.url.clone();
-        let extracted = tokio::task::spawn_blocking(move || {
+        let extracted = lanes::run(self.fetcher.lanes().extract, move |_| {
             extract_document(&document.url, &document.body, &document.content_type)
         })
         .await

@@ -491,9 +491,12 @@ impl Conversion {
     }
 }
 
+/// A parsed JSON file: its value and the lone surrogates replaced on the way.
+type Parsed = (Value, u64);
+
 /// A JSON file: its bytes and, when it parses (a leading BOM allowed), its value and the
 /// lone surrogates replaced on the way.
-fn read_document(path: &Path) -> Result<Option<(Vec<u8>, Option<(Value, u64)>)>> {
+fn read_document(path: &Path) -> Result<Option<(Vec<u8>, Option<Parsed>)>> {
     let Some(bytes) = durable::read_optional(path)? else { return Ok(None) };
     let text = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(&bytes);
     let parsed = json::parse_source(text).ok().map(|parsed| (parsed.value, parsed.replaced_surrogates));

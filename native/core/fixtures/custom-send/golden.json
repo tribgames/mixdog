@@ -1,0 +1,133 @@
+{
+  "scenarios": [
+    {
+      "chats": [
+        "sk-primary",
+        "sk-extra"
+      ],
+      "discoveries": 1,
+      "error": "429 You exceeded your current quota",
+      "flaky": 0,
+      "keys": [
+        "sk-primary",
+        "sk-extra"
+      ],
+      "name": "every key refused with a quota error",
+      "probe": null,
+      "refused": [
+        "Bearer sk-primary",
+        "Bearer sk-extra"
+      ],
+      "result": null,
+      "seconds": 1
+    },
+    {
+      "chats": [
+        "sk-primary",
+        "sk-extra"
+      ],
+      "discoveries": 1,
+      "error": null,
+      "flaky": 0,
+      "keys": [
+        "sk-primary",
+        "sk-extra"
+      ],
+      "name": "the primary key refused and the additional key serves",
+      "probe": null,
+      "refused": [
+        "Bearer sk-primary"
+      ],
+      "result": {
+        "key": {
+          "id": "<key1>",
+          "number": 2
+        },
+        "ok": true
+      },
+      "seconds": 0
+    },
+    {
+      "chats": [
+        "sk-only"
+      ],
+      "discoveries": 1,
+      "error": "429 You exceeded your current quota",
+      "flaky": 0,
+      "keys": [
+        "sk-only"
+      ],
+      "name": "the only key refused with a quota error",
+      "probe": null,
+      "refused": [
+        "Bearer sk-only"
+      ],
+      "result": null,
+      "seconds": 0
+    },
+    {
+      "chats": [
+        "sk-only",
+        "sk-only"
+      ],
+      "discoveries": 1,
+      "error": null,
+      "flaky": 1,
+      "keys": [
+        "sk-only"
+      ],
+      "name": "a 503 then success",
+      "probe": null,
+      "refused": [],
+      "result": {
+        "ok": true
+      },
+      "seconds": 1
+    },
+    {
+      "chats": [
+        ""
+      ],
+      "discoveries": 1,
+      "error": null,
+      "flaky": 0,
+      "keys": [
+        "sk-primary",
+        "sk-extra"
+      ],
+      "name": "a keyless test of a provider with saved additional keys",
+      "probe": {
+        "auth": "none"
+      },
+      "refused": [
+        "Bearer sk-primary",
+        "Bearer sk-extra"
+      ],
+      "result": {
+        "ok": true
+      },
+      "seconds": 0
+    },
+    {
+      "chats": [
+        "sk-env"
+      ],
+      "discoveries": 1,
+      "error": "429 You exceeded your current quota",
+      "flaky": 0,
+      "keys": [
+        "sk-primary",
+        "sk-extra"
+      ],
+      "name": "an environment key test of a provider with saved additional keys",
+      "probe": {
+        "apiKeyEnv": "CS_ENV"
+      },
+      "refused": [
+        "Bearer sk-env"
+      ],
+      "result": null,
+      "seconds": 0
+    }
+  ]
+}

@@ -41,10 +41,10 @@ pub(super) fn is_safe_integer(number: f64) -> bool {
 
 /// A JavaScript number as the JSON number the desktop would write for it.
 pub(super) fn json_number(number: f64) -> Option<Number> {
-    if is_safe_integer(number) {
-        return Some(Number::from(number as i64));
+    match mixdog_js::json_number(number) {
+        Value::Number(number) => Some(number),
+        _ => None,
     }
-    Number::from_f64(number)
 }
 
 /// A finite number above zero, as stored.

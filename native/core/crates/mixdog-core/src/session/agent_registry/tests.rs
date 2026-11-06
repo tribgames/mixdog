@@ -149,7 +149,7 @@ fn tombstone(tag: &str, reaped_at: &str, extra: Value) -> Row {
     }));
     for (key, value) in obj(extra) {
         if value.is_null() {
-            t.remove(&key);
+            t.shift_remove(&key);
         } else {
             t.insert(key, value);
         }
@@ -363,7 +363,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
                 run.cancel.cancelled().await;
                 return RunOutcome::Interrupted;
             }
-            RunOutcome::Completed
+            RunOutcome::Completed(Default::default())
         })
     }));
     let directory = Arc::new(SessionDirectory::new(srig.deps()));

@@ -1,4 +1,4 @@
-//! The custom-provider admin against what Node does (`fixtures/custom-admin/record.mjs`): each
+//! The custom-provider admin against what Node does (`benchmarks/rust-core/recorders/record-custom-admin.mjs`): each
 //! step's answer or refusal, the config after it, every stored secret and the key roster. And a
 //! real connection test: `CustomProbes` sending to a scripted local endpoint, through the key pool.
 
@@ -7,11 +7,17 @@ use std::collections::HashMap;
 use std::io::Write as _;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use mixdog_ai::accounts::AccountStore;
+use mixdog_ai::accounts::rotation::AccountRotation;
+use mixdog_ai::accounts::rotation::UsageProbe;
+use mixdog_ai::admission::Admission;
+use mixdog_ai::broker::ModelBroker;
+use mixdog_ai::retry::StandardRetryDecider;
 use mixdog_ai::catalog::ListingLookup;
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::oauth::pace::SystemPace;
@@ -40,27 +46,48 @@ use super::collaborators::AuthRefresh;
 use super::collaborators::CustomProviders;
 use super::custom_admin::CustomAdmin;
 use super::custom_admin::CustomHost;
+use super::custom_admin::CustomSeams;
 use crate::config::Config;
 use crate::config::ConfigLanes;
 
-const GOLDEN: &str = include_str!("../../../fixtures/custom-admin/golden.json");
+const GOLDEN: &str = include_str!("../../../../../fixtures/custom-admin/golden.json");
 
 #[derive(Default)]
-struct TestVault(Mutex<BTreeMap<String, String>>);
+struct TestVault {
+    secrets: Mutex<BTreeMap<String, String>>,
+    /// Accounts whose secret lives in the private fallback file.
+    fallback: Mutex<Vec<String>>,
+    /// Deleting an additional key's secret fails.
+    refuse_extra_deletes: AtomicBool,
+}
 
 #[async_trait]
 impl SecretVault for TestVault {
     async fn get(&self, account: &str) -> Result<Option<String>, VaultError> {
-        Ok(self.0.lock().unwrap().get(account).cloned())
+        Ok(self.secrets.lock().unwrap().get(account).cloned())
     }
     async fn set(&self, account: &str, value: &str) -> Result<(), VaultError> {
-        self.0.lock().unwrap().insert(account.to_owned(), value.to_owned());
+        self.secrets.lock().unwrap().insert(account.to_owned(), value.to_owned());
         Ok(())
     }
     async fn delete(&self, account: &str) -> Result<(), VaultError> {
-        self.0.lock().unwrap().remove(account);
+        if self.refuse_extra_deletes.load(Ordering::SeqCst) && account.contains(".apiKey.") {
+            return Err(VaultError("keychain is locked".into()));
+        }
+        self.secrets.lock().unwrap().remove(account);
         Ok(())
     }
+    async fn is_fallback(&self, account: &str) -> bool {
+        self.fallback.lock().unwrap().iter().any(|a| a == account)
+    }
+}
+
+/// Plan usage is not measured for a custom provider's keys.
+struct NoProbe;
+
+#[async_trait]
+impl UsageProbe for NoProbe {
+    async fn measure(&self, _: &str, _: &str, _: bool) {}
 }
 
 struct TestEnv(HashMap<String, String>);
@@ -95,16 +122,18 @@ impl ModelTraits for Traits {
     }
 }
 
-struct World {
-    admin: Arc<CustomAdmin>,
+pub(super) struct World {
+    pub(super) admin: Arc<CustomAdmin>,
     config: Config,
     vault: Arc<TestVault>,
     accounts: AccountStore,
     refresh: Arc<CountingRefresh>,
+    /// What the host wrote to its stderr.
+    log: Arc<Mutex<Vec<String>>>,
     _dir: tempfile::TempDir,
 }
 
-async fn world(env: HashMap<String, String>) -> World {
+pub(super) async fn world(env: HashMap<String, String>) -> World {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
@@ -152,9 +181,18 @@ async fn world(env: HashMap<String, String>) -> World {
         io: io(),
         gated_off: Arc::new(|_| false),
     }));
-    let host = CustomHost::new(config.clone(), vault.clone(), keys, accounts.clone(), builder, env);
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let seams = CustomSeams {
+        broker: Arc::new(ModelBroker::new(Arc::new(Admission::new()), Arc::new(StandardRetryDecider))),
+        rotation: AccountRotation::new(accounts.clone(), Arc::new(NoProbe), Arc::new(SystemPace)),
+        log: {
+            let log = log.clone();
+            Arc::new(move |line: &str| log.lock().unwrap().push(line.to_owned()))
+        },
+    };
+    let host = CustomHost::new(config.clone(), vault.clone(), keys, accounts.clone(), builder, env, seams);
     let refresh = Arc::new(CountingRefresh::default());
-    World { admin: CustomAdmin::new(host, refresh.clone()), config, vault, accounts, refresh, _dir: dir }
+    World { admin: CustomAdmin::new(host, refresh.clone()), config, vault, accounts, refresh, log, _dir: dir }
 }
 
 /// `text` with each `$name` replaced by its bound id (`direction` in) or each id by its name.
@@ -196,11 +234,10 @@ async fn every_step_does_what_node_does() {
                 None
             }
             "save" => Some(w.admin.save(args[0].clone()).await),
-            // The wire carries the secret as text; a step that sends another type has no Rust call.
-            "saveKey" if args[1].is_string() => Some(w.admin.save_key(args[0].as_str().unwrap(), args[1].as_str().unwrap()).await),
-            "saveKey" => continue,
+            "saveKey" => Some(w.admin.save_key(args[0].as_str().unwrap(), &args[1]).await),
             "updateModel" => {
-                Some(w.admin.update_model(args[0].as_str().unwrap(), args[1].as_str().unwrap(), args[2].clone()).await)
+                let patch = args.as_array().unwrap().get(2).cloned();
+                Some(w.admin.update_model(args[0].as_str().unwrap(), args[1].as_str().unwrap(), patch).await)
             }
             "remove" => Some(w.admin.remove(args[0].as_str().unwrap()).await),
             other => panic!("{other}"),
@@ -221,7 +258,7 @@ async fn every_step_does_what_node_does() {
         assert_eq!(result.as_ref().map(shown).unwrap_or(Value::Null), step["result"], "{label}: result");
         assert_eq!(error.as_ref().map(|e| shown(&json!(e))).unwrap_or(Value::Null), step["error"], "{label}: error");
         assert_eq!(shown(&Value::Object(w.config.agent())), step["config"], "{label}: config");
-        let secrets: serde_json::Map<String, Value> = w.vault.0.lock().unwrap().iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+        let secrets: serde_json::Map<String, Value> = w.vault.secrets.lock().unwrap().iter().map(|(k, v)| (k.clone(), json!(v))).collect();
         assert_eq!(shown(&Value::Object(secrets)), step["secrets"], "{label}: secrets");
         let mut roster = serde_json::Map::new();
         for id in w.config.agent()["providers"].as_object().unwrap().keys() {
@@ -234,23 +271,24 @@ async fn every_step_does_what_node_does() {
 
 /// What the scripted endpoint saw.
 #[derive(Clone, Debug)]
-struct Seen {
-    path: String,
-    authorization: String,
+pub(super) struct Seen {
+    pub(super) path: String,
+    pub(super) authorization: String,
     body: String,
 }
 
 /// An OpenAI-compatible endpoint on a loopback port: `/models` lists `m-a`; a chat request with
 /// an `authorization` in `refused` is a quota refusal, any other streams `OK`.
-async fn endpoint(refused: Vec<String>) -> (String, Arc<Mutex<Vec<Seen>>>) {
+pub(super) async fn endpoint(refused: Vec<String>, flaky: usize) -> (String, Arc<Mutex<Vec<Seen>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}/v1", listener.local_addr().unwrap());
     let seen = Arc::new(Mutex::new(Vec::new()));
     let log = seen.clone();
+    let failed = Arc::new(AtomicUsize::new(0));
     tokio::spawn(async move {
         loop {
             let (mut socket, _) = listener.accept().await.unwrap();
-            let (refused, log) = (refused.clone(), log.clone());
+            let (refused, log, failed) = (refused.clone(), log.clone(), failed.clone());
             tokio::spawn(async move {
                 let mut raw = Vec::new();
                 let mut buffer = [0u8; 4096];
@@ -281,6 +319,8 @@ async fn endpoint(refused: Vec<String>) -> (String, Arc<Mutex<Vec<Seen>>>) {
                 log.lock().unwrap().push(Seen { path: path.clone(), authorization: authorization.clone(), body });
                 let (status, kind, payload) = if path == "/models" {
                     ("200 OK", "application/json", json!({ "data": [{ "id": "m-a" }] }).to_string())
+                } else if failed.fetch_add(1, Ordering::SeqCst) < flaky {
+                    ("503 Service Unavailable", "application/json", json!({ "error": { "message": "overloaded", "type": "server_error" } }).to_string())
                 } else if refused.contains(&authorization) {
                     (
                         "429 Too Many Requests",
@@ -309,7 +349,7 @@ async fn endpoint(refused: Vec<String>) -> (String, Arc<Mutex<Vec<Seen>>>) {
 
 #[tokio::test]
 async fn the_connection_test_sends_a_real_request_through_the_key_pool() {
-    let (base, seen) = endpoint(vec!["Bearer sk-primary".into()]).await;
+    let (base, seen) = endpoint(vec!["Bearer sk-primary".into()], 0).await;
     let w = world(HashMap::new()).await;
     let input = json!({ "name": "Pool", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-primary", "extraApiKeys": [{ "apiKey": "sk-extra" }] });
     let saved = w.admin.save(input).await.unwrap();
@@ -328,14 +368,14 @@ async fn the_connection_test_sends_a_real_request_through_the_key_pool() {
     assert_eq!(seen.iter().filter(|s| s.path == "/models").count(), 1, "the first discovered model is tested");
 
     // A key nobody refuses answers as the primary: no key is named.
-    let (open, _) = endpoint(Vec::new()).await;
+    let (open, _) = endpoint(Vec::new(), 0).await;
     let plain = w.admin.test(json!({ "name": "Plain", "protocol": "openai-chat", "baseURL": open, "apiKey": "sk-x" })).await.unwrap();
     assert_eq!(plain, json!({ "ok": true }));
 }
 
 #[tokio::test]
 async fn a_send_every_key_is_refused_is_thrown_with_the_key_redacted() {
-    let (base, _) = endpoint(vec!["Bearer sk-only-secret-key".into()]).await;
+    let (base, _) = endpoint(vec!["Bearer sk-only-secret-key".into()], 0).await;
     let w = world(HashMap::new()).await;
     let failure = w
         .admin
@@ -344,4 +384,60 @@ async fn a_send_every_key_is_refused_is_thrown_with_the_key_redacted() {
         .unwrap_err();
     assert!(failure.message().contains("quota"), "{}", failure.message());
     assert!(!failure.message().contains("sk-only-secret-key"));
+}
+
+#[tokio::test]
+async fn a_transient_failure_is_retried_as_every_send_is() {
+    let (base, seen) = endpoint(Vec::new(), 1).await;
+    let w = world(HashMap::new()).await;
+    let answer = w.admin.test(json!({ "name": "Flaky", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-x" })).await.unwrap();
+    assert_eq!(answer, json!({ "ok": true }));
+    let chats = seen.lock().unwrap().iter().filter(|s| s.path == "/chat/completions").count();
+    assert_eq!(chats, 2, "the 503 was retried by the shared send path");
+}
+
+#[tokio::test]
+async fn every_key_refused_ends_with_the_last_refusal() {
+    let (base, seen) = endpoint(vec!["Bearer sk-primary".into(), "Bearer sk-extra".into()], 0).await;
+    let w = world(HashMap::new()).await;
+    let saved = w
+        .admin
+        .save(json!({ "name": "Dry", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-primary", "extraApiKeys": [{ "apiKey": "sk-extra" }] }))
+        .await
+        .unwrap();
+    let probe = json!({ "id": saved["id"], "schemaVersion": 2, "name": "Dry", "protocol": "openai-chat", "baseURL": base });
+    let failure = w.admin.test(probe).await.unwrap_err();
+    assert_eq!(failure.message(), "429 You exceeded your current quota");
+    let keys: Vec<String> = seen.lock().unwrap().iter().filter(|s| s.path == "/chat/completions").map(|s| s.authorization.clone()).collect();
+    assert_eq!(keys, ["Bearer sk-primary", "Bearer sk-extra"]);
+}
+
+#[tokio::test]
+async fn a_key_kept_in_the_private_file_is_labelled_so() {
+    let w = world(HashMap::new()).await;
+    let saved = w.admin.save(json!({ "name": "Kept", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a" })).await.unwrap();
+    assert_eq!(saved["detail"], "stored in keychain");
+    let id = saved["id"].as_str().unwrap();
+    w.vault.fallback.lock().unwrap().push(format!("agent.{id}.apiKey"));
+    let row = w.admin.save_key(id, &json!("sk-b")).await.unwrap();
+    assert_eq!(row["detail"], "stored in private file");
+}
+
+#[tokio::test]
+async fn a_removed_key_the_keychain_keeps_is_logged_and_the_save_holds() {
+    let w = world(HashMap::new()).await;
+    let base = "http://localhost:1/v1";
+    let saved = w
+        .admin
+        .save(json!({ "name": "Log", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-a", "extraApiKeys": [{ "apiKey": "sk-b" }] }))
+        .await
+        .unwrap();
+    let (id, key) = (saved["id"].as_str().unwrap(), saved["extraApiKeys"][0]["id"].as_str().unwrap().to_owned());
+    w.vault.refuse_extra_deletes.store(true, Ordering::SeqCst);
+    let row = w.admin.save(json!({ "id": id, "schemaVersion": 2, "name": "Log", "protocol": "openai-chat", "baseURL": base, "extraApiKeys": [] })).await.unwrap();
+    assert!(row.get("extraApiKeys").is_none(), "the roster no longer lists the key");
+    assert_eq!(
+        w.log.lock().unwrap().clone(),
+        [format!("[provider-admin] could not delete additional API key {key} of {id}: keychain is locked\n")]
+    );
 }

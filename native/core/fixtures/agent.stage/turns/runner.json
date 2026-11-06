@@ -44,9 +44,23 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[\"diff-2\"]",
+        [
+          "reviewComplete",
+          [
+            "diff-2"
+          ]
+        ],
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete"
@@ -120,7 +134,22 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
+        [
+          "reviewComplete",
+          [
+            "diff-2"
+          ]
+        ],
         "release:idle",
         "unload:agent-turn-complete"
       ],
@@ -179,9 +208,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete"
@@ -225,6 +262,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:idle",
         "unload:agent-turn-complete"
@@ -270,9 +316,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete"
@@ -315,6 +369,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:idle",
         "unload:agent-turn-complete"
@@ -363,9 +426,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"
@@ -427,6 +498,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:error",
         "unload:agent-turn-complete"
@@ -476,9 +556,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"
@@ -515,6 +603,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:error",
         "unload:agent-turn-complete"
@@ -554,9 +651,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"
@@ -596,6 +701,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:error",
         "unload:agent-turn-complete"
@@ -632,9 +746,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"
@@ -671,6 +793,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:error",
         "unload:agent-turn-complete"
@@ -715,9 +846,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"
@@ -775,6 +914,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:error",
         "unload:agent-turn-complete"
@@ -823,9 +971,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"
@@ -861,6 +1017,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:error",
         "unload:agent-turn-complete"
@@ -897,9 +1062,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"
@@ -936,6 +1109,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:error",
         "unload:agent-turn-complete"
@@ -976,9 +1158,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"
@@ -1032,6 +1222,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:error",
         "unload:agent-turn-complete"
@@ -1100,9 +1299,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete"
@@ -1168,6 +1375,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:idle",
         "unload:agent-turn-complete"
@@ -1229,9 +1445,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:cancelled",
         "emit:stop:cancelled",
         "unload:agent-turn-complete"
@@ -1277,6 +1501,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:cancelled",
         "unload:agent-turn-complete"
@@ -1330,9 +1563,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:cancelled",
         "emit:stop:cancelled",
         "unload:agent-turn-complete"
@@ -1383,6 +1624,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:cancelled",
         "unload:agent-turn-complete"
@@ -1433,9 +1683,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:cancelled",
         "emit:stop:cancelled",
         "unload:agent-turn-complete"
@@ -1483,6 +1741,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:cancelled",
         "unload:agent-turn-complete"
@@ -1524,9 +1791,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:cancelled",
         "emit:stop:cancelled",
         "unload:agent-turn-complete"
@@ -1568,6 +1843,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:cancelled",
         "unload:agent-turn-complete"
@@ -1616,9 +1900,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:cancelled",
         "emit:stop:cancelled",
         "unload:agent-turn-complete"
@@ -1667,6 +1959,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:cancelled",
         "unload:agent-turn-complete"
@@ -1709,9 +2010,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:cancelled",
         "emit:stop:cancelled",
         "unload:agent-turn-complete"
@@ -1754,6 +2063,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:cancelled",
         "unload:agent-turn-complete"
@@ -1793,9 +2111,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:cancelled",
         "emit:stop:cancelled",
         "unload:agent-turn-complete"
@@ -1835,6 +2161,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:cancelled",
         "unload:agent-turn-complete"
@@ -1873,9 +2208,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:cancelled",
         "emit:stop:cancelled",
         "unload:agent-turn-complete"
@@ -1914,6 +2257,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:cancelled",
         "unload:agent-turn-complete"
@@ -1922,6 +2274,314 @@
         {
           "session": "lead",
           "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_cancel_after_the_terminal_result_changes_nothing",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "tool": "diff-1"
+      },
+      {
+        "terminal": {
+          "content": "done"
+        }
+      },
+      {
+        "cancel": true
+      },
+      {
+        "return": {
+          "content": "done"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "done"
+        }
+      },
+      "calls": [
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        "ask:do it@/work",
+        [
+          "reviewComplete",
+          [
+            "diff-1"
+          ]
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: spawn\nlabel: scout\nstatus: completed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\ntag: scout\nsessionId: sess_w1\nagent: worker\npreset: worker-preset\nprovider: openai\nmodel: gpt-x\neffort: high\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "completed",
+            "instruction": "Agent \"job\" completed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\ndone\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "agent-terminal-result",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_cancel_after_the_terminal_result_changes_nothing",
+    "steps": [
+      {
+        "tool": "diff-1"
+      },
+      {
+        "terminal": {
+          "content": "done"
+        }
+      },
+      {
+        "cancel": true
+      },
+      {
+        "return": {
+          "content": "done"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-x",
+          "content": "done"
+        }
+      },
+      "calls": [
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
+        "ask:do it@/work",
+        [
+          "reviewComplete",
+          [
+            "diff-1"
+          ]
+        ],
+        "release:idle",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "background task\ntask_id: job\nsurface: agent\noperation: send\nlabel: scout\nstatus: completed\nstarted: 2026-03-01T10:00:00.000Z\nfinished: 2026-03-01T10:00:00.000Z\ntag: scout\nsessionId: sess_w1\nagent: worker\nprovider: openai\nmodel: gpt-x\nfast: false\nclientHostPid: 4242",
+          "meta": {
+            "type": "agent_task_result",
+            "model_visible": false,
+            "execution_surface": "agent",
+            "execution_id": "job",
+            "status": "completed",
+            "instruction": "Agent \"job\" completed",
+            "caller_session_id": "lead"
+          }
+        },
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>completed</status>\n<summary>Agent \"scout\" completed</summary>\n<result>\ndone\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "completed",
+        "error": null,
+        "terminalReason": "agent-terminal-result",
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "a_cancel_before_the_terminal_result_keeps_the_review",
+    "kind": "spawn",
+    "job": true,
+    "steps": [
+      {
+        "tool": "diff-9"
+      },
+      {
+        "cancel": true
+      },
+      {
+        "terminal": {
+          "content": "late"
+        }
+      },
+      {
+        "return": {
+          "content": "late"
+        }
+      }
+    ],
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "worker-preset",
+          "provider": "openai",
+          "model": "gpt-x",
+          "effort": "high",
+          "fast": false,
+          "content": "late"
+        }
+      },
+      "calls": [
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        "ask:do it@/work",
+        [
+          "reviewComplete",
+          [
+            "diff-9"
+          ]
+        ],
+        "release:cancelled",
+        "emit:stop:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nlate\n</result>\n</task-notification>"
+        }
+      ],
+      "row": {
+        "status": "cancelled",
+        "error": "agent close",
+        "terminalReason": null,
+        "notified": true
+      }
+    }
+  },
+  {
+    "name": "send_a_cancel_before_the_terminal_result_keeps_the_review",
+    "steps": [
+      {
+        "tool": "diff-9"
+      },
+      {
+        "cancel": true
+      },
+      {
+        "terminal": {
+          "content": "late"
+        }
+      },
+      {
+        "return": {
+          "content": "late"
+        }
+      }
+    ],
+    "kind": "send",
+    "job": true,
+    "result": {
+      "outcome": {
+        "value": {
+          "tag": "scout",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-x",
+          "content": "late"
+        }
+      },
+      "calls": [
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
+        "ask:do it@/work",
+        [
+          "reviewComplete",
+          [
+            "diff-9"
+          ]
+        ],
+        "release:cancelled",
+        "unload:agent-turn-complete"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>scout</tag>\n<status>cancelled</status>\n<summary>Agent \"scout\" was cancelled (agent close)</summary>\n<result>\nlate\n</result>\n</task-notification>"
         }
       ],
       "row": {
@@ -1962,9 +2622,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete"
@@ -1992,9 +2660,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"
@@ -2020,9 +2696,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"
@@ -2063,9 +2747,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete"
@@ -2103,9 +2795,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:idle",
         "emit:stop:idle",
         "unload:agent-turn-complete"
@@ -2150,6 +2850,15 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "worker"
+          }
+        ],
         "ask:do it@/work",
         "release:idle",
         "unload:agent-turn-complete"
@@ -2188,9 +2897,17 @@
       },
       "calls": [
         "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "scout",
+            "agent": "explorer"
+          }
+        ],
         "emit:start",
         "ask:do it@/work",
-        "review:[]",
         "release:error",
         "emit:stop:error",
         "unload:agent-turn-complete"

@@ -205,12 +205,12 @@ impl AccountService {
             }
             "account/saveCustomProvider" => self.custom.save(params["input"].clone()).await.map_err(into)?,
             "account/saveCustomProviderKey" => {
-                self.custom.save_key(provider, str_param(params, "secret")).await.map_err(into)?
+                self.custom.save_key(provider, &params["secret"]).await.map_err(into)?
             }
             "account/removeCustomProvider" => self.custom.remove(provider).await.map_err(into)?,
             "account/updateCustomProviderModel" => self
                 .custom
-                .update_model(provider, str_param(params, "modelId"), params["patch"].clone())
+                .update_model(provider, str_param(params, "modelId"), params.get("patch").cloned())
                 .await
                 .map_err(into)?,
             "account/testCustomProvider" => self.custom.test(params["input"].clone()).await.map_err(into)?,

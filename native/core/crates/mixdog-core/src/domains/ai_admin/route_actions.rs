@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_ai::service::admin_route::{Obj, clean, truthy};
+use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_tools::orch::util::PortError;
 use serde_json::{Value, json};
@@ -54,11 +55,43 @@ pub trait RouteSetupSessions: Send + Sync {
     async fn control(&self, caller: &ThreadId, session: &str, method: &str, input: Option<&Obj>) -> Result<Value, PortError>;
 }
 
-pub struct RouteActions {
+/// The two route writes of the runtime facade (`rt.setRoute`, `rt.setAgentRoute`) and the
+/// config they read.
+#[async_trait]
+pub trait RouteWrites: Send + Sync {
+    async fn set_route(&self, thread: &ThreadId, route: &Obj, options: &SetRouteOptions) -> Result<Value, String>;
+    async fn set_agent_route(&self, agent: &str, route: &Obj) -> Result<Value, String>;
+    fn config(&self) -> Obj;
+}
+
+/// The writes over the route services.
+pub struct ServiceWrites {
     pub routes: Arc<RouteService>,
     pub agents: Arc<AgentRouteSetter>,
+}
+
+#[async_trait]
+impl RouteWrites for ServiceWrites {
+    async fn set_route(&self, thread: &ThreadId, route: &Obj, options: &SetRouteOptions) -> Result<Value, String> {
+        self.routes.set_route(thread, route, options).await
+    }
+
+    async fn set_agent_route(&self, agent: &str, route: &Obj) -> Result<Value, String> {
+        self.agents.set_agent_route(agent, route).await
+    }
+
+    fn config(&self) -> Obj {
+        self.routes.config.agent()
+    }
+}
+
+pub struct RouteActions {
+    pub writes: Arc<dyn RouteWrites>,
     pub sessions: Arc<dyn RouteSetupSessions>,
     pub callers: Arc<dyn SetupCallers>,
+    /// The `setup` tool's input schema: the executor validates every call against it first
+    /// (`validateSetupInput`), the route's own shape included.
+    pub schema: Value,
 }
 
 const ACTIONS: [&str; 6] = [
@@ -154,7 +187,7 @@ impl RouteActions {
     fn receipt(&self, thread: &ThreadId, route: &Value, owner_kind: &str, owner_agent: Option<&str>) -> Obj {
         let mut out = Obj::new();
         let Some(saved) = route.get("fallbacks").and_then(Value::as_array) else { return out };
-        let config = self.routes.config.agent();
+        let config = self.writes.config();
         let Some(chain) = self.sessions.caller_chain(thread, &config) else { return out };
         let position = &chain.position;
         let kind_matches = position["kind"] == json!(owner_kind)
@@ -187,7 +220,7 @@ impl RouteActions {
         if other && id == caller {
             return Err(fail(format!("{action} applies to another session: this one is running the setup call")));
         }
-        let config = self.routes.config.agent();
+        let config = self.writes.config();
         let session = self.sessions.session(&id, &config).ok_or_else(|| fail(format!("session {id} not found")))?;
         self.assert_agent(thread, &session.acting_agent, action).await?;
         Ok(session)
@@ -197,7 +230,7 @@ impl RouteActions {
         if args.get("sessionId").is_some() && args.get("agent").is_some() {
             return Err(fail("Pass sessionId or agent, not both"));
         }
-        let config = self.routes.config.agent();
+        let config = self.writes.config();
         let targets = if args.get("agent").is_some() {
             let agent = clean(args.get("agent"));
             if agent.is_empty() {
@@ -222,7 +255,7 @@ impl RouteActions {
                     follow: FollowOptions { switch_established: true, defer_until_next_turn: true, ..FollowOptions::default() },
                     ..SetRouteOptions::default()
                 };
-                self.routes.set_route(thread, &route, &options).await.map_err(fail)?;
+                self.writes.set_route(thread, &route, &options).await.map_err(fail)?;
             } else {
                 self.sessions.control(thread, &session.id, "setRoute", Some(&route)).await?;
             }
@@ -263,11 +296,20 @@ impl SetupActions for RouteActions {
 
     async fn run(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
         let (thread, args) = (call.thread, call.args);
+        // The executor validates every call first; a route that is not the shape it copies
+        // (a chain that is no list, an entry that is no object) is refused with its text.
+        mixdog_tools::orch::setup_input::validate(args, &self.schema).map_err(|error| PortError::Invalid {
+            field: "setup".into(),
+            reason: match error.code {
+                ToolErrorCode::InvalidArgs { reason, .. } => reason,
+                _ => error.message_for_model,
+            },
+        })?;
         match call.action {
             "set_route" => {
                 let source = args.get("route").unwrap_or(&Value::Null);
                 let options = SetRouteOptions { keep_main_model: Some(false), ..SetRouteOptions::default() };
-                let next = self.routes.set_route(thread, &route_input(source), &options).await.map_err(fail)?;
+                let next = self.writes.set_route(thread, &route_input(source), &options).await.map_err(fail)?;
                 let mut out = Obj::new();
                 out.insert("route".into(), next);
                 out.extend(self.receipt(thread, source, "lead", None));
@@ -277,7 +319,7 @@ impl SetupActions for RouteActions {
                 self.assert_agent(thread, clean(args.get("agent")).as_str(), "set_agent_route").await?;
                 let agent = require_text(args, "agent")?;
                 let source = args.get("route").unwrap_or(&Value::Null);
-                let route = self.agents.set_agent_route(&agent, &route_input(source)).await.map_err(fail)?;
+                let route = self.writes.set_agent_route(&agent, &route_input(source)).await.map_err(fail)?;
                 let mut out = Obj::new();
                 out.insert("agent".into(), json!(agent));
                 out.insert("route".into(), route);

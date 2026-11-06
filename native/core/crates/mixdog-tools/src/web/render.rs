@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use super::lanes::WebLanes;
 use async_trait::async_trait;
 use base64::Engine;
 use reqwest::header::HeaderMap;
@@ -80,14 +81,15 @@ fn millis(value: f64) -> Duration {
 
 impl BrowserRenderer {
     /// `version` is the product version sent in the user agent.
-    pub fn new(endpoint: Arc<dyn BrowserEndpoint>, version: &str) -> Result<Arc<Self>, FetchError> {
-        Self::with_policy(endpoint, AddressPolicy::PublicOnly, version)
+    pub fn new(endpoint: Arc<dyn BrowserEndpoint>, version: &str, lanes: WebLanes) -> Result<Arc<Self>, FetchError> {
+        Self::with_policy(endpoint, AddressPolicy::PublicOnly, version, lanes)
     }
 
     pub(crate) fn with_policy(
         endpoint: Arc<dyn BrowserEndpoint>,
         policy: AddressPolicy,
         version: &str,
+        lanes: WebLanes,
     ) -> Result<Arc<Self>, FetchError> {
         let pages = std::env::var("PUPPETEER_POOL_MAX_PAGES")
             .ok()
@@ -96,7 +98,7 @@ impl BrowserRenderer {
             .unwrap_or(DEFAULT_POOL_PAGES);
         Ok(Arc::new(Self {
             endpoint,
-            fetcher: Arc::new(Fetcher::new(policy, version)?),
+            fetcher: Arc::new(Fetcher::new(policy, version, lanes)?),
             slots: Semaphore::new(pages),
         }))
     }
@@ -353,7 +355,7 @@ impl BrowserRenderer {
             )));
         }
         let at = final_url.clone();
-        let extracted = tokio::task::spawn_blocking(move || extract_document(&at, &html, "text/html"))
+        let extracted = super::lanes::run(self.fetcher.lanes().extract, move |_| extract_document(&at, &html, "text/html"))
             .await
             .map_err(|_| FetchError::new(FetchKind::Network, "content extraction failed"))??;
         Ok(StagePage {

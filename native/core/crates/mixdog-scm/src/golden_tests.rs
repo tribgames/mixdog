@@ -74,7 +74,7 @@ fn comparable(mut value: Value) -> Value {
     match &mut value {
         Value::Object(map) => {
             for key in ["root", "hash", "shortHash", "when", "lastCommitRelative", "lastCommitAt", "authoredAt"] {
-                map.remove(key);
+                map.shift_remove(key);
             }
             map.values_mut().for_each(|v| *v = comparable(v.take()));
         }
@@ -807,7 +807,10 @@ async fn a_reconcile_removes_clean_unretained_work_keeps_the_rest_and_resumes_a_
     let (first, second) = (&made[0], &made[1]);
     // `second` has an uncommitted file; `first` is clean and merged.
     std::fs::write(std::path::Path::new(&second.path).join("dirty.txt"), "d\n").unwrap();
-    let options = ReconcileOptions { remove_orphans: true, ..ReconcileOptions::default() };
+    // The final status check is time-bounded and a check that runs out is `busy` by design; this
+    // test is about what reconcile decides, so the bound is lifted and a slow `git status` on a
+    // loaded machine cannot turn the clean worktree into a `busy` one.
+    let options = ReconcileOptions { remove_orphans: true, final_check_timeout: std::time::Duration::from_secs(3600), ..ReconcileOptions::default() };
     let (ids, _) = worktrees.preview_cleanup(&options, &cancel).await.unwrap();
     assert_eq!(ids.len(), 2, "the preview does not verify: both are candidates");
     let report = worktrees.reconcile(&options, &cancel).await.unwrap();
@@ -862,7 +865,13 @@ async fn the_cleanup_pass_removes_unretained_work_but_not_what_a_job_or_a_stored
     let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
     let (first, second) = (&made[0], &made[1]);
     let off = CleanupOptions { settings: Some(WorktreeSettings { auto_cleanup: false, ..WorktreeSettings::default() }), ..CleanupOptions::default() };
-    let on = CleanupOptions { settings: Some(WorktreeSettings::default()), ..CleanupOptions::default() };
+    // The final status check is bounded and a check that runs out is `busy`; the bound is lifted
+    // so a slow `git status` on a loaded machine cannot turn the removal below into a `busy` keep.
+    let on = CleanupOptions {
+        settings: Some(WorktreeSettings::default()),
+        final_check_timeout: Some(std::time::Duration::from_secs(3600)),
+        ..CleanupOptions::default()
+    };
     let sessions: std::sync::Arc<dyn SessionSource> = std::sync::Arc::new(Sessions {
         stored: ["s1".to_owned()].into(),
         jobs: vec![ShellJob { cwd: Some(format!("{}/sub", second.path)), owner_session_id: None }],
@@ -1069,6 +1078,21 @@ async fn an_automatic_removal_that_finds_the_checkout_changed_keeps_it() {
     match worktrees.remove_automatically(&mut record, &AutoOptions::default(), &cancel).await.unwrap() {
         Auto::Kept(verdict) => assert_eq!(verdict["reason"], "dirty"),
         Auto::Removed(_) => panic!("dirty work was removed"),
+    }
+    assert!(std::path::Path::new(&record.path).exists());
+}
+
+#[tokio::test]
+async fn an_automatic_removal_whose_final_check_runs_out_of_time_is_kept_busy() {
+    use crate::worktree::removal::Auto;
+    use crate::worktree::removal::AutoOptions;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let mut record = worktrees.record(&cancel, &made[0].id).await.unwrap().unwrap();
+    // A zero bound is spent before `git status` can answer: never read as clean.
+    let options = AutoOptions { final_check_timeout: std::time::Duration::ZERO, ..AutoOptions::default() };
+    match worktrees.remove_automatically(&mut record, &options, &cancel).await.unwrap() {
+        Auto::Kept(verdict) => assert_eq!(verdict["reason"], "busy"),
+        Auto::Removed(_) => panic!("a check that timed out was read as clean"),
     }
     assert!(std::path::Path::new(&record.path).exists());
 }

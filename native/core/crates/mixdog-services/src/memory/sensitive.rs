@@ -333,13 +333,13 @@ fn replay_state_text(message: &Value) -> String {
 fn strip_replay(message: &Value) -> Value {
     let mut out = message.as_object().cloned().unwrap_or_default();
     for field in REPLAY_FIELDS {
-        out.remove(field);
+        out.shift_remove(field);
     }
     if let Some(Value::Array(calls)) = out.get_mut("toolCalls") {
         for call in calls.iter_mut() {
             if let Value::Object(map) = call {
                 for field in SIGNATURE_FIELDS {
-                    map.remove(field);
+                    map.shift_remove(field);
                 }
             }
         }

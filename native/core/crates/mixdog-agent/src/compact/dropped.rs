@@ -31,7 +31,7 @@ fn lost_part_row(mut row: Value, lost_text: bool, lost_calls: &[ToolCall]) -> Va
     let Some(fields) = row.as_object_mut() else {
         return row;
     };
-    let calls = fields.remove("toolCalls").or_else(|| fields.remove("tool_calls"));
+    let calls = fields.shift_remove("toolCalls").or_else(|| fields.shift_remove("tool_calls"));
     if !lost_text {
         fields.insert("content".into(), Value::String(String::new()));
     }

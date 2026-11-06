@@ -165,7 +165,7 @@ async fn render_reads_the_page_through_the_request_gate() {
     let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
     let (endpoint, seen) = fake_browser(url.clone()).await;
     let renderer =
-        BrowserRenderer::with_policy(Arc::new(Endpoint(endpoint)), AddressPolicy::AnyForTest, "test").unwrap();
+        BrowserRenderer::with_policy(Arc::new(Endpoint(endpoint)), AddressPolicy::AnyForTest, "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
     let page = renderer.render(&url, Duration::from_secs(10)).await.unwrap();
     assert_eq!(page.title, "Rendered");
     assert_eq!(page.content, "# Hi\n\nScript made this.");
@@ -195,6 +195,7 @@ async fn render_holds_the_shared_browser_for_the_whole_render_and_lets_go_after(
         Arc::new(Counting { url: endpoint, live: live.clone() }),
         AddressPolicy::AnyForTest,
         "test",
+        super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
     )
     .unwrap();
     let render = tokio::spawn({
@@ -215,7 +216,7 @@ async fn render_refuses_a_private_document_before_it_reaches_the_browser() {
     let origin = MockServer::start().await;
     let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
     let (endpoint, seen) = fake_browser(url.clone()).await;
-    let renderer = BrowserRenderer::new(Arc::new(Endpoint(endpoint)), "test").unwrap();
+    let renderer = BrowserRenderer::new(Arc::new(Endpoint(endpoint)), "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
     let error = renderer.render(&url, Duration::from_secs(10)).await.unwrap_err();
     assert_eq!(error.kind, FetchKind::Policy);
     assert_eq!(seen.lock().unwrap().fulfilled_status, None);
@@ -227,7 +228,7 @@ async fn render_reports_an_unreachable_browser() {
     let free = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("ws://{}/devtools/browser/x", free.local_addr().unwrap());
     drop(free);
-    let renderer = BrowserRenderer::new(Arc::new(Endpoint(endpoint)), "test").unwrap();
+    let renderer = BrowserRenderer::new(Arc::new(Endpoint(endpoint)), "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
     let url = Url::parse("https://example.com/").unwrap();
     let error = renderer.render(&url, Duration::from_secs(5)).await.unwrap_err();
     assert!(error.message.starts_with("puppeteer launch failed:"), "{error}");

@@ -120,10 +120,10 @@ impl AgentRouteSetter {
         let before = self.chat_route(id).await?;
         self.routes.clear_route(id).await.map_err(text)?;
         let inherited = normalized(&Value::Object(self.context.resolve_main()?))?;
-        if let Some(inherited) = &inherited {
-            if !Self::same_route(before.as_ref(), inherited)? {
-                self.publisher.publish(id, inherited).await;
-            }
+        if let Some(inherited) = &inherited
+            && !Self::same_route(before.as_ref(), inherited)?
+        {
+            self.publisher.publish(id, inherited).await;
         }
         let base = inherited.as_ref().and_then(Value::as_object).cloned().unwrap_or_default();
         Ok(spread(&base, &[("inherited", Value::Bool(true))]))
@@ -176,15 +176,16 @@ impl AgentRouteSetter {
         } else {
             normalized(&Value::Object(self.context.resolve_main()?))?.map(object).unwrap_or_default()
         };
-        if !requested.contains_key("provider") {
-            if let Some(p) = current.get("provider") {
-                requested.insert("provider".into(), p.clone());
-            }
+        if !requested.contains_key("provider")
+            && let Some(p) = current.get("provider")
+        {
+            requested.insert("provider".into(), p.clone());
         }
-        if !requested.contains_key("model") && clean(requested.get("provider")) == clean(current.get("provider")) {
-            if let Some(m) = current.get("model") {
-                requested.insert("model".into(), m.clone());
-            }
+        if !requested.contains_key("model")
+            && clean(requested.get("provider")) == clean(current.get("provider"))
+            && let Some(m) = current.get("model")
+        {
+            requested.insert("model".into(), m.clone());
         }
         if clean(requested.get("provider")).is_empty() {
             return Ok(Value::Object(self.clear_override(&id).await?));
@@ -194,10 +195,10 @@ impl AgentRouteSetter {
         }
         let explicit_fallbacks = requested.contains_key("fallbacks");
         let mut head = requested.clone();
-        if !explicit_fallbacks {
-            if let Some(f) = stored.get("fallbacks") {
-                head.insert("fallbacks".into(), f.clone());
-            }
+        if !explicit_fallbacks
+            && let Some(f) = stored.get("fallbacks")
+        {
+            head.insert("fallbacks".into(), f.clone());
         }
         let chain = route_chain(&Value::Object(head))?;
         validate_route_chain_providers(&chain, !explicit_fallbacks)?;

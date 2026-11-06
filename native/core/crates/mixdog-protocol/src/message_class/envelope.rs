@@ -32,7 +32,22 @@ pub struct Parsed {
     pub is_error: Option<Value>,
 }
 
-const CARD_SURFACES: [&str; 3] = ["agent", "shell", "web_search"];
+/// The execution surfaces that render as their own tool card.
+pub const CARD_SURFACES: [&str; 3] = ["agent", "shell", "web_search"];
+
+/// `TERMINAL_ERROR_STATUS.test(label)`.
+pub fn is_terminal_error_status(label: &str) -> bool {
+    TERMINAL_ERROR_STATUS.is_match(label)
+}
+
+/// `{ taskId, status }` of `parseAgentJob(text)` (a task notification's own, else the job
+/// envelope's); `status` as parsed, not lowercased for a notification.
+pub fn agent_job_ids(text: &str) -> Option<(String, String)> {
+    if let Some(n) = parse_task_notification(text) {
+        return Some((n.task_id, n.status));
+    }
+    parse_agent_job(text).map(|job| (job.task_id, job.status))
+}
 
 static TERMINAL_ERROR_STATUS: LazyLock<JsRegex> =
     LazyLock::new(|| re(r"^(failed|error|timeout|cancelled|canceled|killed|denied)$", "i"));

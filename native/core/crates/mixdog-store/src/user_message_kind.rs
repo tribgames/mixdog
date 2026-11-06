@@ -169,7 +169,8 @@ fn is_summary_message(m: &Value) -> bool {
         || m.get("content").and_then(Value::as_str).is_some_and(|c| c.starts_with(ANCHOR) && SUMMARY_TAIL.is_match(c))
 }
 
-fn is_protected_context_user_message(m: &Value) -> bool {
+/// `isProtectedContextUserMessage`: a user turn made only of `<system-reminder>` envelopes.
+pub fn is_protected_context_user_message(m: &Value) -> bool {
     let (true, Some(content)) = (is_user(m) && !is_imported(m), m.get("content").and_then(Value::as_str)) else {
         return false;
     };

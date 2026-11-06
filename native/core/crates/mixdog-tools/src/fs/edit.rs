@@ -106,7 +106,7 @@ impl Tool for EditTool {
         let shown = display_path(abs.as_path(), &ctx.cwd);
         let full = abs.as_path().display().to_string();
 
-        let _locked = lock_write_paths(ctx, &[&abs]).await?;
+        let _locked = lock_edit_target(ctx, &abs).await?;
         let existing = guarded(ctx, "edit", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await?;
         let bytes = match existing {
             Ok(b) => b.bytes,

@@ -1,0 +1,1199 @@
+{
+  "cases": [
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": null,
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "data": [
+            {
+              "id": "m-b"
+            },
+            {
+              "id": "m-a"
+            },
+            {
+              "id": "m-b"
+            }
+          ]
+        },
+        "status": 200
+      },
+      "name": "discovery lists the endpoint models",
+      "op": "discover",
+      "result": {
+        "models": [
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m-b",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m-b"
+            },
+            "manual": false,
+            "supportsReasoning": false
+          },
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m-a",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m-a"
+            },
+            "manual": false,
+            "supportsReasoning": false
+          }
+        ]
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": null,
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": true
+        },
+        "enabled": true,
+        "modelOverrides": {
+          "m-a": {
+            "contextWindow": 9000,
+            "maxOutputTokens": 800,
+            "name": "Alpha"
+          },
+          "m-manual": {
+            "hidden": false,
+            "manual": true
+          }
+        },
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": true
+        },
+        "modelOverrides": {
+          "m-a": {
+            "contextWindow": 9000,
+            "maxOutputTokens": 800,
+            "name": "Alpha"
+          },
+          "m-manual": {
+            "hidden": false,
+            "manual": true
+          }
+        },
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2
+      },
+      "models": {
+        "body": {
+          "data": [
+            {
+              "id": "m-a"
+            },
+            {
+              "id": "m-c"
+            }
+          ]
+        },
+        "status": 200
+      },
+      "name": "discovery honours a manual override and a hidden default",
+      "op": "discover",
+      "result": {
+        "models": [
+          {
+            "contextWindow": 9000,
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m-a",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m-a"
+            },
+            "manual": false,
+            "maxOutputTokens": 800,
+            "name": "Alpha",
+            "supportsReasoning": false
+          },
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": true,
+            "id": "m-c",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m-c"
+            },
+            "manual": false,
+            "supportsReasoning": false
+          },
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m-manual",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m-manual"
+            },
+            "manual": true,
+            "supportsReasoning": false
+          }
+        ]
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": null,
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "error": "bad key sk-DUMMY-probe-secret-0123456789"
+        },
+        "status": 401
+      },
+      "name": "an authentication refusal redacts the key",
+      "op": "discover",
+      "result": {
+        "error": {
+          "kind": "authentication",
+          "message": "custom-discovery models 401",
+          "status": 401
+        },
+        "models": []
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": null,
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "error": "no"
+        },
+        "status": 403
+      },
+      "name": "a forbidden listing is authentication too",
+      "op": "discover",
+      "result": {
+        "error": {
+          "kind": "authentication",
+          "message": "custom-discovery models 403",
+          "status": 403
+        },
+        "models": []
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": null,
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "error": "no"
+        },
+        "status": 404
+      },
+      "name": "a missing listing is unavailable",
+      "op": "discover",
+      "result": {
+        "error": {
+          "kind": "unavailable",
+          "message": "custom-discovery models 404",
+          "status": 404
+        },
+        "models": []
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": null,
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "error": "no"
+        },
+        "status": 405
+      },
+      "name": "a method refusal is unavailable",
+      "op": "discover",
+      "result": {
+        "error": {
+          "kind": "unavailable",
+          "message": "custom-discovery models 405",
+          "status": 405
+        },
+        "models": []
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": null,
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "error": "down"
+        },
+        "status": 503
+      },
+      "name": "a server error is a request failure",
+      "op": "discover",
+      "result": {
+        "error": {
+          "kind": "request",
+          "message": "custom-discovery models 503",
+          "status": 503
+        },
+        "models": []
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": null,
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {
+          "m-manual": {
+            "manual": true
+          }
+        },
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "modelOverrides": {
+          "m-manual": {
+            "manual": true
+          }
+        },
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2
+      },
+      "models": {
+        "body": {
+          "error": "no"
+        },
+        "status": 403
+      },
+      "name": "a failed discovery keeps the manual rows and reports its error",
+      "op": "discover",
+      "result": {
+        "error": {
+          "kind": "authentication",
+          "message": "custom-discovery models 403",
+          "status": 403
+        },
+        "models": [
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m-manual",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m-manual"
+            },
+            "manual": true,
+            "supportsReasoning": false
+          }
+        ]
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "",
+      "chat": null,
+      "config": {
+        "auth": "none",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "auth": "none",
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "data": [
+            {
+              "id": "m-a"
+            }
+          ]
+        },
+        "status": 200
+      },
+      "name": "a keyless endpoint is listed without a key",
+      "op": "discover",
+      "result": {
+        "models": [
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m-a",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m-a"
+            },
+            "manual": false,
+            "supportsReasoning": false
+          }
+        ]
+      },
+      "seen": [
+        {
+          "authorization": null,
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": {
+        "sse": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "OK",
+                  "role": "assistant"
+                },
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m"
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "stop",
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m",
+            "usage": {
+              "completion_tokens": 1,
+              "prompt_tokens": 3,
+              "total_tokens": 4
+            }
+          }
+        ],
+        "status": 200
+      },
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {
+          "m-manual": {
+            "manual": true
+          }
+        },
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "modelOverrides": {
+          "m-manual": {
+            "manual": true
+          }
+        },
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2
+      },
+      "models": {
+        "body": {},
+        "status": 500
+      },
+      "name": "a manual model is tested without discovery",
+      "op": "test",
+      "result": {
+        "ok": true
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "POST",
+          "path": "/chat/completions"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": {
+        "sse": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "OK",
+                  "role": "assistant"
+                },
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m"
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "stop",
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m",
+            "usage": {
+              "completion_tokens": 1,
+              "prompt_tokens": 3,
+              "total_tokens": 4
+            }
+          }
+        ],
+        "status": 200
+      },
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {
+          "m-manual": {
+            "hidden": true,
+            "manual": true
+          }
+        },
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "modelOverrides": {
+          "m-manual": {
+            "hidden": true,
+            "manual": true
+          }
+        },
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2
+      },
+      "models": {
+        "body": {
+          "data": [
+            {
+              "id": "m-a"
+            }
+          ]
+        },
+        "status": 200
+      },
+      "name": "a hidden manual model is skipped for the first discovered",
+      "op": "test",
+      "result": {
+        "ok": true
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        },
+        {
+          "authorization": "Bearer <key>",
+          "method": "POST",
+          "path": "/chat/completions"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": {
+        "sse": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "OK",
+                  "role": "assistant"
+                },
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m"
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "stop",
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m",
+            "usage": {
+              "completion_tokens": 1,
+              "prompt_tokens": 3,
+              "total_tokens": 4
+            }
+          }
+        ],
+        "status": 200
+      },
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "data": [
+            {
+              "id": "m-a"
+            },
+            {
+              "id": "m-b"
+            }
+          ]
+        },
+        "status": 200
+      },
+      "name": "the first discovered model is tested",
+      "op": "test",
+      "result": {
+        "ok": true
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        },
+        {
+          "authorization": "Bearer <key>",
+          "method": "POST",
+          "path": "/chat/completions"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": {
+        "sse": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "OK",
+                  "role": "assistant"
+                },
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m"
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "stop",
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m",
+            "usage": {
+              "completion_tokens": 1,
+              "prompt_tokens": 3,
+              "total_tokens": 4
+            }
+          }
+        ],
+        "status": 200
+      },
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": true
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": true
+        },
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2
+      },
+      "models": {
+        "body": {
+          "data": [
+            {
+              "id": "m-a"
+            }
+          ]
+        },
+        "status": 200
+      },
+      "name": "a hidden discovery leaves no model to test",
+      "op": "test",
+      "result": {
+        "error": {
+          "kind": "empty",
+          "message": "No models were found for this provider"
+        },
+        "ok": false,
+        "phase": "discovery"
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": {
+        "sse": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "OK",
+                  "role": "assistant"
+                },
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m"
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "stop",
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m",
+            "usage": {
+              "completion_tokens": 1,
+              "prompt_tokens": 3,
+              "total_tokens": 4
+            }
+          }
+        ],
+        "status": 200
+      },
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "data": []
+        },
+        "status": 200
+      },
+      "name": "an empty listing is an empty result",
+      "op": "test",
+      "result": {
+        "error": {
+          "kind": "empty",
+          "message": "No models were found for this provider"
+        },
+        "ok": false,
+        "phase": "discovery"
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": {
+        "sse": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "OK",
+                  "role": "assistant"
+                },
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m"
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "stop",
+                "index": 0
+              }
+            ],
+            "id": "c1",
+            "model": "m",
+            "usage": {
+              "completion_tokens": 1,
+              "prompt_tokens": 3,
+              "total_tokens": 4
+            }
+          }
+        ],
+        "status": 200
+      },
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": null,
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "error": "no"
+        },
+        "status": 401
+      },
+      "name": "a failed discovery is the test result",
+      "op": "test",
+      "result": {
+        "error": {
+          "kind": "authentication",
+          "message": "custom-discovery models 401",
+          "status": 401
+        },
+        "ok": false,
+        "phase": "discovery"
+      },
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": {
+        "body": {
+          "error": {
+            "message": "bad key sk-DUMMY-probe-secret-0123456789"
+          }
+        },
+        "status": 401
+      },
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": "401 bad key [redacted]",
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "data": [
+            {
+              "id": "m-a"
+            }
+          ]
+        },
+        "status": 200
+      },
+      "name": "a refused send is thrown with the key redacted",
+      "op": "test",
+      "result": null,
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        },
+        {
+          "authorization": "Bearer <key>",
+          "method": "POST",
+          "path": "/chat/completions"
+        }
+      ]
+    },
+    {
+      "apiKey": "sk-DUMMY-probe-secret-0123456789",
+      "chat": {
+        "body": {
+          "error": {
+            "message": "unknown model"
+          }
+        },
+        "status": 400
+      },
+      "config": {
+        "auth": "key",
+        "baseURL": "<base>",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "modelOverrides": {},
+        "name": "Probe",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "type": "custom"
+      },
+      "error": "400 unknown model",
+      "input": {
+        "baseURL": "<base>",
+        "name": "Probe",
+        "protocol": "openai-chat"
+      },
+      "models": {
+        "body": {
+          "data": [
+            {
+              "id": "m-a"
+            }
+          ]
+        },
+        "status": 200
+      },
+      "name": "a server error on the send is thrown",
+      "op": "test",
+      "result": null,
+      "seen": [
+        {
+          "authorization": "Bearer <key>",
+          "method": "GET",
+          "path": "/models"
+        },
+        {
+          "authorization": "Bearer <key>",
+          "method": "POST",
+          "path": "/chat/completions"
+        }
+      ]
+    }
+  ],
+  "key": "sk-DUMMY-probe-secret-0123456789"
+}

@@ -112,6 +112,15 @@ impl AnthropicModel {
         let mut record = ModelRecord::new(self.id.clone());
         record.picker.release_date.clone_from(&self.release_date);
         record.picker.reasoning_options = self.reasoning_options();
+        record.picker.tier = Some(
+            match self.tier {
+                Tier::Dated => "dated",
+                Tier::Version => "version",
+                Tier::Family => "family",
+            }
+            .to_owned(),
+        );
+        record.picker.latest = self.latest;
         record.display_name = Some(self.display.clone());
         record.context_window = Some(self.context_window);
         record.max_output_tokens = self.output_tokens;

@@ -1,0 +1,3449 @@
+{
+  "env": {
+    "CP_TEST_KEY": "env-key-value"
+  },
+  "steps": [
+    {
+      "args": [
+        {
+          "apiKey": " sk-primary-1 ",
+          "baseURL": "http://localhost:1234/v1",
+          "models": [
+            {
+              "id": "m1"
+            }
+          ],
+          "name": "Alpha",
+          "protocol": "openai-chat"
+        }
+      ],
+      "bind": {
+        "p1": "id"
+      },
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "key",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": true
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "hidden": false,
+                "manual": true
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "a new provider with a key and a legacy model list",
+      "op": "save",
+      "result": {
+        "auth": "key",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "stored in keychain",
+        "discovery": {
+          "newModelsHidden": true
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {
+          "m1": {
+            "hidden": false,
+            "manual": true
+          }
+        },
+        "models": [
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m1",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m1"
+            },
+            "manual": true,
+            "supportsReasoning": false
+          }
+        ],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Set",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-primary-1"
+      }
+    },
+    {
+      "args": [
+        {
+          "apiKey": "",
+          "baseURL": "http://localhost:1234/v1",
+          "id": "$p1",
+          "name": "Alpha",
+          "protocol": "openai-chat"
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "key",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "an edit that omits the key keeps it",
+      "op": "save",
+      "result": {
+        "auth": "key",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "stored in keychain",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {},
+        "models": [],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Set",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-primary-1"
+      }
+    },
+    {
+      "args": [
+        {
+          "baseURL": "http://localhost:1234/v1",
+          "extraApiKeys": [
+            {
+              "apiKey": " sk-extra-2 "
+            },
+            {
+              "apiKey": "sk-extra-3"
+            }
+          ],
+          "id": "$p1",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "schemaVersion": 2
+        }
+      ],
+      "bind": {
+        "k1": "extraApiKeys.0.id",
+        "k2": "extraApiKeys.1.id"
+      },
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "key",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "additional keys are stored in order",
+      "op": "save",
+      "result": {
+        "auth": "key",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "stored in keychain",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "extraApiKeys": [
+          {
+            "id": "$k1"
+          },
+          {
+            "id": "$k2"
+          }
+        ],
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {},
+        "models": [],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Set",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [
+          "$k1",
+          "$k2"
+        ]
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-primary-1",
+        "agent.$p1.apiKey.$k1": "sk-extra-2",
+        "agent.$p1.apiKey.$k2": "sk-extra-3"
+      }
+    },
+    {
+      "args": [
+        {
+          "baseURL": "http://localhost:1234/v1",
+          "extraApiKeys": [
+            {
+              "id": "$k2"
+            },
+            {
+              "apiKey": "sk-extra-1b",
+              "id": "$k1"
+            }
+          ],
+          "id": "$p1",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "schemaVersion": 2
+        }
+      ],
+      "bind": {
+        "k3": "extraApiKeys.1.id"
+      },
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "key",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "blank rows keep a key, a typed one replaces it under a new id",
+      "op": "save",
+      "result": {
+        "auth": "key",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "stored in keychain",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "extraApiKeys": [
+          {
+            "id": "$k2"
+          },
+          {
+            "id": "$k3"
+          }
+        ],
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {},
+        "models": [],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Set",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [
+          "$k2",
+          "$k3"
+        ]
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-primary-1",
+        "agent.$p1.apiKey.$k2": "sk-extra-3",
+        "agent.$p1.apiKey.$k3": "sk-extra-1b"
+      }
+    },
+    {
+      "args": [
+        {
+          "baseURL": "http://localhost:1234/v1",
+          "id": "$p1",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "schemaVersion": 2
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "key",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "an edit that omits the list keeps it",
+      "op": "save",
+      "result": {
+        "auth": "key",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "stored in keychain",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "extraApiKeys": [
+          {
+            "id": "$k2"
+          },
+          {
+            "id": "$k3"
+          }
+        ],
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {},
+        "models": [],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Set",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [
+          "$k2",
+          "$k3"
+        ]
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-primary-1",
+        "agent.$p1.apiKey.$k2": "sk-extra-3",
+        "agent.$p1.apiKey.$k3": "sk-extra-1b"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        " sk-new-key "
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "key",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "a replacement key",
+      "op": "saveKey",
+      "result": {
+        "auth": "key",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "stored in keychain",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "extraApiKeys": [
+          {
+            "id": "$k2"
+          },
+          {
+            "id": "$k3"
+          }
+        ],
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {},
+        "models": [],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Set",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [
+          "$k2",
+          "$k3"
+        ]
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key",
+        "agent.$p1.apiKey.$k2": "sk-extra-3",
+        "agent.$p1.apiKey.$k3": "sk-extra-1b"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "  "
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "key",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "API key is required",
+      "note": "a blank key",
+      "op": "saveKey",
+      "result": null,
+      "roster": {
+        "$p1": [
+          "$k2",
+          "$k3"
+        ]
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key",
+        "agent.$p1.apiKey.$k2": "sk-extra-3",
+        "agent.$p1.apiKey.$k3": "sk-extra-1b"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        5
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "key",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "custom provider apiKey is invalid",
+      "note": "a key that is not a string",
+      "op": "saveKey",
+      "result": null,
+      "roster": {
+        "$p1": [
+          "$k2",
+          "$k3"
+        ]
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key",
+        "agent.$p1.apiKey.$k2": "sk-extra-3",
+        "agent.$p1.apiKey.$k3": "sk-extra-1b"
+      }
+    },
+    {
+      "args": [
+        {
+          "auth": "none",
+          "baseURL": "https://api.example.com/v1/",
+          "name": "Keyless",
+          "protocol": "anthropic"
+        }
+      ],
+      "bind": {
+        "p2": "id"
+      },
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "key",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "a keyless provider",
+      "op": "save",
+      "result": {
+        "auth": "none",
+        "authenticated": true,
+        "baseURL": "https://api.example.com/v1",
+        "custom": true,
+        "detail": "no API key required",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p2",
+        "modelOverrides": {},
+        "models": [],
+        "name": "Keyless",
+        "protocol": "anthropic",
+        "schemaVersion": 2,
+        "status": "Keyless",
+        "stored": false,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [
+          "$k2",
+          "$k3"
+        ],
+        "$p2": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key",
+        "agent.$p1.apiKey.$k2": "sk-extra-3",
+        "agent.$p1.apiKey.$k3": "sk-extra-1b"
+      }
+    },
+    {
+      "args": [
+        "$p2",
+        "sk-x"
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "key",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "this custom provider needs no API key",
+      "note": "a key for a keyless provider",
+      "op": "saveKey",
+      "result": null,
+      "roster": {
+        "$p1": [
+          "$k2",
+          "$k3"
+        ],
+        "$p2": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key",
+        "agent.$p1.apiKey.$k2": "sk-extra-3",
+        "agent.$p1.apiKey.$k3": "sk-extra-1b"
+      }
+    },
+    {
+      "args": [
+        {
+          "auth": "none",
+          "baseURL": "http://localhost:1234/v1",
+          "id": "$p1",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "schemaVersion": 2
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "switching to keyless drops the additional keys",
+      "op": "save",
+      "result": {
+        "auth": "none",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "no API key required",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {},
+        "models": [],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Keyless",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [],
+        "$p2": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        {
+          "apiKeyEnv": "CP_TEST_KEY",
+          "baseURL": "https://api.example.com/v1",
+          "name": "Env",
+          "protocol": "openai-responses"
+        }
+      ],
+      "bind": {
+        "p3": "id"
+      },
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "a provider reading its key from the environment",
+      "op": "save",
+      "result": {
+        "apiKeyEnv": "CP_TEST_KEY",
+        "auth": "key",
+        "authenticated": true,
+        "baseURL": "https://api.example.com/v1",
+        "custom": true,
+        "detail": "CP_TEST_KEY",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": true,
+        "envName": "CP_TEST_KEY",
+        "group": "api",
+        "id": "$p3",
+        "modelOverrides": {},
+        "models": [],
+        "name": "Env",
+        "protocol": "openai-responses",
+        "schemaVersion": 2,
+        "status": "Env",
+        "stored": false,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p3",
+        "sk-x"
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "this custom provider reads its key from CP_TEST_KEY",
+      "note": "a key for an environment provider",
+      "op": "saveKey",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        {
+          "baseURL": "https://x.example.com/v1",
+          "name": "NoKey",
+          "protocol": "openai-chat"
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "API key is required",
+      "note": "no key at all",
+      "op": "save",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        {
+          "apiKey": "k",
+          "baseURL": "http://localhost:1234/v1",
+          "id": "nope",
+          "name": "X",
+          "protocol": "openai-chat"
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "custom provider id is invalid",
+      "note": "an id that is not a generated one",
+      "op": "save",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        {
+          "apiKey": "k",
+          "baseURL": "http://localhost:1234/v1",
+          "id": "custom-00000000-0000-0000-0000-000000000000",
+          "name": "X",
+          "protocol": "openai-chat"
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "unknown custom provider \"custom-00000000-0000-0000-0000-000000000000\"",
+      "note": "an id that is not saved",
+      "op": "save",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        {
+          "apiKey": "k",
+          "apiKeyEnv": "CP_TEST_KEY",
+          "baseURL": "http://localhost:1234/v1",
+          "name": "Both",
+          "protocol": "openai-chat"
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "custom provider apiKey and apiKeyEnv are mutually exclusive",
+      "note": "a key and an environment variable",
+      "op": "save",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        {
+          "apiKey": "k",
+          "baseURL": "http://localhost:1234/v1",
+          "extraApiKeys": "x",
+          "name": "Odd",
+          "protocol": "openai-chat"
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "custom provider extraApiKeys are invalid",
+      "note": "additional keys that are not a list",
+      "op": "save",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        {
+          "apiKeyEnv": "CP_TEST_KEY",
+          "baseURL": "https://api.example.com/v1",
+          "extraApiKeys": [
+            {
+              "id": "11111111-1111-1111-1111-111111111111"
+            }
+          ],
+          "id": "$p3",
+          "name": "Env",
+          "protocol": "openai-responses",
+          "schemaVersion": 2
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "An additional API key is no longer saved.",
+      "note": "an additional key that is no longer saved",
+      "op": "save",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        {
+          "apiKey": "k",
+          "baseURL": "http://localhost:1234/v1",
+          "name": "Bad",
+          "protocol": "grpc"
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "[custom-provider] unsupported protocol: grpc",
+      "note": "a config the normalizer refuses",
+      "op": "save",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        {
+          "baseURL": "http://localhost:1234/v1",
+          "id": "$p3",
+          "name": "Env",
+          "protocol": "grpc",
+          "schemaVersion": 2
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "[custom-provider] unsupported protocol: grpc",
+      "note": "a failed save puts the saved key back",
+      "op": "save",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        {
+          "contextWindow": 8000,
+          "manual": true,
+          "name": "M One"
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "contextWindow": 8000,
+                "manual": true,
+                "name": "M One"
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "a manual model",
+      "op": "updateModel",
+      "result": {
+        "auth": "none",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "no API key required",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {
+          "m1": {
+            "contextWindow": 8000,
+            "manual": true,
+            "name": "M One"
+          }
+        },
+        "models": [
+          {
+            "contextWindow": 8000,
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m1",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m1"
+            },
+            "manual": true,
+            "name": "M One",
+            "supportsReasoning": false
+          }
+        ],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Keyless",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        {
+          "reasoning": {
+            "levels": [
+              "low",
+              "high"
+            ],
+            "wireFormat": "vllm",
+            "wireValues": {
+              "low": "lo"
+            }
+          }
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "contextWindow": 8000,
+                "manual": true,
+                "name": "M One",
+                "reasoning": {
+                  "levels": [
+                    "low",
+                    "high"
+                  ],
+                  "wireFormat": "vllm",
+                  "wireValues": {
+                    "low": "lo"
+                  }
+                }
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "reasoning levels and wire values",
+      "op": "updateModel",
+      "result": {
+        "auth": "none",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "no API key required",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {
+          "m1": {
+            "contextWindow": 8000,
+            "manual": true,
+            "name": "M One",
+            "reasoning": {
+              "levels": [
+                "low",
+                "high"
+              ],
+              "wireFormat": "vllm",
+              "wireValues": {
+                "low": "lo"
+              }
+            }
+          }
+        },
+        "models": [
+          {
+            "contextWindow": 8000,
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "vllm",
+              "wireValues": {
+                "low": "lo"
+              }
+            },
+            "hidden": false,
+            "id": "m1",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m1"
+            },
+            "manual": true,
+            "name": "M One",
+            "reasoningLevels": [
+              "low",
+              "high"
+            ],
+            "reasoningOptions": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "high"
+                ]
+              }
+            ],
+            "supportsReasoning": true
+          }
+        ],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Keyless",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        {
+          "reasoning": {
+            "levels": [
+              "high"
+            ]
+          }
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "contextWindow": 8000,
+                "manual": true,
+                "name": "M One",
+                "reasoning": {
+                  "levels": [
+                    "high"
+                  ],
+                  "wireFormat": "vllm"
+                }
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "new levels retire the wire values of the levels they drop",
+      "op": "updateModel",
+      "result": {
+        "auth": "none",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "no API key required",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {
+          "m1": {
+            "contextWindow": 8000,
+            "manual": true,
+            "name": "M One",
+            "reasoning": {
+              "levels": [
+                "high"
+              ],
+              "wireFormat": "vllm"
+            }
+          }
+        },
+        "models": [
+          {
+            "contextWindow": 8000,
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "vllm",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m1",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m1"
+            },
+            "manual": true,
+            "name": "M One",
+            "reasoningLevels": [
+              "high"
+            ],
+            "reasoningOptions": [
+              {
+                "type": "effort",
+                "values": [
+                  "high"
+                ]
+              }
+            ],
+            "supportsReasoning": true
+          }
+        ],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Keyless",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        {
+          "reasoning": {
+            "levels": []
+          }
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "contextWindow": 8000,
+                "manual": true,
+                "name": "M One",
+                "reasoning": {
+                  "levels": [],
+                  "wireFormat": "vllm"
+                }
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "clearing the last level",
+      "op": "updateModel",
+      "result": {
+        "auth": "none",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "no API key required",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {
+          "m1": {
+            "contextWindow": 8000,
+            "manual": true,
+            "name": "M One",
+            "reasoning": {
+              "levels": [],
+              "wireFormat": "vllm"
+            }
+          }
+        },
+        "models": [
+          {
+            "contextWindow": 8000,
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "vllm",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m1",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m1"
+            },
+            "manual": true,
+            "name": "M One",
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "supportsReasoning": false
+          }
+        ],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Keyless",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        {
+          "reasoning": null
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "contextWindow": 8000,
+                "manual": true,
+                "name": "M One"
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "reasoning null clears it",
+      "op": "updateModel",
+      "result": {
+        "auth": "none",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "no API key required",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {
+          "m1": {
+            "contextWindow": 8000,
+            "manual": true,
+            "name": "M One"
+          }
+        },
+        "models": [
+          {
+            "contextWindow": 8000,
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m1",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m1"
+            },
+            "manual": true,
+            "name": "M One",
+            "supportsReasoning": false
+          }
+        ],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Keyless",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        {
+          "contextWindow": null,
+          "name": null
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "manual": true
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "null deletes a property",
+      "op": "updateModel",
+      "result": {
+        "auth": "none",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "no API key required",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {
+          "m1": {
+            "manual": true
+          }
+        },
+        "models": [
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m1",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m1"
+            },
+            "manual": true,
+            "supportsReasoning": false
+          }
+        ],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Keyless",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        {
+          "bogus": 1
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "manual": true
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "model patch has unsupported field",
+      "note": "an unsupported field",
+      "op": "updateModel",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        {
+          "reasoning": {
+            "levels": [
+              "loud"
+            ]
+          }
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "manual": true
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "[custom-provider] reasoning patch.levels has unknown level: loud",
+      "note": "a bad reasoning level",
+      "op": "updateModel",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        {
+          "hidden": "x"
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "manual": true
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "[custom-provider] modelOverrides[m1].hidden must be a boolean",
+      "note": "a bad value",
+      "op": "updateModel",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        [
+          1
+        ]
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "manual": true
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "model patch is invalid",
+      "note": "a patch that is not an object",
+      "op": "updateModel",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1"
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "manual": true
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "model patch is invalid",
+      "note": "an absent patch",
+      "op": "updateModel",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "  ",
+        {}
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "manual": true
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "model id is required",
+      "note": "a blank model id",
+      "op": "updateModel",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "custom-00000000-0000-0000-0000-000000000000",
+        "m1",
+        {}
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "manual": true
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "unknown custom provider \"custom-00000000-0000-0000-0000-000000000000\"",
+      "note": "an unknown provider",
+      "op": "updateModel",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m2",
+        {
+          "manual": true,
+          "requestBody": {
+            "top_k": 3
+          },
+          "requestHeaders": {
+            "X-M": "v"
+          }
+        }
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m1": {
+                "manual": true
+              },
+              "m2": {
+                "manual": true,
+                "requestBody": {
+                  "top_k": 3
+                },
+                "requestHeaders": {
+                  "X-M": "v"
+                }
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "request fields",
+      "op": "updateModel",
+      "result": {
+        "auth": "none",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "no API key required",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {
+          "m1": {
+            "manual": true
+          },
+          "m2": {
+            "manual": true,
+            "requestBody": {
+              "top_k": 3
+            },
+            "requestHeaders": {
+              "X-M": "v"
+            }
+          }
+        },
+        "models": [
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m1",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m1"
+            },
+            "manual": true,
+            "supportsReasoning": false
+          },
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m2",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m2"
+            },
+            "manual": true,
+            "supportsReasoning": false
+          }
+        ],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Keyless",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1",
+        "m1",
+        null
+      ],
+      "bind": null,
+      "config": {
+        "modelSettings": {},
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m2": {
+                "manual": true,
+                "requestBody": {
+                  "top_k": 3
+                },
+                "requestHeaders": {
+                  "X-M": "v"
+                }
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "null removes the override",
+      "op": "updateModel",
+      "result": {
+        "auth": "none",
+        "authenticated": true,
+        "baseURL": "http://localhost:1234/v1",
+        "custom": true,
+        "detail": "no API key required",
+        "discovery": {
+          "newModelsHidden": false
+        },
+        "enabled": true,
+        "env": false,
+        "envName": null,
+        "group": "api",
+        "id": "$p1",
+        "modelOverrides": {
+          "m2": {
+            "manual": true,
+            "requestBody": {
+              "top_k": 3
+            },
+            "requestHeaders": {
+              "X-M": "v"
+            }
+          }
+        },
+        "models": [
+          {
+            "customReasoning": {
+              "replay": false,
+              "wireFormat": "standard",
+              "wireValues": {}
+            },
+            "hidden": false,
+            "id": "m2",
+            "inherited": {
+              "contextWindow": 0,
+              "maxOutputTokens": null,
+              "name": "m2"
+            },
+            "manual": true,
+            "supportsReasoning": false
+          }
+        ],
+        "name": "Alpha",
+        "protocol": "openai-chat",
+        "schemaVersion": 2,
+        "status": "Keyless",
+        "stored": true,
+        "type": "api-key"
+      },
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": {
+        "agents": {
+          "a1": {
+            "model": "m",
+            "provider": "$p1"
+          },
+          "a2": {
+            "model": "x",
+            "provider": "openai"
+          }
+        },
+        "default": "pr1",
+        "modelSettings": {
+          "$p1/m1": {
+            "favorite": true
+          },
+          "openai/x": {
+            "favorite": true
+          }
+        },
+        "presets": [
+          {
+            "id": "pr1",
+            "model": "m",
+            "provider": "$p1"
+          },
+          {
+            "id": "pr2",
+            "model": "y",
+            "provider": "openai"
+          }
+        ],
+        "webSearchRoute": {
+          "model": "m",
+          "provider": "$p1"
+        }
+      },
+      "bind": null,
+      "config": {
+        "agents": {
+          "a1": {
+            "model": "m",
+            "provider": "$p1"
+          },
+          "a2": {
+            "model": "x",
+            "provider": "openai"
+          }
+        },
+        "default": "pr1",
+        "modelSettings": {
+          "$p1/m1": {
+            "favorite": true
+          },
+          "openai/x": {
+            "favorite": true
+          }
+        },
+        "presets": [
+          {
+            "id": "pr1",
+            "model": "m",
+            "provider": "$p1"
+          },
+          {
+            "id": "pr2",
+            "model": "y",
+            "provider": "openai"
+          }
+        ],
+        "providers": {
+          "$p1": {
+            "auth": "none",
+            "baseURL": "http://localhost:1234/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {
+              "m2": {
+                "manual": true,
+                "requestBody": {
+                  "top_k": 3
+                },
+                "requestHeaders": {
+                  "X-M": "v"
+                }
+              }
+            },
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        },
+        "webSearchRoute": {
+          "model": "m",
+          "provider": "$p1"
+        }
+      },
+      "error": null,
+      "note": "references to the provider",
+      "op": "config",
+      "result": null,
+      "roster": {
+        "$p1": [],
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {
+        "agent.$p1.apiKey": "sk-new-key"
+      }
+    },
+    {
+      "args": [
+        "$p1"
+      ],
+      "bind": null,
+      "config": {
+        "agents": {
+          "a2": {
+            "model": "x",
+            "provider": "openai"
+          }
+        },
+        "modelSettings": {
+          "openai/x": {
+            "favorite": true
+          }
+        },
+        "presets": [
+          {
+            "id": "pr2",
+            "model": "y",
+            "provider": "openai"
+          }
+        ],
+        "providers": {
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "a provider with references and keys",
+      "op": "remove",
+      "result": {
+        "provider": "$p1",
+        "removed": true,
+        "type": "custom"
+      },
+      "roster": {
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {}
+    },
+    {
+      "args": [
+        "$p1"
+      ],
+      "bind": null,
+      "config": {
+        "agents": {
+          "a2": {
+            "model": "x",
+            "provider": "openai"
+          }
+        },
+        "modelSettings": {
+          "openai/x": {
+            "favorite": true
+          }
+        },
+        "presets": [
+          {
+            "id": "pr2",
+            "model": "y",
+            "provider": "openai"
+          }
+        ],
+        "providers": {
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "unknown custom provider \"$p1\"",
+      "note": "the same provider again",
+      "op": "remove",
+      "result": null,
+      "roster": {
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {}
+    },
+    {
+      "args": [
+        "bad id"
+      ],
+      "bind": null,
+      "config": {
+        "agents": {
+          "a2": {
+            "model": "x",
+            "provider": "openai"
+          }
+        },
+        "modelSettings": {
+          "openai/x": {
+            "favorite": true
+          }
+        },
+        "presets": [
+          {
+            "id": "pr2",
+            "model": "y",
+            "provider": "openai"
+          }
+        ],
+        "providers": {
+          "$p2": {
+            "auth": "none",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Keyless",
+            "protocol": "anthropic",
+            "schemaVersion": 2,
+            "type": "custom"
+          },
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": "unknown custom provider \"bad id\"",
+      "note": "an id that is not a provider",
+      "op": "remove",
+      "result": null,
+      "roster": {
+        "$p2": [],
+        "$p3": []
+      },
+      "secrets": {}
+    },
+    {
+      "args": [
+        "$p2"
+      ],
+      "bind": null,
+      "config": {
+        "agents": {
+          "a2": {
+            "model": "x",
+            "provider": "openai"
+          }
+        },
+        "modelSettings": {
+          "openai/x": {
+            "favorite": true
+          }
+        },
+        "presets": [
+          {
+            "id": "pr2",
+            "model": "y",
+            "provider": "openai"
+          }
+        ],
+        "providers": {
+          "$p3": {
+            "apiKeyEnv": "CP_TEST_KEY",
+            "auth": "key",
+            "baseURL": "https://api.example.com/v1",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "enabled": true,
+            "modelOverrides": {},
+            "name": "Env",
+            "protocol": "openai-responses",
+            "schemaVersion": 2,
+            "type": "custom"
+          }
+        }
+      },
+      "error": null,
+      "note": "a keyless provider",
+      "op": "remove",
+      "result": {
+        "provider": "$p2",
+        "removed": true,
+        "type": "custom"
+      },
+      "roster": {
+        "$p3": []
+      },
+      "secrets": {}
+    }
+  ]
+}

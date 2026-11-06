@@ -36,6 +36,7 @@ use mixdog_store::schema::record::QueueRecord;
 use mixdog_store::schema::record::Record;
 use mixdog_store::schema::record::RunRecord;
 use mixdog_tools::policy::SessionSurface;
+use mixdog_agent::agent_tool::flow::seams::TurnResult;
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -238,6 +239,25 @@ pub trait ThreadStore: Send + Sync + 'static {
         id: &ThreadId,
     ) -> Result<Vec<ItemRecord>, CoreError>;
 
+    /// The live history row `iid` of the lineage with its ordinal, as the transcript reads it;
+    /// `None` when no live row has that id.
+    fn history_row(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<(u64, ItemRecord)>, CoreError>;
+
+    /// The ordinal of the live `compacted` frame of the lineage whose replacement holds the
+    /// entry `iid` (a compaction summary has no history row): a `model_switch` anchor on it
+    /// is `{iid, ordinal}`. The newest such frame; `None` when no live one holds it.
+    fn compaction_entry(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<u64>, CoreError>;
+
     /// The io step of a model-context read (the lineage's model rows since its last
     /// compaction, as acked so far): `None` starts the read; a stale page restarts it.
     fn context_io(
@@ -388,13 +408,21 @@ pub struct RunStart {
     /// run carries `borrow()` of it. Re-derived at turn start, on header changes and on
     /// `SessionHandle::refresh_surface`.
     pub surface: watch::Receiver<Arc<SessionSurface>>,
+    /// The session cell's progress channel: the run publishes its markers into it
+    /// (`run_host::progress::ProgressPublisher`); the worker views read the cell.
+    pub progress: watch::Sender<crate::run_host::progress::RunProgress>,
+    /// The session cell's working-messages channel: the run publishes the turn's messages
+    /// before they are committed (`session.liveTurnMessages`); the route side reads the cell.
+    pub turn_messages: watch::Sender<Arc<Vec<Value>>>,
     /// Cancelled by `turn/interrupt` (RL §5.2): every await of the run selects on it.
     pub cancel: CancellationToken,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunOutcome {
-    Completed,
+    /// The run finished; the final result the loop produced (content, the report, how it ended,
+    /// iterations, tool-call total, stop reason).
+    Completed(Box<TurnResult>),
     Failed(TurnError),
     /// Stopped by its token.
     Interrupted,

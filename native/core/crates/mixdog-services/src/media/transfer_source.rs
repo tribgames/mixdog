@@ -11,16 +11,18 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use mixdog_js::{is_js_space, js_trim, slice_utf16, utf16_len};
+use mixdog_js::{js_trim, utf16_len};
 use mixdog_workspace::error::{Reason, WsError, WsResult};
 use mixdog_workspace::fsops::mime_type;
 use mixdog_workspace::ident::{file_id, path_id};
 use mixdog_workspace::pathguard::canonical;
 use mixdog_workspace::transfer::{SourceFile, TransferSource};
+#[cfg(test)]
+use mixdog_workspace::transfer::Transfers;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use super::store::MediaStore;
+use super::store::{Located, MediaStore};
 
 /// Largest downloadable file, inclusive (`FILE_DOWNLOAD_MAX_BYTES`).
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
@@ -71,43 +73,14 @@ fn asset_id(source: &Value) -> WsResult<String> {
     Ok(id.to_owned())
 }
 
-/// `sanitizedFileName`: the name offered with the grant. Separators and reserved characters
-/// become `-`, leading blanks, dots and dashes and trailing blanks and dots go, 120 UTF-16 units
-/// at most, `download` when nothing is left.
-fn sanitized_file_name(value: &str) -> String {
-    let mut replaced = String::with_capacity(value.len());
-    let mut in_run = false;
-    for c in value.chars() {
-        let reserved = c <= '\u{1f}' || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*');
-        if reserved {
-            if !in_run {
-                replaced.push('-');
-            }
-        } else {
-            replaced.push(c);
-        }
-        in_run = reserved;
-    }
-    let trimmed = replaced.trim_start_matches(|c| is_js_space(c) || c == '.' || c == '-').trim_end_matches(|c| is_js_space(c) || c == '.');
-    let name = slice_utf16(trimmed, 120);
-    if name.is_empty() { "download".to_owned() } else { name }
-}
-
-/// `localFileMimeTypeForPath`: the table is keyed by the text after the last dot of the last path
-/// component, so `.png` is a PNG and `a.` has no type. Looked up through the workspace table.
-fn mime_for_path(path: &Path) -> &'static str {
-    let text = path.to_string_lossy();
-    let name = text.rsplit(['\\', '/']).next().unwrap_or("");
-    match name.rfind('.') {
-        Some(dot) if dot + 1 < name.len() => mime_type(Path::new(&format!("x.{}", &name[dot + 1..]))),
-        _ => "application/octet-stream",
-    }
-}
-
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
 fn open_asset(store: &MediaStore, id: &str) -> WsResult<SourceFile> {
-    let entry = store.resolve_file(id).map_err(|e| WsError::new(Reason::Io, e.to_string()))?;
-    open_entry(entry.as_ref())
+    match store.locate_file(id).map_err(|e| WsError::new(Reason::Io, e.to_string()))? {
+        Some(Located::Readable(entry)) => open_entry(Some(&entry)),
+        // Node would open it; the guard refuses without touching it, with Node's own text for a non-regular file.
+        Some(Located::Special(_)) => Err(not_local()),
+        None => open_entry(None),
+    }
 }
 
 /// `authorizeMediaAsset` over the host's answer for the asset: `None` is Node's `null`.
@@ -141,8 +114,9 @@ fn open_entry(entry: Option<&Value>) -> WsResult<SourceFile> {
     if meta.len() > MAX_BYTES {
         return Err(error(Reason::TooLarge, "Files larger than 256 MB cannot be downloaded."));
     }
-    let name = sanitized_file_name(&path.file_name().unwrap_or_default().to_string_lossy());
-    let mime = entry.get("mime").and_then(Value::as_str).filter(|m| !m.is_empty()).unwrap_or_else(|| mime_for_path(&real)).to_owned();
+    // The transfer layer sanitizes the name and owns the extension rule; this is the stored name and type.
+    let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let mime = entry.get("mime").and_then(Value::as_str).filter(|m| !m.is_empty()).unwrap_or_else(|| mime_type(&real)).to_owned();
     Ok(SourceFile { file, name, mime_type: mime, cleanup: None })
 }
 
@@ -156,6 +130,7 @@ impl TransferSource for MediaAssetSource {
         let id = asset_id(source)?;
         let job = self.store.run(move |store| open_asset(store, &id));
         tokio::select! {
+            biased;
             () = cancel.cancelled() => Err(error(Reason::Cancelled, "The request was cancelled.")),
             done = job => done.map_err(|e| WsError::new(Reason::Io, e.to_string()))?,
         }
@@ -256,10 +231,12 @@ mod tests {
                 other => panic!("{name}: unexpected reason {other:?}"),
             };
             match (&actual, expected.get("ok"), expected.get("error")) {
-                (Ok(got), Some(ok), _) => {
-                    let size = got.file.metadata().unwrap().len();
-                    if got.name != ok["name"].as_str().unwrap() || got.mime_type != ok["mime"].as_str().unwrap() || size != ok["size"].as_u64().unwrap() {
-                        differences.push(format!("{name}: offered ({:?}, {:?}, {size}) but Node ({}, {}, {})", got.name, got.mime_type, ok["name"], ok["mime"], ok["size"]));
+                (Ok(_), Some(ok), _) => {
+                    // What a device is offered is what the transfer layer registers from the source's file.
+                    let Ok(source_file) = asset_id(&source).and_then(|_| open_entry(media.as_ref())) else { unreachable!() };
+                    let offered = Transfers::default().begin_source("owner", source_file).unwrap();
+                    if offered.name != ok["name"].as_str().unwrap() || offered.mime_type != ok["mime"].as_str().unwrap() || offered.size != ok["size"].as_u64().unwrap() {
+                        differences.push(format!("{name}: offered ({:?}, {:?}, {}) but Node ({}, {}, {})", offered.name, offered.mime_type, offered.size, ok["name"], ok["mime"], ok["size"]));
                     }
                 }
                 (Err(got), _, Some(error)) => {

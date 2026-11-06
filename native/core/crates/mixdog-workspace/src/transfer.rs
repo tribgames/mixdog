@@ -58,15 +58,31 @@ struct Read {
     file: File,
     size: u64,
     version: String,
-    cleanup: Option<PathBuf>,
+    // Declared after `file`, so the handle is closed before the removal (Windows cannot remove a
+    // folder that holds an open file).
+    cleanup: Option<Cleanup>,
     #[allow(dead_code)]
     opened: Instant,
 }
 
-impl Drop for Read {
+/// What a transfer removes when it ends: a staged file, or the folder its source owns.
+struct Cleanup(PathBuf);
+
+impl Drop for Cleanup {
     fn drop(&mut self) {
-        if let Some(path) = &self.cleanup {
-            let _ = std::fs::remove_file(path);
+        if self.0.is_dir() {
+            // Node's `rm(dir, { recursive, force, maxRetries: 5 })`: a handle still closing on
+            // Windows is retried.
+            for attempt in 0..=5 {
+                if std::fs::remove_dir_all(&self.0).is_ok() || !self.0.exists() {
+                    return;
+                }
+                if attempt < 5 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        } else {
+            let _ = std::fs::remove_file(&self.0);
         }
     }
 }
@@ -102,12 +118,56 @@ pub struct Range {
     pub data: String,
 }
 
+/// JavaScript's `\s`.
+fn js_space(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+        || ('\u{2000}'..='\u{200a}').contains(&c)
+}
+
+/// Node's `sanitizedFileName` (`ipc-validation.ts`): runs of control and reserved characters
+/// become `-`, leading blanks, dots and dashes and trailing blanks and dots go, at most 120
+/// UTF-16 units remain (a pair cut in two becomes U+FFFD, as a Rust string cannot hold half),
+/// and an empty result is `download`.
+pub fn sanitized_file_name(value: &str) -> String {
+    let mut replaced = String::with_capacity(value.len());
+    let mut in_run = false;
+    for c in value.chars() {
+        let reserved = (c as u32) < 0x20 || "<>:\"/\\|?*".contains(c);
+        if reserved {
+            if !in_run {
+                replaced.push('-');
+            }
+        } else {
+            replaced.push(c);
+        }
+        in_run = reserved;
+    }
+    let trimmed = replaced.trim_start_matches(|c: char| js_space(c) || c == '.' || c == '-');
+    let trimmed = trimmed.trim_end_matches(|c: char| js_space(c) || c == '.');
+    let mut out = String::new();
+    let mut units = 0;
+    for c in trimmed.chars() {
+        let width = c.len_utf16();
+        if units + width > 120 {
+            if units < 120 {
+                out.push('\u{fffd}');
+            }
+            break;
+        }
+        units += width;
+        out.push(c);
+    }
+    if out.is_empty() { "download".into() } else { out }
+}
+
 /// A readable file a source domain hands to the transfer service.
 pub struct SourceFile {
     pub file: File,
     pub name: String,
     pub mime_type: String,
-    /// A staged temp file removed when the transfer ends.
+    /// Removed when the transfer ends: a staged temp file, or the folder the source owns, which
+    /// goes whole with everything in it (Node's `dropExport` removes the export's
+    /// `mixdog-visualize-export-*` folder). A source that names a folder owns all of it.
     pub cleanup: Option<PathBuf>,
 }
 
@@ -144,8 +204,10 @@ impl Transfers {
         let id = new_id();
         reads.insert(
             id.clone(),
-            Read { owner: owner.to_owned(), file, size, version: version.clone(), cleanup, opened: Instant::now() },
+            Read { owner: owner.to_owned(), file, size, version: version.clone(), cleanup: cleanup.map(Cleanup), opened: Instant::now() },
         );
+        // Every source's offered name goes through Node's `sanitizedFileName`, here and nowhere else.
+        let name = sanitized_file_name(&name);
         Ok(Opened { transfer_id: id, size, mime_type: mime.to_owned(), name, version, range_max_bytes: RANGE_MAX_BYTES })
     }
 
@@ -368,6 +430,33 @@ mod tests {
         assert_eq!(t.read_range("dev-a", &opened.transfer_id, 0, 8).unwrap_err().message, "The file changed on the host.");
         t.end_owner("dev-a");
         assert_eq!(t.open_reads(), 0);
+    }
+
+    #[test]
+    fn a_source_owned_folder_is_removed_whole_when_the_transfer_ends_and_a_staged_file_alone() {
+        let base = tempfile::tempdir().unwrap();
+        let t = Transfers::default();
+        let folder = base.path().join("mixdog-visualize-export-abc");
+        std::fs::create_dir_all(folder.join("nested")).unwrap();
+        std::fs::write(folder.join("chart.png"), b"png").unwrap();
+        std::fs::write(folder.join("nested").join("sidecar"), b"x").unwrap();
+        let source = |cleanup: PathBuf, file: &Path| SourceFile {
+            file: File::open(file).unwrap(),
+            name: "chart.png".into(),
+            mime_type: "image/png".into(),
+            cleanup: Some(cleanup),
+        };
+        let opened = t.begin_source("dev", source(folder.clone(), &folder.join("chart.png"))).unwrap();
+        assert!(folder.exists(), "the folder lives while the transfer is open");
+        assert!(t.end_read("dev", &opened.transfer_id));
+        assert!(!folder.exists(), "the whole folder goes with the transfer, open handle included");
+
+        let staged = base.path().join("staged.bin");
+        std::fs::write(&staged, b"abc").unwrap();
+        let opened = t.begin_source("dev", source(staged.clone(), &staged)).unwrap();
+        t.end_owner("dev");
+        assert!(!staged.exists());
+        assert!(base.path().exists() && opened.size == 3);
     }
 
     #[test]

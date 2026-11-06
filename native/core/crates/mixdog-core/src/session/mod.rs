@@ -29,6 +29,10 @@ mod directory;
 mod durability;
 mod frames;
 mod handle;
+mod message_reactions;
+mod model_switch;
+pub mod route_session;
+pub mod route_setup;
 mod ops;
 mod outbox;
 mod pending;
@@ -62,6 +66,7 @@ use mixdog_rt::InteractiveIo;
 
 pub use self::attachments::SessionAttachmentLinks;
 pub use self::directory::SessionDirectory;
+pub use self::model_switch::record_model_switch;
 pub use self::handle::SessionHandle;
 pub use self::prompt_history::FilePromptHistory;
 pub use self::prompt_history::PromptHistoryStore;

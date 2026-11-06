@@ -381,7 +381,7 @@ fn normalize_headers(raw: Option<&Value>, label: &str, refused: &[&str]) -> Chec
 fn normalize_request_body(raw: Option<&Value>, label: &str) -> Checked<Obj> {
     let Some(raw) = raw else { return Ok(Obj::new()) };
     let Some(object) = raw.as_object() else { return fail(format!("{label} must be a JSON object")) };
-    let size = utf16_len(&serde_json::to_string(raw).unwrap_or_default());
+    let size = utf16_len(&mixdog_js::json_stringify(raw));
     if size > REQUEST_BODY_MAX_CHARS {
         return fail(format!("{label} must be at most {REQUEST_BODY_MAX_CHARS} characters"));
     }

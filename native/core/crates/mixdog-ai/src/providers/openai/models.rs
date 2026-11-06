@@ -17,6 +17,7 @@
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::TransportKind;
@@ -30,6 +31,7 @@ use mixdog_core_api::domain::provider::ReasoningOption;
 use mixdog_core_api::domain::provider::ServiceTier;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireRequest;
+use mixdog_js::JsRegex;
 use serde_json::Value;
 
 use super::adapter::CredentialSource;
@@ -157,7 +159,14 @@ pub fn codex_record(row: &Value) -> Option<ModelRecord> {
         .is_some_and(|p| !p.is_empty() && !p.iter().any(|p| p == STANDARD_PROGRAM));
     let mut record = ModelRecord::new(id);
     record.picker = picker;
+    record.picker.tier = Some("version".to_owned());
+    // `m?.description || ''`: the catalog's text as stated, else empty.
+    record.picker.description = Some(row.get("description").and_then(Value::as_str).unwrap_or_default().to_owned());
+    record.picker.default_service_tier =
+        row.get("default_service_tier").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+    record.supports_reasoning_effort_updates = row.get("supports_reasoning_effort_updates").and_then(Value::as_bool);
     record.display_name = Some(display.to_owned());
+    record.name = Some(display.to_owned());
     record.context_window = positive(row.get("context_window")).or_else(|| positive(row.get("max_context_window")));
     record.max_context_window = max_context_window(id, row.get("max_context_window"));
     record.max_output_tokens = Some(
@@ -179,12 +188,72 @@ pub fn codex_record(row: &Value) -> Option<ModelRecord> {
     Some(record)
 }
 
+/// `_codexFamily`: the group `latest` is decided in.
+fn codex_family(id: &str) -> &'static str {
+    let s = id.to_lowercase();
+    if s.contains("nano") {
+        "gpt-nano"
+    } else if s.contains("mini") {
+        "gpt-mini"
+    } else if s.contains("codex") {
+        "gpt-codex"
+    } else if s.starts_with("gpt-5.5") {
+        "gpt-5.5"
+    } else if s.starts_with("gpt-5.4") {
+        "gpt-5.4"
+    } else if s.starts_with("gpt-5.2") {
+        "gpt-5.2"
+    } else if s.starts_with("gpt-5") {
+        "gpt-5"
+    } else {
+        "gpt"
+    }
+}
+
+static GPT_VERSION: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"gpt-(\d+)\.(\d+)", ""));
+
+/// `[major, minor]` of `gpt-X.Y`; none when the id has no dotted version.
+fn gpt_version(id: &str) -> Vec<f64> {
+    GPT_VERSION.captures(id).map_or_else(Vec::new, |caps| {
+        (1..=2).map(|i| caps.get(i).and_then(|part| part.parse::<f64>().ok()).unwrap_or(0.0)).collect()
+    })
+}
+
+/// `_compareVersion(a, b) > 0`.
+fn newer(a: &str, b: &str) -> bool {
+    let (va, vb) = (gpt_version(a), gpt_version(b));
+    for i in 0..va.len().max(vb.len()) {
+        let (x, y) = (va.get(i).copied().unwrap_or(0.0), vb.get(i).copied().unwrap_or(0.0));
+        if x != y {
+            return x > y;
+        }
+    }
+    mixdog_js::locale_compare(a, b) == std::cmp::Ordering::Greater
+}
+
+/// `_markLatestCodex`: the highest-versioned model of each family is `latest`.
+fn mark_latest(rows: &mut [ModelRecord]) {
+    let mut best: Vec<(&'static str, usize)> = Vec::new();
+    for (at, row) in rows.iter().enumerate() {
+        let family = codex_family(&row.id);
+        match best.iter_mut().find(|(f, _)| *f == family) {
+            Some((_, current)) if newer(&row.id, &rows[*current].id) => *current = at,
+            Some(_) => {}
+            None => best.push((family, at)),
+        }
+    }
+    for (_, at) in best {
+        rows[at].picker.latest = true;
+    }
+}
+
 /// A public-API list row: the id and the release stamp `created` (a number
 /// only), with the whole row kept. Node's row has a `name` but no `display`,
 /// so the catalog may still supply the display name.
 fn api_record(row: &Value) -> Option<ModelRecord> {
     let id = row.get("id").and_then(Value::as_str).filter(|s| !s.is_empty())?;
     let mut record = ModelRecord::new(id);
+    record.name = Some(id.to_owned());
     record.created = row.get("created").and_then(|c| c.as_i64().or_else(|| c.as_f64().map(|n| n as i64)));
     record.raw = Some(row.clone());
     Some(record)
@@ -230,9 +299,51 @@ impl ModelListing for OpenAiModels {
             }
             Route::Codex => {
                 let rows = document.get("models").map_or(Some(&[][..]), |m| m.as_array().map(Vec::as_slice));
-                let listed = rows.ok_or_else(|| malformed("a list"))?.iter().filter_map(codex_record).collect();
+                let mut listed: Vec<ModelRecord> = rows.ok_or_else(|| malformed("a list"))?.iter().filter_map(codex_record).collect();
+                mark_latest(&mut listed);
                 Ok(self.lookup.enrich_listed("openai-oauth", listed))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    /// `_markLatestCodex` over these slugs, run in Node: the family and the mark of each.
+    const NODE_MARKS: [(&str, &str, bool); 11] = [
+        ("gpt-5.4", "gpt-5.4", true),
+        ("gpt-5.5", "gpt-5.5", true),
+        ("gpt-5.4-mini", "gpt-mini", false),
+        ("gpt-5.5-mini", "gpt-mini", true),
+        ("gpt-5.3-codex", "gpt-codex", true),
+        ("gpt-5.1-codex", "gpt-codex", false),
+        ("gpt-6", "gpt", false),
+        ("gpt-5", "gpt-5", false),
+        ("o3", "gpt", true),
+        ("gpt-5.10", "gpt-5", true),
+        ("gpt-5.9", "gpt-5", false),
+    ];
+
+    #[test]
+    fn the_newest_of_each_family_is_latest_as_nodes_pass_marks_it() {
+        let mut rows: Vec<ModelRecord> = NODE_MARKS.iter().filter_map(|(id, ..)| codex_record(&json!({ "slug": id }))).collect();
+        mark_latest(&mut rows);
+        for (row, (id, family, latest)) in rows.iter().zip(NODE_MARKS) {
+            assert_eq!(codex_family(id), family, "{id} family");
+            assert_eq!(row.picker.latest, latest, "{id} latest");
+        }
+    }
+
+    #[test]
+    fn the_catalogs_effort_update_flag_and_default_tier_are_stated_only_when_the_row_states_them() {
+        let stated = codex_record(&json!({ "slug": "m", "supports_reasoning_effort_updates": false, "default_service_tier": "priority" })).unwrap();
+        assert_eq!(stated.supports_reasoning_effort_updates, Some(false));
+        assert_eq!(stated.picker.default_service_tier.as_deref(), Some("priority"));
+        let silent = codex_record(&json!({ "slug": "m", "supports_reasoning_effort_updates": "yes", "default_service_tier": "" })).unwrap();
+        assert_eq!((silent.supports_reasoning_effort_updates, silent.picker.default_service_tier), (None, None));
     }
 }

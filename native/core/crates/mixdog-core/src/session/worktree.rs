@@ -52,6 +52,8 @@ mod worktree_session;
 mod worktree_maintenance;
 #[path = "worktree_setup.rs"]
 mod worktree_setup;
+#[path = "worktree_reroot.rs"]
+mod worktree_reroot;
 #[path = "worktree_setup_note.rs"]
 mod worktree_setup_note;
 #[path = "worktree_setup_run.rs"]
@@ -89,6 +91,11 @@ pub use self::worktree_maintenance::LiveSessions;
 pub use self::worktree_maintenance::WorktreeMaintenance;
 pub use self::worktree_maintenance::cleanup_summary;
 pub use self::worktree_maintenance::startup_summary;
+pub use self::worktree_reroot::PendingReroot;
+pub use self::worktree_reroot::PromptRewrite;
+pub use self::worktree_reroot::PromptView;
+pub use self::worktree_reroot::pending_workspace_reroot;
+pub use self::worktree_reroot::route_prompt_refresh;
 pub use self::worktree_setup::SetupListener;
 pub use self::worktree_setup::SetupNotice;
 pub use self::worktree_setup::SetupRun;

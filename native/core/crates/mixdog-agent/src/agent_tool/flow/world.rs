@@ -47,7 +47,15 @@ impl SpawnContext {
 
 impl From<&Caller> for SpawnContext {
     fn from(caller: &Caller) -> Self {
-        Self { caller_session_id: caller.scope.caller_session_id.clone(), session_id: None, owner_session_id: None, client_host_pid: caller.scope.host_pid }
+        // A tool call's context (call-prep.mjs) carries the calling session as both its
+        // callerSessionId and its sessionId and no ownerSessionId: an owner is named only by the
+        // wake and restart paths, which build their SpawnContext themselves.
+        Self {
+            caller_session_id: caller.scope.caller_session_id.clone(),
+            session_id: caller.scope.caller_session_id.clone(),
+            owner_session_id: None,
+            client_host_pid: caller.scope.host_pid,
+        }
     }
 }
 

@@ -107,7 +107,7 @@ fn gate_of(options: &Value) -> Gate {
 fn without_cache_control(value: &mut Value) {
     match value {
         Value::Object(map) => {
-            map.remove("cache_control");
+            map.shift_remove("cache_control");
             map.values_mut().for_each(without_cache_control);
         }
         Value::Array(items) => items.iter_mut().for_each(without_cache_control),

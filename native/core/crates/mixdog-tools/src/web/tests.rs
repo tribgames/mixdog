@@ -235,7 +235,7 @@ mod tools {
     }
 
     fn service(configure: impl FnOnce(&mut WebConfig)) -> Arc<WebService> {
-        let mut config = WebConfig::new("test");
+        let mut config = WebConfig::new("test", super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io });
         config.public_policy = AddressPolicy::AnyForTest;
         configure(&mut config);
         WebService::new(config).unwrap()
@@ -294,7 +294,7 @@ mod tools {
     async fn public_policy_refuses_loopback_before_connecting() {
         let server = MockServer::start().await;
         Mock::given(path("/x")).respond_with(html("<main>secret</main>")).expect(0).mount(&server).await;
-        let web = WebService::new(WebConfig::new("test")).unwrap();
+        let web = WebService::new(WebConfig::new("test", super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io })).unwrap();
         let out = call(&web, "web_fetch", json!({"url": format!("{}/x", server.uri())})).await;
         let shown = text(&out);
         assert!(out.is_err());
@@ -306,7 +306,7 @@ mod tools {
     /// throws: the message, `errorCode: 'Error'` (the error's name) and no diagnostics.
     #[tokio::test]
     async fn address_policy_block_is_nodes_plain_error_item() {
-        let web = WebService::new(WebConfig::new("test")).unwrap();
+        let web = WebService::new(WebConfig::new("test", super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io })).unwrap();
         let private = text(&call(&web, "web_fetch", json!({"url": "http://127.0.0.1:9/x"})).await);
         assert_eq!(
             private,
@@ -445,7 +445,7 @@ mod tools {
     async fn local_fetch_reaches_loopback_only() {
         let server = MockServer::start().await;
         Mock::given(path("/t")).respond_with(ResponseTemplate::new(200).set_body_raw("local text", "text/plain")).mount(&server).await;
-        let web = WebService::new(WebConfig::new("test")).unwrap();
+        let web = WebService::new(WebConfig::new("test", super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io })).unwrap();
         let out = text(&call(&web, "local_fetch", json!({"url": format!("{}/t", server.uri())})).await);
         assert_eq!(out, format!("{}/t\n\nlocal text", server.uri()));
         let remote = text(&call(&web, "local_fetch", json!({"url": "http://example.com/"})).await);

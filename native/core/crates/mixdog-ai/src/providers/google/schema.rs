@@ -164,7 +164,7 @@ fn flatten_all_of(input: &Value) -> Result<Value, String> {
     let mut schema = Value::Object(map.clone());
     let branches = schema
         .as_object_mut()
-        .and_then(|m| m.remove("allOf"))
+        .and_then(|m| m.shift_remove("allOf"))
         .and_then(|b| b.as_array().cloned())
         .unwrap_or_default();
     for branch in &branches {
@@ -200,8 +200,8 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
         }
         (x, y) => x.or(y),
     };
-    merged.remove("type");
-    merged.remove("nullable");
+    merged.shift_remove("type");
+    merged.shift_remove("nullable");
     if let Some(t) = &ty {
         merged.insert("type".into(), json!(t));
         if na && nb {
@@ -220,13 +220,13 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
                 return Err("empty enum intersection".into());
             }
             merged.insert("enum".into(), Value::Array(values));
-            merged.remove("const");
+            merged.shift_remove("const");
         }
     }
     let lower = stronger(raw_bound(&a, true), raw_bound(&b, true), true);
     let upper = stronger(raw_bound(&a, false), raw_bound(&b, false), false);
     for key in ["minimum", "exclusiveMinimum", "maximum", "exclusiveMaximum"] {
-        merged.remove(key);
+        merged.shift_remove(key);
     }
     if let Some((v, ex)) = lower {
         merged.insert((if ex { "exclusiveMinimum" } else { "minimum" }).into(), json!(v));
@@ -283,7 +283,7 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
     }
     match (a.get("default"), b.get("default")) {
         (Some(x), Some(y)) if x != y => {
-            merged.remove("default");
+            merged.shift_remove("default");
         }
         (_, Some(y)) => {
             merged.insert("default".into(), y.clone());
@@ -371,9 +371,9 @@ pub fn convert(schema: &Value) -> Value {
             }
         }
         None => {
-            result.remove("type");
+            result.shift_remove("type");
             if result.get("nullable") != Some(&Value::Bool(true)) {
-                result.remove("nullable");
+                result.shift_remove("nullable");
             }
         }
     }
@@ -381,7 +381,7 @@ pub fn convert(schema: &Value) -> Value {
         return conflict(&why);
     }
     let scalar = matches!(raw_type.as_deref(), Some("integer" | "number" | "boolean"));
-    if let Some(c) = result.remove("const") {
+    if let Some(c) = result.shift_remove("const") {
         if scalar {
             return conflict(&format!(
                 "Gemini does not support {} const",
@@ -414,8 +414,8 @@ pub fn convert(schema: &Value) -> Value {
     }
     let lower = raw_bound(&probe, true);
     let upper = raw_bound(&probe, false);
-    result.remove("exclusiveMinimum");
-    result.remove("exclusiveMaximum");
+    result.shift_remove("exclusiveMinimum");
+    result.shift_remove("exclusiveMaximum");
     let integer = raw_type.as_deref() == Some("integer");
     if (lower.is_some_and(|b| b.1) || upper.is_some_and(|b| b.1)) && !integer {
         return conflict("exclusive numeric bound is not supported by Gemini Schema");
@@ -437,8 +437,8 @@ pub fn convert(schema: &Value) -> Value {
     }
     convert_children(&mut result);
     project_unions(&mut result);
-    result.remove("allOf");
-    result.remove("not");
+    result.shift_remove("allOf");
+    result.shift_remove("not");
     if let Some(bad) = prune(&mut result, raw_type.as_deref()) {
         return bad;
     }
@@ -468,7 +468,7 @@ fn convert_children(result: &mut Map<String, Value>) {
                 }
             }
             if names.is_empty() {
-                result.remove("required");
+                result.shift_remove("required");
             } else {
                 result.insert("required".into(), Value::Array(names));
             }
@@ -490,7 +490,7 @@ fn project_unions(result: &mut Map<String, Value>) {
             branches.extend(list.iter().cloned());
         }
     }
-    result.remove("oneOf");
+    result.shift_remove("oneOf");
     if branches.is_empty() {
         return;
     }
@@ -508,7 +508,7 @@ fn project_unions(result: &mut Map<String, Value>) {
         })
         .collect();
     if converted.is_empty() {
-        result.remove("anyOf");
+        result.shift_remove("anyOf");
     } else {
         result.insert("anyOf".into(), Value::Array(converted));
     }
@@ -527,7 +527,7 @@ fn prune(result: &mut Map<String, Value>, raw_type: Option<&str>) -> Option<Valu
         .cloned()
         .collect();
     for key in foreign {
-        result.remove(&key);
+        result.shift_remove(&key);
     }
     for (min_key, max_key) in [
         ("minLength", "maxLength"),
@@ -536,7 +536,7 @@ fn prune(result: &mut Map<String, Value>, raw_type: Option<&str>) -> Option<Valu
     ] {
         for key in [min_key, max_key] {
             if result.get(key).is_some_and(|v| v.as_u64().is_none()) {
-                result.remove(key);
+                result.shift_remove(key);
             }
         }
         if let (Some(min), Some(max)) = (
@@ -549,7 +549,7 @@ fn prune(result: &mut Map<String, Value>, raw_type: Option<&str>) -> Option<Valu
     }
     for key in ["minimum", "maximum"] {
         if result.get(key).is_some_and(|v| v.as_f64().is_none()) {
-            result.remove(key);
+            result.shift_remove(key);
         }
     }
     None

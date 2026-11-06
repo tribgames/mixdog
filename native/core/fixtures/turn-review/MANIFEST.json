@@ -1,0 +1,50 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-turn-review.mjs --tree <tree>",
+  "fileCount": 5,
+  "files": [
+    {
+      "bytes": 7345,
+      "path": "call-diff.json",
+      "sha256": "3641927f7d0bd5d7f359aca8fc21abf75e2684d6056a35d893dff652261413f7"
+    },
+    {
+      "bytes": 112521,
+      "path": "line-diff.json",
+      "sha256": "0079da61ae80639b942aa6557c41b28860492a42b6a583a66f5b57f120684c0d"
+    },
+    {
+      "bytes": 36638,
+      "path": "nodepath.json",
+      "sha256": "fd5cfd1157da463a34618e3eb1c08eb2ae4b59b6a2003b7898e385edf57e3773"
+    },
+    {
+      "bytes": 6942,
+      "path": "review-diff.json",
+      "sha256": "adf0b0002e6fb94cfe92c0abb3ec3305cf3501ecdbc9abb823944c4e660ffc56"
+    },
+    {
+      "bytes": 59376,
+      "path": "scenarios.json",
+      "sha256": "8bce080a3e3b736159bef5519852383d181fbd20ae636a7cdc85e5df66ca16ef"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34407
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-turn-review.mjs",
+  "set": "turn-review",
+  "totalBytes": 222822
+}

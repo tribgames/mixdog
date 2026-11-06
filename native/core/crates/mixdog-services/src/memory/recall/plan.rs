@@ -13,10 +13,7 @@ pub const RECALL_LIMIT_CAP: usize = 100;
 pub const RECALL_OFFSET_CAP: usize = 500;
 pub const RECALL_WINDOW_CAP: usize = RECALL_LIMIT_CAP + RECALL_OFFSET_CAP;
 
-/// `Number(value)` of an argument that may be absent (NaN).
-pub fn js_number(value: Option<&Value>) -> f64 {
-    value.map_or(f64::NAN, mixdog_js::to_number)
-}
+pub use mixdog_js::to_number_of as js_number;
 
 /// The request as the search legs read it.
 #[derive(Debug, Clone, Default)]

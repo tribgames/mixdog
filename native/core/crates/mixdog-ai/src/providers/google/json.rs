@@ -8,59 +8,9 @@ use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
 
-fn push_number(out: &mut String, n: &serde_json::Number) {
-    if let Some(f) = n.as_f64()
-        && !n.is_i64()
-        && !n.is_u64()
-        && f.fract() == 0.0
-        && f.abs() < 1e21
-    {
-        out.push_str(&format!("{f:.0}"));
-        return;
-    }
-    out.push_str(&n.to_string());
-}
-
 /// Object keys sorted by UTF-16 code unit, no whitespace: the text every
 /// derived id is hashed from.
-pub fn stable_stringify(value: &Value) -> String {
-    let mut out = String::new();
-    write_stable(&mut out, value);
-    out
-}
-
-fn write_stable(out: &mut String, value: &Value) {
-    match value {
-        Value::Null => out.push_str("null"),
-        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-        Value::Number(n) => push_number(out, n),
-        Value::String(s) => out.push_str(&Value::String(s.clone()).to_string()),
-        Value::Array(items) => {
-            out.push('[');
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                write_stable(out, item);
-            }
-            out.push(']');
-        }
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
-            out.push('{');
-            for (i, key) in keys.into_iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                out.push_str(&Value::String(key.clone()).to_string());
-                out.push(':');
-                write_stable(out, &map[key]);
-            }
-            out.push('}');
-        }
-    }
-}
+pub use mixdog_js::json_stringify_sorted as stable_stringify;
 
 /// `gemini_` + first 16 hex digits of SHA-256 over the canonical text of
 /// `{index, name, args}`.

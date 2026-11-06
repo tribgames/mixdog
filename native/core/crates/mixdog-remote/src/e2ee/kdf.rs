@@ -128,7 +128,7 @@ pub(crate) fn canonical_json(value: &Value, out: &mut String) {
 pub(crate) fn handshake_transcript(challenge: &Value, hello: &Value) -> String {
     let mut unsigned = hello.clone();
     if let Some(map) = unsigned.as_object_mut() {
-        map.remove("proof");
+        map.shift_remove("proof");
     }
     let mut text = format!("{CONTEXT}\0transcript\0");
     canonical_json(challenge, &mut text);

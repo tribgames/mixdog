@@ -24,7 +24,7 @@ use super::turn::TurnPlan;
 use super::turn::TurnRunner;
 use super::world::SendWorld;
 use super::world::SpawnContext;
-use super::worker_turns::WorkerTurns;
+use super::worker_turns::TurnOwner;
 use crate::agent_tool::board::JobMeta;
 use crate::agent_tool::dispatch::wants_session_scan;
 use crate::agent_tool::host::DispatchOptions;
@@ -80,7 +80,7 @@ pub struct SendFlowDeps {
     pub views: Arc<JobViews>,
     pub starter: Arc<JobStarter>,
     pub runner: Arc<TurnRunner>,
-    pub turns: WorkerTurns,
+    pub turns: Arc<dyn TurnOwner>,
     pub default_cwd: String,
 }
 
@@ -91,7 +91,7 @@ pub struct SendFlowImpl {
     views: Arc<JobViews>,
     starter: Arc<JobStarter>,
     runner: Arc<TurnRunner>,
-    turns: WorkerTurns,
+    turns: Arc<dyn TurnOwner>,
     default_cwd: String,
 }
 
@@ -318,7 +318,7 @@ impl SendFlowImpl {
             let value: WorkerResult = flow.runner.run(plan, Some(owner_context), Some(job)).await?;
             Ok(Some(value))
         })?;
-        let mut card = self.views.card(job.task_id(), &Scope::default(), false).ok_or_else(|| "agent job did not start".to_owned())?;
+        let mut card = self.views.card(job.task_id(), &Scope::default(), false).await.ok_or_else(|| "agent job did not start".to_owned())?;
         card.view.reused = options.reused;
         card.view.resumed = options.resumed || card.view.resumed;
         Ok(AgentReply::Task { view: card.view, diagnostics: false })

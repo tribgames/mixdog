@@ -46,13 +46,17 @@ impl Clock for TestClock {
 }
 
 #[derive(Default)]
-struct Notices(Mutex<Vec<(String, String)>>);
+struct Notices {
+    sent: Mutex<Vec<(String, String)>>,
+    arrived: tokio::sync::Notify,
+}
 
 #[async_trait]
 impl TaskNotifier for Notices {
     async fn finished(&self, owner: &ThreadId, surface: &str, _task_id: &str, _status: &str, notification: String) {
         assert_eq!(surface, "agent");
-        self.0.lock().unwrap().push((owner.as_str().to_owned(), notification));
+        self.sent.lock().unwrap().push((owner.as_str().to_owned(), notification));
+        self.arrived.notify_waiters();
     }
 }
 
@@ -90,11 +94,26 @@ fn row(t: &JobSnapshot) -> Value {
     })
 }
 
-async fn settle() {
-    // Delivery runs on a spawned task of the runtime's work pool.
-    tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+/// Waits until `want` notifications have been delivered (delivery runs on a spawned task of the
+/// runtime's work pool), then lets any task already runnable finish. The bound only turns a
+/// notification that never arrives into a failure.
+async fn settle(notices: &Notices, want: usize) {
+    let arrive = async {
+        loop {
+            let arrived = notices.arrived.notified();
+            tokio::pin!(arrived);
+            arrived.as_mut().enable();
+            if notices.sent.lock().unwrap().len() >= want {
+                break;
+            }
+            arrived.await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(10), arrive).await.expect("a notification never arrived");
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_board_equals_nodes_background_tasks() {
     long_lived_ticker();
@@ -241,8 +260,8 @@ async fn the_board_equals_nodes_background_tasks() {
                 }
                 other => panic!("{name}: unknown op {other}"),
             }
-            settle().await;
-            let sent: Vec<Value> = notices.0.lock().unwrap().drain(..).map(|(session, text)| json!({ "session": session, "text": text })).collect();
+            settle(&notices, want["notices"].as_array().map_or(0, Vec::len)).await;
+            let sent: Vec<Value> = notices.sent.lock().unwrap().drain(..).map(|(session, text)| json!({ "session": session, "text": text })).collect();
             got.insert("notices".into(), Value::Array(sent));
             got.insert("settled".into(), json!(settled.lock().unwrap().drain(..).collect::<Vec<_>>()));
             assert_eq!(&Value::Object(got), want, "{name} op {i} ({})", op["op"]);

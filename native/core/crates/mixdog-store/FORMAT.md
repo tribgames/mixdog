@@ -266,7 +266,7 @@ a blob without a reference is garbage, never corruption.
 | `queue` | `qid, action:"enqueue"\|"dequeue", reason?:"delivered"\|"cancelled", op?`, ★`entry?` | `entry` (enqueue) = the 1.4.5 pending-entry shape minus `id`: `{message, notificationKind?, mode?, executionId?, execution?, enqueuedAt?}`. |
 | `op` | `op{id, method, digest, result?}, state:"applied"\|"rejected"\|"fenced"\|"externalPending"\|"externalUnknown", at`, ★`detail?` | A thread-scope op outcome with no mutation record of its own (P §9.2–§9.6). |
 | `checkpoint` | ★`state` | §6. |
-| `model_switch` | `anchor{iid, ordinal}, op?, entry{provider, modelId, at}` | A display-only model-switch boundary: `entry` is the 1.4.5 `meta.modelSwitches` entry (`set-route.mjs` `switchSessionInPlace`: `{provider, modelId: route.model, at: Date.now()}`) that 1.4.5 appends to the anchor message's `meta`; here it is appended to the log instead and the stored anchor row is never rewritten. `anchor` = an already stored `item` row of the session's lineage view (`ordinal` below this record's own, `iid` that row's; the writer picks it by 1.4.5 `modelSwitchAnchorIndex`, a visible row). Not part of the model context, the fold or the catalog. |
+| `model_switch` | `anchor{iid, ordinal}, op?, ★entry{provider, modelId, at}` | A display-only model-switch boundary: `entry` is the 1.4.5 `meta.modelSwitches` entry (`set-route.mjs` `switchSessionInPlace`: `{provider, modelId: route.model, at: Date.now()}`) that 1.4.5 appends to the anchor message's `meta`; here it is appended to the log instead and the stored anchor is never rewritten. `provider` and `modelId` are unbounded strings, as in 1.4.5 (a preset's model id skips the 160-character raw-id check, `config-helpers.mjs` `validateRequestedModelSelector`), so `entry` is the record's ★ slot. `anchor` = the message 1.4.5 `modelSwitchAnchorIndex` picks, in the session's lineage view, `ordinal` below this record's own: an `item` row (`ordinal`, `iid` = the row's), or, when that message is a replacement entry of a `compacted` frame with no history row (the summary, the context ack), that entry (`ordinal` = the `compacted` frame's, `iid` = the entry's; the writer finds it with `compaction_entry`: the newest live `compacted` frame of the lineage whose replacement holds the entry, a `message_rows` seek per lineage level). A message with a history row is anchored on the row. Not part of the model context, the fold or the catalog. |
 
 `op{id, method, digest, result?}` on a mutation record is that op's record (P §9.2: effect
 and op record are one durable write). `digest` = `sha256:` of the params without `opId`
@@ -294,6 +294,14 @@ order (1.4.5 `restoreTranscriptRange` pushes `meta.modelSwitches` in array order
 message's items, its failed-turn rows and its `sessionInheritances`). A record whose
 anchor ordinal is not below its own fails the fold (`AnchorNotBefore`); one whose `iid`
 does not match the row at that ordinal is never shown.
+
+A boundary anchored on a replacement entry belongs to that compaction's divider (§8.2
+`dividers`), as 1.4.5 shows the summary message's `meta.modelSwitches` where the summary
+stands: it is shown right after the divider while the compaction is live in the reader's
+view (a rewind before the `compacted` frame removes divider and boundaries), ordered by
+the entry's position in the replacement, then oldest level first, then record order (1.4.5
+walks `session.messages` in order). One whose `iid` names no entry of that frame is never
+shown.
 
 Lineage cut: a fork's `rewind` with `to_ordinal` below `base.end_ordinal_exclusive`
 supersedes every record of the fork's own log and sets `base_cut = min(base_cut,
@@ -479,7 +487,7 @@ place, and callers never see the rebuild as an error. The rebuild:
 | `compaction_dropped` | one per id of a `drop_mode` 2 compaction | `(session, kind 0 message / 1 call, id, ordinal)`; live exactly while its `compactions` row is. A page marks a history row archived when some compaction of the reader's lineage after it (a fork's compactions apply to the rows it inherits) takes out every part of it: the classifier is `compaction_view::ArchivedRows` over the row's `facets`. |
 | `history` | one per `item` frame | `iid, turn, form (0 message, 1 display), model, visible`, item frame location `file_no, frame_offset, frame_len`, `amend_ordinal` of the live amend, `superseded_rev`, `facets` (JSON `{role, text, calls[]}` of a model message: its text row and tool cards). |
 | `amends` | one per `amend` frame | `target_ordinal`, location, `superseded_rev`. |
-| `model_switches` | one per `model_switch` frame | `anchor_ordinal, anchor_iid`, the entry `provider, model_id, at`; no `superseded_rev` (§5.3: it lives while its anchor row does). A history page returns each row's boundaries (`HistoryRow.model_switches`), one seek on `model_switches_anchor` per lineage level at or after the row's. |
+| `model_switches` | one per `model_switch` frame | `anchor_ordinal, anchor_iid`, the entry `provider, model_id, at`; no `superseded_rev` (§5.3: it lives while its anchor does). A history page returns each row's boundaries (`HistoryRow.model_switches`), one seek on `model_switches_anchor` per lineage level at or after the row's; `dividers` returns each divider's (`Divider.model_switches`), the same seek joined to the frame's `message_rows` entries by `iid`. |
 | `turns` | one per run | `started_ordinal, end_ordinal, phase, superseded_rev`. |
 | `approvals` | pending approvals | the cross-session enumerator. |
 | `blob_refs` | `(digest, session, ordinal)` | §4.3. |

@@ -54,8 +54,8 @@ impl SetupRuntime for Facade {
         Ok(self.status.clone())
     }
 
-    async fn mcp_status(&self) -> Value {
-        self.status.clone()
+    async fn mcp_status(&self) -> Result<Value, String> {
+        Ok(self.status.clone())
     }
 
     async fn mcp_server_config(&self, name: &Value) -> Result<Value, String> {
@@ -99,8 +99,8 @@ impl SetupRuntime for Facade {
         Ok(json!({"plugin": null}))
     }
 
-    async fn plugins_status(&self) -> Value {
-        self.plugins.clone()
+    async fn plugins_status(&self) -> Result<Value, String> {
+        Ok(self.plugins.clone())
     }
 
     async fn enable_plugin_mcp(&self, plugin: &Value) -> Result<Value, String> {

@@ -241,3 +241,41 @@ mod tests {
         assert!(without_thinking_replay(&clean, &owner).is_none());
     }
 }
+
+/// `stripProviderReplayMessage`: the message without provider-native replay state (replay
+/// envelopes, thinking and ordered native blocks). It belongs to the provider that produced it; a
+/// route change drops it, and what the next provider needs (text, tool calls and their results, in
+/// order) stays.
+pub fn strip_provider_replay(message: &mixdog_core_api::domain::provider::Message) -> mixdog_core_api::domain::provider::Message {
+    use mixdog_core_api::domain::provider::Message;
+    if message.provider_replay().is_empty() && message.thinking_blocks.is_none() && message.assistant_blocks.is_none() {
+        return message.clone();
+    }
+    let mut plain = Message::new(message.role, message.content.clone());
+    plain.cache_tier = message.cache_tier;
+    plain.tool_calls = message.tool_calls.clone();
+    plain.tool_call_id = message.tool_call_id.clone();
+    plain.is_error = message.is_error;
+    plain.phase = message.phase;
+    plain.native_tool_search = message.native_tool_search.clone();
+    plain.source = message.source;
+    plain.turn_reminder = message.turn_reminder.clone();
+    plain
+}
+
+/// `stripProviderReplayMessages`.
+pub fn strip_provider_replay_messages(messages: &[mixdog_core_api::domain::provider::Message]) -> Vec<mixdog_core_api::domain::provider::Message> {
+    messages.iter().map(strip_provider_replay).collect()
+}
+
+impl Run {
+    /// A route change drops every provider-native replay state from the live turn's messages, in
+    /// place, so the next provider never gets another one's envelopes.
+    pub(crate) fn strip_replay_for_new_route(&mut self) {
+        let stripped = strip_provider_replay_messages(&self.messages.iter().map(|m| m.message.clone()).collect::<Vec<_>>());
+        for (message, stripped) in self.messages.iter_mut().zip(stripped) {
+            message.message = stripped;
+        }
+        self.env.sink.replace(&self.messages);
+    }
+}

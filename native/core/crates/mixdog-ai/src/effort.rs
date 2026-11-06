@@ -181,7 +181,7 @@ fn reasoning_row(model: &Value) -> ReasoningRow {
 }
 
 /// `customEffortLevels(model)`: the levels a custom row declares, or `None`.
-fn custom_levels(model: &Value) -> Option<Vec<String>> {
+pub fn custom_levels(model: &Value) -> Option<Vec<String>> {
     reasoning_row(model).effort_levels()
 }
 

@@ -333,6 +333,11 @@ impl MessageMeter<'_> {
         }
     }
 
+    /// `messageEstimateText`: the text projection the meter prices (and transcript signatures hash).
+    pub fn estimate_text(&self, m: &AgentMessage) -> String {
+        self.projection(m).text
+    }
+
     /// The one per-message meter.
     pub fn message(&self, m: &AgentMessage) -> u64 {
         let projection = self.projection(m);

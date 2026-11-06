@@ -352,6 +352,16 @@ impl HookBus {
         if dispatched.blocked { after::batch_reminder(dispatched.reason.as_deref()) } else { None }
     }
 
+    /// `SubagentStart` / `SubagentStop` (`onSubagentEvent`): a worker session began or finished.
+    /// `agent_type` is the worker's agent id (`null` for none); `session_id` is the worker's own
+    /// session. Best-effort: what the handlers decide changes nothing.
+    pub async fn subagent(&self, stop: bool, session_id: &str, agent_type: Option<&str>, cwd: &Path, common: &HookCommon) {
+        let event = if stop { "SubagentStop" } else { "SubagentStart" };
+        let mut payload = base_payload(event, session_id, cwd, common);
+        payload.insert("agent_type".into(), agent_type.filter(|a| !a.is_empty()).map_or(Value::Null, |a| json!(a)));
+        self.dispatch(event, Value::Object(payload), cwd).await;
+    }
+
     fn identity(input: &ToolCall<'_>) -> Map<String, Value> {
         let mut identity = Map::new();
         identity.insert("sessionId".into(), if input.session_id.is_empty() { Value::Null } else { json!(input.session_id) });

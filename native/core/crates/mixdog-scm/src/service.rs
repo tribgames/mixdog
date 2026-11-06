@@ -457,7 +457,7 @@ impl ScmService {
         }
         let mut input = input.clone();
         // The project directory travels beside the request; the allowlist never sees it.
-        let dir = match input.as_object_mut().and_then(|map| map.remove("cwd")) {
+        let dir = match input.as_object_mut().and_then(|map| map.shift_remove("cwd")) {
             Some(Value::String(dir)) => cwd(&dir)?,
             _ => home_dir(),
         };

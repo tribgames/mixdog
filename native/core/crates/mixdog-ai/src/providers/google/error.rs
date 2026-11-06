@@ -235,12 +235,12 @@ fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
 
 /// `retry-after-ms`, then `retry-after` in seconds.
 fn header_advice(headers: &[(String, String)]) -> Option<Duration> {
-    if let Some(ms) = header(headers, "retry-after-ms").and_then(|v| v.trim().parse::<f64>().ok())
+    if let Some(ms) = header(headers, "retry-after-ms").map(mixdog_js::string_to_number)
         && ms > 0.0
     {
         return Some(Duration::from_millis(ms.ceil() as u64));
     }
-    let seconds = header(headers, "retry-after")?.trim().parse::<f64>().ok()?;
+    let seconds = mixdog_js::string_to_number(header(headers, "retry-after")?);
     (seconds > 0.0).then(|| Duration::from_millis((seconds * 1000.0).ceil() as u64))
 }
 

@@ -1,0 +1,825 @@
+{
+  "cases": [
+    {
+      "completions": [
+        {
+          "content": "agent task: t1\nstatus: running\ntype: result",
+          "meta": {
+            "execution_id": "t1",
+            "execution_surface": "agent",
+            "status": "running"
+          }
+        },
+        {
+          "content": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\nAll good\n</result>\n</task-notification>",
+          "meta": {
+            "execution_id": "t1",
+            "execution_surface": "agent",
+            "status": "completed"
+          }
+        }
+      ],
+      "name": "a bodyless preview, then its body replaces it",
+      "steps": [
+        {
+          "action": "execution-ui",
+          "id": "c1",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": false,
+                  "isError": false,
+                  "key": "t1",
+                  "raw": "agent task: t1\nstatus: running\ntype: result",
+                  "result": "status: running · task_id: t1"
+                }
+              ],
+              "agentResponseHasBody": false,
+              "agentResponseKey": "t1",
+              "args": {
+                "description": "agent notification",
+                "status": "running",
+                "surface": "agent",
+                "task_id": "t1",
+                "type": "result"
+              },
+              "completedAt": 1000000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "agent task: t1\nstatus: running\ntype: result",
+              "result": "status: running · task_id: t1",
+              "startedAt": 1000000
+            }
+          ],
+          "now": 1000000
+        },
+        {
+          "action": "execution-ui",
+          "id": "c2",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t1",
+                  "raw": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\nAll good\n</result>\n</task-notification>",
+                  "result": "All good"
+                }
+              ],
+              "agentResponseHasBody": true,
+              "agentResponseKey": "t1",
+              "agentResponseKeys": [
+                "t1"
+              ],
+              "args": {
+                "label": "reviewer",
+                "status": "completed",
+                "surface": "agent",
+                "tag": "reviewer",
+                "task_id": "t1",
+                "type": "result"
+              },
+              "completedAt": 1001000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "1. agent\n<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\nAll good\n</result>\n</task-notification>",
+              "result": "All good",
+              "startedAt": 1000000
+            }
+          ],
+          "now": 1001000
+        }
+      ]
+    },
+    {
+      "completions": [
+        {
+          "content": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+          "meta": {
+            "execution_id": "t1",
+            "execution_surface": "agent",
+            "status": "completed"
+          }
+        },
+        {
+          "content": "<task-notification>\n<task-id>t2</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\ntwo\n</result>\n</task-notification>",
+          "meta": {
+            "execution_id": "t2",
+            "execution_surface": "agent",
+            "status": "completed"
+          }
+        }
+      ],
+      "name": "two bodies of different executions are one aggregate card",
+      "steps": [
+        {
+          "action": "execution-ui",
+          "id": "c1",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t1",
+                  "raw": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+                  "result": "one"
+                }
+              ],
+              "agentResponseHasBody": true,
+              "agentResponseKey": "t1",
+              "args": {
+                "label": "reviewer",
+                "status": "completed",
+                "surface": "agent",
+                "tag": "reviewer",
+                "task_id": "t1",
+                "type": "result"
+              },
+              "completedAt": 1000000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+              "result": "one",
+              "startedAt": 1000000
+            }
+          ],
+          "now": 1000000
+        },
+        {
+          "action": "execution-ui",
+          "id": "c2",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": true,
+              "agentResponseEntries": [
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t1",
+                  "raw": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+                  "result": "one"
+                },
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t2",
+                  "raw": "<task-notification>\n<task-id>t2</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\ntwo\n</result>\n</task-notification>",
+                  "result": "two"
+                }
+              ],
+              "agentResponseHasBody": true,
+              "agentResponseKey": "t1",
+              "agentResponseKeys": [
+                "t1",
+                "t2"
+              ],
+              "args": {
+                "label": "reviewer",
+                "status": "completed",
+                "surface": "agent",
+                "tag": "reviewer",
+                "task_id": "t2",
+                "type": "result"
+              },
+              "completedAt": 1001000,
+              "completedCount": 2,
+              "count": 2,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "1. agent\n<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>\n\n2. agent\n<task-notification>\n<task-id>t2</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\ntwo\n</result>\n</task-notification>",
+              "result": "two",
+              "startedAt": 1000000
+            }
+          ],
+          "now": 1001000
+        }
+      ]
+    },
+    {
+      "completions": [
+        {
+          "content": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+          "meta": {
+            "execution_id": "t1",
+            "execution_surface": "agent",
+            "status": "completed"
+          }
+        },
+        {
+          "content": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none again\n</result>\n</task-notification>",
+          "meta": {
+            "execution_id": "t1",
+            "execution_surface": "agent",
+            "status": "completed"
+          }
+        }
+      ],
+      "name": "a body for the same execution again is one entry",
+      "steps": [
+        {
+          "action": "execution-ui",
+          "id": "c1",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t1",
+                  "raw": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+                  "result": "one"
+                }
+              ],
+              "agentResponseHasBody": true,
+              "agentResponseKey": "t1",
+              "args": {
+                "label": "reviewer",
+                "status": "completed",
+                "surface": "agent",
+                "tag": "reviewer",
+                "task_id": "t1",
+                "type": "result"
+              },
+              "completedAt": 1000000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+              "result": "one",
+              "startedAt": 1000000
+            }
+          ],
+          "now": 1000000
+        },
+        {
+          "action": "execution-ui",
+          "id": "c2",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t1",
+                  "raw": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none again\n</result>\n</task-notification>",
+                  "result": "one again"
+                }
+              ],
+              "agentResponseHasBody": true,
+              "agentResponseKey": "t1",
+              "agentResponseKeys": [
+                "t1"
+              ],
+              "args": {
+                "label": "reviewer",
+                "status": "completed",
+                "surface": "agent",
+                "tag": "reviewer",
+                "task_id": "t1",
+                "type": "result"
+              },
+              "completedAt": 1001000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "1. agent\n<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none again\n</result>\n</task-notification>",
+              "result": "one again",
+              "startedAt": 1000000
+            }
+          ],
+          "now": 1001000
+        }
+      ]
+    },
+    {
+      "completions": [
+        {
+          "content": "agent task: t1\nstatus: failed\ntype: result",
+          "meta": {
+            "execution_id": "t1",
+            "execution_surface": "agent",
+            "status": "failed"
+          }
+        },
+        {
+          "content": "<task-notification>\n<task-id>t2</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\ntwo\n</result>\n</task-notification>",
+          "meta": {
+            "execution_id": "t2",
+            "execution_surface": "agent",
+            "status": "completed"
+          }
+        }
+      ],
+      "name": "a bodyless failure stays apart from a later body",
+      "steps": [
+        {
+          "action": "execution-ui",
+          "id": "c1",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": false,
+                  "isError": true,
+                  "key": "t1",
+                  "raw": "agent task: t1\nstatus: failed\ntype: result",
+                  "result": "status: failed · task_id: t1"
+                }
+              ],
+              "agentResponseHasBody": false,
+              "agentResponseKey": "t1",
+              "args": {
+                "description": "agent notification",
+                "status": "failed",
+                "surface": "agent",
+                "task_id": "t1",
+                "type": "result"
+              },
+              "completedAt": 1000000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": true,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "agent task: t1\nstatus: failed\ntype: result",
+              "result": "status: failed · task_id: t1",
+              "startedAt": 1000000
+            }
+          ],
+          "now": 1000000
+        },
+        {
+          "action": "execution-ui",
+          "id": "c2",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": false,
+                  "isError": true,
+                  "key": "t1",
+                  "raw": "agent task: t1\nstatus: failed\ntype: result",
+                  "result": "status: failed · task_id: t1"
+                }
+              ],
+              "agentResponseHasBody": false,
+              "agentResponseKey": "t1",
+              "args": {
+                "description": "agent notification",
+                "status": "failed",
+                "surface": "agent",
+                "task_id": "t1",
+                "type": "result"
+              },
+              "completedAt": 1000000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": true,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "agent task: t1\nstatus: failed\ntype: result",
+              "result": "status: failed · task_id: t1",
+              "startedAt": 1000000
+            },
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t2",
+                  "raw": "<task-notification>\n<task-id>t2</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\ntwo\n</result>\n</task-notification>",
+                  "result": "two"
+                }
+              ],
+              "agentResponseHasBody": true,
+              "agentResponseKey": "t2",
+              "args": {
+                "label": "reviewer",
+                "status": "completed",
+                "surface": "agent",
+                "tag": "reviewer",
+                "task_id": "t2",
+                "type": "result"
+              },
+              "completedAt": 1001000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c2",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "<task-notification>\n<task-id>t2</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\ntwo\n</result>\n</task-notification>",
+              "result": "two",
+              "startedAt": 1001000
+            }
+          ],
+          "now": 1001000
+        }
+      ]
+    },
+    {
+      "completions": [
+        {
+          "content": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+          "meta": {
+            "execution_id": "t1",
+            "execution_surface": "agent",
+            "status": "completed"
+          }
+        },
+        {
+          "content": "<task-notification>\n<task-id>s1</task-id>\n<status>completed</status>\n<summary>Shell task completed</summary>\n<result>\nls output\n</result>\n</task-notification>",
+          "meta": {
+            "execution_id": "s1",
+            "execution_surface": "shell",
+            "status": "completed"
+          }
+        },
+        {
+          "content": "<task-notification>\n<task-id>t2</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\ntwo\n</result>\n</task-notification>",
+          "meta": {
+            "execution_id": "t2",
+            "execution_surface": "agent",
+            "status": "completed"
+          }
+        }
+      ],
+      "name": "a shell card is no agent card and is never appended to",
+      "steps": [
+        {
+          "action": "execution-ui",
+          "id": "c1",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t1",
+                  "raw": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+                  "result": "one"
+                }
+              ],
+              "agentResponseHasBody": true,
+              "agentResponseKey": "t1",
+              "args": {
+                "label": "reviewer",
+                "status": "completed",
+                "surface": "agent",
+                "tag": "reviewer",
+                "task_id": "t1",
+                "type": "result"
+              },
+              "completedAt": 1000000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+              "result": "one",
+              "startedAt": 1000000
+            }
+          ],
+          "now": 1000000
+        },
+        {
+          "action": "execution-ui",
+          "id": "c2",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t1",
+                  "raw": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+                  "result": "one"
+                }
+              ],
+              "agentResponseHasBody": true,
+              "agentResponseKey": "t1",
+              "args": {
+                "label": "reviewer",
+                "status": "completed",
+                "surface": "agent",
+                "tag": "reviewer",
+                "task_id": "t1",
+                "type": "result"
+              },
+              "completedAt": 1000000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+              "result": "one",
+              "startedAt": 1000000
+            },
+            {
+              "args": {
+                "status": "completed",
+                "surface": "shell",
+                "task_id": "s1",
+                "type": "result"
+              },
+              "completedAt": 1001000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c2",
+              "isError": false,
+              "kind": "tool",
+              "name": "shell",
+              "rawResult": "<task-notification>\n<task-id>s1</task-id>\n<status>completed</status>\n<summary>Shell task completed</summary>\n<result>\nls output\n</result>\n</task-notification>",
+              "result": "ls output",
+              "startedAt": 1001000
+            }
+          ],
+          "now": 1001000
+        },
+        {
+          "action": "execution-ui",
+          "id": "c3",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t1",
+                  "raw": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+                  "result": "one"
+                }
+              ],
+              "agentResponseHasBody": true,
+              "agentResponseKey": "t1",
+              "args": {
+                "label": "reviewer",
+                "status": "completed",
+                "surface": "agent",
+                "tag": "reviewer",
+                "task_id": "t1",
+                "type": "result"
+              },
+              "completedAt": 1000000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "<task-notification>\n<task-id>t1</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\none\n</result>\n</task-notification>",
+              "result": "one",
+              "startedAt": 1000000
+            },
+            {
+              "args": {
+                "status": "completed",
+                "surface": "shell",
+                "task_id": "s1",
+                "type": "result"
+              },
+              "completedAt": 1001000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c2",
+              "isError": false,
+              "kind": "tool",
+              "name": "shell",
+              "rawResult": "<task-notification>\n<task-id>s1</task-id>\n<status>completed</status>\n<summary>Shell task completed</summary>\n<result>\nls output\n</result>\n</task-notification>",
+              "result": "ls output",
+              "startedAt": 1001000
+            },
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": true,
+                  "isError": false,
+                  "key": "t2",
+                  "raw": "<task-notification>\n<task-id>t2</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\ntwo\n</result>\n</task-notification>",
+                  "result": "two"
+                }
+              ],
+              "agentResponseHasBody": true,
+              "agentResponseKey": "t2",
+              "args": {
+                "label": "reviewer",
+                "status": "completed",
+                "surface": "agent",
+                "tag": "reviewer",
+                "task_id": "t2",
+                "type": "result"
+              },
+              "completedAt": 1002000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c3",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "<task-notification>\n<task-id>t2</task-id>\n<tag>reviewer</tag>\n<status>completed</status>\n<summary>Agent \"reviewer\" completed</summary>\n<result>\ntwo\n</result>\n</task-notification>",
+              "result": "two",
+              "startedAt": 1002000
+            }
+          ],
+          "now": 1002000
+        }
+      ]
+    },
+    {
+      "completions": [
+        {
+          "content": "agent task: t9\nstatus: running\ntype: result",
+          "meta": {
+            "execution_id": "t9",
+            "execution_surface": "agent",
+            "status": "running"
+          }
+        }
+      ],
+      "name": "a preview alone",
+      "steps": [
+        {
+          "action": "execution-ui",
+          "id": "c1",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": false,
+                  "isError": false,
+                  "key": "t9",
+                  "raw": "agent task: t9\nstatus: running\ntype: result",
+                  "result": "status: running · task_id: t9"
+                }
+              ],
+              "agentResponseHasBody": false,
+              "agentResponseKey": "t9",
+              "args": {
+                "description": "agent notification",
+                "status": "running",
+                "surface": "agent",
+                "task_id": "t9",
+                "type": "result"
+              },
+              "completedAt": 1000000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "agent task: t9\nstatus: running\ntype: result",
+              "result": "status: running · task_id: t9",
+              "startedAt": 1000000
+            }
+          ],
+          "now": 1000000
+        }
+      ]
+    },
+    {
+      "completions": [
+        {
+          "content": "plain words",
+          "meta": {
+            "execution_id": "x1",
+            "execution_surface": "agent",
+            "status": "completed"
+          }
+        }
+      ],
+      "name": "a surface with an unparseable text is a card of that surface",
+      "steps": [
+        {
+          "action": "execution-ui",
+          "id": "c1",
+          "items": [
+            {
+              "agentDirection": "inbound",
+              "agentResponseAggregate": false,
+              "agentResponseEntries": [
+                {
+                  "hasBody": false,
+                  "isError": false,
+                  "key": "x1",
+                  "raw": "plain words",
+                  "result": "plain words"
+                }
+              ],
+              "agentResponseHasBody": false,
+              "agentResponseKey": "x1",
+              "args": {
+                "status": "completed",
+                "surface": "agent",
+                "task_id": "x1",
+                "type": "result"
+              },
+              "completedAt": 1000000,
+              "completedCount": 1,
+              "count": 1,
+              "expanded": false,
+              "id": "c1",
+              "isError": false,
+              "kind": "tool",
+              "name": "agent",
+              "rawResult": "plain words",
+              "result": "plain words",
+              "startedAt": 1000000
+            }
+          ],
+          "now": 1000000
+        }
+      ]
+    },
+    {
+      "completions": [
+        {
+          "content": "hello",
+          "meta": {}
+        }
+      ],
+      "name": "text that is no card at all",
+      "steps": [
+        {
+          "action": "enqueue",
+          "id": "c1",
+          "items": [],
+          "now": 1000000
+        }
+      ]
+    }
+  ],
+  "note": "completions and the live transcript items after each"
+}

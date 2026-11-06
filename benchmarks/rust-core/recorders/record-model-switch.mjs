@@ -26,7 +26,9 @@ const { recordTranscriptBoundary } = await importFrom(tree, 'src/session-runtime
 const user = { role: 'user', content: 'hello' };
 const reply = { role: 'assistant', content: 'hi there', meta: { transcript: { messageId: 'm_reply', at: 100 } } };
 const second = { role: 'user', content: 'and then' };
-const sameAt = { provider: 'openai', modelId: 'gpt-next', at: 200 };
+const summary = { role: 'user', content: 'A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done.\nmessages=3 sha256=ab', meta: { source: 'compact-summary' } };
+const ack = { role: 'assistant', content: '.', meta: { source: 'context-ack' } };
+const sameAt ={ provider: 'openai', modelId: 'gpt-next', at: 200 };
 const cases = [
   { name: 'anchor is the last answer before a trailing prompt', messages: [user, reply, second], boundary: sameAt },
   { name: 'anchor is the last message', messages: [user, reply], boundary: sameAt },
@@ -34,6 +36,11 @@ const cases = [
   { name: 'a second, different switch on the same anchor', messages: [user, reply], boundary: sameAt, again: { provider: 'anthropic', modelId: 'claude-next', at: 300 } },
   { name: 'the same switch recorded twice is recorded once', messages: [user, reply], boundary: sameAt, again: sameAt },
   { name: 'a boundary without a model shows no row', messages: [user, reply], boundary: { provider: 'openai', at: 400 } },
+  // Compaction replacement entries: the summary (a user message) and the context ack.
+  { name: 'summary anchor: only the summary', messages: [summary], boundary: sameAt },
+  { name: 'summary anchor: summary then its context ack', messages: [summary, ack], boundary: sameAt },
+  { name: 'summary anchor: summary then a trailing prompt', messages: [summary, second], boundary: sameAt },
+  { name: 'summary anchor: a second switch', messages: [summary], boundary: sameAt, again: { provider: 'anthropic', modelId: 'claude-next', at: 300 } },
 ];
 
 const out = cases.map((c) => {

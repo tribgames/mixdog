@@ -81,21 +81,8 @@ fn backtick_runs(text: &str) -> impl Iterator<Item = usize> + '_ {
     text.split(|c| c != '`').map(str::len).filter(|len| *len > 0)
 }
 
-fn js_number(text: &str) -> f64 {
-    let text = js_trim(text);
-    if text.is_empty() {
-        return 0.0;
-    }
-    text.parse::<f64>().unwrap_or(f64::NAN)
-}
-
-fn format_number(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{}", value as i64)
-    } else {
-        format!("{value}")
-    }
-}
+use mixdog_js::number_to_string as format_number;
+use mixdog_js::string_to_number as js_number;
 
 static LANGUAGE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(?:language|lang)-([\w+-]+)", ""));
 static ESCAPE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"([\\`*_\[\]])", ""));

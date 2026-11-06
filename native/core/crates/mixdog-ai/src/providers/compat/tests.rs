@@ -1604,6 +1604,14 @@ mod liveness {
                     }
                 }
             }
+            for (record, node) in rows.iter().zip(expected) {
+                let row = format!("{what}: {}", node["id"]);
+                assert_eq!(record.reasoning_content_field.as_deref(), node["reasoningContentField"].as_str(), "{row} reasoningContentField");
+                assert_eq!(record.supports_prompt_caching, node["supportsPromptCaching"].as_bool(), "{row} supportsPromptCaching");
+                // No compat row states the other listing facts.
+                assert!(record.picker.tier.is_none() && !record.picker.latest && record.picker.description.is_none(), "{row}");
+                assert!(record.provider_name.is_none() && !record.manual, "{row}");
+            }
             for (got, node) in got.iter().zip(expected) {
                 let field = |key: &str| node.get(key).filter(|v| !v.is_null()).cloned();
                 let row = format!("{what}: {}", node["id"]);

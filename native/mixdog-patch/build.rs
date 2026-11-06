@@ -10,6 +10,9 @@
 // main.rs claims the desktop AUMID at startup to do that.
 #[cfg(windows)]
 fn main() {
+    if std::env::var_os("CARGO_FEATURE_RESOURCE").is_none() {
+        return;
+    }
     let mut resource = winresource::WindowsResource::new();
     resource
         .set("ProductName", "Mixdog")

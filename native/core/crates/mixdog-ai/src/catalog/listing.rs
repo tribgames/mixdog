@@ -131,6 +131,9 @@ fn row_of(provider: &str, record: &ModelRecord) -> Value {
     if let Some(v) = record.supports_reasoning {
         row.insert("supportsReasoning".into(), json!(v));
     }
+    if let Some(v) = record.supports_prompt_caching {
+        row.insert("supportsPromptCaching".into(), json!(v));
+    }
     if !record.reasoning_levels.is_empty() {
         row.insert("reasoningLevels".into(), json!(record.reasoning_levels));
     }
@@ -188,6 +191,9 @@ pub fn enrich_listed(lookup: &Lookup<'_>, provider: &str, rows: Vec<ModelRecord>
             }
             if record.supports_reasoning.is_none() {
                 record.supports_reasoning = out.get("supportsReasoning").and_then(Value::as_bool);
+            }
+            if record.supports_prompt_caching.is_none() {
+                record.supports_prompt_caching = out.get("supportsPromptCaching").and_then(Value::as_bool);
             }
             record.picker.reasoning_options =
                 serde_json::from_value::<Vec<ReasoningOption>>(out.get("reasoningOptions").cloned().unwrap_or(Value::Null)).unwrap_or_default();
@@ -249,6 +255,8 @@ mod tests {
         record.cache_write_cost_per_m = finite(input.get("cacheWriteCostPerM"));
         record.supports_images = input.get("supportsVision").and_then(Value::as_bool);
         record.supports_reasoning = input.get("supportsReasoning").and_then(Value::as_bool);
+        record.supports_prompt_caching = input.get("supportsPromptCaching").and_then(Value::as_bool);
+        record.reasoning_content_field = input.get("reasoningContentField").and_then(Value::as_str).map(str::to_owned);
         record.reasoning_levels = input
             .get("reasoningLevels")
             .and_then(Value::as_array)
@@ -279,6 +287,9 @@ mod tests {
             let flag = |key: &str, own: Option<bool>| own.or(out.get(key).and_then(Value::as_bool));
             assert_eq!(got.supports_images, flag("supportsVision", listed(input).supports_images), "vision {what}");
             assert_eq!(got.supports_reasoning, flag("supportsReasoning", listed(input).supports_reasoning), "reasoning {what}");
+            assert_eq!(got.supports_prompt_caching, flag("supportsPromptCaching", listed(input).supports_prompt_caching), "promptCaching {what}");
+            let field = |v: Option<&Value>| v.and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+            assert_eq!(got.reasoning_content_field, field(out.get("reasoningContentField")), "reasoningContentField {what}");
             // A model the catalog does not know comes back untouched: no ladder.
             assert_eq!(json!(got.picker.reasoning_options), out.get("reasoningOptions").cloned().unwrap_or(json!([])), "reasoningOptions {what}");
             assert_eq!(got.mode.as_deref(), out.get("mode").and_then(Value::as_str), "mode {what}");

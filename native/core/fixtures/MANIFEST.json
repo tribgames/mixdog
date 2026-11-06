@@ -191,13 +191,13 @@
       "totalBytes": 30605
     },
     {
-      "command": "node benchmarks/rust-core/recorders/record-tools.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-tools-extra.mjs --tree <tree>",
-      "fileCount": 153,
+      "command": "node benchmarks/rust-core/recorders/record-tools.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-tools-extra.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-media-text.mjs --tree <tree>",
+      "fileCount": 156,
       "manifest": "tools/MANIFEST.json",
-      "manifestSha256": "9ba83004c06fad572b6ce79da5fde4fc308101b657300b53c820da6a481d9c9b",
-      "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs",
+      "manifestSha256": "4e97b8a0b646166ec7f9f8ea80f4b20e1e3969b1d77e2b4931792f9b99ed04d2",
+      "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs + record-media-text.mjs",
       "set": "tools",
-      "totalBytes": 698806
+      "totalBytes": 841741
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-workflow-config.mjs --tree <tree>",

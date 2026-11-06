@@ -200,7 +200,7 @@ async fn saving_a_recurring_schedule_stores_it_and_lists_the_same_row() {
     assert_eq!((row.delivery.as_deref(), row.owner_agent_id.as_str(), row.status), (Some("app"), "lead", ScheduleStatus::Active));
     // The started runtime may have stamped the next fire meanwhile; everything else is the row.
     let mut listed = e.admin.list_schedules().await.unwrap();
-    listed[0].as_object_mut().unwrap().remove("nextFireAt");
+    listed[0].as_object_mut().unwrap().shift_remove("nextFireAt");
     assert_eq!(listed, vec![saved]);
 }
 

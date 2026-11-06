@@ -1,0 +1,1 @@
+{"priority":{"order":["c-blocking","a1","b1","a2","a-best"],"full":null},"full":{"order":["one","two"],"full":{"message":"resource pressure: high-load admission queue full (maximum 2); retry after running work completes","code":"ERESOURCEQUEUEFULL"}},"three_owners":{"order":["a1","b1","c1","a2","b2"],"full":null},"aborted":"This operation was aborted"}

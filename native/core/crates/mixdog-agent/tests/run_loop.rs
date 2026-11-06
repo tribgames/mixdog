@@ -454,6 +454,7 @@ struct Harness {
     compactor: Option<Arc<Compactor100>>,
     tail: Option<Arc<dyn TailReminder>>,
     reuse: Option<Arc<dyn ResultReuse>>,
+    route: Option<Arc<dyn RouteFallback>>,
     cancel: CancellationToken,
 }
 
@@ -470,6 +471,7 @@ impl Harness {
             compactor: None,
             tail: None,
             reuse: None,
+            route: None,
             cancel: CancellationToken::new(),
         }
     }
@@ -496,7 +498,7 @@ impl Harness {
             gate: Arc::clone(&self.gate),
             guards: Arc::new(NoGuards),
             compactor: self.compactor.clone().map(|c| c as Arc<dyn Compactor>),
-            route: None,
+            route: self.route.clone(),
             skills: None,
             hooks: None,
             reuse: self.reuse.clone(),
@@ -1608,7 +1610,7 @@ async fn request_media_arms_a_compaction_that_need_not_reduce() {
     h.compactor = Some(Arc::new(Compactor100 { request_media: true, ..Default::default() }));
     let mut cfg = config();
     cfg.compact = Some(CompactSettings { auto: true, context_window: Some(100_000), token_calibration: 1.0, ..CompactSettings::default() });
-    // Two messages: educes would refuse, but media pressure skips that check.
+    // Two messages: reduces would refuse, but media pressure skips that check.
     let messages = vec![AgentMessage::user("a"), AgentMessage::user("b")];
     finish(h.run(cfg, vec![], messages)).await;
     assert_eq!(*h.compactor.as_ref().unwrap().requests.lock().unwrap(), [(2, CompactTrigger::Auto)]);
@@ -1659,4 +1661,156 @@ async fn a_cancelled_one_shot_call_is_an_aborted_summary_failure() {
     }
     h.cancel.cancel();
     assert!(matches!(task.await.unwrap(), Err(SummaryFailure::Aborted)));
+}
+
+// ---- the model fallback decision ---------------------------------------------------------------
+
+/// A route fallback that plays one decision and records what it was asked.
+struct PlayRoute {
+    decision: Mutex<Option<RouteDecision>>,
+    asked: Mutex<Vec<(ErrorKind, Option<mixdog_core_api::domain::provider::Usage>)>>,
+    segments: Vec<UsageSegment>,
+    current: Mutex<Option<(String, String)>>,
+}
+impl PlayRoute {
+    fn new(decision: RouteDecision, segments: Vec<UsageSegment>) -> Arc<Self> {
+        Arc::new(Self { decision: Mutex::new(Some(decision)), asked: Mutex::default(), segments, current: Mutex::default() })
+    }
+}
+#[async_trait]
+impl RouteFallback for PlayRoute {
+    async fn advance(&self, error: ProviderError, last_usage: Option<&mixdog_core_api::domain::provider::Usage>) -> RouteDecision {
+        self.asked.lock().unwrap().push((error.kind, last_usage.cloned()));
+        self.decision.lock().unwrap().take().expect("one failure, one decision")
+    }
+    fn usage_segments(&self, _total: &mixdog_core_api::domain::provider::Usage, current: (&str, &str)) -> Vec<UsageSegment> {
+        *self.current.lock().unwrap() = Some((current.0.to_owned(), current.1.to_owned()));
+        self.segments.clone()
+    }
+}
+
+fn refused() -> Attempt {
+    Attempt::Reject(ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted))
+}
+
+#[tokio::test]
+async fn a_switch_strips_provider_replay_and_continues_on_the_next_model() {
+    let mut earlier = AgentMessage::assistant("earlier answer", Vec::new());
+    earlier.message.thinking_blocks = Some(json!([{ "type": "thinking", "thinking": "private", "signature": "sig" }]));
+    let next = Scripted::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let segments = vec![UsageSegment { provider: "a".into(), model: "m1".into(), usage: Default::default() }];
+    let route = PlayRoute::new(
+        RouteDecision::Switch(RouteSwitch { provider: next.clone(), model: "m2".into(), notice: "m1 refused — switched to m2.".into(), effort: None, text_only: None }),
+        segments.clone(),
+    );
+    let mut h = Harness::new(vec![refused()]);
+    h.route = Some(route.clone());
+    let output = finish(h.run(config(), vec![], vec![AgentMessage::user("first"), earlier, AgentMessage::user("go")])).await;
+    // The next provider got the conversation without the first one's reasoning envelopes.
+    let sent = next.requests();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(h.provider.requests().len(), 1);
+    assert!(output.transcript.iter().all(|m| m.message.thinking_blocks.is_none()), "replay stripped from the live messages");
+    assert!(sent[0].messages.iter().all(|m| m.thinking_blocks.is_none()), "and from the request");
+    assert_eq!(output.transcript.iter().find(|m| m.text() == "earlier answer").map(|m| m.text()), Some("earlier answer".to_owned()));
+    // The loop told the hop the error and the running usage (none yet), and read the segments at the end.
+    assert_eq!(*route.asked.lock().unwrap(), [(ErrorKind::Auth, None)]);
+    assert_eq!(output.usage_segments, segments);
+    assert_eq!(route.current.lock().unwrap().as_ref().map(|c| c.1.as_str()), Some("m2"));
+    let events = h.observer.events();
+    assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::ModelFallback { model }) if model == "m2")));
+    assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { message }) if message == "m1 refused — switched to m2.")));
+}
+
+#[tokio::test]
+async fn a_surface_decision_ends_the_ask_with_the_error_it_carries() {
+    let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted);
+    error.message = "first failed\nEvery model in the fallback chain failed — a/m1: first failed; b/m2: second failed".into();
+    let route = PlayRoute::new(
+        RouteDecision::Surface(Box::new(ChainSurface { error, attempts: vec![json!({ "provider": "a" })], stopped_before: None })),
+        Vec::new(),
+    );
+    let mut h = Harness::new(vec![refused()]);
+    h.route = Some(route);
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the chain ran out");
+    let AgentError::Provider(surfaced) = &failure.error else { panic!("{:?}", failure.error) };
+    assert_eq!(surfaced.kind, ErrorKind::Auth);
+    assert_eq!(failure.error.to_string(), "first failed\nEvery model in the fallback chain failed — a/m1: first failed; b/m2: second failed");
+}
+
+#[tokio::test]
+async fn a_failed_hop_replaces_the_providers_error_with_its_own_text() {
+    let route = PlayRoute::new(RouteDecision::Fail("Provider \"gone\" not available".into()), Vec::new());
+    let mut h = Harness::new(vec![refused()]);
+    h.route = Some(route);
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the hop failed");
+    assert!(matches!(&failure.error, AgentError::RouteFailed(text) if text == "Provider \"gone\" not available"));
+    assert_eq!(failure.error.to_string(), "Provider \"gone\" not available");
+}
+
+// ---- the agent lane's slot ---------------------------------------------------------------------
+
+/// Records what the loop sends through the slot: whether each yielded request succeeded.
+#[derive(Default)]
+struct Slot(Mutex<Vec<bool>>);
+#[async_trait]
+impl Yielder for Slot {
+    async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, _: Option<&mixdog_agent::cancel::Cancel>) -> Result<(), String> {
+        let ok = task.await;
+        self.0.lock().unwrap().push(ok);
+        Ok(())
+    }
+}
+
+/// A slot with none free: the request ends, and the wait to take the slot back lasts until the
+/// cancel it is handed fires, then reads that cancel's text (`runYielded`'s signal).
+struct Cancelled(Arc<tokio::sync::Notify>);
+#[async_trait]
+impl Yielder for Cancelled {
+    async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, cancel: Option<&mixdog_agent::cancel::Cancel>) -> Result<(), String> {
+        task.await;
+        self.0.notify_one();
+        let cancel = cancel.expect("the loop hands its signal to the wait");
+        cancel.cancelled().await;
+        Err(cancel.reason())
+    }
+}
+
+#[tokio::test]
+async fn each_provider_request_runs_with_the_slot_handed_back() {
+    let slot = Arc::new(Slot::default());
+    let h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let mut cfg = config();
+    cfg.slot = Some(slot.clone());
+    finish(h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(*slot.0.lock().unwrap(), [true, true], "one yield per request, tool work outside it");
+}
+
+#[tokio::test]
+async fn a_refused_request_is_reported_to_the_slot_as_failed() {
+    let slot = Arc::new(Slot::default());
+    let h = Harness::new(vec![refused()]);
+    let mut cfg = config();
+    cfg.slot = Some(slot.clone());
+    let failure = h.run(cfg, vec![], vec![AgentMessage::user("go")]).run().await.expect_err("auth surfaces");
+    assert!(matches!(failure.error, AgentError::Provider(_)));
+    assert_eq!(*slot.0.lock().unwrap(), [false]);
+}
+
+#[tokio::test]
+async fn a_cancelled_reacquisition_ends_the_ask_with_the_cancels_text() {
+    let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let mut cfg = config();
+    let waiting = Arc::new(tokio::sync::Notify::new());
+    cfg.slot = Some(Arc::new(Cancelled(waiting.clone())));
+    let cancel = h.cancel.clone();
+    let task = tokio::spawn(h.run(cfg, vec![], vec![AgentMessage::user("go")]).run());
+    // The request is done and the loop is waiting to take its slot back: only now does the turn end.
+    waiting.notified().await;
+    cancel.cancel();
+    let failure = task.await.unwrap().expect_err("the slot was not taken back");
+    assert!(matches!(&failure.error, AgentError::Admission(text) if text == mixdog_agent::cancel::ABORTED), "{:?}", failure.error);
 }

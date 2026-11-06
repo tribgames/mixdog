@@ -1,7 +1,22 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-route-actions.mjs --tree <tree>",
-  "fileCount": 5,
+  "command": "node benchmarks/rust-core/recorders/record-js-array-sort.mjs",
+  "fileCount": 9,
   "files": [
+    {
+      "bytes": 208976,
+      "path": "effort-configuration-twin.json",
+      "sha256": "83b9316bf61e5d29fdb44038631df07d2206ef2b0b81f3b13d17e69e5bb0497d"
+    },
+    {
+      "bytes": 2851531,
+      "path": "js-array-sort-twin.json",
+      "sha256": "989dbbf7b23f435518108416abb7a6dd3a60bf46b8a8a2b784a48a14b077af9b"
+    },
+    {
+      "bytes": 8640473,
+      "path": "model-list-service-twin.json",
+      "sha256": "a70b81ee4c10ad730d8000b8824a5e4621324526fdaf9fac0a34f497be7abeb3"
+    },
     {
       "bytes": 3972252,
       "path": "model-list-twin.json",
@@ -13,9 +28,14 @@
       "sha256": "9809f3e242f67bf98bbbc7e424d0d23e25dfc5ffc3bf83ef4c257df0a3aa69b2"
     },
     {
-      "bytes": 1087134,
+      "bytes": 2288570,
+      "path": "quota-resume-twin.json",
+      "sha256": "20fd0254ea5d72db6bc2d37606d91c038fd71ec0a4a2ff2b5cbc84cf52231e80"
+    },
+    {
+      "bytes": 1218781,
       "path": "route-actions-twin.json",
-      "sha256": "d138b8c0d8ce97c5bebf5287ac437b9012cd682309ada75048972b68ee4b5ea7"
+      "sha256": "ff060ba294341a0e8482f8bf6e20dfcdbf8cbe798383f7cf28ede46adf8475ae"
     },
     {
       "bytes": 7894996,
@@ -23,9 +43,9 @@
       "sha256": "a0e52404897ce3c2cae28d704e4d4242343d0b5bc72aaf2a9d2b4159763888e4"
     },
     {
-      "bytes": 1392015,
+      "bytes": 1719738,
       "path": "route-service-twin.json",
-      "sha256": "1b923d608e603f5ab7ec5b817f47a24847e95f94e7ae06f42db1cc267818cd86"
+      "sha256": "bb3647ebaac848aa095a8b05bb955f2286c1f6dd2ec2fd426945cae4c3c1329a"
     }
   ],
   "product": {
@@ -44,7 +64,7 @@
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
-  "recorder": "benchmarks/rust-core/recorders/record-route-actions.mjs",
+  "recorder": "benchmarks/rust-core/recorders/record-js-array-sort.mjs",
   "set": "ai-admin",
-  "totalBytes": 14926455
+  "totalBytes": 29375375
 }

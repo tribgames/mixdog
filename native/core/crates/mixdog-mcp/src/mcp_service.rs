@@ -661,20 +661,19 @@ impl McpService {
         // The server of a multi-account connector takes every account's sign-in with it.
         let account_cfgs = account_servers(&removed);
         if !account_cfgs.is_empty() {
-            // `Promise.all`: every account's release runs; the first to fail in time is the failure
-            // reported, after the others finished.
-            let mut pending: futures::stream::FuturesUnordered<_> = account_cfgs.iter().map(|cfg| self.secrets.release_account(cfg)).collect();
-            let (mut released, mut failure) = (Vec::new(), None);
+            // `Promise.all`: every release starts at once; the first to fail is the failure
+            // returned at once, while the others keep running in their tasks (dropping a join
+            // handle detaches its task, it does not cancel it).
+            let mut pending: futures::stream::FuturesUnordered<_> = account_cfgs
+                .iter()
+                .map(|cfg| {
+                    let (secrets, cfg) = (Arc::clone(&self.secrets), cfg.clone());
+                    tokio::spawn(async move { secrets.release_account(&cfg).await })
+                })
+                .collect();
+            let mut released = Vec::new();
             while let Some(outcome) = futures::StreamExt::next(&mut pending).await {
-                match outcome {
-                    Ok(one) => released.extend(one),
-                    Err(error) => {
-                        failure.get_or_insert(error);
-                    }
-                }
-            }
-            if let Some(error) = failure {
-                return Err(error);
+                released.extend(outcome.map_err(|e| e.to_string())??);
             }
             if released.is_empty() {
                 return Ok(status);

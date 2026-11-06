@@ -3,7 +3,6 @@
 
 use mixdog_agent::env::DrainRequest;
 use mixdog_agent::env::SteerEntry;
-use mixdog_agent::env::SteerMode;
 use mixdog_agent::env::SteerSource;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
@@ -61,6 +60,8 @@ impl SteerSource for SteerQueue {
 
 #[cfg(test)]
 mod tests {
+    use mixdog_agent::env::SteerMode;
+
     use super::*;
 
     #[test]

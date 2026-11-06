@@ -297,6 +297,22 @@ async fn a_source_domains_file_is_read_through_the_transfer_methods() {
     assert!(matches!(missing, Err(CoreError::DomainError { .. })), "{missing:?}");
 }
 
+#[test]
+fn offered_names_and_mime_types_match_nodes_recorded_answers() {
+    let golden: Value = serde_json::from_slice(
+        &std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/transfer/names.json")).unwrap(),
+    )
+    .unwrap();
+    for row in golden["sanitize"].as_array().unwrap() {
+        let input = row["input"].as_str().unwrap();
+        assert_eq!(mixdog_workspace::transfer::sanitized_file_name(input), row["name"].as_str().unwrap(), "{input:?}");
+    }
+    for row in golden["mime"].as_array().unwrap() {
+        let input = row["input"].as_str().unwrap();
+        assert_eq!(mixdog_workspace::fsops::mime_type(std::path::Path::new(input)), row["mime"].as_str().unwrap(), "{input:?}");
+    }
+}
+
 /// Stands for the adapter over `CodeGraphTool`: answers with the cwd and the args it was given.
 struct EchoGraph;
 

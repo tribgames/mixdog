@@ -23,6 +23,8 @@ use mixdog_agent::agent_tool::flow::reconcile::JobHandle;
 use mixdog_agent::agent_tool::flow::seams::*;
 use mixdog_agent::agent_tool::flow::turn::TurnPlan;
 use mixdog_agent::agent_tool::flow::turn::TurnRunner;
+use mixdog_agent::agent_tool::flow::worker_turns::Claim;
+use mixdog_agent::agent_tool::flow::worker_turns::TurnOwner;
 use mixdog_agent::agent_tool::flow::worker_turns::WorkerTurns;
 use mixdog_agent::agent_tool::host::CloseOptions;
 use mixdog_agent::agent_tool::host::Sessions;
@@ -89,7 +91,7 @@ fn turn_result(v: &Value) -> TurnResult {
 
 #[derive(Default)]
 struct World {
-    calls: Mutex<Vec<String>>,
+    calls: Mutex<Vec<Value>>,
     notices: Mutex<Vec<Value>>,
     /// The worker session's rows: two before the turn, then what the script appends.
     rows: Mutex<Vec<AssistantText>>,
@@ -99,8 +101,8 @@ struct World {
 }
 
 impl World {
-    fn log(&self, entry: String) {
-        lock(&self.calls).push(entry);
+    fn log(&self, entry: impl Into<Value>) {
+        lock(&self.calls).push(entry.into());
     }
 }
 
@@ -108,12 +110,12 @@ struct Sess(Arc<World>);
 
 #[async_trait]
 impl TurnSessions for Sess {
-    fn message_count(&self, _: &str) -> usize {
+    async fn message_count(&self, _: &str) -> usize {
         // Two rows existed before the turn; only the assistant rows after them are the turn's.
         2 + lock(&self.0.rows).len()
     }
 
-    fn assistant_texts(&self, _: &str, start: usize) -> Vec<AssistantText> {
+    async fn assistant_texts(&self, _: &str, start: usize) -> Vec<AssistantText> {
         lock(&self.0.rows).iter().skip(start.saturating_sub(2)).cloned().collect()
     }
 
@@ -158,27 +160,32 @@ impl TurnSessions for Sess {
 struct Events(Arc<World>);
 impl SubagentEvents for Events {
     fn start(&self, _: &str, _: &str, _: &str) {
-        self.0.log("emit:start".into());
+        self.0.log("emit:start");
     }
     fn stop(&self, _: &str, _: &str, _: &str, status: &str) {
         self.0.log(format!("emit:stop:{status}"));
     }
 }
 
-struct Review(Arc<World>, Mutex<bool>);
+/// The review store ignores a completion that has no owner (beginAgentTurnReview hands none).
+struct Review(Arc<World>, Mutex<bool>, String);
 impl ReviewHandle for Review {
     fn complete(&self, patches: Vec<String>) {
         let mut done = lock(&self.1);
         if !*done {
             *done = true;
-            self.0.log(format!("review:{}", serde_json::to_string(&patches).unwrap()));
+            // The store takes a completion only with a patch (a fresh store holds no review).
+            if !self.2.is_empty() && !patches.is_empty() {
+                self.0.log(json!(["reviewComplete", patches]));
+            }
         }
     }
 }
 struct Reviews(Arc<World>);
 impl TurnReviews for Reviews {
-    fn begin(&self, _: &str, _: &str, _: &str, _: &str) -> Box<dyn ReviewHandle> {
-        Box::new(Review(self.0.clone(), Mutex::new(false)))
+    fn begin(&self, owner: &str, session: &str, tag: &str, agent: &str) -> Box<dyn ReviewHandle> {
+        self.0.log(json!(["reviewBegin", owner, session, { "tag": tag, "agent": agent }]));
+        Box::new(Review(self.0.clone(), Mutex::new(false), owner.to_owned()))
     }
 }
 
@@ -228,10 +235,24 @@ struct Slot;
 #[async_trait]
 impl Lease for Slot {
     async fn release(self: Box<Self>) {}
+    fn yielder(&self) -> std::sync::Arc<dyn mixdog_agent::env::Yielder> {
+        std::sync::Arc::new(Immediate)
+    }
 }
+
+/// A slot that hands nothing back: the task just runs.
+struct Immediate;
+#[async_trait]
+impl mixdog_agent::env::Yielder for Immediate {
+    async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, _: Option<&mixdog_agent::cancel::Cancel>) -> Result<(), String> {
+        task.await;
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl Admission for Open {
-    async fn acquire(&self, _: &str, _: Option<&str>, _: &tokio_util::sync::CancellationToken) -> Result<Box<dyn Lease>, String> {
+    async fn acquire(&self, _: &str, _: Option<&str>, _: &mixdog_agent::cancel::Cancel) -> Result<Box<dyn Lease>, String> {
         Ok(Box::new(Slot))
     }
 }
@@ -243,17 +264,16 @@ impl TaskStarts for NoStarts {
 
 /// The route's side of a claim: a claim opens the observation (`claim`), and the row a claim
 /// settles when no turn started records the status it was released with (`release:<status>`).
-struct Route(Arc<World>);
-impl TurnSource for Route {
-    fn observe_session_turns(&self, _: &str, _: Arc<dyn TurnListener>) -> Option<Unobserve> {
-        self.0.log("claim".into());
-        Some(Box::new(|| {}))
+/// The owner of the worker's turns as Node's fake logs it: every claim, and the release of each.
+struct TurnsOwner(Arc<World>);
+impl TurnOwner for TurnsOwner {
+    fn claim(&self, _: &str, _: Option<Arc<JobHandle>>) -> Claim {
+        self.0.log("claim");
+        let world = self.0.clone();
+        Claim::custom("sub-1".into(), Box::new(move |status| world.log(format!("release:{}", status.word()))))
     }
-}
-struct Rows(Arc<World>);
-impl WorkerRows for Rows {
-    fn upsert(&self, _: &str, _: Option<&str>, update: RowUpdate) {
-        self.0.log(format!("release:{}", update.status.unwrap()));
+    fn observe(&self, _: &str) -> bool {
+        true
     }
 }
 struct Names;
@@ -294,7 +314,7 @@ async fn a_workers_turn_equals_nodes_runner() {
         world.board.set(board.clone()).ok();
         let clock: Arc<dyn Clock> = Arc::new(FixedClock);
         let sessions: Arc<dyn TurnSessions> = Arc::new(Sess(world.clone()));
-        let turns = WorkerTurns::new(Arc::new(Route(world.clone())), Arc::new(Rows(world.clone())), Arc::new(Names), clock.clone(), Arc::new(|| {}));
+        let turns: Arc<dyn TurnOwner> = Arc::new(TurnsOwner(world.clone()));
         let early = Arc::new(EarlyNotice::new(Arc::new(Owner(world.clone())), clock));
         let runner = Arc::new(TurnRunner::new(sessions.clone(), turns, Arc::new(Reviews(world.clone())), Arc::new(Events(world.clone())), Arc::new(NoInbox), early));
         let plan = TurnPlan {

@@ -23,6 +23,8 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 
+use mixdog_agent::agent_tool::flow::seams::TurnListener;
+
 use crate::ports::gate::LiveHeader;
 
 use super::seams::RunOutcome;
@@ -67,6 +69,16 @@ pub(crate) struct ControlCell {
     pub header: ArcSwap<Header>,
     /// The session's tool-policy surface, as the actor publishes it.
     pub surface: watch::Receiver<Arc<SessionSurface>>,
+    /// The running turn's progress, published by the run (`RunStart::progress`); the worker
+    /// views and the registry read it here, never from a copy.
+    pub progress: watch::Sender<crate::run_host::progress::RunProgress>,
+    /// The running turn's working messages before they are committed (Node
+    /// `session.liveTurnMessages`), published by the run (`RunStart::turn_messages`); empty
+    /// between turns.
+    pub turn_messages: watch::Sender<Arc<Vec<serde_json::Value>>>,
+    /// Who observes this session's turns (`observeSessionTurns`), by subscription id; told
+    /// when a turn starts and when it settles.
+    pub turn_listeners: Mutex<Vec<(u64, Arc<dyn TurnListener>)>>,
     pub ctl_tx: mpsc::Sender<Ctl>,
     pub steer_cap: usize,
     /// Feed subscribers attached now.
@@ -107,6 +119,13 @@ impl ControlCell {
         if before == Ok(1) {
             let _ = self.ctl_tx.try_send(Ctl::Unsubscribed);
         }
+    }
+}
+
+impl ControlCell {
+    /// The observers at this moment; called outside the lock.
+    pub fn turn_listeners(&self) -> Vec<Arc<dyn TurnListener>> {
+        lock(&self.turn_listeners).iter().map(|(_, listener)| listener.clone()).collect()
     }
 }
 

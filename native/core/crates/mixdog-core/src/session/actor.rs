@@ -7,6 +7,8 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 
+use mixdog_agent::agent_tool::flow::seams::TurnOutcome;
+use mixdog_agent::agent_tool::flow::seams::TurnStart;
 use mixdog_tools::exec::WakeReason;
 use mixdog_app_protocol::v2::thread::HistoryResetReason;
 use mixdog_app_protocol::v2::thread::ItemNotificationParams;
@@ -65,7 +67,12 @@ use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
 use mixdog_store::schema::record::ItemRecord;
+use mixdog_store::schema::record::Anchor;
+use mixdog_store::schema::record::AmendRecord;
 use mixdog_store::schema::record::MetaRecord;
+use mixdog_store::schema::record::Refs;
+use mixdog_store::schema::record::ModelSwitchEntry;
+use mixdog_store::schema::record::ModelSwitchRecord;
 use mixdog_store::schema::record::OpRef;
 use mixdog_store::schema::record::QueueAction;
 use mixdog_store::schema::record::QueueRecord;
@@ -1020,7 +1027,21 @@ impl SessionActor {
             return;
         };
         self.cell.publish_run(None);
+        // An ended turn has no working messages left (`liveTurnMessages` ends with the turn).
+        self.cell.turn_messages.send_replace(Default::default());
         self.steer_marked.clear();
+        // `onTurnSettled`: the run host's final result as it is, for a finished turn only.
+        let settled = TurnOutcome {
+            turn_id: turn.as_str().to_owned(),
+            done: matches!(outcome, RunOutcome::Completed(_)),
+            result: match &outcome {
+                RunOutcome::Completed(result) => Some((**result).clone()),
+                _ => None,
+            },
+        };
+        for listener in self.cell.turn_listeners() {
+            listener.turn_settled(settled.clone());
+        }
         let at = self.deps.clock.now_ms();
         let resolution = match outcome {
             RunOutcome::Interrupted => ApprovalResolution::Interrupted { at },
@@ -1031,7 +1052,7 @@ impl SessionActor {
         }
         if !slot.start_failed {
             let (phase, detail) = match outcome {
-                RunOutcome::Completed => (RunPhase::Completed, None),
+                RunOutcome::Completed(_) => (RunPhase::Completed, None),
                 RunOutcome::Interrupted => (RunPhase::Interrupted, None),
                 RunOutcome::Failed(error) => (
                     RunPhase::Failed,
@@ -1548,6 +1569,8 @@ impl SessionActor {
             "thread/clear" => self.clear(&req),
             "thread/name/set" => self.name_set(&req),
             "thread/header/patch" => self.header_patch(&req),
+            "thread/boundary/record" => self.boundary_record(&req),
+            "thread/reactions/apply" => self.reactions_apply(&req),
             _ => Err(invalid("method", "a session-actor method")),
         };
         match result {
@@ -1842,6 +1865,96 @@ impl SessionActor {
         })
     }
 
+    /// `thread/boundary/record {anchor, entry, turn?, item?}`: a display-only model-switch
+    /// boundary on an already stored row (option (a): no stored row is rewritten), answered once
+    /// durable. `item` is the row it shows after the anchor's (`live_model_switch`). Internal
+    /// callers only.
+    fn boundary_record(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
+        if matches!(req.ctx.caller, Caller::Connection(_)) {
+            return Err(invalid("method", "an internal method"));
+        }
+        let anchor: Anchor = req
+            .params
+            .get("anchor")
+            .and_then(|anchor| serde_json::from_value(anchor.clone()).ok())
+            .ok_or_else(|| invalid("anchor", "{iid, ordinal} of a stored row"))?;
+        if anchor.ordinal >= self.acked_end {
+            return Err(invalid("anchor", "a row stored before the boundary"));
+        }
+        let entry: ModelSwitchEntry = req
+            .params
+            .get("entry")
+            .and_then(|entry| serde_json::from_value(entry.clone()).ok())
+            .ok_or_else(|| invalid("entry", "{provider, modelId, at}"))?;
+        let item = match req.params.get("item") {
+            None | Some(Value::Null) => None,
+            Some(item) => Some(
+                serde_json::from_value::<ThreadItem>(item.clone()).map_err(|_| invalid("item", "a thread item"))?,
+            ),
+        };
+        let turn = TurnId::from(req.params.get("turn").and_then(Value::as_str).unwrap_or_default());
+        let notes = item
+            .iter()
+            .map(|item| {
+                Note::new(
+                    "item/completed",
+                    &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item: item.clone() },
+                )
+            })
+            .collect();
+        let display = match item {
+            Some(item) => Display::Items(vec![Shown::Item(item)]),
+            None => Display::None,
+        };
+        let value = json!({});
+        let record =
+            Record::ModelSwitch(ModelSwitchRecord { anchor, op: self.op_ref(req, Some(&value))?, entry: Slot::Inline(entry) });
+        Ok(Plan {
+            kind: PlanKind::Records(vec![(record, Class::Normal, display, notes)], Vec::new()),
+            value,
+            after: None,
+            prompt: None,
+        })
+    }
+
+    /// `thread/reactions/apply {iid, refs, body, turn, items}`: a bot's reaction stored on a
+    /// user message, as an amend of that row's body (`meta.transcript.reactions`); `items` are the
+    /// row's items re-shown with it, merged into the view and published as `item/completed`.
+    /// Internal callers only (the handle's `thread/reactions/set` computes the body).
+    fn reactions_apply(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
+        if matches!(req.ctx.caller, Caller::Connection(_)) {
+            return Err(invalid("method", "an internal method"));
+        }
+        let field = |name: &str| req.params.get(name).cloned().unwrap_or(Value::Null);
+        let iid = text(req.params.get("iid").and_then(Value::as_str).unwrap_or_default(), "iid")?;
+        let refs: Refs = serde_json::from_value(field("refs")).map_err(|_| invalid("refs", "the row's blob digests"))?;
+        let body = field("body");
+        if !body.is_object() {
+            return Err(invalid("body", "the amended message"));
+        }
+        let items: Vec<ThreadItem> =
+            serde_json::from_value(field("items")).map_err(|_| invalid("items", "the row's thread items"))?;
+        let turn = TurnId::from(req.params.get("turn").and_then(Value::as_str).unwrap_or_default());
+        let notes = items
+            .iter()
+            .map(|item| {
+                Note::new(
+                    "item/completed",
+                    &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item: item.clone() },
+                )
+            })
+            .collect();
+        let display = Display::Items(items.into_iter().map(Shown::Update).collect());
+        let value = json!({});
+        let record = Record::Amend(AmendRecord { iid, op: self.op_ref(req, Some(&value))?, refs, body: Slot::Inline(body) });
+        Ok(Plan {
+            kind: PlanKind::Records(vec![(record, Class::Normal, display, notes)], Vec::new()),
+            value,
+            after: None,
+            prompt: None,
+        })
+    }
+
     /// A detached job's completion joins the queue as today's completion entry
     /// (`enqueuePendingMessage`) and ends the running turn's passive wait; the turn takes it at
     /// its next model-call boundary ([`RunPort::take_steers`]). An idle thread is woken: the
@@ -1964,6 +2077,16 @@ impl SessionActor {
             steers: Default::default(),
         })));
         self.accept_record(started, Class::Control, Display::None, Vec::new(), effects);
+        // `onTurnStart`: the turn's id, start and the submissions it carries.
+        let submission_ids: Vec<String> = input_body
+            .pointer("/meta/transcript/submissionIds")
+            .and_then(Value::as_array)
+            .map(|ids| ids.iter().filter_map(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned).collect())
+            .unwrap_or_default();
+        let start = TurnStart { turn_id: turn.as_str().to_owned(), started_at_ms: self.deps.clock.now_ms(), submission_ids };
+        for listener in self.cell.turn_listeners() {
+            listener.turn_started(start.clone());
+        }
         if let Some(prompt) = prompt {
             self.persist_prompt(prompt);
         }
@@ -1996,6 +2119,8 @@ impl SessionActor {
                 input: input_iid.clone(),
             },
             surface: self.surface.subscribe(),
+            progress: self.cell.progress.clone(),
+            turn_messages: self.cell.turn_messages.clone(),
             cancel,
         });
         let ctl = self.cell.ctl_tx.clone();

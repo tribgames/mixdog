@@ -2,9 +2,6 @@
 //! cache prefix is identified by must equal Node's byte for byte, because a
 //! session's saved state carries it across the two runtimes.
 
-use std::cmp::Ordering;
-
-use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
 
@@ -14,30 +11,8 @@ pub fn trace_hash(text: &str) -> String {
     digest[..8].iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// `a < b` the way `Array.prototype.sort()` orders strings: by UTF-16 code unit.
-fn utf16_order(a: &str, b: &str) -> Ordering {
-    a.encode_utf16().cmp(b.encode_utf16())
-}
-
 /// `stableTraceStringify(value)` for parsed JSON: `JSON.stringify` with object keys sorted.
-pub fn stable_stringify(value: &Value) -> String {
-    match value {
-        Value::Array(items) => {
-            let parts: Vec<String> = items.iter().map(stable_stringify).collect();
-            format!("[{}]", parts.join(","))
-        }
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort_by(|a, b| utf16_order(a, b));
-            let parts: Vec<String> = keys
-                .into_iter()
-                .map(|k| format!("{}:{}", mixdog_js::json_stringify(&Value::String(k.clone())), stable_stringify(&map[k])))
-                .collect();
-            format!("{{{}}}", parts.join(","))
-        }
-        primitive => mixdog_js::json_stringify(primitive),
-    }
-}
+pub use mixdog_js::json_stringify_sorted as stable_stringify;
 
 #[cfg(test)]
 mod tests {

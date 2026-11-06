@@ -56,14 +56,7 @@ fn deepseek_thinking(request: &ModelRequest) -> Option<ThinkingMode> {
     })
 }
 
-/// A number as the JSON a JS client writes: whole values carry no fraction.
-fn number_value(n: f64) -> JsonValue {
-    if n.fract() == 0.0 && n.abs() < 1e15 {
-        json!(n as i64)
-    } else {
-        json!(n)
-    }
-}
+use mixdog_js::json_number as number_value;
 
 /// `late` selects the effort fields that follow the sampling and output-limit
 /// fields (MiMo's), keeping the body's key order that clients record.
@@ -240,7 +233,7 @@ fn apply_tool_choice(dialect: &ChatDialect, request: &ModelRequest, body: &mut J
         // Nothing but `auto` is documented: `none` is honoured by sending no
         // tools at all.
         if none {
-            body.remove("tools");
+            body.shift_remove("tools");
         }
         return;
     }

@@ -749,7 +749,7 @@ impl OAuthUsage {
         provider_snapshot.insert("provider".into(), Value::String(provider_name));
         provider_snapshot.insert("accountId".into(), Value::String(route.account_id.clone()));
         provider_snapshot.insert("cachedAt".into(), Value::from(now_ms()));
-        provider_snapshot.remove("model");
+        provider_snapshot.shift_remove("model");
         let mut route_snapshot = provider_snapshot.clone();
         let mut updates = Vec::new();
         if let Some(model) = &model {

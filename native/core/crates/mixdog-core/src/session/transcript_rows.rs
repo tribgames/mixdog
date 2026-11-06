@@ -50,7 +50,7 @@ pub(super) struct ResultFact {
 }
 
 /// JS truthiness.
-pub(super) fn truthy(value: &Value) -> bool {
+pub(in crate::session) fn truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
         Value::Bool(b) => *b,
@@ -78,13 +78,7 @@ fn number(value: Option<&Value>) -> f64 {
     value.map_or(f64::NAN, to_number)
 }
 
-pub(super) fn num_value(n: f64) -> Value {
-    if n.fract() == 0.0 && n.abs() < 9.007_199_254_740_992e15 {
-        json!(n as i64)
-    } else {
-        json!(n)
-    }
-}
+pub(super) use mixdog_js::json_number as num_value;
 
 fn put_text(row: &mut Row, key: &str, value: &Value) {
     if let Some(text) = value.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()) {
@@ -158,7 +152,7 @@ pub(super) fn normalize_attachments(value: Option<&Value>) -> Vec<Value> {
 }
 
 /// `normalizeMessageReactions`.
-pub(super) fn normalize_reactions(value: Option<&Value>) -> Vec<Value> {
+pub(in crate::session) fn normalize_reactions(value: Option<&Value>) -> Vec<Value> {
     let Some(Value::Array(list)) = value else {
         return Vec::new();
     };
@@ -475,7 +469,7 @@ fn assistant_rows(message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
     let runs = imported_tool_runs(message);
     if let Some(runs) = runs {
         let mut meta = fields;
-        meta.remove("completion");
+        meta.shift_remove("completion");
         let mut row = Row::new();
         row.insert("kind".into(), json!("assistant"));
         row.insert("id".into(), json!(ids.next()));
@@ -489,7 +483,7 @@ fn assistant_rows(message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
     let text = js_trim(&text);
     if !text.is_empty() {
         let mut meta = fields.clone();
-        meta.remove("completion");
+        meta.shift_remove("completion");
         let id = ids.next();
         let mut row = Row::new();
         row.insert("kind".into(), json!("assistant"));
@@ -541,7 +535,7 @@ fn imported_tool_runs(message: &Value) -> Option<Value> {
 fn failed_turn_rows(message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
     let Metadata { fields, completion } = metadata(message);
     let mut meta = fields;
-    meta.remove("completion");
+    meta.shift_remove("completion");
     if let Some(Value::Array(previous)) = message.pointer("/meta/transcript/previousCompletions") {
         for value in previous {
             let mut stored = Map::new();
@@ -552,7 +546,7 @@ fn failed_turn_rows(message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>)
             let historical = metadata(&json!({ "meta": { "transcript": stored } }));
             if let Some(done) = historical.completion {
                 let mut shown = historical.fields;
-                shown.remove("completion");
+                shown.shift_remove("completion");
                 let row = turn_done(&done, &shown, ids.next(), None);
                 out.push(Restored::Row { row, source: None });
             }
@@ -757,6 +751,9 @@ fn user_rows(record: &ItemRecord, message: &Value, ids: &mut Ids<'_>, out: &mut 
             json!(if held { held_request_text(message) } else { routine_result_notice_text(message) }),
         );
         row.insert("tone".into(), json!(if warn { "warn" } else { "info" }));
+        if !held {
+            row.extend(routine_notice_fields(message));
+        }
         stamp(&mut row);
         out.push(Restored::Row { row, source: Some(source.to_owned()) });
         return;
@@ -796,6 +793,107 @@ fn user_rows(record: &ItemRecord, message: &Value, ids: &mut Ids<'_>, out: &mut 
         }
     }
     out.push(Restored::Row { row, source: (!source.is_empty()).then(|| source.to_owned()) });
+}
+
+/// `normalizeHandoffFiles`.
+fn normalize_handoff_files(files: Option<&Value>) -> Vec<Value> {
+    let Some(Value::Array(list)) = files else { return Vec::new() };
+    list.iter()
+        .filter(|file| file.is_object() && !text_field(file, "path").is_empty())
+        .take(8)
+        .map(|file| {
+            let or = |key: &str, fallback: &str| match file.get(key) {
+                Some(v) if truthy(v) => mixdog_js::value_to_string(v),
+                _ => fallback.to_owned(),
+            };
+            let size = number(file.get("size"));
+            let id = text_field(file, "id");
+            let mut out = Map::new();
+            out.insert("name".into(), json!(slice_utf16(&or("name", "file"), 200)));
+            out.insert("path".into(), json!(slice_utf16(text_field(file, "path"), 1024)));
+            let kind = text_field(file, "kind");
+            out.insert("kind".into(), json!(if matches!(kind, "image" | "file" | "text") { kind } else { "file" }));
+            out.insert("mimeType".into(), json!(slice_utf16(&or("mimeType", "application/octet-stream"), 100)));
+            out.insert("size".into(), num_value(if size >= 0.0 { size } else { 0.0 }));
+            if id.len() == 64 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+                out.insert("id".into(), json!(id));
+            }
+            Value::Object(out)
+        })
+        .collect()
+}
+
+/// The fields `routineResultNotice(message)` gives a notice besides `text` and `tone`: the
+/// `routine` payload the app localizes the label from, and (a task report) the stored files
+/// as `attachments`, which `SessionAttachments` finds them by.
+fn routine_notice_fields(message: &Value) -> Row {
+    let routine = message.pointer("/meta/routine").unwrap_or(&Value::Null);
+    let field = |name: &str| routine.get(name).filter(|v| !v.is_null());
+    let mut payload = Map::new();
+    let mut row = Row::new();
+    if number(routine.get("omitted")) > 0.0 {
+        payload.insert("omitted".into(), routine["omitted"].clone());
+    } else if number(routine.get("relayFailed")) > 0.0 {
+        payload.insert("relayFailed".into(), routine["relayFailed"].clone());
+    } else if text_field(routine, "kind") == "task" {
+        payload.insert("kind".into(), json!("task"));
+        for name in ["name", "status", "summary", "sessionId"] {
+            if let Some(v) = routine.get(name) {
+                payload.insert(name.into(), v.clone());
+            }
+        }
+        if text_field(routine, "target") == "session" {
+            payload.insert("target".into(), json!("session"));
+        }
+        for name in ["agentId", "sendId"] {
+            if let Some(v) = field(name).filter(|v| truthy(v)) {
+                payload.insert(name.into(), v.clone());
+            }
+        }
+        if let Some(ids @ Value::Array(list)) = routine.get("sendIds")
+            && list.len() > 1
+        {
+            payload.insert("sendIds".into(), ids.clone());
+        }
+        let files = normalize_handoff_files(routine.get("files"));
+        if !files.is_empty() {
+            payload.insert("files".into(), Value::Array(files));
+        }
+        if !text_field(routine, "line").is_empty() {
+            payload.insert("line".into(), routine["line"].clone());
+        }
+        let attachments = normalize_attachments(message.pointer("/meta/transcript/attachments"));
+        if !attachments.is_empty() {
+            row.insert("attachments".into(), Value::Array(attachments));
+        }
+    } else {
+        let failed = text_field(routine, "status") == "failed";
+        let text_or_empty = |name: &str| match routine.get(name) {
+            Some(v) if truthy(v) => mixdog_js::value_to_string(v),
+            _ => String::new(),
+        };
+        if text_field(routine, "kind") == "webhook" {
+            payload.insert("kind".into(), json!("webhook"));
+        }
+        payload.insert("name".into(), json!(text_or_empty("name")));
+        payload.insert("status".into(), json!(if failed { "failed" } else { "completed" }));
+        payload.insert("summary".into(), json!(text_or_empty("summary")));
+        for name in ["runId", "runSessionId"] {
+            if let Some(v) = field(name).filter(|v| truthy(v)) {
+                payload.insert(name.into(), v.clone());
+            }
+        }
+        if failed {
+            if let Some(v) = field("reason").filter(|v| truthy(v)) {
+                payload.insert("reason".into(), v.clone());
+            }
+            if routine.get("paused").is_some_and(truthy) {
+                payload.insert("paused".into(), json!(true));
+            }
+        }
+    }
+    row.insert("routine".into(), Value::Object(payload));
+    row
 }
 
 /// `heldRequestNotice(message).text`.

@@ -1,5 +1,5 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-tools.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-tools-extra.mjs --tree <tree>",
+  "command": "node benchmarks/rust-core/recorders/record-tools.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-tools-extra.mjs --tree <tree> && node benchmarks/rust-core/recorders/record-media-text.mjs --tree <tree>",
   "extraCases": [
     "code_graph/mode-overview",
     "code_graph/mode-overview-depth2",
@@ -48,7 +48,7 @@
     "memory/error-bad-op"
   ],
   "extraImpossible": [],
-  "fileCount": 153,
+  "fileCount": 156,
   "files": [
     {
       "bytes": 702,
@@ -511,6 +511,21 @@
       "sha256": "e9901bb1b8145a0c5e3f998faed802df5575b2eb7a5a2707d1ca13f29b7c15b0"
     },
     {
+      "bytes": 136248,
+      "path": "media-text/office.json",
+      "sha256": "3a41b19096fcb2decb5c53f1eb8a1366e89ec6008f3bf4ef984a3f7eff68cff9"
+    },
+    {
+      "bytes": 4880,
+      "path": "media-text/pdf-counts.json",
+      "sha256": "4fae1537167dd8e254f680889e9fddd59a9b720d4dcdc45bad4608cd65b9919c"
+    },
+    {
+      "bytes": 1807,
+      "path": "media-text/pdf.json",
+      "sha256": "0458deb9b1d3e9cf0dc136171ef80d0962cd960e4cd9b9417b824d5fcba1098f"
+    },
+    {
       "bytes": 408,
       "path": "memory/add.json",
       "sha256": "777f08ff118c768fc3e0353cbdbe4195d2ac20929b872264ac60f200ba600614"
@@ -818,21 +833,21 @@
   ],
   "product": {
     "appsSha256": "1ba13ae4c6213282aa4baf8e39dd32a65446dfddf9d3fe560f802a85d7e64ec3",
-    "commit": "10265470907864fdde0a7584f66b92b32cbacb4b",
+    "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9239,
     "refComparison": {
-      "closestCommit": "10265470907864fdde0a7584f66b92b32cbacb4b",
+      "closestCommit": "fc2a69434515293c99efe9c0833b4e26c6a0e44a",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 2
     },
-    "srcSha256": "5a97c4f2f94ad49aaee3c72aa8a64ee685dcf9affc2719acac18e987b56549d3",
+    "srcSha256": "da84a75c71e6980e7f87ef2e1f82333ed0a3fb8d449a4ec9d133bc8b04b3ddf0",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
-  "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs",
+  "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs + record-media-text.mjs",
   "set": "tools",
-  "totalBytes": 698806
+  "totalBytes": 841741
 }

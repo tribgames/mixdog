@@ -11,23 +11,19 @@
 //! those actions report `Unavailable`.
 
 use std::collections::HashMap;
-use std::io::BufRead;
-use std::io::BufReader;
-use std::io::Write;
 use std::path::PathBuf;
-use std::process::Child;
-use std::process::ChildStdin;
-use std::process::Command;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI64;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine;
+use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::computer::ComputerAction;
 use mixdog_core_api::domain::computer::ComputerBackend;
 use mixdog_core_api::domain::computer::ComputerError;
@@ -39,16 +35,26 @@ use mixdog_core_api::domain::computer::DisplayInfo;
 use mixdog_core_api::domain::computer::InputOutcome;
 use mixdog_core_api::domain::computer::ScreenInput;
 use mixdog_core_api::domain::media::MediaFrameSource;
+use mixdog_core_api::domain::process::CommandSpec;
+use mixdog_core_api::domain::process::EnvSpec;
+use mixdog_core_api::domain::process::OutputMode;
+use mixdog_core_api::domain::process::OutputStream;
+use mixdog_core_api::domain::process::ProcessEvent;
+use mixdog_core_api::domain::process::ProcessManager;
+use mixdog_core_api::domain::process::ProcessOwner;
+use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_js::JsRegex;
 use mixdog_js::js_trim;
 use mixdog_js::js_trim_start;
 use mixdog_js::utf16_len;
+use mixdog_protocol::ProcessHandle;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::oneshot;
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::computer_screen::Screen;
@@ -61,7 +67,8 @@ const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TEXT_CHARS: usize = 1_000_000;
 const MAX_IMAGE_CHARS: usize = 24 * 1024 * 1024;
 const DEFAULT_DELIVERY: &str = "background";
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// Process handles are unique per manager, and one manager can serve several backends.
+static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
 
 /// Helper actions that only read (`computerActionsWith('nativeRead')`).
 const READ_ACTIONS: [&str; 19] = [
@@ -128,95 +135,215 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 struct Host {
-    child: Child,
-    stdin: ChildStdin,
+    handle: ProcessHandle,
     pending: Pending,
     alive: Arc<AtomicBool>,
+    /// Turns true once the process has exited and `pump` has failed its waiters.
+    exited: watch::Receiver<bool>,
 }
 
 impl Host {
-    fn stop(mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+    /// Kills the helper and waits for its exit, so a cleanup run that follows starts after it.
+    async fn stop(mut self, manager: &dyn ProcessManager) {
+        let _ = manager.kill(&self.handle);
+        let _ = self.exited.wait_for(|exited| *exited).await.is_ok();
     }
 }
 
+/// Splits the helper's stdout into lines the way `BufRead::lines` does.
+#[derive(Default)]
+struct LineSplitter {
+    partial: Vec<u8>,
+}
+
+impl LineSplitter {
+    /// The lines `bytes` completes, and whether one of them was not UTF-8 (`lines()` fails
+    /// there, which ends the host's output).
+    fn push(&mut self, bytes: &[u8]) -> (Vec<String>, bool) {
+        let mut lines = Vec::new();
+        let mut rest = bytes;
+        while let Some(at) = rest.iter().position(|byte| *byte == b'\n') {
+            self.partial.extend_from_slice(&rest[..at]);
+            rest = &rest[at + 1..];
+            if self.partial.last() == Some(&b'\r') {
+                self.partial.pop();
+            }
+            match String::from_utf8(std::mem::take(&mut self.partial)) {
+                Ok(line) => lines.push(line),
+                Err(_) => return (lines, true),
+            }
+        }
+        self.partial.extend_from_slice(rest);
+        (lines, false)
+    }
+
+    /// The unterminated last line, at the end of the output.
+    fn finish(&mut self) -> Option<String> {
+        if self.partial.is_empty() {
+            return None;
+        }
+        String::from_utf8(std::mem::take(&mut self.partial)).ok()
+    }
+}
+
+/// Hands one output line to the request it answers.
+fn deliver(pending: &Pending, line: &str) {
+    let Some(body) = line.strip_prefix(RESPONSE_MARKER) else { return };
+    let (id, outcome) = if body.len() > MAX_RESPONSE_BYTES {
+        // Too large to trust or parse; the id is still the number after `"id":`.
+        (leading_id(body), Err("computer_response_too_large: worker output exceeded byte limit".into()))
+    } else {
+        match serde_json::from_str::<Value>(body) {
+            Ok(value) => (value.get("id").and_then(Value::as_i64), envelope(value)),
+            Err(_) => return,
+        }
+    };
+    let waiter = id.and_then(|id| locked(pending).remove(&id));
+    if let Some(waiter) = waiter {
+        waiter(outcome);
+    }
+}
+
+/// Marks the host gone and fails every request still waiting on it.
+fn fail_waiters(pending: &Pending, alive: &AtomicBool) {
+    alive.store(false, Ordering::SeqCst);
+    let orphans: Vec<Waiter> = locked(pending).drain().map(|(_, waiter)| waiter).collect();
+    for waiter in orphans {
+        waiter(Err("computer_host_exited: the computer host stopped".into()));
+    }
+}
+
+/// Reads the helper's output events until it exits.
+async fn pump(
+    mut events: Box<dyn EventSource<ProcessEvent>>,
+    pending: Pending,
+    alive: Arc<AtomicBool>,
+    exited: watch::Sender<bool>,
+) {
+    let mut lines = LineSplitter::default();
+    let mut reading = true;
+    while let Some(event) = events.next().await {
+        match event {
+            ProcessEvent::Output { stream: OutputStream::Stdout, bytes, .. } if reading => {
+                let (complete, broken) = lines.push(&bytes);
+                for line in complete {
+                    deliver(&pending, &line);
+                }
+                if broken {
+                    // Past a line that is not text the output is not trusted; keep draining the
+                    // pipe until the process is gone.
+                    reading = false;
+                    fail_waiters(&pending, &alive);
+                }
+            }
+            ProcessEvent::Output { .. } => {}
+            ProcessEvent::Exited { .. } => {
+                if let Some(line) = reading.then(|| lines.finish()).flatten() {
+                    deliver(&pending, &line);
+                }
+                break;
+            }
+        }
+    }
+    fail_waiters(&pending, &alive);
+    let _ = exited.send(true);
+}
+
+/// Runs a process to its exit.
+async fn run_to_exit(manager: &dyn ProcessManager, request: SpawnRequest) {
+    let handle = request.handle.clone();
+    if manager.spawn(request).await.is_err() {
+        return;
+    }
+    let Ok(mut events) = manager.subscribe(&handle, Some(0)) else { return };
+    while let Some(event) = events.next().await {
+        if matches!(event, ProcessEvent::Exited { .. }) {
+            break;
+        }
+    }
+}
+
+#[allow(
+    clippy::disallowed_types,
+    reason = "`turn` is held across the helper start and the stdin write on purpose, so one request starts and is written at a time"
+)]
 pub struct ProcessComputerBackend {
     config: ComputerConfig,
+    manager: Arc<dyn ProcessManager>,
     host: Mutex<Option<Host>>,
+    turn: tokio::sync::Mutex<()>,
     next_id: AtomicI64,
     screen: Screen,
 }
 
 impl ProcessComputerBackend {
-    /// The helper starts on the first action and restarts after a timeout or cancellation.
-    pub fn new(config: ComputerConfig) -> Self {
-        Self { config, host: Mutex::new(None), next_id: AtomicI64::new(1), screen: Screen::default() }
-    }
-
-    fn command(&self) -> Command {
-        let mut command = Command::new(&self.config.binary);
-        command
-            .env("MIXDOG_COMPUTER_READ_ACTIONS", READ_ACTIONS.join(","))
-            .env(
-                "MIXDOG_COMPUTER_RETAIN_REF_ACTIONS",
-                READ_ACTIONS.iter().chain(RETAIN_REF_ACTIONS.iter()).copied().collect::<Vec<_>>().join(","),
-            )
-            .env("MIXDOG_COMPUTER_SEQUENCE_SETTLE_MS", self.config.sequence_settle_ms.to_string())
-            .env("MIXDOG_COMPUTER_MAX_FOREGROUND_TEXT", self.config.max_foreground_text.to_string());
-        if let Some(marker) = &self.config.input_marker {
-            command.env("MIXDOG_COMPUTER_INPUT_MARKER", marker);
+    /// The helper runs under `manager`; it starts on the first action and restarts after a
+    /// timeout or cancellation.
+    #[allow(clippy::disallowed_types, reason = "builds the `turn` lock; see the struct")]
+    pub fn new(config: ComputerConfig, manager: Arc<dyn ProcessManager>) -> Self {
+        Self {
+            config,
+            manager,
+            host: Mutex::new(None),
+            turn: tokio::sync::Mutex::new(()),
+            next_id: AtomicI64::new(1),
+            screen: Screen::default(),
         }
-        #[cfg(windows)]
-        std::os::windows::process::CommandExt::creation_flags(&mut command, CREATE_NO_WINDOW);
-        command
     }
 
-    fn spawn(&self) -> Result<Host, ComputerError> {
-        let mut child = self
-            .command()
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|error| ComputerError::Unavailable {
-                reason: format!("computer_backend_unavailable: cannot start {}: {error}", self.config.binary.display()),
-            })?;
-        let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
-            let _ = child.kill();
-            return Err(ComputerError::Unavailable { reason: "computer host has no pipes".into() });
+    /// A run of the helper with `args`; it reads requests from stdin when `stdin_piped`.
+    fn request(&self, args: Vec<String>, stdin_piped: bool) -> Result<SpawnRequest, ComputerError> {
+        let cwd = std::env::current_dir().ok().and_then(AbsPath::new).ok_or_else(|| ComputerError::Unavailable {
+            reason: "computer_backend_unavailable: the working directory is unreadable".into(),
+        })?;
+        let mut set = vec![
+            ("MIXDOG_COMPUTER_READ_ACTIONS".to_owned(), READ_ACTIONS.join(",")),
+            (
+                "MIXDOG_COMPUTER_RETAIN_REF_ACTIONS".to_owned(),
+                READ_ACTIONS.iter().chain(RETAIN_REF_ACTIONS.iter()).copied().collect::<Vec<_>>().join(","),
+            ),
+            ("MIXDOG_COMPUTER_SEQUENCE_SETTLE_MS".to_owned(), self.config.sequence_settle_ms.to_string()),
+            ("MIXDOG_COMPUTER_MAX_FOREGROUND_TEXT".to_owned(), self.config.max_foreground_text.to_string()),
+        ];
+        if let Some(marker) = &self.config.input_marker {
+            set.push(("MIXDOG_COMPUTER_INPUT_MARKER".to_owned(), marker.clone()));
+        }
+        Ok(SpawnRequest {
+            handle: ProcessHandle(format!("computer-{}-{}", std::process::id(), NEXT_HANDLE.fetch_add(1, Ordering::SeqCst))),
+            command: CommandSpec::Argv { program: self.config.binary.to_string_lossy().into_owned(), args },
+            cwd,
+            env: EnvSpec { inherit: true, set, remove: Vec::new() },
+            pty: None,
+            stdin_piped,
+            output: OutputMode::Separate,
+            owner: ProcessOwner::Internal,
+            time_limit: None,
+        })
+    }
+
+    async fn spawn(&self) -> Result<Host, ComputerError> {
+        let unavailable = |error: String| ComputerError::Unavailable {
+            reason: format!("computer_backend_unavailable: cannot start {}: {error}", self.config.binary.display()),
+        };
+        let request = self.request(Vec::new(), true)?;
+        let handle = request.handle.clone();
+        self.manager.spawn(request).await.map_err(|error| unavailable(format!("{error:?}")))?;
+        let events = match self.manager.subscribe(&handle, Some(0)) {
+            Ok(events) => events,
+            Err(error) => {
+                let _ = self.manager.kill(&handle);
+                return Err(unavailable(format!("{error:?}")));
+            }
         };
         let pending: Pending = Arc::default();
         let alive = Arc::new(AtomicBool::new(true));
-        let (reader_pending, reader_alive) = (pending.clone(), alive.clone());
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                let Some(body) = line.strip_prefix(RESPONSE_MARKER) else { continue };
-                let (id, outcome) = if body.len() > MAX_RESPONSE_BYTES {
-                    // Too large to trust or parse; the id is still the number after `"id":`.
-                    (leading_id(body), Err("computer_response_too_large: worker output exceeded byte limit".into()))
-                } else {
-                    match serde_json::from_str::<Value>(body) {
-                        Ok(value) => (value.get("id").and_then(Value::as_i64), envelope(value)),
-                        Err(_) => continue,
-                    }
-                };
-                if let Some(waiter) = id.and_then(|id| locked(&reader_pending).remove(&id)) {
-                    waiter(outcome);
-                }
-            }
-            reader_alive.store(false, Ordering::SeqCst);
-            let orphans: Vec<Waiter> = locked(&reader_pending).drain().map(|(_, waiter)| waiter).collect();
-            for waiter in orphans {
-                waiter(Err("computer_host_exited: the computer host stopped".into()));
-            }
-        });
-        Ok(Host { child, stdin, pending, alive })
+        let (done, exited) = watch::channel(false);
+        tokio::spawn(pump(events, pending.clone(), alive.clone(), done));
+        Ok(Host { handle, pending, alive, exited })
     }
 
     /// Writes one request and returns the channel its reply arrives on.
-    fn send(&self, mut command: Map<String, Value>) -> Result<oneshot::Receiver<Result<Map<String, Value>, String>>, ComputerError> {
+    async fn send(&self, mut command: Map<String, Value>) -> Result<oneshot::Receiver<Result<Map<String, Value>, String>>, ComputerError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         command.insert("id".into(), json!(id));
         command.insert("session_id".into(), json!(self.config.session_id));
@@ -230,47 +357,61 @@ impl ProcessComputerBackend {
             });
         }
         let (reply, receive) = oneshot::channel();
-        let mut slot = locked(&self.host);
-        if slot.as_ref().is_none_or(|host| !host.alive.load(Ordering::SeqCst)) {
-            if let Some(dead) = slot.take() {
-                dead.stop();
+        let _turn = self.turn.lock().await;
+        let live = locked(&self.host)
+            .as_ref()
+            .filter(|host| host.alive.load(Ordering::SeqCst))
+            .map(|host| (host.handle.clone(), host.pending.clone()));
+        let (handle, pending) = match live {
+            Some(live) => live,
+            None => {
+                let dead = locked(&self.host).take();
+                if let Some(dead) = dead {
+                    dead.stop(&*self.manager).await;
+                }
+                let host = self.spawn().await?;
+                let live = (host.handle.clone(), host.pending.clone());
+                *locked(&self.host) = Some(host);
+                live
             }
-            *slot = Some(self.spawn()?);
-        }
-        let Some(host) = slot.as_mut() else {
-            return Err(ComputerError::Unavailable { reason: "computer host is not running".into() });
         };
-        locked(&host.pending).insert(id, Box::new(move |outcome| drop(reply.send(outcome))));
-        if let Err(error) = writeln!(host.stdin, "{line}").and_then(|()| host.stdin.flush()) {
-            locked(&host.pending).remove(&id);
-            if let Some(broken) = slot.take() {
-                broken.stop();
+        locked(&pending).insert(id, Box::new(move |outcome| drop(reply.send(outcome))));
+        let mut bytes = line.into_bytes();
+        bytes.push(b'\n');
+        if let Err(error) = self.manager.write_stdin(&handle, bytes).await {
+            locked(&pending).remove(&id);
+            let broken = locked(&self.host).take();
+            if let Some(broken) = broken {
+                broken.stop(&*self.manager).await;
             }
             return Err(ComputerError::Failed {
                 code: "computer_host_write_failed".into(),
-                message: format!("the computer host did not take the request: {error}"),
+                message: format!("the computer host did not take the request: {error:?}"),
             });
         }
         Ok(receive)
     }
 
     /// Stops the helper and releases whatever input it held, from a fresh process.
-    fn retire(&self) {
-        if let Some(host) = locked(&self.host).take() {
-            host.stop();
+    async fn retire(&self) {
+        let host = locked(&self.host).take();
+        if let Some(host) = host {
+            host.stop(&*self.manager).await;
         }
-        let _ = self.command().arg("--abort-cleanup").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        if let Ok(request) = self.request(vec!["--abort-cleanup".to_owned()], false) {
+            run_to_exit(&*self.manager, request).await;
+        }
     }
 
     async fn call(&self, command: Map<String, Value>, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
         if cancel.is_cancelled() {
             return Err(ComputerError::Cancelled);
         }
-        let receive = self.send(command)?;
+        let receive = self.send(command).await?;
         tokio::select! {
             outcome = tokio::time::timeout(COMMAND_TIMEOUT, receive) => match outcome {
                 Err(_) => {
-                    self.retire();
+                    self.retire().await;
                     Err(ComputerError::Failed {
                         code: "computer_command_timeout".into(),
                         message: format!(
@@ -284,19 +425,19 @@ impl ProcessComputerBackend {
                 Ok(Ok(Ok(result))) => Ok(result),
             },
             () = cancel.cancelled() => {
-                self.retire();
+                self.retire().await;
                 Err(ComputerError::Cancelled)
             }
         }
     }
 
     async fn act(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
-        let steps = match command.remove("steps") {
+        let steps = match command.shift_remove("steps") {
             Some(Value::Array(steps)) => steps,
             _ => Vec::new(),
         };
         let delivery = command.get("delivery").and_then(Value::as_str).unwrap_or(DEFAULT_DELIVERY).to_string();
-        let observe = command.remove("capture_after_mode");
+        let observe = command.shift_remove("capture_after_mode");
         let target: Map<String, Value> =
             ["window_id", "app"].iter().filter_map(|key| command.get(*key).map(|v| ((*key).to_string(), v.clone()))).collect();
         let mut messages = Vec::new();
@@ -352,7 +493,7 @@ impl ProcessComputerBackend {
         if command.contains_key("screen") {
             return Err(unsupported("capture of a whole screen needs the desktop host's display capture"));
         }
-        let mode = command.remove("mode").and_then(|mode| mode.as_str().map(str::to_string)).unwrap_or_else(|| "state".into());
+        let mode = command.shift_remove("mode").and_then(|mode| mode.as_str().map(str::to_string)).unwrap_or_else(|| "state".into());
         let mut parts = Vec::new();
         let mut window = command.get("window_id").cloned();
         if mode != "vision" {
@@ -365,7 +506,7 @@ impl ProcessComputerBackend {
             command.insert("action".into(), json!("window_capture"));
             if let Some(window) = window {
                 command.insert("window_id".into(), window);
-                command.remove("app");
+                command.shift_remove("app");
             }
             let image = self.call(command, cancel).await?;
             let mut image_parts = parts_of(&image)?;
@@ -381,9 +522,22 @@ impl ProcessComputerBackend {
 impl Drop for ProcessComputerBackend {
     fn drop(&mut self) {
         let held = locked(&self.host).take();
-        if let Some(host) = held {
-            host.stop();
-            self.retire();
+        let Some(host) = held else { return };
+        let manager = self.manager.clone();
+        let cleanup = self.request(vec!["--abort-cleanup".to_owned()], false).ok();
+        // A drop cannot await: the stop and the cleanup run on the runtime, if there is one.
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => {
+                runtime.spawn(async move {
+                    host.stop(&*manager).await;
+                    if let Some(request) = cleanup {
+                        run_to_exit(&*manager, request).await;
+                    }
+                });
+            }
+            Err(_) => {
+                let _ = manager.kill(&host.handle);
+            }
         }
     }
 }
@@ -399,7 +553,7 @@ fn envelope(value: Value) -> Result<Map<String, Value>, String> {
         return Err(value.get("error").and_then(Value::as_str).unwrap_or("computer host request failed").to_string());
     }
     match value {
-        Value::Object(mut object) => match object.remove("result") {
+        Value::Object(mut object) => match object.shift_remove("result") {
             Some(Value::Object(result)) => Ok(result),
             _ => Ok(Map::new()),
         },
@@ -646,7 +800,7 @@ fn saved_login_error(input: &Map<String, Value>) -> Result<(), String> {
 fn host_step(step: &Value, frame_id: Option<&Value>) -> Value {
     let Some(step) = step.as_object() else { return step.clone() };
     let mut out = step.clone();
-    let kind = out.remove("type").unwrap_or(Value::Null);
+    let kind = out.shift_remove("type").unwrap_or(Value::Null);
     let mut action = kind.clone();
     match kind.as_str() {
         Some("click") => {
@@ -655,11 +809,11 @@ fn host_step(step: &Value, frame_id: Option<&Value>) -> Value {
                 "middle" => json!("middle_click"),
                 _ => json!("click"),
             };
-            out.remove("button");
+            out.shift_remove("button");
         }
         Some("move") => action = json!("mouse_move"),
         Some("set_value") => {
-            if let Some(value) = out.remove("value") {
+            if let Some(value) = out.shift_remove("value") {
                 out.insert("text".into(), value);
             }
         }
@@ -688,12 +842,12 @@ fn host_command(action: ComputerAction, input: &Map<String, Value>) -> Map<Strin
                 _ => "list_windows",
             };
             set(&mut command, name);
-            command.remove("kind");
+            command.shift_remove("kind");
         }
         ComputerAction::Capture => {
             if text(input, "mode") == "zoom" {
                 set(&mut command, "zoom");
-                command.remove("mode");
+                command.shift_remove("mode");
             } else {
                 set(&mut command, "capture");
             }
@@ -710,7 +864,7 @@ fn host_command(action: ComputerAction, input: &Map<String, Value>) -> Map<Strin
                 command.insert("capture_after_mode".into(), mode.clone());
             }
             for key in ["observe", "actions", "frame_id"] {
-                command.remove(key);
+                command.shift_remove(key);
             }
         }
         ComputerAction::Window => {
@@ -726,15 +880,15 @@ fn host_command(action: ComputerAction, input: &Map<String, Value>) -> Map<Strin
                 }
             };
             set(&mut command, name);
-            command.remove("operation");
+            command.shift_remove("operation");
         }
         ComputerAction::Clipboard => {
             set(&mut command, if text(input, "operation") == "write" { "clipboard_write" } else { "clipboard_read" });
-            command.remove("operation");
+            command.shift_remove("operation");
         }
         ComputerAction::SavedLogin => {
             set(&mut command, "fill_saved_login");
-            if let Some(account) = command.remove("savedAccount") {
+            if let Some(account) = command.shift_remove("savedAccount") {
                 command.insert("saved_account".into(), account);
             }
             command.insert("delivery".into(), json!("foreground"));
@@ -873,6 +1027,60 @@ mod tests {
         assert_eq!(leading_id("{\"id\": 42,\"ok\":true"), Some(42));
     }
 
+    #[test]
+    fn output_is_split_into_lines_like_buf_read_lines() {
+        let mut lines = LineSplitter::default();
+        assert_eq!(lines.push(b"one\r\ntw"), (vec!["one".to_owned()], false));
+        assert_eq!(lines.push(b"o\n\nthr"), (vec!["two".to_owned(), String::new()], false));
+        assert_eq!(lines.push(b"ee"), (Vec::<String>::new(), false));
+        assert_eq!(lines.finish(), Some("three".to_owned()));
+        assert_eq!(lines.finish(), None);
+        let (done, broken) = lines.push(b"ok\n\xff\nlater\n");
+        assert_eq!((done, broken), (vec!["ok".to_owned()], true));
+    }
+
+    struct Script(std::collections::VecDeque<ProcessEvent>);
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for Script {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            self.0.pop_front()
+        }
+    }
+
+    #[tokio::test]
+    async fn replies_are_delivered_before_the_waiters_of_an_exited_host_are_failed() {
+        use mixdog_core_api::domain::process::ExitStatus;
+        use mixdog_core_api::domain::process::ProcessExit;
+
+        let pending: Pending = Arc::default();
+        let outcomes = Arc::new(Mutex::new(Vec::new()));
+        for id in [1, 2] {
+            let outcomes = outcomes.clone();
+            locked(&pending).insert(id, Box::new(move |outcome| locked(&outcomes).push((id, outcome))));
+        }
+        let output = |seq, stream, text: &str| ProcessEvent::Output { seq, stream, bytes: text.as_bytes().to_vec() };
+        let events = Script(
+            [
+                output(0, OutputStream::Stdout, "noise\n@@MIXCU@@{\"id\":1,\"ok\":tr"),
+                output(1, OutputStream::Stderr, "ignored\n"),
+                output(2, OutputStream::Stdout, "ue,\"result\":{\"text\":\"a\"}}\r\n"),
+                ProcessEvent::Exited { seq: 3, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } },
+            ]
+            .into(),
+        );
+        let alive = Arc::new(AtomicBool::new(true));
+        let (done, exited) = watch::channel(false);
+        pump(Box::new(events), pending, alive.clone(), done).await;
+        assert!(!alive.load(Ordering::SeqCst));
+        assert!(*exited.borrow());
+        let outcomes = locked(&outcomes);
+        assert_eq!(outcomes[0].0, 1);
+        assert_eq!(outcomes[0].1.as_ref().unwrap().get("text"), Some(&json!("a")));
+        assert_eq!(outcomes[1].0, 2);
+        assert!(outcomes[1].1.as_ref().unwrap_err().starts_with("computer_host_exited"));
+    }
+
     #[cfg(unix)]
     mod host {
         use super::*;
@@ -900,7 +1108,9 @@ done
         #[tokio::test]
         async fn runs_an_action_through_the_resident_host_and_cleans_up_on_cancel() {
             let dir = tempfile::tempdir().unwrap();
-            let backend = ProcessComputerBackend::new(ComputerConfig::new(fake_host(dir.path()), "s1"));
+            let tokens = mixdog_rt::testing::tokens();
+            let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+            let backend = ProcessComputerBackend::new(ComputerConfig::new(fake_host(dir.path()), "s1"), manager);
             let parts = backend
                 .run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) }, CancellationToken::new())
                 .await

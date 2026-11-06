@@ -20,6 +20,12 @@ pub fn record(row: Map<String, Value>) -> ModelRecord {
     let flag = |key: &str| row.get(key).and_then(Value::as_bool);
     let mut record = ModelRecord::new(text("id").unwrap_or_default());
     record.display_name = text("display");
+    record.name = text("name");
+    record.provider_name = text("providerName");
+    record.manual = flag("manual") == Some(true);
+    record.supports_reasoning_effort_updates = flag("supportsReasoningEffortUpdates");
+    record.supports_prompt_caching = flag("supportsPromptCaching");
+    record.reasoning_content_field = text("reasoningContentField");
     record.context_window = count("contextWindow");
     record.max_output_tokens = count("outputTokens");
     record.supports_reasoning = flag("supportsReasoning");
@@ -30,7 +36,8 @@ pub fn record(row: Map<String, Value>) -> ModelRecord {
     record.mode = text("mode");
     record.created = row.get("created").and_then(Value::as_i64);
     // The picker's fields are the row's own keys (`fastEfforts`,
-    // `modelParameterOptions`, `parameterVariants`, `releaseDate`, ...).
+    // `modelParameterOptions`, `parameterVariants`, `releaseDate`, `tier`, `latest`,
+    // `description`, `defaultModelParameters`, `defaultFast`, `supportsMaxMode`, ...).
     record.picker = serde_json::from_value(Value::Object(row.clone())).unwrap_or_default();
     record.raw = Some(Value::Object(row));
     record
@@ -41,6 +48,9 @@ pub fn record(row: Map<String, Value>) -> ModelRecord {
 #[cfg(test)]
 pub(crate) mod testing {
     use std::sync::Mutex;
+
+    use mixdog_core_api::domain::provider::ModelRecord;
+    use serde_json::Value;
 
     use async_trait::async_trait;
     use bytes::Bytes;
@@ -84,6 +94,30 @@ pub(crate) mod testing {
     pub(crate) fn fixture(relative: &str) -> serde_json::Value {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/providers").join(relative);
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{relative}: {e}"))).unwrap()
+    }
+
+    /// The record states every `model/list` fact the Node row states, and none the row leaves out.
+    pub(crate) fn assert_row_facts(record: &ModelRecord, row: &Value, what: &str) {
+        let text = |key: &str| row.get(key).and_then(Value::as_str).map(str::to_owned);
+        let flag = |key: &str| row.get(key).and_then(Value::as_bool);
+        assert_eq!(record.name, text("name"), "{what}: name");
+        assert_eq!(record.picker.tier, text("tier"), "{what}: tier");
+        assert_eq!(record.picker.latest, flag("latest") == Some(true), "{what}: latest");
+        assert_eq!(record.picker.description, text("description"), "{what}: description");
+        assert_eq!(record.supports_prompt_caching, flag("supportsPromptCaching"), "{what}: supportsPromptCaching");
+        assert_eq!(record.reasoning_content_field, text("reasoningContentField"), "{what}: reasoningContentField");
+        assert_eq!(record.picker.default_service_tier, text("defaultServiceTier"), "{what}: defaultServiceTier");
+        let parameters: std::collections::BTreeMap<String, String> = row
+            .get("defaultModelParameters")
+            .and_then(Value::as_object)
+            .map(|o| o.iter().map(|(k, v)| (k.clone(), v.as_str().expect("a string parameter").to_owned())).collect())
+            .unwrap_or_default();
+        assert_eq!(record.picker.default_model_parameters, parameters, "{what}: defaultModelParameters");
+        assert_eq!(record.picker.default_fast, flag("defaultFast") == Some(true), "{what}: defaultFast");
+        assert_eq!(record.picker.supports_max_mode, flag("supportsMaxMode") == Some(true), "{what}: supportsMaxMode");
+        assert_eq!(record.provider_name, text("providerName"), "{what}: providerName");
+        assert_eq!(record.manual, flag("manual") == Some(true), "{what}: manual");
+        assert_eq!(record.supports_reasoning_effort_updates, flag("supportsReasoningEffortUpdates"), "{what}: supportsReasoningEffortUpdates");
     }
 
     pub(crate) fn unhex(text: &str) -> Vec<u8> {

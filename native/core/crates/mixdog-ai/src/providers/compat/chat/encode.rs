@@ -258,7 +258,7 @@ fn attach_reasoning(
                         msg.insert("reasoning".into(), replayed.text.into());
                     }
                     ReasoningShape::ContentChunks if replayed.field == Some("content_chunks") => {
-                        let content = msg.remove("content").unwrap_or(JsonValue::Null);
+                        let content = msg.shift_remove("content").unwrap_or(JsonValue::Null);
                         msg.insert(
                             "content".into(),
                             reasoning::content_with_thinking_chunk(content, replayed.text),

@@ -13,6 +13,7 @@ use serde_json::json;
 
 use super::*;
 use crate::json::js_stable;
+use mixdog_js::json_number as js_number;
 use crate::run::tests::corpus;
 use crate::run::tests::migrate_corpus;
 use crate::session::target::FoldedRow;
@@ -160,14 +161,6 @@ fn folded_rows(data_rel: &str, edit: impl FnOnce(&std::path::Path)) -> BTreeMap<
         .into_iter()
         .map(|(id, folded)| (id, folded.rows))
         .collect()
-}
-
-fn js_number(value: f64) -> Value {
-    if value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 {
-        Value::from(value as i64)
-    } else {
-        serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
-    }
 }
 
 /// What a client draws for one migrated row, in the generator's normalized row shape, and

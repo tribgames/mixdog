@@ -210,3 +210,40 @@ mod tests {
         assert_eq!(h.after_batch(1).await.as_deref(), Some("stop"));
     }
 }
+
+/// What a hook payload carries besides the event: the worker session's directory and common
+/// fields (`hookCommonPayload`, which reads the transcript path of the session it is given).
+pub type SubagentContext = Arc<dyn Fn(&str) -> (std::path::PathBuf, mixdog_mcp::hook_bus::HookCommon) + Send + Sync>;
+
+/// `SubagentEvents` over the hook bus (`onSubagentEvent` → `hooks.dispatch`). Fire and forget:
+/// a hook problem never reaches the worker's lifecycle.
+pub struct HookSubagentEvents {
+    bus: Arc<mixdog_mcp::hook_bus::HookBus>,
+    context: SubagentContext,
+}
+
+impl HookSubagentEvents {
+    pub fn new(bus: Arc<mixdog_mcp::hook_bus::HookBus>, context: SubagentContext) -> Self {
+        Self { bus, context }
+    }
+
+    fn emit(&self, stop: bool, agent: &str, session_id: &str) {
+        let bus = self.bus.clone();
+        let (cwd, common) = (self.context)(session_id);
+        let (agent, session_id) = (agent.to_owned(), session_id.to_owned());
+        tokio::spawn(async move {
+            bus.subagent(stop, &session_id, Some(&agent), &cwd, &common).await;
+        });
+    }
+}
+
+impl mixdog_agent::agent_tool::flow::seams::SubagentEvents for HookSubagentEvents {
+    fn start(&self, agent: &str, session_id: &str, _tag: &str) {
+        self.emit(false, agent, session_id);
+    }
+
+    // The bus takes the agent and session only: the tag and status are not part of the payload.
+    fn stop(&self, agent: &str, session_id: &str, _tag: &str, _status: &str) {
+        self.emit(true, agent, session_id);
+    }
+}

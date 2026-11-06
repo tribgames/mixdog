@@ -231,7 +231,7 @@ impl SessionTool {
             return Err(refused("task-origin", "session: a task session reports to its agent only through its result"));
         }
         let mut rest = args.clone();
-        let attachments = rest.as_object_mut().and_then(|o| o.remove("attachments"));
+        let attachments = rest.as_object_mut().and_then(|o| o.shift_remove("attachments"));
         if attachments.is_some() && action != "send" && action != "create" {
             return Err(invalid("attachments", format!("session: attachments apply to send and create, not action={action}")));
         }

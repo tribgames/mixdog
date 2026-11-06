@@ -10484,6 +10484,10 @@
             "null"
           ]
         },
+        "manual": {
+          "description": "A custom model added by hand.",
+          "type": "boolean"
+        },
         "maxContextWindow": {
           "description": "The largest window the listing states for the model.",
           "format": "uint64",
@@ -10525,7 +10529,20 @@
         "picker": {
           "$ref": "#/definitions/ProxyPicker"
         },
+        "providerName": {
+          "description": "A custom provider's own name for itself.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "raw": true,
+        "reasoningContentField": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "reasoningLevels": {
           "items": {
             "type": "string"
@@ -10538,7 +10555,19 @@
             "null"
           ]
         },
+        "supportsPromptCaching": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "supportsReasoning": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supportsReasoningEffortUpdates": {
           "type": [
             "boolean",
             "null"
@@ -10559,6 +10588,7 @@
       "required": [
         "hidden",
         "id",
+        "manual",
         "picker",
         "reasoningLevels"
       ],
@@ -10941,11 +10971,35 @@
             }
           ]
         },
+        "defaultFast": {
+          "type": "boolean"
+        },
+        "defaultModelParameters": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "defaultServiceTier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "fastEfforts": {
           "items": {
             "type": "string"
           },
           "type": "array"
+        },
+        "latest": {
+          "type": "boolean"
         },
         "modelParameterOptions": {
           "items": {
@@ -10979,15 +11033,28 @@
             "$ref": "#/definitions/ProxyServiceTier"
           },
           "type": "array"
+        },
+        "supportsMaxMode": {
+          "type": "boolean"
+        },
+        "tier": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "additionalSpeedTiers",
+        "defaultFast",
+        "defaultModelParameters",
         "fastEfforts",
+        "latest",
         "modelParameterOptions",
         "parameterVariants",
         "reasoningOptions",
-        "serviceTiers"
+        "serviceTiers",
+        "supportsMaxMode"
       ],
       "type": "object"
     },

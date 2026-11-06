@@ -67,40 +67,7 @@ pub fn user_location(locale: Option<&Value>) -> Option<Value> {
     (location.len() > 1).then_some(Value::Object(location))
 }
 
-/// JS `Number(value)`: `None` is NaN.
-fn js_number(v: Option<&Value>) -> Option<f64> {
-    match v? {
-        Value::Null => Some(0.0),
-        Value::Bool(b) => Some(f64::from(u8::from(*b))),
-        Value::Number(n) => n.as_f64(),
-        Value::String(s) => {
-            let t = mixdog_js::js_trim(s);
-            let radix = |prefix: &str, base: u32| {
-                t.strip_prefix(prefix).or_else(|| t.strip_prefix(&prefix.to_uppercase())).map(|digits| {
-                    u64::from_str_radix(digits, base).ok().map(|n| n as f64)
-                })
-            };
-            if t.is_empty() {
-                Some(0.0)
-            } else if let Some(parsed) = radix("0x", 16).or_else(|| radix("0b", 2)).or_else(|| radix("0o", 8)) {
-                parsed
-            } else if matches!(t, "Infinity" | "+Infinity") {
-                Some(f64::INFINITY)
-            } else if t == "-Infinity" {
-                Some(f64::NEG_INFINITY)
-            } else if t.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | '+' | '-' | 'e' | 'E')) {
-                t.parse::<f64>().ok()
-            } else {
-                None
-            }
-        }
-        Value::Array(_) | Value::Object(_) => None,
-    }
-}
-
-fn number_value(n: f64) -> Value {
-    if n.fract() == 0.0 && n.abs() < 9e15 { json!(n as i64) } else { json!(n) }
-}
+use mixdog_js::json_number as number_value;
 
 /// `nativeWebSearchTool`: `family` is the provider's hosted web-search family
 /// (`web_search_provider_family`).
@@ -112,7 +79,7 @@ pub fn native_web_search_tool(args: &Value, tool_type: &str, family: &str) -> Va
     match family {
         "gemini" => json!({ "type": tool_type }),
         "anthropic" => {
-            let max = js_number(get(args, "maxResults")).filter(|n| *n != 0.0).unwrap_or(5.0);
+            let max = Some(mixdog_js::to_number_of(get(args, "maxResults"))).filter(|n| !n.is_nan() && *n != 0.0).unwrap_or(5.0);
             let mut tool = Map::new();
             tool.insert("type".into(), json!("web_search_20250305"));
             tool.insert("name".into(), json!("web_search"));

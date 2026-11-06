@@ -431,21 +431,25 @@ pub struct OpRef {
 }
 
 /// A display-only model-switch boundary: one 1.4.5 `meta.modelSwitches` entry of the
-/// anchor row (`set-route.mjs` `recordModelSwitchBoundary`), appended instead of rewriting
-/// that row. Never part of the model context. Shown after the anchor's own items for as
-/// long as the anchor row is live in the reader's view, whatever this record's own ordinal
-/// a later rewind covers (FORMAT.md §5.3).
+/// anchor message (`set-route.mjs` `recordModelSwitchBoundary`), appended instead of
+/// rewriting that message. Never part of the model context. Shown after the anchor's own
+/// items for as long as the anchor is live in the reader's view, whatever this record's
+/// own ordinal a later rewind covers (FORMAT.md §5.3).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelSwitchRecord {
     pub anchor: Anchor,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub op: Option<OpRef>,
-    pub entry: ModelSwitchEntry,
+    /// ★: 1.4.5 bounds neither `provider` nor `modelId` (a preset's model id skips the
+    /// selector check), so a long entry moves to a blob like any body.
+    pub entry: Slot<ModelSwitchEntry>,
 }
 
-/// An already stored `item` row: its `iid` and its ordinal in the session's lineage view
-/// (below the record's own ordinal; a fork's anchor may be an inherited base row).
+/// The message the boundary is recorded on, in the session's lineage view, below the
+/// record's own ordinal (a fork's anchor may be inherited): either an `item` row (`ordinal`
+/// = the row's, `iid` = its iid) or a replacement entry of a `compacted` frame that has no
+/// history row, such as the summary (`ordinal` = the frame's, `iid` = the entry's).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Anchor {
@@ -458,8 +462,8 @@ pub struct Anchor {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSwitchEntry {
-    pub provider: Name,
-    pub model_id: Name,
+    pub provider: String,
+    pub model_id: String,
     pub at: i64,
 }
 

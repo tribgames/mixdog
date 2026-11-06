@@ -49,7 +49,7 @@ pub trait SetupRuntime: Send + Sync {
     async fn set_mcp_server_enabled(&self, name: &str, enabled: bool) -> Result<Value, String>;
     async fn reconnect_mcp(&self, name: Option<&str>) -> Result<Value, String>;
     /// `mcpStatus()`.
-    async fn mcp_status(&self) -> Value;
+    async fn mcp_status(&self) -> Result<Value, String>;
     /// `getMcpServerConfig(name)`; `name` as the caller gave it.
     async fn mcp_server_config(&self, name: &Value) -> Result<Value, String>;
     async fn set_disabled_skills(&self, names: &[String]) -> Result<Value, String>;
@@ -59,7 +59,7 @@ pub trait SetupRuntime: Send + Sync {
     async fn set_plugin_enabled(&self, name: &str, enabled: bool) -> Result<Value, String>;
     async fn remove_plugin(&self, name: &str) -> Result<Value, String>;
     /// `pluginsStatus()`.
-    async fn plugins_status(&self) -> Value;
+    async fn plugins_status(&self) -> Result<Value, String>;
     async fn enable_plugin_mcp(&self, plugin: &Value) -> Result<Value, String>;
 }
 
@@ -128,8 +128,7 @@ fn mcp_server_input(args: &Value) -> Result<Value, String> {
 
 fn number(value: &Value) -> Value {
     let zero = json!(0);
-    let n = to_number(if truthy(value) { value } else { &zero });
-    if n.fract() == 0.0 && n.abs() < 9.0e15 { json!(n as i64) } else { json!(n) }
+    mixdog_js::json_number(to_number(if truthy(value) { value } else { &zero }))
 }
 
 fn or_empty_text(value: &Value) -> Value {
@@ -330,7 +329,7 @@ pub async fn run(action: &str, args: &Value, rt: &dyn SetupRuntime) -> Result<Va
                 let ids: Vec<&str> = CATALOG.iter().map(|c| c.id).collect();
                 return Err(format!("connector must be one of {}", ids.join(", ")));
             };
-            let status = rt.mcp_status().await;
+            let status = rt.mcp_status().await?;
             let server = field(&status, "servers").as_array().and_then(|rows| rows.iter().find(|row| field(row, "connector") == &json!(entry.id)));
             let connected = server.is_some_and(|s| field(s, "connected") == &json!(true));
             let mut out = Map::new();
@@ -353,7 +352,7 @@ pub async fn run(action: &str, args: &Value, rt: &dyn SetupRuntime) -> Result<Va
         }
         "enable_plugin_mcp" => {
             let name = require_text(field(args, "name"), "name")?;
-            let status = rt.plugins_status().await;
+            let status = rt.plugins_status().await?;
             let plugin = field(&status, "plugins")
                 .as_array()
                 .and_then(|rows| rows.iter().find(|row| field(row, "name") == &json!(name) || field(row, "id") == &json!(name)))

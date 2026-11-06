@@ -141,7 +141,9 @@ impl Observable {
         })
     }
 
+    /// Key order counts: migrated bodies keep 1.4.5's bytes, so a reordered key is a change.
     pub fn digest(&self) -> String {
-        crate::json::digest_of(&self.to_value())
+        let bytes = serde_json::to_vec(&self.to_value()).expect("a Value always encodes");
+        format!("sha256:{}", crate::durable::sha256_hex(&bytes))
     }
 }

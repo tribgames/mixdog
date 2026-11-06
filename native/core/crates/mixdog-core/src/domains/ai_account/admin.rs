@@ -153,7 +153,7 @@ impl ProviderAdmin {
                 let entry = object_at(object_at(doc, "providers"), &id);
                 for (key, value) in entries {
                     if value.is_null() {
-                        entry.remove(&key);
+                        entry.shift_remove(&key);
                     } else {
                         entry.insert(key, value);
                     }

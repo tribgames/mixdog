@@ -39,8 +39,21 @@ mod transcript_divider;
 #[cfg(test)]
 #[path = "transcript_golden.rs"]
 mod transcript_golden;
+#[path = "transcript_response.rs"]
+mod transcript_response;
 #[path = "transcript_rows.rs"]
 mod transcript_rows;
+
+pub use self::transcript_response::Completion;
+pub use self::transcript_response::Delivery;
+pub use self::transcript_response::agent_response;
+
+pub(super) use self::transcript_boundary::fold_model_switches;
+pub(super) use self::transcript_rows::normalize_reactions;
+pub(super) use self::transcript_rows::truthy;
+pub(super) use self::transcript_boundary::divider_model_switches;
+pub(super) use self::transcript_boundary::live_divider_model_switch;
+pub(super) use self::transcript_boundary::live_model_switch;
 
 /// `MessageRows` of one run: every history message the run holds is registered with the
 /// `item.body` the store holds for it (the `Value` read back at load, or the body the run

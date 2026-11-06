@@ -178,7 +178,7 @@ impl AgentRuntime {
                         },
                     )
                     .await;
-                Ok(AgentReply::Roster { workers, jobs: views.list_jobs(&scope) })
+                Ok(AgentReply::Roster { workers, jobs: views.list_jobs(&scope).await })
             }
             "read" => self.read_job(args, &scope).await,
             "cleanup" => self.cleanup(args, &scope).await,
@@ -299,7 +299,7 @@ impl AgentRuntime {
         registry.refresh_tags_from_sessions(wants_session_scan(args), scope).await;
         let cleaned = self.deps.tasks.cleanup(scope, args.get("force") == Some(&Value::Bool(true)));
         let tags_removed = before - registry.tag_count() as i64;
-        let tasks = self.deps.views.list_jobs(scope).len();
+        let tasks = self.deps.views.list_jobs(scope).await.len();
         // Cleanup reports how many worker rows remain known (idle/terminal included).
         let workers = self
             .deps
@@ -427,11 +427,11 @@ impl AgentRuntime {
             map.insert("type".into(), "spawn".into());
             map.insert("tag".into(), tag.into());
             map.insert("prompt".into(), prompt.into());
-            map.remove("message");
+            map.shift_remove("message");
             map.insert("agent".into(), inherited.agent.into());
             map.insert("cwd".into(), inherited.cwd.into());
         }
-        let job = self.deps.spawn_flow.start_deferred_spawn_job(&spawn_args, caller_cwd, caller, caller, SpawnOptions { respawned: true })?;
+        let job = self.deps.spawn_flow.start_deferred_spawn_job(&spawn_args, caller_cwd, caller, caller, SpawnOptions { respawned: true }).await?;
         Ok(Self::spawn_result(job))
     }
 
@@ -535,7 +535,7 @@ impl AgentRuntime {
                 SpawnPlan::Fresh { args, respawned } => (args, respawned),
             }
         };
-        let job = self.deps.spawn_flow.start_deferred_spawn_job(&spawn_args, &caller.cwd, caller, caller, SpawnOptions { respawned })?;
+        let job = self.deps.spawn_flow.start_deferred_spawn_job(&spawn_args, &caller.cwd, caller, caller, SpawnOptions { respawned }).await?;
         Ok(Self::spawn_result(job))
     }
 }

@@ -94,6 +94,11 @@ fn check_rows(flavor: Flavor, route: &str) {
         assert_eq!(model.thinking_adaptive, types.and_then(|t| t["adaptive"].as_bool()), "{id} adaptive");
         assert_eq!(model.thinking_enabled, types.and_then(|t| t["enabled"].as_bool()), "{id} enabled");
         assert_eq!(&model.raw, raw, "{id} raw row");
+        // The typed record states what the Node row states.
+        let record = model.to_record();
+        assert_eq!(record.picker.tier.as_deref(), node["tier"].as_str(), "{id} record tier");
+        assert_eq!(record.picker.latest, node["latest"].as_bool().expect("latest"), "{id} record latest");
+        assert_eq!(record.name, None, "{id}: the Anthropic row states no `name`");
     }
 }
 

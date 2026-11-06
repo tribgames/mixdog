@@ -392,7 +392,7 @@ fn adopt_aliases(next: &mut Map<String, JsonValue>, table: &[(&str, &[&str])]) {
     }
     for (_, aliases) in table {
         for a in *aliases {
-            next.remove(*a);
+            next.shift_remove(*a);
         }
     }
 }
@@ -416,12 +416,12 @@ fn canonical_grep(args: &JsonValue) -> Option<JsonValue> {
         return None;
     };
     adopt_aliases(&mut adopted, &GREP_ARG_ALIASES);
-    adopted.remove("mode");
+    adopted.shift_remove("mode");
     let requested = adopted.get("output_mode").and_then(|m| m.as_str()).map_or("", mixdog_js::js_trim).to_owned();
     if requested == "files_with_matches" || requested == "count" {
         adopted.insert("output_mode".to_owned(), JsonValue::String(requested));
         for key in ["-A", "-B", "context"] {
-            adopted.remove(key);
+            adopted.shift_remove(key);
         }
         return Some(JsonValue::Object(adopted));
     }
@@ -432,7 +432,7 @@ fn canonical_grep(args: &JsonValue) -> Option<JsonValue> {
         && !adopted.contains_key("-A")
         && !adopted.contains_key("-B")
     {
-        adopted.remove("context");
+        adopted.shift_remove("context");
     }
     Some(JsonValue::Object(adopted))
 }
@@ -542,6 +542,13 @@ fn is_git_mutation(name: &str, args: &JsonValue) -> bool {
         "github" => !args.get("action").and_then(|a| a.as_str()).is_some_and(|a| GITHUB_READ_ACTIONS.contains(&a)),
         _ => false,
     }
+}
+
+/// `_isMutationTool(name, args) || _isShellTool(name)`: the work a todo list tracks — file
+/// edits, command execution and mutating git/github requests.
+pub(crate) fn is_mutating_call(name: &str, args: &JsonValue) -> bool {
+    let lowered = strip_mcp(name).to_lowercase();
+    lowered == "apply_patch" || lowered == "edit" || is_git_mutation(name, args) || is_shell_tool(name)
 }
 
 /// Touched paths of a patch (`*** Update/Add/Delete File:` lines and unified-diff headers), as

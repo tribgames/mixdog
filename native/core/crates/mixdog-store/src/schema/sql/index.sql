@@ -155,9 +155,10 @@ CREATE INDEX history_iid ON history(session, iid);
 CREATE INDEX history_page ON history(session, ordinal) WHERE visible = 1 AND superseded_rev IS NULL;
 CREATE INDEX history_model ON history(session, ordinal) WHERE model = 1 AND superseded_rev IS NULL;
 
--- One row per `model_switch` frame: a display-only boundary on the anchor row
--- (anchor_ordinal, anchor_iid), shown while that row is live in the reader's view. No
--- superseded_rev: a rewind that keeps the anchor keeps its boundaries.
+-- One row per `model_switch` frame: a display-only boundary on the anchor (anchor_ordinal,
+-- anchor_iid) — an `item` row, or a replacement entry of the `compacted` frame at
+-- anchor_ordinal (found through `message_rows`) — shown while the anchor is live in the
+-- reader's view. No superseded_rev: a rewind that keeps the anchor keeps its boundaries.
 CREATE TABLE model_switches (
     session TEXT NOT NULL,
     ordinal INTEGER NOT NULL,

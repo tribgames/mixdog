@@ -36,6 +36,8 @@ const CALLERS = {
   room: [room, { id: room }],
   headless: ['sess_bg', { id: 'sess_bg', parentSessionId: 'sess_human' }],
   heartbeat: ['sess_hb', { id: 'sess_hb', sourceType: 'lead' }],
+  // A session the host cannot open: `getCallerSession` answers nothing.
+  open_fails: ['sess_gone', null],
 };
 markUnattendedRun('sess_run', { kind: 'schedule', agentId: 'helper', name: 'nightly' });
 markHeartbeatSession('sess_hb');

@@ -3,8 +3,6 @@
 use mixdog_js::js_trim;
 use mixdog_js::number_to_string;
 use mixdog_js::to_number;
-use serde_json::Map;
-use serde_json::Number;
 use serde_json::Value;
 
 /// `Math.round`: ties toward +∞.
@@ -53,13 +51,7 @@ pub fn to_fixed(x: f64, digits: usize) -> String {
     if negative && x != 0.0 { format!("-{out}") } else { out }
 }
 
-/// A finite number as a JSON number; whole values stay integers, as `JSON.stringify` writes them.
-pub fn number(x: f64) -> Value {
-    if x.is_finite() && x.fract() == 0.0 && x.abs() < 9_007_199_254_740_992.0 {
-        return Value::from(x as i64);
-    }
-    Number::from_f64(x).map_or(Value::Null, Value::Number)
-}
+pub use mixdog_js::json_number as number;
 
 /// The shared `num(value, fallback)` of the usage modules: null, absent and `''` are the
 /// fallback, as is anything that is not a finite number.

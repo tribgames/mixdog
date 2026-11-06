@@ -278,7 +278,7 @@ impl Fold {
             Effect::None => {}
             Effect::Header(change) => {
                 for key in &change.unset {
-                    self.header.remove(key);
+                    self.header.shift_remove(key);
                 }
                 for (k, v) in change.set {
                     self.header.insert(k, v);

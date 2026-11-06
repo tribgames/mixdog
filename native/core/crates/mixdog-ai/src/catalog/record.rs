@@ -90,6 +90,24 @@ pub struct ModelRecord {
     /// The wire id(s) the picker id is sent under.
     #[serde(default)]
     pub wire: Option<WireIds>,
+    /// The listing row's `name` (the fallback label); `display_name` carries
+    /// the label itself.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// A custom provider's own name for itself.
+    #[serde(default)]
+    pub provider_name: Option<String>,
+    /// A custom model the user added by hand.
+    #[serde(default)]
+    pub manual: bool,
+    /// The provider catalog's word on a mid-conversation effort change.
+    #[serde(default)]
+    pub supports_reasoning_effort_updates: Option<bool>,
+    /// The body field the model's thinking is returned and replayed under.
+    #[serde(default)]
+    pub reasoning_content_field: Option<String>,
+    #[serde(default)]
+    pub prompt_caching: Capability,
     /// Wire family the source assigns (for example `gemini`, `claude`).
     #[serde(default)]
     pub family: Option<String>,
@@ -131,6 +149,12 @@ impl ModelRecord {
             created: None,
             alias_target: None,
             wire: None,
+            name: None,
+            provider_name: None,
+            manual: false,
+            supports_reasoning_effort_updates: None,
+            reasoning_content_field: None,
+            prompt_caching: Capability::Unknown,
             family: None,
             thinking: Thinking::Unspecified,
             npm: None,

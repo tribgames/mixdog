@@ -36,14 +36,7 @@ use super::schema::SchemaMemo;
 const MUSE_SPARK_MAX_OUTPUT: u32 = 131_072;
 const MUSE_FIVE_LEVELS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
 
-/// A number as JS prints it: an integral value has no fraction.
-fn js_number(value: f64) -> JsonValue {
-    if value.fract() == 0.0 && value.abs() < 1e15 {
-        json!(value as i64)
-    } else {
-        json!(value)
-    }
-}
+use mixdog_js::json_number as js_number;
 
 /// A cache identity as a `prompt_cache_key`: kept up to the 64-unit wire
 /// limit, a bounded hash beyond it (`normalizeCacheKey`).

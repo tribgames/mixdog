@@ -45,14 +45,7 @@ pub fn non_negative(value: f64) -> f64 {
     if value.is_finite() { value.max(0.0) } else { 0.0 }
 }
 
-/// A JSON number the way `JSON.stringify` prints a JS number: integral values without a fraction.
-pub fn js_number(value: f64) -> Value {
-    if value.fract() == 0.0 && value.abs() < 9.0e15 {
-        Value::from(value as i64)
-    } else {
-        Value::from(value)
-    }
-}
+pub use mixdog_js::json_number as js_number;
 
 /// What the document names about the session.
 pub struct UsageSession<'a> {

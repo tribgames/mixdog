@@ -354,14 +354,14 @@ fn flatten_top_level_compound(schema: Value) -> Value {
     };
     let mut branches = Vec::new();
     for key in ["oneOf", "anyOf", "allOf"] {
-        if let Some(Value::Array(items)) = root.remove(key) {
+        if let Some(Value::Array(items)) = root.shift_remove(key) {
             branches.extend(items);
         }
     }
     if branches.is_empty() {
         return Value::Object(root);
     }
-    let mut properties = match root.remove("properties") {
+    let mut properties = match root.shift_remove("properties") {
         Some(Value::Object(p)) => p,
         _ => Map::new(),
     };

@@ -35,7 +35,8 @@ windows-sys = { workspace = true, features = [
 [dev-dependencies]
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "process", "io-util", "sync", "test-util"] }
+sha2.workspace = true
+tokio ={ workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "process", "io-util", "sync", "test-util"] }
 
 [features]
 # Observation hooks for the G8 driver (the core reader's outstanding-window counts).

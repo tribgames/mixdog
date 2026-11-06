@@ -133,7 +133,7 @@ impl CompatAdapter {
         let body = self.get_json(format!("{}/models", self.codec.base_url()), false).await?;
         Ok(match body {
             Value::Array(items) => items,
-            Value::Object(mut map) => match map.remove("data") {
+            Value::Object(mut map) => match map.shift_remove("data") {
                 Some(Value::Array(items)) => items,
                 _ => Vec::new(),
             },
@@ -197,6 +197,7 @@ impl CompatAdapter {
                 if row.reasoning_levels.is_empty() {
                     row.reasoning_levels = levels.iter().map(|l| (*l).to_owned()).collect();
                 }
+                row.reasoning_content_field = Some("reasoning_content".to_owned());
                 row.raw = Some(json!({ "reasoningContentField": "reasoning_content" }));
             }
         }

@@ -1,0 +1,419 @@
+{
+ "measure": [
+  {
+   "name": "modify",
+   "changes": [
+    {
+     "displayPath": "src/a.txt",
+     "before": {
+      "text": "a\nb\nc\n"
+     },
+     "after": {
+      "text": "a\nB\nc\n"
+     }
+    }
+   ],
+   "diff": "diff --git a/src/a.txt b/src/a.txt\n--- a/src/a.txt\n+++ b/src/a.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n",
+   "counts": [
+    {
+     "additions": 1,
+     "deletions": 1
+    }
+   ]
+  },
+  {
+   "name": "create",
+   "changes": [
+    {
+     "displayPath": "new.txt",
+     "before": null,
+     "after": {
+      "text": "hi\n"
+     }
+    }
+   ],
+   "diff": "diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+hi\n",
+   "counts": [
+    {
+     "additions": 1,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "delete",
+   "changes": [
+    {
+     "displayPath": "old.txt",
+     "before": {
+      "text": "bye\n"
+     },
+     "after": null
+    }
+   ],
+   "diff": "diff --git a/old.txt b/old.txt\ndeleted file mode 100644\n--- a/old.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-bye\n",
+   "counts": [
+    {
+     "additions": 0,
+     "deletions": 1
+    }
+   ]
+  },
+  {
+   "name": "create empty file",
+   "changes": [
+    {
+     "displayPath": "empty.txt",
+     "before": null,
+     "after": {
+      "text": ""
+     }
+    }
+   ],
+   "diff": "diff --git a/empty.txt b/empty.txt\nnew file mode 100644\n",
+   "counts": [
+    {
+     "additions": 0,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "delete empty file",
+   "changes": [
+    {
+     "displayPath": "empty.txt",
+     "before": {
+      "text": ""
+     },
+     "after": null
+    }
+   ],
+   "diff": "diff --git a/empty.txt b/empty.txt\ndeleted file mode 100644\n",
+   "counts": [
+    {
+     "additions": 0,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "unchanged",
+   "changes": [
+    {
+     "displayPath": "same.txt",
+     "before": {
+      "text": "x\n"
+     },
+     "after": {
+      "text": "x\n"
+     }
+    }
+   ],
+   "diff": "",
+   "counts": [
+    {
+     "additions": 0,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "rename same content",
+   "changes": [
+    {
+     "displayPath": "a.txt",
+     "newDisplayPath": "b.txt",
+     "before": {
+      "text": "x\n"
+     },
+     "after": {
+      "text": "x\n"
+     }
+    }
+   ],
+   "diff": "diff --git a/a.txt b/b.txt\nsimilarity index 100%\nrename from a.txt\nrename to b.txt\n",
+   "counts": [
+    {
+     "additions": 0,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "rename and modify",
+   "changes": [
+    {
+     "displayPath": "a.txt",
+     "newDisplayPath": "dir/b.txt",
+     "before": {
+      "text": "x\ny\n"
+     },
+     "after": {
+      "text": "x\nz\n"
+     }
+    }
+   ],
+   "diff": "diff --git a/a.txt b/dir/b.txt\nrename from a.txt\nrename to dir/b.txt\n--- a/a.txt\n+++ b/dir/b.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+z\n",
+   "counts": [
+    {
+     "additions": 1,
+     "deletions": 1
+    }
+   ]
+  },
+  {
+   "name": "nul byte is binary",
+   "changes": [
+    {
+     "displayPath": "bin.dat",
+     "before": {
+      "b64": "AQAC"
+     },
+     "after": {
+      "b64": "AQAD"
+     }
+    }
+   ],
+   "diff": "diff --git a/bin.dat b/bin.dat\nBinary files a/bin.dat and b/bin.dat differ\n",
+   "counts": [
+    {
+     "additions": 0,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "invalid utf8 is binary",
+   "changes": [
+    {
+     "displayPath": "bad.txt",
+     "before": {
+      "text": "ok\n"
+     },
+     "after": {
+      "b64": "//5B"
+     }
+    }
+   ],
+   "diff": "diff --git a/bad.txt b/bad.txt\nBinary files a/bad.txt and b/bad.txt differ\n",
+   "counts": [
+    {
+     "additions": 0,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "omitted before",
+   "changes": [
+    {
+     "displayPath": "big.bin",
+     "before": {
+      "omitted": {
+       "size": 70000000,
+       "reason": "oversized"
+      }
+     },
+     "after": {
+      "text": "small\n"
+     }
+    }
+   ],
+   "diff": "diff --git a/big.bin b/big.bin\nBinary files a/big.bin and b/big.bin differ\n",
+   "counts": [
+    {
+     "additions": 0,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "omitted after",
+   "changes": [
+    {
+     "displayPath": "big.bin",
+     "before": {
+      "text": "small\n"
+     },
+     "after": {
+      "omitted": {
+       "size": 5,
+       "reason": null
+      }
+     }
+    }
+   ],
+   "diff": "diff --git a/big.bin b/big.bin\nBinary files a/big.bin and b/big.bin differ\n",
+   "counts": [
+    {
+     "additions": 0,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "no display path",
+   "changes": [
+    {
+     "displayPath": "",
+     "before": null,
+     "after": {
+      "text": "x\n"
+     }
+    }
+   ],
+   "diff": "diff --git a/unknown file b/unknown file\nnew file mode 100644\n--- /dev/null\n+++ b/unknown file\n@@ -0,0 +1,1 @@\n+x\n",
+   "counts": [
+    {
+     "additions": 1,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "backslash and padded names",
+   "changes": [
+    {
+     "displayPath": "  dir\\sub\\f.txt ",
+     "before": {
+      "text": "a\n"
+     },
+     "after": {
+      "text": "b\n"
+     }
+    }
+   ],
+   "diff": "diff --git a/dir/sub/f.txt b/dir/sub/f.txt\n--- a/dir/sub/f.txt\n+++ b/dir/sub/f.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
+   "counts": [
+    {
+     "additions": 1,
+     "deletions": 1
+    }
+   ]
+  },
+  {
+   "name": "crlf and no newline at end",
+   "changes": [
+    {
+     "displayPath": "w.txt",
+     "before": {
+      "text": "a\r\nb"
+     },
+     "after": {
+      "text": "a\r\nc"
+     }
+    }
+   ],
+   "diff": "diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1,2 +1,2 @@\n a\r\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n",
+   "counts": [
+    {
+     "additions": 1,
+     "deletions": 1
+    }
+   ]
+  },
+  {
+   "name": "two files in one call",
+   "changes": [
+    {
+     "displayPath": "one.txt",
+     "before": {
+      "text": "1\n"
+     },
+     "after": {
+      "text": "2\n"
+     }
+    },
+    {
+     "displayPath": "two.txt",
+     "before": null,
+     "after": {
+      "text": "new\n"
+     }
+    }
+   ],
+   "diff": "diff --git a/one.txt b/one.txt\n--- a/one.txt\n+++ b/one.txt\n@@ -1,1 +1,1 @@\n-1\n+2\ndiff --git a/two.txt b/two.txt\nnew file mode 100644\n--- /dev/null\n+++ b/two.txt\n@@ -0,0 +1,1 @@\n+new\n",
+   "counts": [
+    {
+     "additions": 1,
+     "deletions": 1
+    },
+    {
+     "additions": 1,
+     "deletions": 0
+    }
+   ]
+  },
+  {
+   "name": "non-ascii name",
+   "changes": [
+    {
+     "displayPath": "café/日本.txt",
+     "before": {
+      "text": "a\n"
+     },
+     "after": {
+      "text": "b\n"
+     }
+    }
+   ],
+   "diff": "diff --git a/café/日本.txt b/café/日本.txt\n--- \"a/caf\\303\\251/\\346\\227\\245\\346\\234\\254.txt\"\n+++ \"b/caf\\303\\251/\\346\\227\\245\\346\\234\\254.txt\"\n@@ -1,1 +1,1 @@\n-a\n+b\n",
+   "counts": [
+    {
+     "additions": 1,
+     "deletions": 1
+    }
+   ]
+  }
+ ],
+ "registry": {
+  "taken": [
+   {
+    "id": "c0",
+    "found": false
+   },
+   {
+    "id": "c5",
+    "found": false
+   },
+   {
+    "id": "c6",
+    "found": true
+   },
+   {
+    "id": "c69",
+    "found": true
+   },
+   {
+    "id": "c69",
+    "found": false
+   },
+   {
+    "id": "nope",
+    "found": false
+   },
+   {
+    "id": "",
+    "found": false
+   },
+   {
+    "id": "r0",
+    "found": false
+   },
+   {
+    "id": "r1",
+    "found": true
+   },
+   {
+    "id": "r10",
+    "found": true
+   },
+   {
+    "id": "extra",
+    "found": true
+   }
+  ],
+  "again": null
+ }
+}

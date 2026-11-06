@@ -1,0 +1,217 @@
+{
+ "bound": [
+  {
+   "name": "fits",
+   "input": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
+   "max": 10000,
+   "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
+   "truncated": false
+  },
+  {
+   "name": "two sections, tight",
+   "input": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n+b\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1,1 +1,1 @@\n-c\n+d\n",
+   "max": 400,
+   "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n… [diff truncated for display]\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1,1 +1,1 @@\n-c\n+d\n",
+   "truncated": true
+  },
+  {
+   "name": "headers only survive",
+   "input": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1,1 +1,1 @@\n-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n",
+   "max": 50,
+   "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n… [diff truncated for display]\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n… [diff truncated for display]\n",
+   "truncated": true
+  },
+  {
+   "name": "already truncated",
+   "input": "diff --git a/x b/x\n… [diff truncated for display]\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1,1 +1,1 @@\nz\n",
+   "max": 10000,
+   "patch": "diff --git a/x b/x\n… [diff truncated for display]\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1,1 +1,1 @@\nz\n",
+   "truncated": true
+  },
+  {
+   "name": "carriage return opens a section",
+   "input": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\rdiff --git a/b b/b\n@@ -1 +1 @@\n-qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq\n",
+   "max": 300,
+   "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n… [diff truncated for display]\ndiff --git a/b b/b\n… [diff truncated for display]\n",
+   "truncated": true
+  },
+  {
+   "name": "non-ascii length is UTF-16",
+   "input": "diff --git a/é.txt b/é.txt\n--- a/é.txt\n+++ b/é.txt\n@@ -1,1 +1,1 @@\n-日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日\n+x\n",
+   "max": 120,
+   "patch": "diff --git a/é.txt b/é.txt\n--- a/é.txt\n+++ b/é.txt\n… [diff truncated for display]\n",
+   "truncated": true
+  }
+ ],
+ "admit": [
+  {
+   "bytes": 1000000,
+   "admitted": true,
+   "remaining": 1000000
+  },
+  {
+   "bytes": 1000001,
+   "admitted": false,
+   "remaining": 1000000
+  },
+  {
+   "bytes": 900000,
+   "admitted": true,
+   "remaining": 100000
+  },
+  {
+   "bytes": 1000000,
+   "admitted": false,
+   "remaining": 100000
+  },
+  {
+   "bytes": 100000,
+   "admitted": true,
+   "remaining": 0
+  }
+ ],
+ "filePatch": [
+  {
+   "name": "plain",
+   "path": "p",
+   "patch": "text",
+   "max": 8388608,
+   "reply": {
+    "supported": true,
+    "path": "p",
+    "patch": "text"
+   }
+  },
+  {
+   "name": "empty",
+   "path": "p",
+   "patch": "",
+   "max": 8388608,
+   "reply": {
+    "supported": true,
+    "path": "p",
+    "patch": ""
+   }
+  },
+  {
+   "name": "over",
+   "path": "p",
+   "patch": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "max": 32,
+   "reply": {
+    "supported": true,
+    "path": "p",
+    "patch": "",
+    "patchOmitted": true,
+    "reason": "too_large"
+   }
+  }
+ ],
+ "omitted": {
+  "path": "big.txt",
+  "additions": 3,
+  "reason": "too_large",
+  "patchOmitted": true
+ },
+ "tooLarge": [
+  true,
+  false,
+  false
+ ],
+ "reply": {
+  "review": {
+   "supported": true,
+   "files": [
+    {
+     "path": "a.txt",
+     "status": "M",
+     "additions": 1,
+     "deletions": 1
+    }
+   ],
+   "patch": "diff --git a/a.txt b/a.txt\n",
+   "snapshotKind": "tool",
+   "revertMode": "tracked",
+   "checkpointId": "cp",
+   "patchTruncated": false,
+   "authoritative": true,
+   "agents": [],
+   "generation": 2,
+   "historyTurns": 0
+  },
+  "first": {
+   "supported": true,
+   "files": [
+    {
+     "path": "a.txt",
+     "status": "M",
+     "additions": 1,
+     "deletions": 1
+    }
+   ],
+   "patch": "diff --git a/a.txt b/a.txt\n",
+   "snapshotKind": "tool",
+   "revertMode": "tracked",
+   "checkpointId": "cp",
+   "patchTruncated": false,
+   "authoritative": true,
+   "agents": [],
+   "generation": 2,
+   "historyTurns": 0,
+   "etag": "da4ddbda7531745a1594b3da64f0a35f"
+  },
+  "summary": {
+   "supported": true,
+   "files": [
+    {
+     "path": "a.txt",
+     "status": "M",
+     "additions": 1,
+     "deletions": 1
+    }
+   ],
+   "patch": "",
+   "snapshotKind": "tool",
+   "revertMode": "tracked",
+   "checkpointId": "cp",
+   "patchTruncated": false,
+   "authoritative": true,
+   "agents": [],
+   "generation": 2,
+   "historyTurns": 0,
+   "patchOmitted": true,
+   "etag": "3a423171e6992e6a8a145b9b5eef8b36"
+  },
+  "unchanged": {
+   "unchanged": true,
+   "etag": "da4ddbda7531745a1594b3da64f0a35f"
+  },
+  "otherKind": {
+   "supported": true,
+   "files": [
+    {
+     "path": "a.txt",
+     "status": "M",
+     "additions": 1,
+     "deletions": 1
+    }
+   ],
+   "patch": "diff --git a/a.txt b/a.txt\n",
+   "snapshotKind": "session",
+   "revertMode": "tracked",
+   "checkpointId": "cp",
+   "patchTruncated": false,
+   "authoritative": true,
+   "agents": [],
+   "generation": 2,
+   "historyTurns": 0,
+   "etag": "258d56b7ef156db6b40d5fd1c00d0011"
+  },
+  "none": {
+   "supported": false,
+   "files": [],
+   "patch": "",
+   "etag": "b7eb2c40c5380fb0f86f6dc34a74f9f9"
+  }
+ }
+}

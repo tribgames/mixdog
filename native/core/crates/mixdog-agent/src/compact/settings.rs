@@ -129,14 +129,7 @@ fn clean(value: Option<&Value>) -> String {
     }
 }
 
-/// A JS number as JSON: whole numbers stay integers.
-fn num(value: f64) -> Value {
-    if value.is_finite() && value.fract() == 0.0 && value.abs() <= AUTO_CLEAR_UNLIMITED_MS {
-        Value::from(value as i64)
-    } else {
-        serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
-    }
-}
+use mixdog_js::json_number as num;
 
 /// `Number(input[key])`: a missing key is `undefined`, so NaN.
 fn number_field(object: &Doc, key: &str) -> f64 {

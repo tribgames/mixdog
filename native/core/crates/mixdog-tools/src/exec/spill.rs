@@ -2,6 +2,7 @@
 //! token, never on an async worker.
 #![allow(
     clippy::disallowed_methods,
+    clippy::disallowed_types,
     reason = "lane job bodies are the sanctioned home of blocking file I/O (clippy.toml)"
 )]
 

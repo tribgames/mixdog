@@ -34,7 +34,7 @@ use super::seams::TurnRequest;
 use super::seams::TurnReviews;
 use super::seams::TurnSessions;
 use super::seams::WorkerInbox;
-use super::worker_turns::WorkerTurns;
+use super::worker_turns::TurnOwner;
 
 /// A prepared worker's turn.
 pub struct TurnPlan {
@@ -61,7 +61,7 @@ pub struct TurnPlan {
 
 pub struct TurnRunner {
     sessions: Arc<dyn TurnSessions>,
-    turns: WorkerTurns,
+    turns: Arc<dyn TurnOwner>,
     reviews: Arc<dyn TurnReviews>,
     events: Arc<dyn SubagentEvents>,
     inbox: Arc<dyn WorkerInbox>,
@@ -71,7 +71,7 @@ pub struct TurnRunner {
 impl TurnRunner {
     pub fn new(
         sessions: Arc<dyn TurnSessions>,
-        turns: WorkerTurns,
+        turns: Arc<dyn TurnOwner>,
         reviews: Arc<dyn TurnReviews>,
         events: Arc<dyn SubagentEvents>,
         inbox: Arc<dyn WorkerInbox>,
@@ -81,8 +81,8 @@ impl TurnRunner {
     }
 
     /// A cancelled turn reports the output it produced before it stopped.
-    fn settle_cancelled(&self, plan: &TurnPlan, job: Option<&JobHandle>, start: usize, error: Option<&TurnError>, result_content: Option<&str>) {
-        let rows = self.sessions.assistant_texts(&plan.session_id, start);
+    async fn settle_cancelled(&self, plan: &TurnPlan, job: Option<&JobHandle>, start: usize, error: Option<&TurnError>, result_content: Option<&str>) {
+        let rows = self.sessions.assistant_texts(&plan.session_id, start).await;
         let partial = turn_partial_handoff(error.and_then(|e| e.partial_handoff.as_deref()), &rows);
         let content = partial.filter(|p| !p.is_empty()).or_else(|| result_content.filter(|c| !c.is_empty()).map(str::to_owned)).unwrap_or_default();
         if let Some(job) = job {
@@ -99,7 +99,7 @@ impl TurnRunner {
         submission_id: String,
         status: &mut FinalStatus,
     ) -> Result<WorkerResult, String> {
-        let start = self.sessions.message_count(&plan.session_id);
+        let start = self.sessions.message_count(&plan.session_id).await;
         let on_terminal_result = job.map(|job| {
             let hook = Arc::new(TerminalHook {
                 job: job.clone(),
@@ -129,6 +129,7 @@ impl TurnRunner {
             cwd: plan.cwd.clone(),
             skill_selection: plan.skill_selection.clone(),
             hooks: TurnHooks { submission_id, notify: worker_notify(self.inbox.clone(), &plan.session_id), on_tool_result, on_terminal_result },
+            slot: job.and_then(|j| j.slot()),
         };
         let failure = match self.sessions.run_turn(request).await {
             Ok(result) => {
@@ -136,7 +137,7 @@ impl TurnRunner {
                 // notification fires exactly once with output via the reconcile/finally path.
                 let value = completion_value(&plan.identity, &result, plan.canonical, &plan.agent);
                 if job.is_some_and(|j| j.is_cancelled()) {
-                    self.settle_cancelled(plan, job.map(|j| &**j), start, None, Some(&result.content));
+                    self.settle_cancelled(plan, job.map(|j| &**j), start, None, Some(&result.content)).await;
                     *status = FinalStatus::Cancelled;
                     return Ok(value);
                 }
@@ -152,7 +153,7 @@ impl TurnRunner {
             Err(error) => error,
         };
         if job.is_some_and(|j| j.is_cancelled()) {
-            self.settle_cancelled(plan, job.map(|j| &**j), start, Some(&failure), None);
+            self.settle_cancelled(plan, job.map(|j| &**j), start, Some(&failure), None).await;
             *status = FinalStatus::Cancelled;
             return Err(failure.message);
         }
@@ -168,8 +169,8 @@ impl TurnRunner {
         let context = context.unwrap_or_default();
         let claim = self.turns.claim(&plan.session_id, job.clone());
         let spawn = plan.kind == TurnKind::Spawn;
-        // Only a spawn's turn is reviewed; a send's follow-up has no collector.
-        let review = spawn.then(|| {
+        // A send's follow-up is reviewed like a spawn's: its edits join the owner's turn review.
+        let review = Some({
             Arc::new(TurnReview::begin(
                 &*self.reviews,
                 [

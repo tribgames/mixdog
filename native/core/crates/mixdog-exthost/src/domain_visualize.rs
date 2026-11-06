@@ -289,7 +289,7 @@ impl DomainService for VisualizeService {
             return Err(invalid("This export is only available in the desktop window."));
         }
         let mut input = valid.clone();
-        input.remove("action");
+        input.shift_remove("action");
         let sent = json!({ "action": action, "input": input });
         let result = forward(&*self.channel, HostCapability::Visualize, "visualize", "host/visualize/command", sent).await?;
         if !relay {

@@ -1,4 +1,4 @@
-//! The network proxy against Node (`fixtures/network-proxy/record.mjs`): the
+//! The network proxy against Node (`benchmarks/rust-core/recorders/record-network-proxy.mjs`): the
 //! URL and exception parsing, normalisation, the strict patch, the routing
 //! decision and the three `config/*` methods, result for result.
 
@@ -15,7 +15,7 @@ use super::*;
 use crate::service::network_proxy::NetworkProxyService;
 use crate::service::network_proxy::NetworkProxyStore;
 
-const GOLDEN: &str = include_str!("../../fixtures/network-proxy/golden.json");
+const GOLDEN: &str = include_str!("../../../../fixtures/network-proxy/golden.json");
 
 struct MapEnv(HashMap<String, String>);
 
@@ -235,7 +235,7 @@ async fn the_three_methods_answer_like_node() {
                 let want = &methods[at];
                 at += 1;
                 let mut got = service.test_network_proxy(&options).await.unwrap();
-                got.as_object_mut().unwrap().remove("ms");
+                got.as_object_mut().unwrap().shift_remove("ms");
                 assert_eq!(masked(&got, &live, &closed), unplatformed(want["result"].clone()), "test {index} {provider:?}");
             }
         }
@@ -335,7 +335,7 @@ async fn refused_tunnels_report_the_codes_node_reports() {
         }));
         let service = NetworkProxyService::new(store, policy, clients);
         let mut got = service.test_network_proxy(&json!({ "provider": "x" })).await.unwrap();
-        got.as_object_mut().unwrap().remove("ms");
+        got.as_object_mut().unwrap().shift_remove("ms");
         let port = proxy.rsplit(':').next().unwrap();
         let text = got.to_string().replace(port, "<port>");
         let got: Value = serde_json::from_str(&text).unwrap();

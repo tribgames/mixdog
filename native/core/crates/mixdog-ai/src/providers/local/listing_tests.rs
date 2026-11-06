@@ -33,6 +33,7 @@ async fn every_recorded_case_lists_the_installed_rows() {
         for (record, row) in records.iter().zip(expected) {
             seen_rows += 1;
             assert_eq!(record.raw.as_ref(), Some(row), "{name}");
+            crate::providers::listing_row::testing::assert_row_facts(record, row, name);
             assert_eq!(record.id, row["id"].as_str().unwrap());
             assert_eq!(record.display_name.as_deref(), row["display"].as_str());
             assert_eq!(record.context_window, row["contextWindow"].as_u64());

@@ -7,6 +7,7 @@ mod error;
 mod extract;
 mod format;
 mod gai;
+mod lanes;
 mod hosted_routes;
 mod hosted_search;
 mod hosted_sender;
@@ -26,6 +27,7 @@ mod render_tests;
 mod tests;
 
 pub use cache::CacheFile;
+pub use lanes::WebLanes;
 pub use error::FetchError;
 pub use error::FetchKind;
 pub use extract::Extracted;

@@ -77,13 +77,13 @@ impl OutputStyles {
             .update(move |doc| {
                 // Defaults live in code: the default style is an absent key.
                 if id == DEFAULT_STYLE {
-                    doc.remove("outputStyle");
+                    doc.shift_remove("outputStyle");
                 } else {
                     doc.insert("outputStyle".into(), Value::String(id));
                 }
                 // The retired `agent.outputStyle` copy goes.
                 if let Some(Value::Object(agent)) = doc.get_mut("agent") {
-                    agent.remove("outputStyle");
+                    agent.shift_remove("outputStyle");
                 }
                 Ok(())
             })

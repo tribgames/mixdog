@@ -1232,5 +1232,2276 @@
       "b.txt": "B\n",
       "c.txt": "a\n"
     }
+  },
+  {
+    "name": "patch-delete-then-add",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "old\nlines\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: a.txt\n*** Add File: a.txt\n+new\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-2",
+    "isError": false,
+    "after": {
+      "a.txt": "new\n"
+    }
+  },
+  {
+    "name": "patch-delete-crlf",
+    "tool": "apply_patch",
+    "files": {
+      "c.txt": "a\r\nb\r\nc\r\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: c.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Delete c.txt — -3",
+    "isError": false,
+    "after": {}
+  },
+  {
+    "name": "patch-delete-update-other",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: a.txt\n*** Update File: b.txt\n@@\n-b\n+B\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: applied 2 section(s)\n  OK Delete a.txt — -1\n  OK Modify b.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "b.txt": "B\n"
+    }
+  },
+  {
+    "name": "patch-delete-directory",
+    "tool": "apply_patch",
+    "files": {
+      "d/x.txt": "x\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: d\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: rollback snapshot target is not a regular file: <ROOT>/d",
+    "isError": true,
+    "after": {
+      "d/x.txt": "x\n"
+    }
+  },
+  {
+    "name": "patch-delete-dry-run",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: a.txt\n*** End Patch\n",
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Checked 1 File (Native) Dry Run\n  OK Delete a.txt — -2",
+    "isError": false,
+    "after": {
+      "a.txt": "a\nb\n"
+    }
+  },
+  {
+    "name": "patch-delete-and-update-same",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: a.txt\n*** Update File: a.txt\n@@\n-a\n+A\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: conflicting operations target a.txt; only repeated plain Update File sections can be merged",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n"
+    }
+  },
+  {
+    "name": "patch-rename-crlf",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\r\ny\r\nz\r\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n@@\n x\n-y\n+Y\n z\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "OK new.txt (renamed from old.txt, ~4 lines touched, engine=v4a-rename)\n",
+    "isError": false,
+    "after": {
+      "new.txt": "x\r\nY\r\nz\r\n"
+    }
+  },
+  {
+    "name": "patch-rename-hunk-miss",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\ny\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n@@\n-nothing\n+x\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: V4A hunk context not found: (no anchor); expected first old line: \"nothing\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-2 (verbatim — build the retry from these):\n    1| x\n    2| y\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "old.txt": "x\ny\n"
+    }
+  },
+  {
+    "name": "patch-rename-two",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: x/a.txt\n*** Update File: b.txt\n*** Move to: x/b.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "OK x/a.txt (renamed from a.txt, ~0 lines touched, engine=v4a-rename)\nOK x/b.txt (renamed from b.txt, ~0 lines touched, engine=v4a-rename)\n",
+    "isError": false,
+    "after": {
+      "x/a.txt": "a\n",
+      "x/b.txt": "b\n"
+    }
+  },
+  {
+    "name": "patch-rename-nested-source",
+    "tool": "apply_patch",
+    "files": {
+      "src/old.txt": "x\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: src/old.txt\n*** Move to: dst/deep/new.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "OK dst/deep/new.txt (renamed from src/old.txt, ~0 lines touched, engine=v4a-rename)\n",
+    "isError": false,
+    "after": {
+      "dst/deep/new.txt": "x\n"
+    }
+  },
+  {
+    "name": "patch-rename-case-only",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: OLD.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "OK OLD.txt (renamed from old.txt, ~0 lines touched, engine=v4a-rename)\n",
+    "isError": false,
+    "after": {
+      "OLD.txt": "x\n"
+    }
+  },
+  {
+    "name": "patch-rename-dest-add",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: c.txt\n*** Add File: c.txt\n+n\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: V4A rename a.txt → c.txt touches a path another section edits; split into separate patches.",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n"
+    }
+  },
+  {
+    "name": "patch-rename-other-delete-source",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: c.txt\n*** Delete File: a.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: conflicting operations target a.txt; only repeated plain Update File sections can be merged",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n"
+    }
+  },
+  {
+    "name": "patch-rename-and-update-batch",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n",
+      "c.txt": "c\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: z.txt\n*** Update File: b.txt\n@@\n-b\n+B\n*** Update File: c.txt\n@@\n-c\n+C\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "OK z.txt (renamed from a.txt, ~0 lines touched, engine=v4a-rename)\n  OK Modify b.txt — +1/-1\n  OK Modify c.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "b.txt": "B\n",
+      "c.txt": "C\n",
+      "z.txt": "a\n"
+    }
+  },
+  {
+    "name": "patch-rename-dry-run-hunk",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\ny\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n@@\n-y\n+Y\n*** End Patch\n",
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "OK new.txt (renamed from undefined, ~2 lines touched, engine=v4a-rename)\n",
+    "isError": false,
+    "after": {
+      "old.txt": "x\ny\n"
+    }
+  },
+  {
+    "name": "patch-seq-second-fails",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+A\n*** Update File: b.txt\n@@\n-missing\n+x\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch file-level partial: 1/2 file(s) applied to disk (committed); 1 file(s) rejected and left unchanged.\nRetry only the rejected files; do not resend committed files.\n--- applied (committed to disk) ---\n  OK Modify a.txt — +1/-1\n--- rejected file 2/2: b.txt ---\nV4A hunk b.txt: context not found: (no anchor); expected first old line: \"missing\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-1 (verbatim — build the retry from these):\n    1| b",
+    "isError": true,
+    "after": {
+      "a.txt": "A\n",
+      "b.txt": "b\n"
+    }
+  },
+  {
+    "name": "patch-seq-first-fails",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-missing\n+x\n*** Update File: b.txt\n@@\n-b\n+B\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch file-level partial: 1/2 file(s) applied to disk (committed); 1 file(s) rejected and left unchanged.\nRetry only the rejected files; do not resend committed files.\n--- applied (committed to disk) ---\n  OK Modify b.txt — +1/-1\n--- rejected file 1/2: a.txt ---\nV4A hunk a.txt: context not found: (no anchor); expected first old line: \"missing\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-1 (verbatim — build the retry from these):\n    1| a",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n",
+      "b.txt": "B\n"
+    }
+  },
+  {
+    "name": "patch-seq-all-fail",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-no\n+x\n*** Update File: b.txt\n@@\n-no\n+x\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch file-level partial: 0/2 file(s) applied to disk (committed); 2 file(s) rejected and left unchanged.\nRetry only the rejected files; do not resend committed files.\n--- rejected file 1/2: a.txt ---\nV4A hunk a.txt: context not found: (no anchor); expected first old line: \"no\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-1 (verbatim — build the retry from these):\n    1| a\n--- rejected file 2/2: b.txt ---\nV4A hunk b.txt: context not found: (no anchor); expected first old line: \"no\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-1 (verbatim — build the retry from these):\n    1| b",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    }
+  },
+  {
+    "name": "patch-seq-dry-run",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+A\n*** Update File: b.txt\n@@\n-b\n+B\n*** End Patch\n",
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: validated 2 section(s)\nChecked 1 File (Native) Dry Run\n  OK Modify a.txt — +1/-1\nChecked 1 File (Native) Dry Run\n  OK Modify b.txt — +1/-1\n(dry_run: each section validated against unchanged disk; a section depending on an earlier section's edits may report a false failure)",
+    "isError": false,
+    "after": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    }
+  },
+  {
+    "name": "patch-seq-dry-run-fail",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+A\n*** Update File: b.txt\n@@\n-no\n+B\n*** End Patch\n",
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch file-level partial: 1/2 file section(s) validated; 1 file(s) rejected and left unchanged.\nRetry only the rejected files; do not resend committed files.\n--- validated ---\nChecked 1 File (Native) Dry Run\n  OK Modify a.txt — +1/-1\n--- rejected file 2/2: b.txt ---\nV4A hunk b.txt: context not found: (no anchor); expected first old line: \"no\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-1 (verbatim — build the retry from these):\n    1| b\n(dry_run: each section validated against unchanged disk; a section depending on an earlier section's edits may report a false failure)",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    }
+  },
+  {
+    "name": "patch-seq-add-exists",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+A\n*** Add File: b.txt\n+n\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch file-level partial: 1/2 file(s) applied to disk (committed); 1 file(s) rejected and left unchanged.\nRetry only the rejected files; do not resend committed files.\n--- applied (committed to disk) ---\n  OK Modify a.txt — +1/-1\n--- rejected file 2/2: b.txt ---\napply_patch: Add File target already exists: b.txt; read it and use Update File instead",
+    "isError": true,
+    "after": {
+      "a.txt": "A\n",
+      "b.txt": "b\n"
+    }
+  },
+  {
+    "name": "patch-seq-merge-same-file",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+A\n*** Update File: b.txt\n@@\n-b\n+B\n*** Update File: a.txt\n@@\n-b\n+X\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: applied 2 section(s)\n  OK Modify a.txt — +2/-2\n  OK Modify b.txt — +1/-1\npost-patch state (verbatim — use for follow-up patches):\na.txt lines 2-2:\n    2| X",
+    "isError": false,
+    "after": {
+      "a.txt": "A\nX\n",
+      "b.txt": "B\n"
+    }
+  },
+  {
+    "name": "patch-seq-conflict",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+A\n*** Update File: b.txt\n@@\n-b\n+B\n*** Delete File: a.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: conflicting operations target a.txt; only repeated plain Update File sections can be merged",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    }
+  },
+  {
+    "name": "patch-seq-empty-section",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Update File: b.txt\n@@\n-b\n+B\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: applied 2 section(s)\n(no changes) a.txt\n  OK Modify b.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "a\n",
+      "b.txt": "B\n"
+    }
+  },
+  {
+    "name": "patch-seq-delete-missing-skip",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+A\n*** Update File: nope.txt\n@@\n-a\n+B\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch file-level partial: 1/2 file(s) applied to disk (committed); 1 file(s) rejected and left unchanged.\nRetry only the rejected files; do not resend committed files.\n--- applied (committed to disk) ---\n  OK Modify a.txt — +1/-1\n--- rejected file 2/2: nope.txt ---\nV4A update target unreadable: nope.txt (ENOENT).",
+    "isError": true,
+    "after": {
+      "a.txt": "A\n",
+      "b.txt": "b\n"
+    }
+  },
+  {
+    "name": "patch-update-same-file-twice",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\nc\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+A\n*** Update File: a.txt\n@@\n-c\n+C\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +2/-2",
+    "isError": false,
+    "after": {
+      "a.txt": "A\nb\nC\n"
+    }
+  },
+  {
+    "name": "patch-update-no-hunks",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: a file section header could not be parsed (no target path). Each section must start with a valid header: `*** Update File: <path>` / `*** Add File: <path>` / `*** Delete File: <path>` (V4A), or a `--- a/<path>` + `+++ b/<path>` pair (unified). Wrap multi-hunk V4A edits in a `*** Begin Patch` / `*** End Patch` envelope and pass format:\"v4a\".",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n"
+    }
+  },
+  {
+    "name": "patch-update-noop-hunk",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+a\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt",
+    "isError": false,
+    "after": {
+      "a.txt": "a\nb\n"
+    }
+  },
+  {
+    "name": "patch-update-pure-insert-eof",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n+c\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1",
+    "isError": false,
+    "after": {
+      "a.txt": "a\nb\nc\n"
+    }
+  },
+  {
+    "name": "patch-update-crlf",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\r\nb\r\nc\r\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n a\n-b\n+B\n+B2\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +2/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "a\r\nB\r\nB2\r\nc\r\n"
+    }
+  },
+  {
+    "name": "patch-update-no-final-newline",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-b\n+B\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "a\nB"
+    }
+  },
+  {
+    "name": "patch-update-indent-drift",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "function f() {\n    x();\n    y();\n}\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-  x();\n+  z();\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.js — +1/-1",
+    "isError": false,
+    "after": {
+      "a.js": "function f() {\n    z();\n    y();\n}\n"
+    }
+  },
+  {
+    "name": "patch-update-unique-earlier",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\nthree\nfour\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@ three\n-three\n+3\n@@ one\n-one\n+1\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +2/-2",
+    "isError": false,
+    "after": {
+      "a.txt": "1\ntwo\n3\nfour\n"
+    }
+  },
+  {
+    "name": "patch-update-eof-hunk",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "x\ny\nx\ny\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n x\n-y\n+Y\n*** End of File\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1\n⚠️ a.txt: hunk context matches more than one place; applied at line 3 (first match after the previous hunk). Add an @@ anchor to target a different one.",
+    "isError": false,
+    "after": {
+      "a.txt": "x\ny\nx\nY\n"
+    }
+  },
+  {
+    "name": "patch-update-bad-move-twice",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: b.txt\n*** Move to: c.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A patch lists multiple *** Move to: directives for a.txt",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n"
+    }
+  },
+  {
+    "name": "patch-add-empty",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "*** Begin Patch\n*** Add File: e.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Create e.txt",
+    "isError": false,
+    "after": {
+      "e.txt": "\n"
+    }
+  },
+  {
+    "name": "patch-add-blank-lines",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "*** Begin Patch\n*** Add File: e.txt\n+a\n\n+b\n\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Create e.txt — +4 Lines",
+    "isError": false,
+    "after": {
+      "e.txt": "a\n\nb\n\n"
+    }
+  },
+  {
+    "name": "patch-add-dry-run",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "*** Begin Patch\n*** Add File: e.txt\n+a\n*** End Patch\n",
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Checked 1 File (JS) Dry Run\n  OK Create e.txt — +1 Line",
+    "isError": false,
+    "after": {}
+  },
+  {
+    "name": "patch-no-patch-header",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n"
+    },
+    "input": {
+      "patch": "just text",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: a file section header could not be parsed (no target path). Each section must start with a valid header: `*** Update File: <path>` / `*** Add File: <path>` / `*** Delete File: <path>` (V4A), or a `--- a/<path>` + `+++ b/<path>` pair (unified). Wrap multi-hunk V4A edits in a `*** Begin Patch` / `*** End Patch` envelope and pass format:\"v4a\".",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n"
+    }
+  },
+  {
+    "name": "patch-line-before-header",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\nstray\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A patch line appears before a file header: stray",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n"
+    }
+  },
+  {
+    "name": "patch-eof-before-lines",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** End of File\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A update hunk does not contain any lines before *** End of File",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n"
+    }
+  },
+  {
+    "name": "patch-crlf-patch-text",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\r\n*** Update File: a.txt\r\n@@\r\n-a\r\n+A\r\n*** End Patch\r\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "A\nb\n"
+    }
+  },
+  {
+    "name": "patch-quoted-path",
+    "tool": "apply_patch",
+    "files": {
+      "a b.txt": "a\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: \"a b.txt\"\n@@\n-a\n+A\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a b.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a b.txt": "A\n"
+    }
+  },
+  {
+    "name": "patch-decorated-path",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt ***\n@@\n-a\n+A\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "A\n"
+    }
+  },
+  {
+    "name": "patch-tier-opcode-prefix",
+    "tool": "apply_patch",
+    "files": {
+      "a.md": "- Plan\nkeep\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n- Plan\n+- Done\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.md — +1",
+    "isError": false,
+    "after": {
+      "a.md": "- Plan\n- Done\nkeep\n"
+    }
+  },
+  {
+    "name": "patch-tier-opcode-prefix-delete-only",
+    "tool": "apply_patch",
+    "files": {
+      "a.md": "- Plan\nkeep\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n- Plan\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.md — -1",
+    "isError": false,
+    "after": {
+      "a.md": "keep\n"
+    }
+  },
+  {
+    "name": "patch-tier-opcode-prefix-ambiguous",
+    "tool": "apply_patch",
+    "files": {
+      "a.md": "- Plan\nkeep\n- Plan\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n- Plan\n+- Done\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.md: context not found: (no anchor); expected first old line: \" Plan\"; nearest line 1: \"- Plan\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-3 (verbatim — build the retry from these):\n    1| - Plan\n    2| keep\n    3| - Plan",
+    "isError": true,
+    "after": {
+      "a.md": "- Plan\nkeep\n- Plan\n"
+    }
+  },
+  {
+    "name": "patch-tier-plus-as-context",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n+ TODO\nb\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n a\n+ TODO\n-b\n+B\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "a\n+ TODO\nB\n"
+    }
+  },
+  {
+    "name": "patch-tier-plus-as-context-no-relocate",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\na\n+ TODO\nb\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n a\n+ TODO\n b\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1",
+    "isError": false,
+    "after": {
+      "a.txt": "a\n TODO\nb\na\n+ TODO\nb\n"
+    }
+  },
+  {
+    "name": "patch-tier-escape-equiv",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "x\ncaf\\u00e9\ny\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-café\n+coffee\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "x\ncoffee\ny\n"
+    }
+  },
+  {
+    "name": "patch-tier-escape-equiv-ambiguous",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "caf\\u00e9\ncaf\\u00e9\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-café\n+coffee\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.txt: context not found: (no anchor); expected first old line: \"café\"; nearest line 1: \"caf\\\\u00e9\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-2 (verbatim — build the retry from these):\n    1| caf\\u00e9\n    2| caf\\u00e9",
+    "isError": true,
+    "after": {
+      "a.txt": "caf\\u00e9\ncaf\\u00e9\n"
+    }
+  },
+  {
+    "name": "patch-tier-escape-equiv-eof",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "x\ncaf\\u00e9\ny\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-café\n+coffee\n*** End of File\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1\n⚠️ a.txt: hunk carried *** End of File but its context is at line 2, not the end of file; the marker was ignored. Drop it unless the hunk really ends the file.",
+    "isError": false,
+    "after": {
+      "a.txt": "x\ncoffee\ny\n"
+    }
+  },
+  {
+    "name": "patch-tier-context-tolerance",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "alpha one\nbeta two\ngamma three\ndelta four\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n alpha one\n beta twoo\n-gamma three\n+GAMMA\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "alpha one\nbeta two\nGAMMA\ndelta four\n"
+    }
+  },
+  {
+    "name": "patch-tier-context-tolerance-dissimilar-falls-to-outer-trim",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "alpha one\nbeta two\ngamma three\ndelta four\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n alpha one\n zzzzzz\n-gamma three\n+GAMMA\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "alpha one\nbeta two\nGAMMA\ndelta four\n"
+    }
+  },
+  {
+    "name": "patch-tier-context-tolerance-ambiguous",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "alpha one\nbeta two\ngamma three\nalpha one\nbeta two\ngamma three\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n alpha one\n beta twoo\n gamma three\n+X\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.txt: context not found: (no anchor); expected first old line: \"alpha one\"; nearest line 1: \"alpha one\"; first divergent line: old[2] expected \"beta twoo\" vs file line 2 actual \"beta two\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-6 (verbatim — build the retry from these):\n    1| alpha one\n    2| beta two\n    3| gamma three\n    4| alpha one\n    5| beta two\n    6| gamma three",
+    "isError": true,
+    "after": {
+      "a.txt": "alpha one\nbeta two\ngamma three\nalpha one\nbeta two\ngamma three\n"
+    }
+  },
+  {
+    "name": "patch-tier-outer-trim",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\nTARGET\nc\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n zzz\n-TARGET\n+T2\n c\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "a\nb\nT2\nc\n"
+    }
+  },
+  {
+    "name": "patch-tier-outer-trim-ambiguous",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "TARGET\nc\nq\nTARGET\nc\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n zzz\n-TARGET\n+T2\n c\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.txt: context not found: (no anchor); expected first old line: \"zzz\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-5 (verbatim — build the retry from these):\n    1| TARGET\n    2| c\n    3| q\n    4| TARGET\n    5| c",
+    "isError": true,
+    "after": {
+      "a.txt": "TARGET\nc\nq\nTARGET\nc\n"
+    }
+  },
+  {
+    "name": "patch-tier-outer-trim-insert-only",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\nc\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n zzz\n+new\n b\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.txt: context not found: (no anchor); expected first old line: \"zzz\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-3 (verbatim — build the retry from these):\n    1| a\n    2| b\n    3| c",
+    "isError": true,
+    "after": {
+      "a.txt": "a\nb\nc\n"
+    }
+  },
+  {
+    "name": "patch-tier-edit-distance",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "start here\n  return value;\nfinish here\nend\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n start here\n-  retur value;\n+  return 1;\n finish here\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "start here\n  return 1;\nfinish here\nend\n"
+    }
+  },
+  {
+    "name": "patch-tier-edit-distance-too-far",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "start here\n  return value;\nfinish here\nend\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n start here\n-  retrn valu;\n+  return 1;\n finish here\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.txt: context not found: (no anchor); expected first old line: \"start here\"; nearest line 1: \"start here\"; first divergent line: old[2] expected \"  retrn valu;\" vs file line 2 actual \"  return value;\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-4 (verbatim — build the retry from these):\n    1| start here\n    2|   return value;\n    3| finish here\n    4| end",
+    "isError": true,
+    "after": {
+      "a.txt": "start here\n  return value;\nfinish here\nend\n"
+    }
+  },
+  {
+    "name": "patch-tier-edit-distance-two-lines",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "start here\n  return value;\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n start here\n-  retur value;\n+  return 1;\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.txt: context not found: (no anchor); expected first old line: \"start here\"; nearest line 1: \"start here\"; first divergent line: old[2] expected \"  retur value;\" vs file line 2 actual \"  return value;\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-2 (verbatim — build the retry from these):\n    1| start here\n    2|   return value;",
+    "isError": true,
+    "after": {
+      "a.txt": "start here\n  return value;\n"
+    }
+  },
+  {
+    "name": "patch-redirect-basename",
+    "tool": "apply_patch",
+    "files": {
+      "src/lib/a.js": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify src/lib/a.js — +1/-1",
+    "isError": false,
+    "after": {
+      "src/lib/a.js": "ONE\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-redirect-basename-ambiguous",
+    "tool": "apply_patch",
+    "files": {
+      "x/a.js": "one\n",
+      "y/a.js": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A update target unreadable: a.js (ENOENT).",
+    "isError": true,
+    "after": {
+      "x/a.js": "one\n",
+      "y/a.js": "one\n"
+    }
+  },
+  {
+    "name": "patch-redirect-basename-case",
+    "tool": "apply_patch",
+    "files": {
+      "src/A.JS": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify src/A.JS — +1/-1",
+    "isError": false,
+    "after": {
+      "src/A.JS": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-redirect-existing-wins",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "one\n",
+      "src/a.js": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.js — +1/-1",
+    "isError": false,
+    "after": {
+      "a.js": "ONE\n",
+      "src/a.js": "one\n"
+    }
+  },
+  {
+    "name": "patch-redirect-vendor-skipped",
+    "tool": "apply_patch",
+    "files": {
+      "node_modules/p/a.js": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A update target unreadable: a.js (ENOENT).",
+    "isError": true,
+    "after": {
+      "node_modules/p/a.js": "one\n"
+    }
+  },
+  {
+    "name": "patch-redirect-hidden-skipped",
+    "tool": "apply_patch",
+    "files": {
+      ".hid/a.js": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A update target unreadable: a.js (ENOENT).",
+    "isError": true,
+    "after": {
+      ".hid/a.js": "one\n"
+    }
+  },
+  {
+    "name": "patch-redirect-suffix-strip",
+    "tool": "apply_patch",
+    "files": {
+      "src/a.js": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: proj/src/a.js\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify src/a.js — +1/-1",
+    "isError": false,
+    "after": {
+      "src/a.js": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-redirect-delete",
+    "tool": "apply_patch",
+    "files": {
+      "sub/gone.txt": "x\ny\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: gone.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Delete sub/gone.txt — -2",
+    "isError": false,
+    "after": {}
+  },
+  {
+    "name": "patch-redirect-add-untouched",
+    "tool": "apply_patch",
+    "files": {
+      "sub/new.txt": "x\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Add File: new.txt\n+n\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Create new.txt — +1 Line",
+    "isError": false,
+    "after": {
+      "new.txt": "n\n",
+      "sub/new.txt": "x\n"
+    }
+  },
+  {
+    "name": "patch-redirect-none-found",
+    "tool": "apply_patch",
+    "files": {
+      "q.js": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A update target unreadable: a.js (ENOENT).",
+    "isError": true,
+    "after": {
+      "q.js": "one\n"
+    }
+  },
+  {
+    "name": "patch-overlap-partial",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\nc\nd\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n a\n-b\n+B\n@@\n b\n-c\n+C\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: native patch failed — a/a.txt: hunk rejected in a/a.txt expected first old/context line in a.txt: \"b\"; nearest line 2: \"b\"; use exact current lines, no stubs.\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "a.txt": "a\nb\nc\nd\n"
+    }
+  },
+  {
+    "name": "patch-overlap-same-position",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\nc\nd\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-b\n+B\n@@\n-b\n+X\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: native patch failed — a/a.txt: hunk rejected in a/a.txt expected first old/context line in a.txt: \"b\"; nearest line 2: \"b\"; use exact current lines, no stubs.\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "a.txt": "a\nb\nc\nd\n"
+    }
+  },
+  {
+    "name": "patch-overlap-insert-same-index",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\nc\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n+x\n@@\n+y\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +2",
+    "isError": false,
+    "after": {
+      "a.txt": "a\nb\nc\nx\ny\n"
+    }
+  },
+  {
+    "name": "patch-format-invalid",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "format": "xml",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: \"format\" must be \"unified\" or \"v4a\"",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-format-v4a-explicit",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "*** Update File: a.txt\n@@\n-one\n+ONE\n",
+      "format": "v4a",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-compacted-placeholder",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "[mixdog compacted patch: 120 chars, sha256:abcd]",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: patch body is a compacted-history placeholder ([mixdog compacted …]), not patch content. Submit real patch text; do not reuse or reconstruct the marker.",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-compacted-placeholder-midbody",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n[mixdog compacted patch v4a, sha256:abcd]\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: patch body is a compacted-history placeholder ([mixdog compacted …]), not patch content. Submit real patch text; do not reuse or reconstruct the marker.",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-empty-patch",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "   \n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: \"patch\" is required (unified diff or V4A patch string)",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-shattered-keys",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch",
+      "*** Update File: a.txt": "@@",
+      "-one": "+ONE",
+      "*** End Patch": "",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-salvage-leading-blank",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "\n\n*** Update File: a.txt\n@@\n-one\n+ONE\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-salvage-begin-patch-case",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "***  begin patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-salvage-implied-path",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\na.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-salvage-implied-file-prefix",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\nFile: a.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-salvage-unified-in-envelope",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n--- a/a.txt\n+++ b/a.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-bare-unified",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@\n-one\n+ONE\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-bare-unified-anchor",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "fn a\n  x\nfn b\n  x\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ fn b\n-  x\n+  y\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "fn a\n  x\nfn b\n  y\n"
+    }
+  },
+  {
+    "name": "patch-bare-unified-two-files",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@\n-one\n+ONE\n--- a/b.txt\n+++ b/b.txt\n@@\n-two\n+TWO\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1\n  OK Modify b.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n",
+      "b.txt": "TWO\n"
+    }
+  },
+  {
+    "name": "patch-bare-unified-duplicate-path",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@\n-one\n+ONE\n--- a/a.txt\n+++ b/a.txt\n@@\n-two\n+TWO\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: multiple operations target a.txt",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-bare-unified-create-delete",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\n"
+    },
+    "input": {
+      "patch": "--- /dev/null\n+++ b/new.txt\n@@\n+hello\n--- a/old.txt\n+++ /dev/null\n@@\n-x\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Delete old.txt — -1\n  OK Create new.txt — +1 Line",
+    "isError": false,
+    "after": {
+      "new.txt": "hello\n"
+    }
+  },
+  {
+    "name": "patch-bare-unified-mixed-counted",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-one\n+ONE\n@@\n-two\n+TWO\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: bare @@ parse failed — unified bare patch cannot mix counted unified hunks with bare @@ anchors",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-bare-unified-format-unified",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@\n-one\n+ONE\n",
+      "format": "unified",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: entry a.txt has no hunks — patch header malformed (use `@@ -A,B +C,D @@` per hunk).",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-ordered-ok",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** Update File: b.txt\n@@\n-two\n+TWO\n*** End Patch\n",
+      "sequence": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: applied 2 section(s)\n  OK Modify a.txt — +1/-1\n  OK Modify b.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n",
+      "b.txt": "TWO\n"
+    }
+  },
+  {
+    "name": "patch-ordered-stop",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n",
+      "c.txt": "three\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** Update File: b.txt\n@@\n-nope\n+X\n*** Update File: c.txt\n@@\n-three\n+THREE\n*** End Patch\n",
+      "sequence": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch sequence stopped at section 2/3 (b.txt); 1 earlier section(s) were applied to disk (committed) and left in place; 1 later section(s) were skipped (not attempted).\nRetry only the failed and skipped sections; do not resend committed sections.\n--- applied (committed to disk) ---\n  OK Modify a.txt — +1/-1\n--- failed section: b.txt ---\nV4A hunk b.txt: context not found: (no anchor); expected first old line: \"nope\"; nearest line 1: \"two\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-1 (verbatim — build the retry from these):\n    1| two\n--- skipped (not attempted): c.txt ---",
+    "isError": true,
+    "after": {
+      "a.txt": "ONE\n",
+      "b.txt": "two\n",
+      "c.txt": "three\n"
+    }
+  },
+  {
+    "name": "patch-ordered-stop-dry-run",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** Update File: b.txt\n@@\n-nope\n+X\n*** End Patch\n",
+      "mode": "ordered",
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch sequence stopped at section 2/2 (b.txt); 1 earlier section(s) were validated; 0 later section(s) were skipped (not attempted).\n--- validated ---\nChecked 1 File (Native) Dry Run\n  OK Modify a.txt — +1/-1\n--- failed section: b.txt ---\nV4A hunk b.txt: context not found: (no anchor); expected first old line: \"nope\"; nearest line 1: \"two\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-1 (verbatim — build the retry from these):\n    1| two\n(dry_run: each section validated against unchanged disk; a section depending on an earlier section's edits may report a false failure)",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    }
+  },
+  {
+    "name": "patch-ordered-same-file-twice",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** Update File: a.txt\n@@\n-two\n+TWO\n*** End Patch\n",
+      "mode": "sequence",
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: applied 2 section(s)\n  OK Modify a.txt — +1/-1\n  OK Modify a.txt — +1/-1\npost-patch state (verbatim — use for follow-up patches):\na.txt lines 2-2:\n    2| TWO",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\nTWO\n"
+    }
+  },
+  {
+    "name": "patch-ordered-rename-unit",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: c.txt\n@@\n-one\n+ONE\n*** Update File: b.txt\n@@\n-two\n+TWO\n*** End Patch\n",
+      "sequence": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: applied 2 section(s)\nOK c.txt (renamed from a.txt, ~2 lines touched, engine=v4a-rename)\n  OK Modify b.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "b.txt": "TWO\n",
+      "c.txt": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-ordered-rename-unit-dry-run",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: c.txt\n@@\n-one\n+ONE\n*** Update File: b.txt\n@@\n-two\n+TWO\n*** End Patch\n",
+      "sequence": true,
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: validated 2 section(s)\n(dry-run) would rename a.txt → c.txt (~2 lines touched)\nChecked 1 File (Native) Dry Run\n  OK Modify b.txt — +1/-1\n(dry_run: each section validated against unchanged disk; a section depending on an earlier section's edits may report a false failure)",
+    "isError": false,
+    "after": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    }
+  },
+  {
+    "name": "patch-mode-unknown-ignored",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n",
+      "c.txt": "three\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** Update File: b.txt\n@@\n-nope\n+X\n*** Update File: c.txt\n@@\n-three\n+THREE\n*** End Patch\n",
+      "mode": "batch",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch file-level partial: 2/3 file(s) applied to disk (committed); 1 file(s) rejected and left unchanged.\nRetry only the rejected files; do not resend committed files.\n--- applied (committed to disk) ---\n  OK Modify a.txt — +1/-1\n  OK Modify c.txt — +1/-1\n--- rejected file 2/3: b.txt ---\nV4A hunk b.txt: context not found: (no anchor); expected first old line: \"nope\"; nearest line 1: \"two\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-1 (verbatim — build the retry from these):\n    1| two",
+    "isError": true,
+    "after": {
+      "a.txt": "ONE\n",
+      "b.txt": "two\n",
+      "c.txt": "THREE\n"
+    }
+  },
+  {
+    "name": "patch-unified-counted",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-unified-no-prefix",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a.txt\n+++ a.txt\n@@ -1,1 +1,1 @@\n-one\n+ONE\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-unified-timestamps",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\t2024-01-01 00:00:00\n+++ b/a.txt\t2024-01-02 00:00:00\n@@ -2 +2 @@\n-two\n+TWO\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "one\nTWO\n"
+    }
+  },
+  {
+    "name": "patch-unified-create",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+hello\n+world\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Create new.txt — +2 Lines",
+    "isError": false,
+    "after": {
+      "new.txt": "hello\nworld\n"
+    }
+  },
+  {
+    "name": "patch-unified-delete",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\ny\n"
+    },
+    "input": {
+      "patch": "--- a/old.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-x\n-y\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Delete old.txt — -2",
+    "isError": false,
+    "after": {}
+  },
+  {
+    "name": "patch-unified-delete-missing",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "--- a/gone.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-x\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: native patch failed — a/gone.txt: stat \\\\?\\<ROOT>\\gone.txt for delete: 지정된 파일을 찾을 수 없습니다. (os error 2) expected first old/context line in gone.txt: \"x\"; use exact current lines, no stubs.\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {}
+  },
+  {
+    "name": "patch-unified-two-files",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-two\n+TWO\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1\n  OK Modify b.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n",
+      "b.txt": "TWO\n"
+    }
+  },
+  {
+    "name": "patch-unified-two-hunks",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "1\n2\n3\n4\n5\n6\n7\n8\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-1\n+one\n 2\n@@ -7,2 +7,2 @@\n 7\n-8\n+eight\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +2/-2",
+    "isError": false,
+    "after": {
+      "a.txt": "one\n2\n3\n4\n5\n6\n7\neight\n"
+    }
+  },
+  {
+    "name": "patch-unified-stale-context",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-nope\n+ONE\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: native patch failed — a/a.txt: hunk rejected in a/a.txt expected first old/context line in a.txt: \"nope\"; nearest line 1: \"one\"; use exact current lines, no stubs.\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-unified-wrong-line-number",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\nb\nc\nd\ne\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-d\n+D\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "a\nb\nc\nD\ne\n"
+    }
+  },
+  {
+    "name": "patch-unified-fuzz-context-drift",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "alpha\nbeta\ngamma\ndelta\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,4 +1,4 @@\n alpha\n betaX\n-gamma\n+GAMMA\n delta\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "alpha\nbeta\nGAMMA\ndelta\n"
+    }
+  },
+  {
+    "name": "patch-unified-no-fuzz",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "alpha\nbeta\ngamma\ndelta\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,4 +1,4 @@\n alpha\n betaX\n-gamma\n+GAMMA\n delta\n",
+      "fuzzy": false,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: native patch failed — a/a.txt: hunk rejected in a/a.txt (exact-only, fuzz=0) expected first old/context line in a.txt: \"betaX\"; nearest line 2: \"beta\"; use exact current lines, no stubs.\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "a.txt": "alpha\nbeta\ngamma\ndelta\n"
+    }
+  },
+  {
+    "name": "patch-unified-no-newline-marker",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n one\n-two\n\\ No newline at end of file\n+TWO\n\\ No newline at end of file\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "one\nTWO"
+    }
+  },
+  {
+    "name": "patch-unified-crlf-file",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\r\ntwo\r\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\r\ntwo\r\n"
+    }
+  },
+  {
+    "name": "patch-unified-git-headers",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "diff --git a/a.txt b/a.txt\nindex 1111111..2222222 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-unified-git-new-file",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "diff --git a/n.txt b/n.txt\nnew file mode 100644\nindex 0000000..2222222\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1 @@\n+hi\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Create n.txt — +1 Line",
+    "isError": false,
+    "after": {
+      "n.txt": "hi\n"
+    }
+  },
+  {
+    "name": "patch-unified-wrong-counts-fallback",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\nthree\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,5 +1,5 @@\n-one\n+ONE\n two\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: parse failed — Hunk at line 3 contained invalid line ; prefer V4A envelope for multi-hunk edits (no @@ line counts)",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\nthree\n"
+    }
+  },
+  {
+    "name": "patch-unified-counts-too-small-fallback",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\nthree\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-one\n+ONE\n two\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\ntwo\nthree\n"
+    }
+  },
+  {
+    "name": "patch-unified-counts-too-small-format-unified",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\nthree\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-one\n+ONE\n two\n",
+      "format": "unified",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: parse failed — Hunk at line 3 has more lines than expected (expected 1 old lines and 1 new lines); prefer V4A envelope for multi-hunk edits (no @@ line counts)",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\nthree\n"
+    }
+  },
+  {
+    "name": "patch-unified-counts-too-big-fallback",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\nthree\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,5 +1,5 @@\n-one\n+ONE\n two\n three\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: parse failed — Hunk at line 3 contained invalid line ; prefer V4A envelope for multi-hunk edits (no @@ line counts)",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\nthree\n"
+    }
+  },
+  {
+    "name": "patch-unified-wrong-counts-format-unified",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\nthree\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,5 +1,5 @@\n-one\n+ONE\n two\n",
+      "format": "unified",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: parse failed — Hunk at line 3 contained invalid line ; prefer V4A envelope for multi-hunk edits (no @@ line counts)",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\nthree\n"
+    }
+  },
+  {
+    "name": "patch-unified-missing-plus-header",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: parse failed — Missing \"+++ ...\" file header for a/a.txt; prefer V4A envelope for multi-hunk edits (no @@ line counts)",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-unified-invalid-line",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-one\n?weird\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: parse failed — Hunk at line 3 contained invalid line ?weird; prefer V4A envelope for multi-hunk edits (no @@ line counts)",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-unified-no-hunks",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: entry a.txt has no hunks — patch header malformed (use `@@ -A,B +C,D @@` per hunk).",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-unified-garbage",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "this is not a patch\nat all\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: a file section header could not be parsed (no target path). Each section must start with a valid header: `*** Update File: <path>` / `*** Add File: <path>` / `*** Delete File: <path>` (V4A), or a `--- a/<path>` + `+++ b/<path>` pair (unified). Wrap multi-hunk V4A edits in a `*** Begin Patch` / `*** End Patch` envelope and pass format:\"v4a\".",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-unified-duplicate-target",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n--- a/a.txt\n+++ b/a.txt\n@@ -2 +2 @@\n-two\n+TWO\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: multiple operations target a.txt",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-unified-redirect",
+    "tool": "apply_patch",
+    "files": {
+      "src/lib/a.js": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a/a.js\n+++ b/a.js\n@@ -1 +1 @@\n-one\n+ONE\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify src/lib/a.js — +1/-1",
+    "isError": false,
+    "after": {
+      "src/lib/a.js": "ONE\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-unified-dry-run",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n",
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Checked 1 File (Native) Dry Run\n  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "a.txt": "one\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-unified-dry-run-stale",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-nope\n+ONE\n",
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: native patch failed — a/a.txt: hunk rejected in a/a.txt expected first old/context line in a.txt: \"nope\"; nearest line 1: \"one\"; use exact current lines, no stubs.",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-unified-ordered-stop",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n",
+      "c.txt": "three\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-nope\n+X\n--- a/c.txt\n+++ b/c.txt\n@@ -1 +1 @@\n-three\n+THREE\n",
+      "sequence": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch sequence stopped at section 2/3 (b.txt); 1 earlier section(s) were applied to disk (committed) and left in place; 1 later section(s) were skipped (not attempted).\nRetry only the failed and skipped sections; do not resend committed sections.\n--- applied (committed to disk) ---\n  OK Modify a.txt — +1/-1\n--- failed section: b.txt ---\nnative patch failed — a/b.txt: hunk rejected in a/b.txt expected first old/context line in b.txt: \"nope\"; nearest line 1: \"two\"; use exact current lines, no stubs.\n--- skipped (not attempted): c.txt ---",
+    "isError": true,
+    "after": {
+      "a.txt": "ONE\n",
+      "b.txt": "two\n",
+      "c.txt": "three\n"
+    }
+  },
+  {
+    "name": "patch-unified-rollback-create-exists",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "n.txt": "taken\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1 @@\n+hi\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: Add File target already exists: n.txt; read it and use Update File instead\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n",
+      "n.txt": "taken\n"
+    }
+  },
+  {
+    "name": "patch-reject-partial-false-hunk",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\nthree\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n@@\n-nope\n+X\n@@\n-three\n+THREE\n*** End Patch\n",
+      "reject_partial": false,
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.txt — +2/-2\n\nhunk-level rejected (rejectPartial=false, V4A): 1\n  REJECT a.txt — V4A hunk a.txt: context not found: (no anchor)",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\ntwo\nTHREE\n"
+    }
+  },
+  {
+    "name": "patch-reject-partial-false-all-hunks",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-nope\n+X\n*** End Patch\n",
+      "reject_partial": false,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: a file section header could not be parsed (no target path). Each section must start with a valid header: `*** Update File: <path>` / `*** Add File: <path>` / `*** Delete File: <path>` (V4A), or a `--- a/<path>` + `+++ b/<path>` pair (unified). Wrap multi-hunk V4A edits in a `*** Begin Patch` / `*** End Patch` envelope and pass format:\"v4a\".",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-reject-partial-false-two-files",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** Update File: b.txt\n@@\n-nope\n+X\n*** End Patch\n",
+      "reject_partial": false,
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: applied 2 section(s)\n  OK Modify a.txt — +1/-1\n(no changes) b.txt\n\nhunk-level rejected (rejectPartial=false, V4A): 1\n  REJECT b.txt — V4A hunk b.txt: context not found: (no anchor)",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\n",
+      "b.txt": "two\n"
+    }
+  },
+  {
+    "name": "patch-reject-partial-false-ordered",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n",
+      "b.txt": "x\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n@@\n-nope\n+X\n*** Update File: b.txt\n@@\n-x\n+X\n*** End Patch\n",
+      "reject_partial": false,
+      "sequence": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: applied 2 section(s)\n  OK Modify a.txt — +1/-1\n  OK Modify b.txt — +1/-1\n\nhunk-level rejected (rejectPartial=false, V4A): 1\n  REJECT a.txt — V4A hunk a.txt: context not found: (no anchor)",
+    "isError": false,
+    "after": {
+      "a.txt": "ONE\ntwo\n",
+      "b.txt": "X\n"
+    }
+  },
+  {
+    "name": "patch-reject-partial-false-unified-files",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-nope\n+X\n",
+      "reject_partial": false,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: Patch Partially Applied (1 File applied · 1 File Skipped) (Native)\n  OK Modify a.txt — +1/-1\n  SKIP a/b.txt — hunk rejected in a/b.txt expected first old/context line in b.txt: \"nope\"; nearest line 1: \"two\"; use exact current lines, no stubs.\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    }
+  },
+  {
+    "name": "patch-reject-partial-false-unified-dry-run",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-nope\n+X\n",
+      "reject_partial": false,
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: Patch Partially Checked (1 File checked · 1 File Skipped) (Native)\n  OK Modify a.txt — +1/-1\n  SKIP a/b.txt — hunk rejected in a/b.txt expected first old/context line in b.txt: \"nope\"; nearest line 1: \"two\"; use exact current lines, no stubs.",
+    "isError": true,
+    "after": {
+      "a.txt": "one\n",
+      "b.txt": "two\n"
+    }
+  },
+  {
+    "name": "patch-tier-exact-not-fuzzy",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "alpha one\nbeta two\ngamma three\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n alpha one\n beta twoo\n-gamma three\n+GAMMA\n*** End Patch\n",
+      "fuzzy": false,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.txt: context not found: (no anchor); expected first old line: \"alpha one\"; nearest line 1: \"alpha one\"; first divergent line: old[2] expected \"beta twoo\" vs file line 2 actual \"beta two\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-3 (verbatim — build the retry from these):\n    1| alpha one\n    2| beta two\n    3| gamma three",
+    "isError": true,
+    "after": {
+      "a.txt": "alpha one\nbeta two\ngamma three\n"
+    }
   }
 ]

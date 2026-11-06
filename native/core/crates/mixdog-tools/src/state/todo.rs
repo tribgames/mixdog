@@ -412,6 +412,11 @@ fn append_items(list: &mut TodoList, args: &Value) -> Result<String, String> {
     Ok(items.join(", "))
 }
 
+/// A list edit: takes the current list for any borrow. (Written as an elided `&TodoList` in the
+/// method, `async_trait` lifts it into a lifetime parameter of the method, and an implementor
+/// could then hand the edit only a `'static` list.)
+pub type TodoEdit<'f> = dyn for<'a> FnMut(&'a TodoList) -> Result<TodoList, String> + Send + 'f;
+
 /// The session actor's list store. `update` runs `f` against the current list under the
 /// owner's own serialization (two `todo` calls of one turn never lose each other's write) and
 /// commits what it returns; `f`'s error leaves the list untouched.
@@ -422,7 +427,7 @@ pub trait TodoStore: Send + Sync {
     async fn update(
         &self,
         thread: &ThreadId,
-        f: &mut (dyn FnMut(&TodoList) -> Result<TodoList, String> + Send),
+        f: &mut TodoEdit<'_>,
     ) -> Result<(), String>;
 
     /// An `ask_user` question left unanswered: the turn may end waiting on the user.

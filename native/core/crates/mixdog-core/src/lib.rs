@@ -7,10 +7,15 @@ pub mod config;
 pub mod domains;
 pub mod workflow;
 pub mod feed;
+pub mod goal;
 pub mod notify;
 pub mod ops;
 pub mod ports;
 pub mod pricing;
+pub mod quota_resume;
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test setup")]
+mod quota_resume_tests;
 pub mod rooms;
 pub mod run_host;
 pub mod session;

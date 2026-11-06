@@ -67,7 +67,7 @@ fn parse_rows(bytes: &[u8]) -> Vec<Value> {
     let Ok(raw) = serde_json::from_slice::<Value>(bytes) else { return Vec::new() };
     match raw {
         Value::Array(rows) => rows,
-        Value::Object(mut map) => match map.remove("models") {
+        Value::Object(mut map) => match map.shift_remove("models") {
             Some(Value::Array(rows)) => rows,
             _ => Vec::new(),
         },

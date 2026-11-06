@@ -515,7 +515,14 @@ pub fn copy_entry(root: &Path, rel: &str, target_dir_rel: &str) -> WsResult<Stri
 }
 
 pub fn mime_type(path: &Path) -> &'static str {
-    let extension = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    // Node's `fileExtension`: the text after the last dot of the last component, none when the
+    // dot ends the name (so `.png` is `png`, `a.` has no type).
+    let text = path.to_string_lossy();
+    let name = text.rsplit(['/', '\\']).next().unwrap_or_default();
+    let extension = match name.rfind('.') {
+        Some(dot) if dot + 1 < name.len() => name[dot + 1..].to_lowercase(),
+        _ => String::new(),
+    };
     match extension.as_str() {
         "png" => "image/png",
         "jpg" | "jpeg" | "jfif" => "image/jpeg",

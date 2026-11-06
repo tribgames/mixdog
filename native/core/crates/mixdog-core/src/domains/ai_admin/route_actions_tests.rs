@@ -1,9 +1,9 @@
 //! The setup route actions against the Node recording (`fixtures/ai-admin/route-actions-twin.json`):
 //! the chain receipt of `set_route` / `set_agent_route`, a session's return to its primary route
-//! and the quota card's actions. The live sessions are a recording `RouteSetupSessions` that
-//! answers what the recording knew; the route services under it are the real ones, so the route
-//! they return is not compared (their own twins cover it) while the caller's own route switch is
-//! asserted by the `follow` it makes.
+//! and the quota card's actions. The live sessions are a recording `RouteSetupSessions` and the
+//! two route writes a recording `RouteWrites`, both answering as the recording's stubs did, so
+//! the whole answer (the route it carries included) and every write and configure-lane call are
+//! compared. The route services themselves have their own twins.
 
 use std::sync::{Arc, Mutex};
 
@@ -13,12 +13,8 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_tools::orch::util::PortError;
 use serde_json::{Value, json};
 
-use super::agent_route_service::AgentRouteSetter;
-use super::agent_route_tests::{Facts, Published};
-use super::hidden_agents::hidden_agents;
-use super::route_actions::{CallerChain, RouteActions, RouteSetupSessions, SessionFacts};
-use super::route_service_tests::rig;
-use crate::config::AgentRoutes;
+use super::route_actions::{CallerChain, RouteActions, RouteSetupSessions, RouteWrites, SessionFacts};
+use super::route_service::SetRouteOptions;
 use crate::setup::{CallerScope, SetupActions, SetupCall, SetupCallers};
 
 fn twin() -> Value {
@@ -97,8 +93,45 @@ impl RouteSetupSessions for Sessions {
     }
 }
 
+/// The runtime facade's two writes, answering the route they were given.
+struct Writes {
+    writes: Mutex<Vec<Value>>,
+}
+
+#[async_trait]
+impl RouteWrites for Writes {
+    async fn set_route(&self, _: &ThreadId, route: &Obj, options: &SetRouteOptions) -> Result<Value, String> {
+        // The options as the executor spelled them: only what was set.
+        let mut spelled = Obj::new();
+        if let Some(keep) = options.keep_main_model {
+            spelled.insert("keepMainModel".into(), json!(keep));
+        }
+        for (key, on) in [
+            ("sessionOnly", options.session_only),
+            ("switchEstablished", options.follow.switch_established),
+            ("deferUntilNextTurn", options.follow.defer_until_next_turn),
+        ] {
+            if on {
+                spelled.insert(key.into(), json!(true));
+            }
+        }
+        self.writes.lock().unwrap().push(json!({ "call": "setRoute", "route": route, "options": spelled }));
+        Ok(Value::Object(route.clone()))
+    }
+
+    async fn set_agent_route(&self, agent: &str, route: &Obj) -> Result<Value, String> {
+        self.writes.lock().unwrap().push(json!({ "call": "setAgentRoute", "agent": agent, "route": route }));
+        Ok(Value::Object(route.clone()))
+    }
+
+    fn config(&self) -> Obj {
+        Obj::new()
+    }
+}
+
 #[tokio::test]
 async fn the_setup_route_actions_match_node() {
+    let schema = serde_json::from_str::<Value>(include_str!("../../../../mixdog-tools/src/orch/defs/setup.json")).unwrap()["inputSchema"].clone();
     for (i, case) in twin()["cases"].as_array().unwrap().iter().enumerate() {
         let name = case["name"].as_str().unwrap();
         let scope = &case["caller"]["scope"];
@@ -108,55 +141,18 @@ async fn the_setup_route_actions_match_node() {
             other => panic!("{other}"),
         };
         let thread = ThreadId::from(case["caller"]["id"].as_str().unwrap());
-        let (service, _writer, log, dir) = rig(&json!({
-            "config": case["config"],
-            "live": { "provider": "anthropic", "model": "opus" },
-            "meta": { "contextWindow": 400000, "id": "x", "maxContextWindow": 400000, "name": "Model X", "provider": "y", "supportsFastMode": true },
-            "knows": {}, "fastTable": {}, "ultraTable": {},
-        }))
-        .await;
-        let config = service.config.clone();
-        let agents = Arc::new(AgentRouteSetter {
-            routes: AgentRoutes::new(config.clone(), dir.path()),
-            config: config.clone(),
-            context: Arc::new(Facts {
-                case: json!({ "known": ["openai", "anthropic", "google", "gemini"], "meta": null, "fastByProvider": {} }),
-                config: config.clone(),
-            }),
-            publisher: Arc::new(Published::default()),
-            hidden: hidden_agents(),
-        });
         let sessions = Arc::new(Sessions { case: case.clone(), controls: Mutex::new(Vec::new()) });
-        let actions = RouteActions { routes: Arc::new(service), agents, sessions: sessions.clone(), callers: Arc::new(Callers(scope)) };
+        let writes = Arc::new(Writes { writes: Mutex::new(Vec::new()) });
+        let actions = RouteActions { writes: writes.clone(), sessions: sessions.clone(), callers: Arc::new(Callers(scope)), schema: schema.clone() };
         let args = &case["args"];
         let got = actions.run(&SetupCall { action: args["action"].as_str().unwrap(), args, thread: &thread }).await;
-        let strip = |mut v: Value| {
-            if let Some(o) = v.as_object_mut() {
-                o.remove("route");
-            }
-            v
-        };
         match (case.get("error"), got) {
             (Some(want), Err(e)) => assert_eq!(&json!(message(e)), want, "case {i}: {name}"),
-            (None, Ok(v)) => {
-                // `set_route` / `set_agent_route` answer the route the services return.
-                let keep_route = !matches!(args["action"].as_str().unwrap(), "set_route" | "set_agent_route");
-                let (got, want) = if keep_route { (v, case["value"].clone()) } else { (strip(v), strip(case["value"].clone())) };
-                assert_eq!(got, want, "case {i}: {name}");
-            }
+            (None, Ok(v)) => assert_eq!(v, case["value"], "case {i}: {name}"),
             (want, got) => panic!("case {i}: {name}: wanted {want:?}, got {got:?}"),
         }
+        assert_eq!(Value::Array(writes.writes.lock().unwrap().clone()), case["effects"]["writes"], "case {i}: {name} writes");
         let controls = Value::Array(sessions.controls.lock().unwrap().clone());
         assert_eq!(controls, case["effects"]["control"], "case {i}: {name} configure lane");
-        let follows = log.lock().unwrap().follows.clone();
-        let want = case["effects"]["setRoute"].as_array().unwrap();
-        assert_eq!(follows.len(), want.len(), "case {i}: {name} own route switches");
-        for (follow, call) in follows.iter().zip(want) {
-            assert_eq!(
-                (follow.switch_established, follow.defer_until_next_turn),
-                (call["options"]["switchEstablished"] == json!(true), call["options"]["deferUntilNextTurn"] == json!(true)),
-                "case {i}: {name} switch options"
-            );
-        }
     }
 }

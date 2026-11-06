@@ -150,7 +150,8 @@ fn effective_row(mut base: ModelRecord, over: Option<&Override>, discovered: boo
     base.reasoning_content_field = replay.then(|| "reasoning_content".to_owned());
     // `leveled`: the row states its effort levels (Node's row then has the
     // `reasoningOptions` / `reasoningLevels` keys, even when empty).
-    base.raw = Some(json!({ "manual": ov.manual, "inherited": inherited, "leveled": leveled }));
+    base.manual = ov.manual;
+    base.raw = Some(json!({ "inherited": inherited, "leveled": leveled }));
     base
 }
 
@@ -186,7 +187,7 @@ pub fn public_rows(rows: &[ModelRecord]) -> Vec<Value> {
         }
         let raw = item.raw.as_ref();
         model.insert("hidden".into(), json!(item.hidden));
-        model.insert("manual".into(), json!(raw.and_then(|r| r.get("manual")) == Some(&Value::Bool(true))));
+        model.insert("manual".into(), json!(item.manual));
         if let Some(inherited) = raw.and_then(|r| r.get("inherited")).filter(|v| !v.is_null()) {
             model.insert("inherited".into(), inherited.clone());
         }
@@ -488,7 +489,8 @@ mod tests {
                 assert_eq!(row.context_window.unwrap_or(0), node["contextWindow"].as_u64().unwrap_or(0), "{what} contextWindow");
                 assert_eq!(row.max_output_tokens, node["outputTokens"].as_u64(), "{what} outputTokens");
                 assert_eq!(row.hidden, node["hidden"].as_bool().unwrap(), "{what} hidden");
-                assert_eq!(raw["manual"], node["manual"], "{what} manual");
+                assert_eq!(json!(row.manual), node["manual"], "{what} manual");
+                assert!(row.provider_name.is_none(), "{what}: the listing states no providerName; hydration sets it from the config");
                 assert_eq!(row.reasoning_content_field.as_deref(), node["reasoningContentField"].as_str(), "{what} reasoningContentField");
                 assert_eq!(raw["inherited"], node["inherited"], "{what} inherited");
                 assert_eq!(row.supports_images, node["supportsVision"].as_bool(), "{what} supportsVision");

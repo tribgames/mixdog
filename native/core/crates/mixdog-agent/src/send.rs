@@ -23,6 +23,7 @@ use mixdog_core_api::domain::retry::Verdict;
 
 use crate::boundary::CompactPolicy;
 use crate::env::RetractReason;
+use crate::env::RouteDecision;
 use crate::env::Retracted;
 use crate::env::RunEvent;
 use crate::env::Stage;
@@ -56,6 +57,16 @@ struct Failure {
     midstream: bool,
     shown_chars: usize,
     reasoning_shown: bool,
+}
+
+/// What the session's fallback chain did with a failure.
+enum Route {
+    /// No chain, or it kept the error as it was.
+    Stay,
+    /// The request goes to the next model.
+    Switched,
+    /// The error to surface instead (a chain that ran out names every model tried).
+    Surface(Box<ProviderError>),
 }
 
 enum Recovery {
@@ -229,6 +240,42 @@ impl Run {
                 }
             }
             None => request,
+        };
+        // The provider request is I/O: an agent job's slot goes back to the pool for its length.
+        let Some(slot) = self.config.slot.clone() else { return self.exchange(request, builder).await };
+        let mut settled = None;
+        let turn = crate::cancel::Cancel::from_token(&self.cancel);
+        let yielded = slot
+            .run_yielded(
+                Box::pin(async {
+                    let result = self.exchange(request, builder).await;
+                    let ok = matches!(result, Ok(Ok(_)));
+                    settled = Some(result);
+                    ok
+                }),
+                Some(&turn),
+            )
+            .await;
+        match yielded {
+            Ok(()) => settled.expect("the request ran"),
+            Err(reason) => Err(AgentError::Admission(reason)),
+        }
+    }
+
+    /// The provider request and the fold of its stream.
+    async fn exchange(
+        &mut self,
+        request: Arc<ModelRequest>,
+        mut builder: ResponseBuilder,
+    ) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
+        let fail = |error: ProviderError, builder: ResponseBuilder, midstream, shown, reasoning| {
+            Err(Box::new(Failure {
+                error,
+                partial: builder.finish(),
+                midstream,
+                shown_chars: shown,
+                reasoning_shown: reasoning,
+            }))
         };
         let provider = Arc::clone(&self.provider);
         // The projection is rebuilt from the transcript for every request.
@@ -504,16 +551,22 @@ impl Run {
 
     /// The session's fallback chain takes the next model for a failure no
     /// retry covers. `true` when the route changed.
-    async fn try_route(&mut self, error: &ProviderError) -> Result<bool, AgentError> {
+    async fn try_route(&mut self, error: &ProviderError) -> Result<Route, AgentError> {
         let Some(route) = self.env.route.clone() else {
-            return Ok(false);
+            return Ok(Route::Stay);
         };
-        let Some(switch) = or_cancelled(&self.cancel, route.advance(error))
+        let running = self.last_usage.clone();
+        let decision = or_cancelled(&self.cancel, route.advance(error.clone(), running.as_ref()))
             .await
-            .ok_or(AgentError::Aborted)?
-        else {
-            return Ok(false);
+            .ok_or(AgentError::Aborted)?;
+        let switch = match decision {
+            RouteDecision::Switch(switch) => switch,
+            // The error as given: after a chain that ran out it names every model tried.
+            RouteDecision::Surface(surface) => return Ok(Route::Surface(Box::new(surface.error))),
+            RouteDecision::Fail(message) => return Err(AgentError::RouteFailed(message)),
         };
+        // The new provider takes no other provider's replay state.
+        self.strip_replay_for_new_route();
         self.provider = switch.provider;
         self.config.effort = switch.effort;
         self.config.text_only = switch.text_only;
@@ -527,15 +580,16 @@ impl Run {
         self.emit(RunEvent::Stage(Stage::ModelFallback {
             model: switch.model,
         }));
-        Ok(true)
+        Ok(Route::Switched)
     }
 
     /// A failure no retry covers ends the ask unless the route changes.
     async fn surface(&mut self, error: ProviderError) -> Result<Recovery, AgentError> {
-        if self.try_route(&error).await? {
-            return Ok(Recovery::RetryRound);
+        match self.try_route(&error).await? {
+            Route::Switched => Ok(Recovery::RetryRound),
+            Route::Surface(error) => Err(AgentError::Provider(error)),
+            Route::Stay => Err(AgentError::Provider(Box::new(error))),
         }
-        Err(AgentError::Provider(Box::new(error)))
     }
 
     /// A context-window refusal is deterministic. Compacting and re-sending
@@ -571,9 +625,11 @@ impl Run {
             message_tokens_est: estimate,
             cause: Some(error.message.clone()),
         }));
-        if self.try_route(&error).await? {
-            return Ok(Recovery::RetryRound);
+        match self.try_route(&error).await? {
+            Route::Switched => Ok(Recovery::RetryRound),
+            // A chain that ran out names every model tried: that error replaces the overflow.
+            Route::Surface(annotated) if annotated.message != error.message => Err(AgentError::Provider(annotated)),
+            Route::Surface(_) | Route::Stay => Err(overflow),
         }
-        Err(overflow)
     }
 }
