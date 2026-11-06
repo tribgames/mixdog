@@ -6,7 +6,7 @@
 //
 //   node record_batch.mjs --tree <Node product tree with node_modules>
 import { createHash } from 'node:crypto';
-import { utimesSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, statSync, utimesSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -110,6 +110,10 @@ Object.assign(FILES, {
   'g/t.txt': { text: 'one\ntwo\n' },
   'g/u.md': { text: 'u1\n' },
   'big-nul-tail.dat': { rows: [3000, 40], nulTail: true },
+  // Past the 10 MiB buffered cap a window is streamed; these are kept out of the sequences.
+  'huge.txt': { rows: [110000, 100], huge: true },
+  'huge16.txt': { rows: [60000, 90], enc: 'utf16le', huge: true },
+  'huge-nul.dat': { rows: [105000, 100], nulTail: true, huge: true },
 });
 
 const rowsText = ([count, width], accent) =>
@@ -215,6 +219,16 @@ const CASES = {
   'glob-nested-after-image': R(['p.png', 'g/*']),
   'glob-nested-no-match': R(['g/*.zzz', 'a.txt']),
   'glob-no-match': R('g/*.zzz'),
+  'huge-default': R('huge.txt'),
+  'huge-window': R('huge.txt', { offset: 60000, limit: 3 }),
+  'huge-tail': R('huge.txt', { offset: 109995, limit: 50 }),
+  'huge-past-end': R('huge.txt', { offset: 120000, limit: 5 }),
+  'huge-capped': R('huge.txt', { offset: 1000, limit: 100000 }),
+  'huge-utf16': R('huge16.txt'),
+  'huge-nul': R('huge-nul.dat'),
+  'huge-batch': R([{ file_path: 'huge.txt', offset: 5, limit: 2 }, 'a.txt']),
+  'huge-batch-windows': R([{ file_path: 'huge.txt', offset: 5, limit: 2 }, { file_path: 'huge.txt', offset: 90000, limit: 2 }]),
+  'huge-utf16-batch': R(['huge16.txt', 'a.txt']),
 };
 // Image variants: the same arguments with an image ahead of the targets.
 const withImage = (input) =>
@@ -344,17 +358,40 @@ const SEQUENCES = [
     steps: [{ input: R1('bin.dat') }, { input: R1('bin.dat') }, { input: R1('empty.txt') }, { input: R1('empty.txt') }, { input: R1('le.txt') }, { input: R1('le.txt') }, { input: R1('nope.txt') }, { input: R1('nope.txt') }],
   },
   { name: 'glob-twice', steps: [{ input: R1('many/*.txt') }, { input: R1('many/*.txt') }, { input: R1('g/t*.txt') }, { input: R1('g/t*.txt') }] },
-  { name: 'image-twice', steps: [{ input: R1('p.png') }, { input: R1('p.png') }] },
+  // Only the change time moves (a permission flip keeps mtime and size): a different file version.
+  { name: 'ctime-only-change', steps: [{ input: R1('a.txt') }, { input: R1('a.txt') }, { chmod: 'a.txt' }, { input: R1('a.txt') }, { input: R1('a.txt') }] },
+  // apply_patch and the session's memory of the files it touches.
+  ...(() => {
+    const P = (patch, extra = {}) => ({ tool: 'apply_patch', input: { patch, ...extra } });
+    const upd = (file, from, to) => `*** Update File: ${file}\n@@\n-${from}\n+${to}\n`;
+    return [
+      { name: 'patch-rename', steps: [{ input: R1('a.txt') }, P('*** Begin Patch\n*** Update File: a.txt\n*** Move to: moved.txt\n@@\n-alpha\n+ALPHA\n*** End Patch\n'), { input: R1('moved.txt') }, { input: R1('moved.txt') }, { input: R1('a.txt') }] },
+      { name: 'patch-rename-unread', steps: [P('*** Begin Patch\n*** Update File: b.txt\n*** Move to: moved.txt\n@@\n-one\n+ONE\n*** End Patch\n'), { input: R1('moved.txt') }, { input: R1('moved.txt') }] },
+      { name: 'patch-delete', steps: [{ input: R1('a.txt') }, P('*** Begin Patch\n*** Delete File: a.txt\n*** End Patch\n'), { input: R1('a.txt') }, P('*** Begin Patch\n*** Add File: a.txt\n+fresh\n*** End Patch\n'), { input: R1('a.txt') }, { input: R1('a.txt') }] },
+      { name: 'patch-create', steps: [P('*** Begin Patch\n*** Add File: new.txt\n+one\n+two\n*** End Patch\n'), { input: R1('new.txt') }, { input: R1('new.txt') }] },
+      { name: 'patch-dry-run', steps: [{ input: R1('a.txt') }, P(`*** Begin Patch\n${upd('a.txt', 'alpha', 'ALPHA')}*** End Patch\n`, { dry_run: true }), { input: R1('a.txt') }] },
+      { name: 'patch-rejected-batch', steps: [{ input: R1('a.txt') }, { input: R1('b.txt') }, P(`*** Begin Patch\n${upd('a.txt', 'alpha', 'ALPHA')}${upd('b.txt', 'nothing like this', 'x')}*** End Patch\n`), { input: R1('a.txt') }, { input: R1('a.txt') }, { input: R1('b.txt') }] },
+      { name: 'patch-partial-batch', steps: [{ input: R1('a.txt') }, { input: R1('b.txt') }, P(`*** Begin Patch\n${upd('a.txt', 'alpha', 'ALPHA')}${upd('b.txt', 'nothing like this', 'x')}*** End Patch\n`, { reject_partial: false }), { input: R1('a.txt') }, { input: R1('a.txt') }, { input: R1('b.txt') }] },
+      { name: 'patch-ordered', steps: [{ input: R1('a.txt') }, { input: R1('b.txt') }, P(`*** Begin Patch\n${upd('a.txt', 'alpha', 'ALPHA')}${upd('b.txt', 'one', 'ONE')}*** End Patch\n`, { sequence: true }), { input: R1('a.txt') }, { input: R1('b.txt') }, { input: R1('b.txt') }] },
+      { name: 'patch-ordered-failure', steps: [{ input: R1('a.txt') }, { input: R1('b.txt') }, P(`*** Begin Patch\n${upd('a.txt', 'alpha', 'ALPHA')}${upd('b.txt', 'nothing like this', 'x')}*** End Patch\n`, { sequence: true }), { input: R1('a.txt') }, { input: R1('b.txt') }, { input: R1('b.txt') }] },
+      { name: 'patch-unified', steps: [{ input: R1('a.txt') }, P('--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n alpha\n-beta\n+BETA\n gamma\n'), { input: R1('a.txt') }, { input: R1('a.txt') }] },
+      { name: 'patch-unified-ordered', steps: [{ input: R1('a.txt') }, { input: R1('b.txt') }, P('--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n alpha\n-beta\n+BETA\n gamma\n--- a/b.txt\n+++ b/b.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n', { sequence: true }), { input: R1('a.txt') }, { input: R1('b.txt') }, { input: R1('b.txt') }] },
+      { name: 'patch-after-partial-read', steps: [{ input: R1('long.txt', { offset: 1, limit: 10 }) }, P(upd('long.txt', 'row-3', 'ROW-3')), { input: R1('long.txt') }, { input: R1('long.txt') }] },
+      { name: 'patch-twice', steps: [{ input: R1('a.txt') }, P(`*** Begin Patch\n${upd('a.txt', 'alpha', 'ALPHA')}*** End Patch\n`), P(`*** Begin Patch\n${upd('a.txt', 'beta', 'BETA')}*** End Patch\n`), { input: R1('a.txt') }, { input: R1('a.txt') }] },
+    ];
+  })(),  { name: 'image-twice', steps: [{ input: R1('p.png') }, { input: R1('p.png') }] },
   { name: 'no-session', steps: [{ session: null, input: R1('a.txt') }, { session: null, input: R1('a.txt') }] },
 ];
 const sequences = [];
 for (const [n, seq] of SEQUENCES.entries()) {
   const dir = join(work, 'seq', String(n));
   for (const [rel, f] of Object.entries(FILES)) {
+    if (f.huge) continue;
     mkdirSync(dirname(join(dir, rel)), { recursive: true });
     writeFileSync(join(dir, rel), fileBytes(f));
   }
   Object.keys(FILES).forEach((rel, i) => {
+    if (FILES[rel].huge) return;
     const at = new Date(1700000000000 + i * 1000);
     utimesSync(join(dir, rel), at, at);
   });
@@ -365,6 +402,16 @@ for (const [n, seq] of SEQUENCES.entries()) {
     if (step.sleepMs) {
       await new Promise((r) => setTimeout(r, step.sleepMs));
       steps.push({ sleepMs: step.sleepMs });
+      continue;
+    }
+    if (step.chmod) {
+      const p = join(dir, step.chmod);
+      const before = statSync(p);
+      await new Promise((r) => setTimeout(r, 50));
+      chmodSync(p, 0o444);
+      chmodSync(p, 0o666);
+      const after = statSync(p);
+      steps.push({ chmod: step.chmod, mtimeKept: before.mtimeMs === after.mtimeMs, ctimeMoved: before.ctimeMs !== after.ctimeMs });
       continue;
     }
     if (step.write) {

@@ -86,10 +86,10 @@
       "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop.mjs --tree <tree>",
       "fileCount": 29,
       "manifest": "desktop/MANIFEST.json",
-      "manifestSha256": "d404e467c50f87ad6b6cbee505f932640202a40ea71081746270a63bba52033a",
+      "manifestSha256": "4559ab4341f9c72aa4e6b6b1ebcba6fef5cf93b922c57749c9bbdae19671f381",
       "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
       "set": "desktop",
-      "totalBytes": 12554610
+      "totalBytes": 15168142
     },
     {
       "command": "written by the product's own tests: apps/desktop/src/main/host/host-twin.test.mjs and apps/desktop/src/main/browser/golden-twin.integration.ts (no P0-BENCH recorder)",

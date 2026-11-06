@@ -62,6 +62,8 @@ use super::patch_parse::is_counted_header;
 use super::patch_parse::strip_diff_prefix;
 use super::patch_redirect::relocated_header;
 use super::patch_review::committed_patch;
+use super::read_state::ReadState;
+use std::sync::Arc;
 use super::os_error::fs_message;
 use super::os_error::write_message;
 use super::patch_review::with_card_diff;
@@ -89,6 +91,8 @@ pub struct ApplyPatchTool {
     spec: ToolSpec,
     /// Files each thread has patched, for the repeat-gated post-patch excerpt.
     seen: Mutex<Vec<(String, Vec<String>)>>,
+    /// What the session remembers of its files; a patch tells it what it wrote.
+    state: Option<Arc<ReadState>>,
 }
 
 impl ApplyPatchTool {
@@ -96,7 +100,15 @@ impl ApplyPatchTool {
         Self {
             spec: spec(PATCH_SPEC, "Apply a V4A patch to one or more files.", false, Some("fs-write")),
             seen: Mutex::new(Vec::new()),
+            state: None,
         }
+    }
+
+    /// The read state shared with `read`, keyed by the call's thread.
+    #[must_use]
+    pub fn with_state(mut self, state: Arc<ReadState>) -> Self {
+        self.state = Some(state);
+        self
     }
 }
 
@@ -523,11 +535,13 @@ struct Tx {
     owns_commit: bool,
     /// Which of the batch's paths are V4A moves (source, destination), for the turn review.
     renames: Vec<(AbsPath, AbsPath)>,
+    /// The session's read state, told what the batch commits.
+    state: Option<Arc<ReadState>>,
 }
 
 impl Tx {
     fn unit() -> Self {
-        Self { snapshots: Vec::new(), quarantine: Quarantine::default(), owns_commit: true, renames: Vec::new() }
+        Self { snapshots: Vec::new(), quarantine: Quarantine::default(), owns_commit: true, renames: Vec::new(), state: None }
     }
 }
 
@@ -561,7 +575,7 @@ async fn begin_tx(ctx: &ToolContext, entries: &[Entry], renames: &[&Section], ba
         .iter()
         .map(|s| Ok((resolve_path(base, &s.path)?, resolve_path(base, s.move_path.as_deref().unwrap_or_default())?)))
         .collect::<Result<Vec<_>, ToolError>>()?;
-    Ok(Tx { snapshots, quarantine, owns_commit: false, renames: moves })
+    Ok(Tx { snapshots, quarantine, owns_commit: false, renames: moves, state: None })
 }
 
 /// Node `withRollback`: undoes the batch and words the outcome, including what could not be undone.
@@ -572,7 +586,7 @@ async fn roll_back(ctx: &ToolContext, tx: &mut Tx, outcome: String) -> R<String>
     // What could not be undone stays on disk, so the review lists it.
     if !errors.is_empty() {
         let paths: Vec<AbsPath> = snapshots.iter().map(|s| s.path.clone()).collect();
-        committed_patch(ctx, &snapshots, &paths, &tx.renames).await;
+        committed_patch(ctx, tx.state.as_deref(), &snapshots, &paths, &tx.renames).await;
     }
     Ok(if errors.is_empty() { format!("{outcome}\n{ROLLED_BACK}") } else { format!("{outcome}\n--- rollback incomplete ---\n{}", errors.join("\n")) })
 }
@@ -588,7 +602,7 @@ async fn finish_batch(ctx: &ToolContext, tx: &mut Tx, outcome: R<String>, dry: b
                 return Ok(text);
             }
             let paths: Vec<AbsPath> = tx.snapshots.iter().map(|s| s.path.clone()).collect();
-            committed_patch(ctx, &tx.snapshots, &paths, &tx.renames).await;
+            committed_patch(ctx, tx.state.as_deref(), &tx.snapshots, &paths, &tx.renames).await;
             let leftovers = tx.quarantine.commit(ctx).await?;
             Ok(if leftovers.is_empty() { text } else { format!("{text}\n{}", leftovers.join("\n")) })
         }
@@ -885,6 +899,7 @@ async fn run_batch(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>, op
     let rename_only = rest.is_empty();
     // Every path the patch touches is snapshotted, so a failure can be undone.
     let mut tx = if dry { Tx::unit() } else { begin_tx(ctx, &entries, &renames, base).await? };
+    tx.state = opts.state.clone();
     let mut ops = Vec::new();
     for s in &renames {
         match build_rename(ctx, base, s, fuzzy).await {
@@ -995,7 +1010,7 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
     .await;
     // Units that committed are reviewed whichever way the run ends.
     if !mutated.is_empty() {
-        committed_patch(ctx, &before, &mutated, &[]).await;
+        committed_patch(ctx, opts.state.as_deref(), &before, &mutated, &[]).await;
     }
     outcome?;
     let report = sequence_report(units.len(), &applied, &failures, &skipped, mode.continue_after_failure, dry);
@@ -1167,6 +1182,7 @@ struct Options {
     fuzzy: bool,
     reject_partial: bool,
     dry: bool,
+    state: Option<Arc<ReadState>>,
 }
 
 /// How a multi-section patch runs: stop at the first failed section, or keep going past it.
@@ -1259,7 +1275,7 @@ impl Tool for ApplyPatchTool {
             Some(b) => resolve_path(&ctx.cwd, b)?,
             None => ctx.cwd.clone(),
         };
-        let opts = Options { fuzzy, reject_partial, dry: dry_run };
+        let opts = Options { fuzzy, reject_partial, dry: dry_run, state: self.state.clone() };
         let parse_failed = |text: String| fail(error_code(&text), text);
         let (sections, coalesce_sections) = if requested == "v4a" || is_v4a(patch) {
             match parse_v4a(patch) {
@@ -1490,6 +1506,7 @@ async fn run_unified(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, opts:
     let mut notices = Notices::default();
     let entries = unified_entries(ctx, base, files, opts.fuzzy).await?;
     let mut tx = if opts.dry { Tx::unit() } else { begin_tx(ctx, &entries, &[], base).await? };
+    tx.state = opts.state.clone();
     let outcome = apply_ops(ctx, base, &[], &entries, opts, &mut tx).await;
     finish_batch(ctx, &mut tx, outcome, opts.dry, &mut notices).await
 }
@@ -1575,7 +1592,7 @@ async fn run_unified_sequence(ctx: &ToolContext, base: &AbsPath, files: Vec<UFil
     }
     .await;
     if !mutated.is_empty() {
-        committed_patch(ctx, &before, &mutated, &[]).await;
+        committed_patch(ctx, opts.state.as_deref(), &before, &mutated, &[]).await;
     }
     outcome?;
     let report = sequence_report(count, &applied, &failures, &skipped, false, opts.dry);

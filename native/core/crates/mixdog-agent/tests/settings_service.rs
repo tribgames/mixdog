@@ -1,5 +1,7 @@
 //! The `config/*` compaction methods against Node's recorded results.
 
+#![allow(clippy::disallowed_methods, reason = "test-only: reads recorded fixtures synchronously")]
+
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -93,7 +95,6 @@ fn request(method: &str, params: Value) -> CoreRequest {
     }
 }
 
-#[allow(clippy::disallowed_methods, reason = "test setup: reads the recorded golden fixture")]
 fn golden() -> Value {
     let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent/compact/golden/settings.json"))
         .unwrap();

@@ -3,6 +3,7 @@
 //! tokens (`<R:id>` a plugin's root, `<D>` the data dir, `<C>` the session cwd); the replay builds
 //! the same plugin trees under a fresh directory and compares the results key order included.
 #![cfg(windows)]
+#![allow(clippy::disallowed_methods, reason = "test setup: builds the plugin trees on the test thread")]
 
 use std::path::Path;
 use std::path::PathBuf;

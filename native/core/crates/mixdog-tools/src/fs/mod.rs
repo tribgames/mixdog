@@ -18,6 +18,7 @@ mod patch_unified;
 mod patch_window;
 mod read;
 mod read_batch;
+mod read_state;
 mod search;
 #[cfg(test)]
 mod tests;
@@ -26,6 +27,8 @@ pub use edit::EditTool;
 pub use list::ListTool;
 pub use patch::ApplyPatchTool;
 pub use read::ReadTool;
+pub use read_state::ReadState;
+pub use read_state::SnapshotPersist;
 pub use search::FindTool;
 pub use search::GlobTool;
 pub use search::GrepTool;

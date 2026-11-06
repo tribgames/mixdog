@@ -429,6 +429,55 @@ impl Tool for WithMeta {
     }
 }
 
+/// `echo` that calls the turn's completion hook it finds in its call options.
+struct Notifying;
+#[async_trait]
+impl Tool for Notifying {
+    fn spec(&self) -> &ToolSpec {
+        static SPEC: std::sync::OnceLock<ToolSpec> = std::sync::OnceLock::new();
+        SPEC.get_or_init(|| Echo::tool().spec().clone())
+    }
+    async fn call(&self, ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        let delivered = ctx.options.notify.as_ref().map(|n| n.deliver("done", &json!({"status": "completed"})));
+        Ok(ToolOutput { parts: vec![ToolPart::Text(format!("{delivered:?}"))], ..ToolOutput::default() })
+    }
+}
+
+/// Node passes the worker turn's `notifyFn` in every tool call's options; a turn without one
+/// leaves the options empty.
+#[tokio::test]
+async fn the_turns_notify_hook_reaches_each_tool_call_s_options() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    for hook in [true, false] {
+        let h = Harness::new(vec![
+            turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        let mut tool_env = h.tool_env();
+        if hook {
+            let seen = seen.clone();
+            tool_env.notify = Some(mixdog_core_api::domain::tool::ToolNotify(Arc::new(move |text: &str, meta: &JsonValue| {
+                seen.lock().unwrap().push((text.to_owned(), meta.clone()));
+                true
+            })));
+        }
+        let run = Run::new(
+            h.run_env(),
+            h.cancel.clone(),
+            h.provider.clone(),
+            ToolSet::with_builtins(vec![Arc::new(Notifying)], vec!["echo".to_owned()]),
+            tool_env,
+            config(),
+            vec![AgentMessage::user("go")],
+            RunCarry::default(),
+        );
+        let output = finish(run).await;
+        let want = if hook { "tool#c1(Normal):Some(true)" } else { "tool#c1(Normal):None" };
+        assert_eq!(dump(&output.transcript)[2], want);
+    }
+    assert_eq!(*seen.lock().unwrap(), vec![("done".to_owned(), json!({"status": "completed"}))]);
+}
+
 #[tokio::test]
 async fn a_tool_results_ui_diff_rides_its_message_as_a_string_and_stays_off_the_wire() {
     for (meta, want) in [
@@ -575,6 +624,7 @@ impl Harness {
             processes: Arc::new(MockProcessManager::default()),
             progress: Arc::new(MockProgress::default()),
             deadline_of: None,
+            notify: None,
         }
     }
 

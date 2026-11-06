@@ -200,6 +200,7 @@ impl RunParts for HostRunParts {
             processes: s.processes.clone(),
             progress: s.progress.clone(),
             deadline_of: None,
+            notify: input.notify.clone(),
         };
         let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         let guards: Arc<dyn TurnGuards> = Arc::new(TodoGuards::new(seams.todo_view(thread, header), hidden));
@@ -223,16 +224,11 @@ impl RunParts for HostRunParts {
         config.effort = settings.effort;
         // The judge is built only when auto effort is on for the turn (`stepAutoEffort`), over the
         // shared model and the ladder of this run's route.
-        // Step judging needs a calibration made for steps (`calibration.json` `steps === 1`).
-        let step_auto_effort = match settings.step_auto_effort {
-            Some(auto) if s.effort_judge.supports_steps().await => Some(auto),
-            _ => None,
-        };
-        let step_judge = step_auto_effort.as_ref().and_then(|auto| {
+        let step_judge = settings.step_auto_effort.as_ref().and_then(|auto| {
             let ladder = super::step_judge::ladder_for(provider_id, auto, seams.step_ladder_facts(thread, header, auto)?)?;
             Some(Arc::new(EffortJudge::new(s.effort_judge.clone(), ladder)) as Arc<dyn StepEffortJudge>)
         });
-        config.step_auto_effort = step_auto_effort;
+        config.step_auto_effort = settings.step_auto_effort;
         config.text_only = settings.text_only;
         config.attachments = settings.attachments;
         config.slot = input.slot;

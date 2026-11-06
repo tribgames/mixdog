@@ -300,6 +300,8 @@ fn options_in(o: w::ProxyOptions) -> Result<p::RequestOptions, Invalid> {
             None => None,
             Some(v) => Some(serde_json::from_value(v).map_err(|e| Invalid(format!("invalid providerState: {e}")))?),
         },
+        // A group names the loop's own retries on this PC; a remote request carries none.
+        send_group: None,
     })
 }
 

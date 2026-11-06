@@ -822,6 +822,9 @@ fn file_stat(len: usize) -> FileStat {
         kind: EntryKind::File,
         len: len as u64,
         modified: None,
+        ctime: None,
+        inode: 0,
+        device: 0,
         readonly: false,
     }
 }
@@ -881,6 +884,9 @@ impl FileService for MockFileService {
                 kind: EntryKind::Dir,
                 len: 0,
                 modified: None,
+                ctime: None,
+                inode: 0,
+                device: 0,
                 readonly: false,
             });
         }

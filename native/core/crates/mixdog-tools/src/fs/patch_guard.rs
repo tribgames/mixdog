@@ -279,9 +279,22 @@ pub(super) struct Snapshot {
     content: Option<Vec<u8>>,
     omitted: Option<Omitted>,
     perms: Option<fs::Permissions>,
+    /// Modification time and size when it was captured.
+    stamp: Option<(Option<SystemTime>, u64)>,
 }
 
 impl Snapshot {
+    /// The bytes captured, when there are any.
+    pub(super) fn bytes(&self) -> Option<&[u8]> {
+        self.content.as_deref()
+    }
+
+    /// The file's identity when captured.
+    pub(super) fn version(&self) -> Option<super::read_state::FileVersion> {
+        let (modified, size) = self.stamp?;
+        super::read_state::FileVersion::new(modified, size)
+    }
+
     /// The state the turn review keeps: absent, the bytes, or an explicit omitted marker.
     pub(super) fn review_content(&self) -> mixdog_core_api::turn_review::ReviewContent {
         use mixdog_core_api::turn_review::ReviewContent;
@@ -315,9 +328,15 @@ pub(super) async fn capture(ctx: &ToolContext, paths: &[AbsPath], delete_only: &
             match bounded_read(abs.as_path(), max, Some(&mut budget), false, true) {
                 Err(ReadFail::NotRegular) => return Err(format!("apply_patch: rollback snapshot target is not a regular file: {shown}")),
                 Err(ReadFail::Io(code)) => return Err(format!("apply_patch: rollback snapshot target unreadable: {shown} ({code})")),
-                Ok(Bounded::Absent) => out.push(Snapshot { path: abs, existed: false, content: None, omitted: None, perms: None }),
-                Ok(Bounded::Omitted(o)) => out.push(Snapshot { path: abs, existed: true, content: None, omitted: Some(o), perms: None }),
-                Ok(Bounded::Present { content, perms }) => out.push(Snapshot { path: abs, existed: true, content: Some(content), omitted: None, perms: Some(perms) }),
+                Ok(Bounded::Absent) => out.push(Snapshot { path: abs, existed: false, content: None, omitted: None, perms: None, stamp: None }),
+                Ok(Bounded::Omitted(o)) => {
+                    let stamp = Some((o.modified, o.stat_size));
+                    out.push(Snapshot { path: abs, existed: true, content: None, omitted: Some(o), perms: None, stamp });
+                }
+                Ok(Bounded::Present { content, perms }) => {
+                    let stamp = fs::metadata(abs.as_path()).ok().map(|m| (m.modified().ok(), m.len()));
+                    out.push(Snapshot { path: abs, existed: true, content: Some(content), omitted: None, perms: Some(perms), stamp });
+                }
                 Ok(Bounded::Classified) => {}
             }
         }

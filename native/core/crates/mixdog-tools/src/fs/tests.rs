@@ -1004,62 +1004,93 @@ async fn an_image_without_a_resizer_keeps_the_inline_cap_and_a_failed_host_is_an
     let error = dead.call(&ctx, serde_json::json!({ "file_path": "big.png" })).await.unwrap_err();
     assert!(matches!(error.code, ToolErrorCode::Unavailable { .. }), "{error:?}");
 }
-/// Node's `read`, text and batch forms, replayed from `batch_cases.json`: the workspace is rebuilt
-/// from its recipes (mtimes fixed, so a glob orders as it did) and every case's arguments must
-/// give the recorded string or structured content.
-#[tokio::test]
-async fn reading_text_and_batches_matches_the_recorded_node_cases() {
-    use sha2::Digest;
-
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let root = AbsPath::new(dir.path().join("ws")).unwrap();
-    std::fs::create_dir_all(root.as_path()).unwrap();
-    let mut files = Vec::new();
-    let recipes = doc["files"].as_object().unwrap();
-    for (rel, f) in recipes {
-        let bytes = if let Some(p) = f.get("png") {
-            let rgb: Vec<u8> = p["rgb"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u8).collect();
-            flat_png(p["width"].as_u64().unwrap() as u32, p["height"].as_u64().unwrap() as u32, [rgb[0], rgb[1], rgb[2]])
-        } else if let Some(h) = f.get("hex") {
-            let h = h.as_str().unwrap();
-            (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect()
-        } else if let Some(r) = f.get("rows") {
-            let (count, width) = (r[0].as_u64().unwrap(), r[1].as_u64().unwrap() as usize);
-            let mut s = String::new();
-            for n in 1..=count {
-                let mut row = format!("row-{n}");
-                while row.len() < width {
-                    row.push('.');
-                }
-                s.push_str(&row);
-                s.push('\n');
-            }
-            s.into_bytes()
-        } else {
-            f["text"].as_str().unwrap().as_bytes().to_vec()
-        };
-        files.push((rel.clone(), bytes));
+/// A workspace file from its recorded recipe (`record_batch.mjs`): a PNG, hex bytes, numbered
+/// rows (padded, accented, NUL-ended), or text, each optionally re-encoded as UTF-16 with a BOM.
+fn recipe_bytes(f: &JsonValue) -> Vec<u8> {
+    if let Some(p) = f.get("png") {
+        let rgb: Vec<u8> = p["rgb"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u8).collect();
+        return flat_png(p["width"].as_u64().unwrap() as u32, p["height"].as_u64().unwrap() as u32, [rgb[0], rgb[1], rgb[2]]);
     }
+    if let Some(h) = f.get("hex") {
+        let h = h.as_str().unwrap();
+        return (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect();
+    }
+    let text = if let Some(r) = f.get("rows") {
+        let (count, width) = (r[0].as_u64().unwrap(), r[1].as_u64().unwrap() as usize);
+        let accent = f.get("accent").and_then(JsonValue::as_bool).unwrap_or(false);
+        let mut s = String::new();
+        for n in 1..=count {
+            let mut row = format!("row-{n}");
+            if accent {
+                row.push_str(if (n - 1) % 2 == 1 { " é" } else { " ü" });
+            }
+            while row.chars().count() < width {
+                row.push('.');
+            }
+            s.push_str(&row);
+            s.push('\n');
+        }
+        s
+    } else {
+        f["text"].as_str().unwrap().to_owned()
+    };
+    let mut bytes = match f.get("enc").and_then(JsonValue::as_str) {
+        Some(enc) => {
+            let little = enc == "utf16le";
+            let mut out = if little { vec![0xff, 0xfe] } else { vec![0xfe, 0xff] };
+            for unit in text.encode_utf16() {
+                out.extend_from_slice(&if little { unit.to_le_bytes() } else { unit.to_be_bytes() });
+            }
+            out
+        }
+        None => text.into_bytes(),
+    };
+    if f.get("nulTail").and_then(JsonValue::as_bool).unwrap_or(false) {
+        bytes.push(0);
+    }
+    bytes
+}
+
+/// A workspace built from the recorded recipes, files stamped as the recorder stamped them.
+async fn recorded_workspace(doc: &JsonValue, dir: &Path) -> (AbsPath, ToolContext) {
+    let root = AbsPath::new(dir.join("ws")).unwrap();
+    std::fs::create_dir_all(root.as_path()).unwrap();
+    let recipes = doc["files"].as_object().unwrap();
+    let files = recipes.iter().map(|(rel, f)| (rel.clone(), recipe_bytes(f))).collect();
     let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), files).await;
-    // Same fixed mtimes as the recorder: file n, in recipe order, is n seconds past the epoch base.
     for (n, rel) in recipes.keys().enumerate() {
         let at = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_700_000_000_000 + n as u64 * 1000);
         std::fs::File::options().write(true).open(root.as_path().join(rel)).unwrap().set_modified(at).unwrap();
     }
-    let hash = |bytes: &[u8]| format!("{:x}", sha2::Sha256::digest(bytes));
-    let resized = {
-        let mut v = Vec::new();
-        for case in doc["cases"].as_array().unwrap() {
-            for block in case["result"]["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "image") {
-                v.push(block.clone());
-            }
-        }
-        v
-    };
-    assert!(!resized.is_empty());
-    let png = flat_png(30, 20, [10, 20, 30]);
-    let block = &resized[0];
+    (root, ctx)
+}
+
+/// The sharp stand-in: the one recorded image result, for the one source image.
+struct Fixed(String, mixdog_core_api::domain::ext::ResizedImage);
+
+#[async_trait::async_trait]
+impl mixdog_core_api::domain::ext::ImageResizer for Fixed {
+    async fn resize(
+        &self,
+        _t: &ThreadId,
+        bytes: &[u8],
+        _e: &str,
+    ) -> Result<Option<mixdog_core_api::domain::ext::ResizedImage>, mixdog_core_api::domain::ext::ImageResizeError> {
+        use sha2::Digest;
+        assert_eq!(format!("{:x}", sha2::Sha256::digest(bytes)), self.0);
+        Ok(Some(self.1.clone()))
+    }
+}
+
+fn recorded_resizer(doc: &JsonValue) -> Arc<Fixed> {
+    use sha2::Digest;
+    let block = doc["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|c| c["result"]["content"].as_array().into_iter().flatten())
+        .find(|b| b["type"] == "image")
+        .expect("a recorded image");
     let image = mixdog_core_api::domain::ext::ResizedImage {
         data_base64: "A".repeat(block["base64Length"].as_u64().unwrap() as usize),
         mime: block["mimeType"].as_str().unwrap().to_owned(),
@@ -1068,58 +1099,121 @@ async fn reading_text_and_batches_matches_the_recorded_node_cases() {
         display_w: block["width"].as_u64().unwrap() as u32,
         display_h: block["height"].as_u64().unwrap() as u32,
     };
-    struct Fixed(String, mixdog_core_api::domain::ext::ResizedImage);
-    #[async_trait::async_trait]
-    impl mixdog_core_api::domain::ext::ImageResizer for Fixed {
-        async fn resize(
-            &self,
-            _t: &ThreadId,
-            bytes: &[u8],
-            _e: &str,
-        ) -> Result<Option<mixdog_core_api::domain::ext::ResizedImage>, mixdog_core_api::domain::ext::ImageResizeError> {
-            use sha2::Digest;
-            assert_eq!(format!("{:x}", sha2::Sha256::digest(bytes)), self.0);
-            Ok(Some(self.1.clone()))
-        }
+    Arc::new(Fixed(format!("{:x}", sha2::Sha256::digest(&flat_png(30, 20, [10, 20, 30]))), image))
+}
+
+/// A tool outcome as the recorder summarizes Node's: text parts, and an image as `mime:base64 length`.
+fn summary(outcome: &ToolOutcome, cwd: &str) -> Vec<(String, String)> {
+    let fix = |s: &str| s.replace(cwd, "<WS>");
+    match outcome {
+        Ok(out) => out
+            .parts
+            .iter()
+            .map(|p| match p {
+                ToolPart::Text(t) => ("text".to_owned(), fix(t)),
+                ToolPart::Image { mime, data: ImageData::Bytes(b) } => {
+                    ("image".to_owned(), format!("{mime}:{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b).len()))
+                }
+                other => ("other".to_owned(), format!("{other:?}")),
+            })
+            .collect(),
+        Err(e) => vec![("text".to_owned(), fix(&e.message_for_model))],
     }
-    let tool = ReadTool::new(None, Some(Arc::new(Fixed(hash(&png), image))));
+}
+
+fn recorded_result(result: &JsonValue) -> Vec<(String, String)> {
+    match result.get("text").and_then(JsonValue::as_str) {
+        Some(t) => vec![("text".to_owned(), t.to_owned())],
+        None => result["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| {
+                if b["type"] == "image" {
+                    ("image".to_owned(), format!("{}:{}", b["mimeType"].as_str().unwrap(), b["base64Length"]))
+                } else {
+                    ("text".to_owned(), b["text"].as_str().unwrap().to_owned())
+                }
+            })
+            .collect(),
+    }
+}
+
+/// Node's `read`, text and batch forms, replayed from `batch_cases.json` (no session, so no memory).
+#[tokio::test]
+async fn reading_text_and_batches_matches_the_recorded_node_cases() {
+    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (root, ctx) = recorded_workspace(&doc, dir.path()).await;
+    let cwd = root.as_path().to_string_lossy().replace('\\', "/");
+    let tool = ReadTool::new(None, Some(recorded_resizer(&doc)));
     let mut failures = Vec::new();
     for case in doc["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
-        let outcome = tool.call(&ctx, case["input"].clone()).await;
-        let want = &case["result"];
-        let cwd = root.as_path().to_string_lossy().replace('\\', "/");
-        let fix = |s: &str| s.replace("C:/Users/tempe/.mixdog/data/scratch/s.c95c85c6f484dcc3/mixdog-batch-golden-GNr6yz/ws", &cwd);
-        let got: Vec<(String, String)> = match &outcome {
-            Ok(out) => out
-                .parts
-                .iter()
-                .map(|p| match p {
-                    ToolPart::Text(t) => ("text".to_owned(), t.clone()),
-                    ToolPart::Image { mime, data: ImageData::Bytes(b) } => ("image".to_owned(), format!("{mime}:{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b).len())),
-                    other => ("other".to_owned(), format!("{other:?}")),
-                })
-                .collect(),
-            Err(e) => vec![("text".to_owned(), e.message_for_model.clone())],
-        };
-        let expected: Vec<(String, String)> = match want.get("text").and_then(JsonValue::as_str) {
-            Some(t) => vec![("text".to_owned(), fix(t))],
-            None => want["content"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|b| {
-                    if b["type"] == "image" {
-                        ("image".to_owned(), format!("{}:{}", b["mimeType"].as_str().unwrap(), b["base64Length"]))
-                    } else {
-                        ("text".to_owned(), fix(b["text"].as_str().unwrap()))
-                    }
-                })
-                .collect(),
-        };
+        let got = summary(&tool.call(&ctx, case["input"].clone()).await, &cwd);
+        let expected = recorded_result(&case["result"]);
         if got != expected {
             failures.push(format!("{name}\n  want {expected:?}\n  got  {got:?}"));
         }
     }
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), doc["cases"].as_array().unwrap().len(), failures.join("\n"));
+}
+
+/// What the file tools remember between calls, replayed from the recorded sequences: a repeated
+/// read, a read after an edit or a patch, another session, a changed file, and a cache that has
+/// outlived its 30 seconds (on a clock the test moves).
+#[tokio::test]
+async fn the_session_memory_answers_repeated_reads_as_node_does() {
+    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let mut failures = Vec::new();
+    for sequence in doc["sequences"].as_array().unwrap() {
+        let name = sequence["name"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let (root, mut ctx) = recorded_workspace(&doc, dir.path()).await;
+        let cwd = root.as_path().to_string_lossy().replace('\\', "/");
+        let now = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
+        let clock = Arc::clone(&now);
+        let state = Arc::new(ReadState::with_clock(None, Arc::new(move || clock.load(std::sync::atomic::Ordering::SeqCst))));
+        let resizer = recorded_resizer(&doc);
+        let remembering = ReadTool::new(None, Some(resizer.clone())).with_state(Arc::clone(&state));
+        let forgetting = ReadTool::new(None, Some(resizer));
+        let edit = EditTool::new().with_state(Arc::clone(&state));
+        let patch = ApplyPatchTool::new().with_state(Arc::clone(&state));
+        let mut bump = 0_u64;
+        for (n, step) in sequence["steps"].as_array().unwrap().iter().enumerate() {
+            if let Some(ms) = step.get("sleepMs").and_then(JsonValue::as_u64) {
+                now.fetch_add(ms, std::sync::atomic::Ordering::SeqCst);
+                continue;
+            }
+            if let Some(w) = step.get("write") {
+                let path = root.as_path().join(w["path"].as_str().unwrap());
+                std::fs::write(&path, w["text"].as_str().unwrap()).unwrap();
+                bump += 5;
+                let at = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_700_001_000_000 + bump * 1000);
+                std::fs::File::options().write(true).open(&path).unwrap().set_modified(at).unwrap();
+                continue;
+            }
+            let session = step["session"].as_str();
+            ctx.thread_id = ThreadId::from(session.unwrap_or("none"));
+            let input = step["input"].clone();
+            let outcome = match (step["tool"].as_str().unwrap(), session) {
+                ("read", Some(_)) => remembering.call(&ctx, input).await,
+                ("read", None) => forgetting.call(&ctx, input).await,
+                ("edit", _) => edit.call(&ctx, input).await,
+                ("apply_patch", _) => patch.call(&ctx, input).await,
+                (other, _) => panic!("{other}"),
+            };
+            let got = summary(&outcome, &cwd);
+            let expected = recorded_result(&step["result"]);
+            // A write's own wording is the write tools' to match; here it must only succeed.
+            if step["tool"] != "read" {
+                assert!(outcome.is_ok(), "{name} step {n}: {got:?}");
+                continue;
+            }
+            if got != expected {
+                failures.push(format!("{name} step {n} {}\n  want {expected:?}\n  got  {got:?}", step["input"]));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{} steps differ:\n{}", failures.len(), failures.join("\n"));
 }

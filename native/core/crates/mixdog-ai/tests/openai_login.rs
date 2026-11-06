@@ -2,6 +2,8 @@
 //! issuer (`fixtures/providers/oracles/openai-login-golden.json`): the authorize
 //! URL, the token request and the credential it stores.
 
+#![allow(clippy::disallowed_methods, reason = "test-only: reads a recorded fixture synchronously")]
+
 use std::sync::Arc;
 use std::sync::Mutex;
 

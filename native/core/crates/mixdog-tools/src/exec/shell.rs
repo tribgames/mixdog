@@ -780,7 +780,7 @@ impl ShellTool {
             time_limit: (time_limit > 0).then(|| Duration::from_millis(time_limit)),
         };
         let started = runtime
-            .start(&ctx.processes, request, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), &ctx.cancel)
+            .start(&ctx.processes, request, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), ctx.options.notify.clone(), &ctx.cancel)
             .await;
         let job = match started {
             Ok(job) => job,

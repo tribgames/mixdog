@@ -275,6 +275,12 @@ pub struct RequestOptions {
     /// filled by the agent from the session. A provider reads only its own key
     /// and reports a change on [`StreamEvent::ProviderState`].
     pub provider_state: Option<ProviderState>,
+    /// The logical send this request is an attempt of: the same id on every attempt the loop's
+    /// retry decider replays (`Retry`, `Fallback`), a new id for any other send. Node's
+    /// `provider.send` retries internally and writes one ledger row with `attempts`; the accounting
+    /// folds the attempts of one group into that row. The loop settles the group with
+    /// [`ProviderAdapter::settle_send`] when the logical send ends without success.
+    pub send_group: Option<String>,
 }
 
 /// The session's saved provider-native state (Node `session.providerState`).
@@ -807,6 +813,19 @@ pub trait ProviderAdapter: Send + Sync {
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         None
     }
+    /// The logical send `group` ended without a success: its last failure surfaces, or the user
+    /// cancelled it. Called by the loop once per group, before any other send; a provider that
+    /// accounts sends writes what the group held back. Nothing to do by default.
+    async fn settle_send(&self, _group: &str, _end: SendEnd) {}
+}
+
+/// How a logical send ended when it did not succeed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SendEnd {
+    /// The last failure is the send's result (no retry follows).
+    Surfaced,
+    /// The user cancelled it.
+    Cancelled,
 }
 
 /// What the caller knows of one send when it asks for a model's wire. What

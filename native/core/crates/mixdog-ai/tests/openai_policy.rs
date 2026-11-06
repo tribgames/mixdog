@@ -2,6 +2,8 @@
 //! export (`fixtures/providers/oracles/openai-retry-policy-golden.json`,
 //! read from `openai-retry-policy.mjs` and the send paths by the recorder).
 
+#![allow(clippy::disallowed_methods, reason = "test-only: reads a recorded fixture synchronously")]
+
 use std::time::Duration;
 
 use mixdog_ai::providers::openai::policy::retry_policy;

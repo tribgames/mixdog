@@ -56,6 +56,7 @@ use mixdog_core_api::domain::fs::WriteRequest;
 use crate::ident::StatVersion;
 use crate::ident::names_equal;
 use crate::ident::stat_version;
+use crate::ident::stat_with_version;
 use crate::pathguard::canonical;
 use crate::pathguard::lexical;
 use crate::lanes::counted;
@@ -224,8 +225,22 @@ fn entry_kind(file_type: fs::FileType) -> EntryKind {
     }
 }
 
-fn stat_of(meta: &fs::Metadata) -> FileStat {
-    FileStat { kind: entry_kind(meta.file_type()), len: meta.len(), modified: meta.modified().ok(), readonly: meta.permissions().readonly() }
+/// `fs.stat` of `path` (links followed). The change time, inode and device are `fileVersion`'s own
+/// reading (`stat_version`), so the two never disagree.
+fn stat_path(path: &Path) -> Result<FileStat, FsError> {
+    let (meta, version) = stat_with_version(path).map_err(|e| io_error(&e, path))?;
+    let ns = version.ctime_ns;
+    let magnitude = std::time::Duration::from_nanos(u64::try_from(ns.unsigned_abs()).unwrap_or(u64::MAX));
+    let ctime = if ns >= 0 { std::time::UNIX_EPOCH.checked_add(magnitude) } else { std::time::UNIX_EPOCH.checked_sub(magnitude) };
+    Ok(FileStat {
+        kind: entry_kind(meta.file_type()),
+        len: meta.len(),
+        modified: meta.modified().ok(),
+        ctime,
+        inode: version.ino,
+        device: version.dev,
+        readonly: meta.permissions().readonly(),
+    })
 }
 
 /// Runs `job` on `lane`; dropping the future cancels a job that has not started.
@@ -350,7 +365,7 @@ fn write_resolved(locks: &Arc<PathLocks>, resolved: &Resolved, request: &WriteRe
     let target = resolved.path.as_path();
     let expect = evaluate(target, &request.precondition)?;
     atomic_write(target, &request.content, &expect)?;
-    fs::metadata(target).map(|m| stat_of(&m)).map_err(|e| io_error(&e, target))
+    stat_path(target)
 }
 
 /// Node: `atomicWrite`. The caller holds the write lock of `target`.
@@ -528,7 +543,7 @@ impl FileService for LocalFileService {
     async fn stat(&self, lane: InteractiveIo, path: AbsPath) -> Result<FileStat, FsError> {
         on(lane, move || {
             let p = path.as_path();
-            fs::metadata(p).map(|m| stat_of(&m)).map_err(|e| io_error(&e, p))
+            stat_path(&p)
         })
         .await?
     }
@@ -625,7 +640,7 @@ impl FileService for LocalFileService {
                     None => error,
                 });
             }
-            targets.iter().map(|t| fs::metadata(t).map(|m| stat_of(&m)).map_err(|e| io_error(&e, t))).collect()
+            targets.iter().map(|t| stat_path(t)).collect()
         })
         .await?
     }
@@ -953,6 +968,36 @@ mod tests {
 
     fn put(path: &AbsPath, content: &[u8], precondition: WritePrecondition) -> WriteRequest {
         WriteRequest { path: path.clone(), content: content.to_vec(), precondition }
+    }
+
+    #[tokio::test]
+    async fn stat_reports_nodes_ctime_inode_and_device() {
+        let (_dir, root) = root();
+        let file = root.join("f.txt");
+        fs::write(file.as_path(), b"one").unwrap();
+        let service = LocalFileService::new();
+        let stat = service.stat(lanes().interactive, file.clone()).await.unwrap();
+        let ctime_ns = stat.ctime.unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as i128;
+        let version = stat_version(file.as_path()).unwrap();
+        assert_eq!((ctime_ns, stat.inode, stat.device), (version.ctime_ns, version.ino, version.dev));
+        assert!(stat.inode != 0);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let meta = fs::metadata(file.as_path()).unwrap();
+            assert_eq!((stat.inode, stat.device), (u128::from(meta.ino()), meta.dev()));
+            assert_eq!(ctime_ns, i128::from(meta.ctime()) * 1_000_000_000 + i128::from(meta.ctime_nsec()));
+        }
+        // Another file is another inode on the same device; a rewrite moves the change time on.
+        let other = root.join("g.txt");
+        fs::write(other.as_path(), b"x").unwrap();
+        let second = service.stat(lanes().interactive, other).await.unwrap();
+        assert_eq!((second.device, second.inode == stat.inode), (stat.device, false));
+        std::thread::sleep(Duration::from_millis(50));
+        fs::write(file.as_path(), b"two").unwrap();
+        let after = service.stat(lanes().interactive, file).await.unwrap();
+        assert!(after.ctime > stat.ctime);
+        assert_eq!((after.inode, after.device), (stat.inode, stat.device));
     }
 
     fn tmp_suffix_is_eight_hex(tmp_name: &str, target_name: &str) -> bool {

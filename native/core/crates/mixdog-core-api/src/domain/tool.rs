@@ -166,9 +166,38 @@ pub enum CapLimit {
     Label(String),
 }
 
+/// `notifyFn(text, meta)` of a call: where the completion of work the call left running goes (a
+/// worker turn's own queue). `false` means the receiver declined, and the completion falls back
+/// to the owner's default delivery.
+#[derive(Clone)]
+pub struct ToolNotify(pub Arc<dyn Fn(&str, &JsonValue) -> bool + Send + Sync>);
+
+impl ToolNotify {
+    pub fn deliver(&self, text: &str, meta: &JsonValue) -> bool {
+        (self.0)(text, meta)
+    }
+}
+
+impl PartialEq for ToolNotify {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ToolNotify {}
+
+impl std::fmt::Debug for ToolNotify {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ToolNotify")
+    }
+}
+
 /// What the caller passes with one call besides the model's arguments.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct CallOptions {
+    /// Set only in a worker's turn (`AgentTurn.hooks.notify`): background work this call starts
+    /// reports its completion here first.
+    pub notify: Option<ToolNotify>,
     /// `edit` in a same-anchor batch retry: consume the first of the
     /// `expected` remaining occurrences of `old_string` (Node
     /// `options.editOccurrence`); set only when two or more remain.
