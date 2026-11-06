@@ -4,7 +4,11 @@
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use mixdog_rt::CancellationToken;
+use mixdog_rt::Scope;
+use mixdog_rt::Scoped;
 use serde_json::Value;
+use std::time::Duration;
 
 use crate::error::CoreError;
 use crate::ids::ConnectionId;
@@ -33,6 +37,20 @@ pub enum HostCapability {
     /// by `capabilities.modelProxy` (not under `capabilities.host`), so a connection serves it
     /// from `initialize` on, without `host/claim`.
     ModelProxy,
+}
+
+impl HostCapability {
+    /// The longest a `host/*` request to this capability may stay unanswered while its claimant
+    /// stays connected (a modal dialog, a wedged handler). One table for the whole channel:
+    /// `Outgoing::ask` is the only place that enforces it. A request that outlives it fails as
+    /// `capabilityUnavailable{desktopHost, timedOut}`.
+    pub const fn deadline(self) -> Duration {
+        match self {
+            Self::Notifications | Self::SystemProxy | Self::Power => Duration::from_secs(30),
+            Self::Browser | Self::Visualize | Self::Files => Duration::from_secs(300),
+            Self::Updater | Self::ModelProxy => Duration::from_secs(600),
+        }
+    }
 }
 
 /// Why a `host/*` request produced no result.
@@ -70,6 +88,21 @@ pub trait HostChannel: Send + Sync {
         method: Method,
         params: Value,
     ) -> Result<Value, HostError>;
+
+    /// [`HostChannel::request`] that also ends when `cancel` fires, as
+    /// `capabilityUnavailable{desktopHost, cancelled}`, and abandons the request.
+    async fn request_scoped(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+        cancel: &CancellationToken,
+    ) -> Result<Value, HostError> {
+        match Scope::new().cancel(cancel).run(self.request(capability, method, params)).await {
+            Scoped::Done(answer) => answer,
+            _ => Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "cancelled".into() }.into()),
+        }
+    }
 
     /// A `host/*` notification to the claimant serving `capability`.
     fn notify(
@@ -151,6 +184,14 @@ pub trait ConnectionNotifier: Send + Sync {
 /// desktops, TUIs and the CLI are not windows.
 pub trait DesktopPresence: Send + Sync {
     fn desktop_attached(&self) -> bool;
+}
+
+/// Whether a session surface watches `thread`: a connection of kind `desktop` or `tui` live on
+/// the thread's feed. Node's surfaces are the session stores of an attached Desktop or TUI
+/// (`agent-job-feed` `notification-router`), the only listeners that take a UI-only notice
+/// (`notifySessionUi`); `mixdog exec`, bridges and paired devices are not surfaces.
+pub trait SessionSurfaces: Send + Sync {
+    fn surface_on(&self, thread: &crate::ids::ThreadId) -> bool;
 }
 
 /// Binary media frames from a host-role connection (X17: 16-byte header + payload), routed

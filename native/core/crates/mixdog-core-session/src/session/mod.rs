@@ -56,6 +56,7 @@ pub mod room_log;
 mod route_exclusions;
 pub mod route_session;
 pub mod secret_input;
+pub mod setup_ui;
 pub mod run_stamps;
 pub mod route_setup;
 mod ops;

@@ -35,6 +35,25 @@ use mixdog_core_run::run_host::guards::UserCycles;
 use mixdog_core_run::run_host::hop_host::HopFactory;
 use mixdog_core_run::run_host::hop_host::HopDeps;
 use mixdog_core_run::run_host::hop_host::HopSessions;
+use mixdog_core_config::config::Config;
+use mixdog_core_domains::domains::ai_account::collaborators::AuthRefresh;
+use mixdog_core_domains::domains::ai_admin::chain::CatalogFacts;
+use mixdog_core_ports::ports::memory_source::ThreadMessages;
+use mixdog_core_ports::ports::route::LiveRoute;
+use mixdog_core_ports::ports::threads::Section;
+use mixdog_ai::service::admin_route::resolve_route;
+use mixdog_core_domains::domains::ai_admin::chain::RouteFacts;
+use mixdog_core_ports::ports::route::Route;
+use mixdog_core_session::session::route_cell::SessionRoutes;
+use mixdog_core_session::session::delivered::DeliveredCompletions;
+use mixdog_core_session::session::pending_read::PendingQueue;
+use mixdog_core_session::session::route_session::ContextStatusCache;
+use mixdog_core_session::session::secret_input::SecretInputService;
+use mixdog_core_session::session::secret_input::SecretSlots;
+use mixdog_core_session::session::secret_input::SECRET_INPUT_TIMEOUT;
+use mixdog_core_session::session::thread_state::SessionThreads;
+use mixdog_tools::orch::util::PortError;
+use serde_json::Map;
 use mixdog_core_session::session::run_stamps::run_stamp_of;
 use mixdog_core_session::session::run_stamps::Records;
 use mixdog_core_session::session::RunFactory;
@@ -58,6 +77,9 @@ use serde_json::json;
 use serde_json::Value;
 
 use super::compaction_world::CompactionServices;
+use super::config_hosts::ConfigHosts;
+use super::config_hosts::Env;
+use super::config_hosts::ThreadHeaders;
 use super::hop_bindings::HopBindings;
 use super::host_seams::ConfigSeams;
 use super::mcp_seams::CatalogSkillsListed;
@@ -339,6 +361,131 @@ pub fn turn_path_parts(process: &ProcessServices, early: EarlyRows, ready: Ready
     }
 }
 
+// ---- views over the late directory ------------------------------------------------------------
+
+fn unbound() -> PortError {
+    PortError::Unavailable { capability: "session".into(), message: "the session directory is not up".into() }
+}
+
+/// `ThreadState` and `ThreadMessages` over the late directory (`SessionThreads` once it is bound).
+/// What is built before the directory (the tool pool's callers, the todos and the running work)
+/// reads threads through this; a read before the bind is `Unavailable`.
+pub struct LateThreads(pub Arc<LateDirectory>);
+
+impl LateThreads {
+    fn threads(&self) -> Result<SessionThreads, PortError> {
+        self.0.directory().map(SessionThreads::new).ok_or_else(unbound)
+    }
+}
+
+#[async_trait]
+impl ThreadState for LateThreads {
+    async fn header(&self, thread: &ThreadId) -> Result<Header, PortError> {
+        self.threads()?.header(thread).await
+    }
+
+    async fn patch_header(&self, thread: &ThreadId, set: Map<String, Value>, unset: Vec<String>) -> Result<(), PortError> {
+        self.threads()?.patch_header(thread, set, unset).await
+    }
+
+    async fn patch_header_if(
+        &self,
+        thread: &ThreadId,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<Option<Map<String, Value>>, PortError> {
+        self.threads()?.patch_header_if(thread, expect, set, unset).await
+    }
+
+    async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError> {
+        self.threads()?.publish(thread, section).await
+    }
+}
+
+#[async_trait]
+impl ThreadMessages for LateThreads {
+    async fn messages(&self, thread: &ThreadId) -> Result<Vec<Value>, PortError> {
+        self.threads()?.messages(thread).await
+    }
+}
+
+/// `ThreadHeaders` over the late directory: the stored header, `None` for an unknown thread or
+/// before the directory is up. `ConfigHosts.headers` and `HeaderCwds` (`DomainSeams.session_cwds`)
+/// are built on this one view.
+pub struct LateHeaders(pub Arc<LateDirectory>);
+
+#[async_trait]
+impl ThreadHeaders for LateHeaders {
+    async fn header(&self, thread: &ThreadId) -> Option<Header> {
+        self.0.directory()?.stored_header(thread).await
+    }
+}
+
+// ---- rows with one owner each ------------------------------------------------------------------
+
+/// The secret slots and the service that fills them from the desktop: ONE `SecretSlots`, held by
+/// `SecretFill` (the handoff env) and by `approval/provideSecret`.
+pub struct SecretInput {
+    pub slots: Arc<SecretSlots>,
+    pub service: Arc<SecretInputService>,
+}
+
+pub fn secret_input() -> SecretInput {
+    let slots = Arc::new(SecretSlots::new(SECRET_INPUT_TIMEOUT));
+    SecretInput { service: Arc::new(SecretInputService::new(slots.clone())), slots }
+}
+
+/// The delivered-completions registry and the pending queue the report host reads.
+pub struct PendingRows {
+    pub delivered: Arc<DeliveredCompletions>,
+    pub queue: Arc<PendingQueue>,
+}
+
+/// Built once the directory exists (`PendingQueue` opens stored sessions through it).
+pub fn pending_rows(directory: &Arc<SessionDirectory>, clock: Arc<dyn mixdog_core_session::session::Clock>) -> PendingRows {
+    let delivered = Arc::new(DeliveredCompletions::new(clock));
+    PendingRows { queue: Arc::new(PendingQueue::new(directory.clone(), delivered.clone())), delivered }
+}
+
+/// The live route cell of every thread: a thread's first read, and a held route being adopted, resolve
+/// through the saved config (`resolveRoute(getConfig(), request)`, `boot/shared.mjs:19`). The same
+/// `Arc` is the `LiveRoute` of `ConfigHosts` and the `RouteCell` of `LiveRouteWriter`.
+pub fn live_routes(config: Config, facts: Arc<CatalogFacts>) -> Arc<SessionRoutes> {
+    Arc::new(SessionRoutes::new(move |request: &Route| {
+        resolve_route(&config.agent(), request, &|provider, full| facts.is_known(provider, full))
+    }))
+}
+
+/// What the one `ConfigHosts` reads. `gauge` and `refresh` have no production type yet
+/// (compose-seams.md, "Blocked rows"): the caller supplies them.
+pub struct ConfigHostsIn {
+    pub config: Config,
+    pub headers: Arc<dyn ThreadHeaders>,
+    pub routes: Arc<dyn LiveRoute>,
+    pub gauge: Arc<dyn ContextStatusCache>,
+    pub agents: Arc<AgentDefinitions>,
+    /// The catalog and readiness; answers both `RouteFacts` and `ProvidersReady`.
+    pub facts: Arc<CatalogFacts>,
+    pub refresh: Arc<dyn AuthRefresh>,
+    pub env: Env,
+}
+
+/// The one `ConfigHosts`: assign it to `DomainSeams.compaction_host` and `.workflow_host`.
+pub fn config_hosts(input: ConfigHostsIn) -> Arc<ConfigHosts> {
+    Arc::new(ConfigHosts {
+        config: input.config,
+        headers: input.headers,
+        routes: input.routes,
+        gauge: input.gauge,
+        agents: input.agents,
+        facts: input.facts.clone(),
+        ready: input.facts,
+        refresh: input.refresh,
+        env: input.env,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use mixdog_mcp::skill_catalog::SkillRoots;
@@ -381,6 +528,21 @@ mod tests {
         assert_eq!(common.effort, None);
     }
 
+    #[tokio::test]
+    async fn the_views_over_an_unbound_directory_say_so() {
+        let late = Arc::new(LateDirectory::default());
+        let thread = ThreadId::from("S1");
+        let threads = LateThreads(late.clone());
+        assert!(matches!(threads.header(&thread).await, Err(PortError::Unavailable { .. })));
+        assert!(matches!(threads.messages(&thread).await, Err(PortError::Unavailable { .. })));
+        assert!(LateHeaders(late).header(&thread).await.is_none());
+    }
+
+    #[test]
+    fn the_secret_service_and_the_slots_are_one_instance() {
+        let input = secret_input();
+        assert_eq!(Arc::strong_count(&input.slots), 2);
+    }
     #[tokio::test]
     async fn a_session_that_is_not_loaded_answers_the_defaults() {
         let late = Arc::new(LateDirectory::default());

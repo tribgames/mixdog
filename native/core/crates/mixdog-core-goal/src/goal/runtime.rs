@@ -300,10 +300,9 @@ impl Inner {
         self.background.count.fetch_add(1, Ordering::SeqCst);
         let inner = self.clone();
         mixdog_rt::spawn("goal-background", TaskClass::Work, async move {
+            // Released on drop, so a panic or an abort of `fut` still lets `settled` return.
+            let _counted = Counted(inner);
             fut.await;
-            if inner.background.count.fetch_sub(1, Ordering::SeqCst) == 1 {
-                inner.background.changed.notify_waiters();
-            }
         });
     }
 
@@ -637,6 +636,17 @@ impl<'a> Tx<'a> {
 
     pub fn schedule_title(&self, goal: &Goal) {
         self.inner.schedule_title(self.id, goal);
+    }
+}
+
+/// One started background task in `Background::count`, until it drops.
+struct Counted(Arc<Inner>);
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        if self.0.background.count.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.0.background.changed.notify_waiters();
+        }
     }
 }
 

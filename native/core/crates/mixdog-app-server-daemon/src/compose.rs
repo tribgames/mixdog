@@ -149,6 +149,8 @@ pub struct ComposedCore {
     models: Models,
     catalog: CatalogHost,
     tidy_processes: Processes,
+    /// The one shell registry and kill route of the process (xec.runtime).
+    shell_control: Arc<mixdog_tools::exec::ShellControl>,
     stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
     final_barriers: std::sync::Mutex<Vec<(&'static str, crate::lifecycle::Hook)>>,
 }
@@ -307,6 +309,17 @@ impl ComposedCore {
     /// `tool_modules::host::Parts.processes`.
     pub fn tidy_processes(&self) -> &Processes {
         &self.tidy_processes
+    }
+
+    /// The shell control: ShellJobsService::new takes it.
+    pub fn shell_control(&self) -> &Arc<mixdog_tools::exec::ShellControl> {
+        &self.shell_control
+    }
+
+    /// The same instance as OwnedShells, for SessionDeletion, AgentSessions, SessionClose
+    /// and SessionContextSwitch.
+    pub fn shells(&self) -> Arc<dyn mixdog_core_session::session::shell_jobs::OwnedShells> {
+        self.shell_control.clone()
     }
 
     /// The app feed, for the state publisher (`SectionFeedState::new`).
@@ -487,7 +500,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         tokens: tokens.clone(),
         state: state.clone(),
         scoped_feeds,
-        processes: process_manager,
+        processes: process_manager.clone(),
         recovery_dir: data_dir.join("recovery"),
         user_data_dir,
         ext_host: ext_host.clone(),
@@ -501,6 +514,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
     let shell_path =
         crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.map_err(ComposeError::Shell)?;
     let (exec, exec_events) = build_exec(tokens, data_dir, skill_launcher_dir, shell_path, skill_runtime, ext_host.clone());
+    let shell_control = Arc::new(mixdog_tools::exec::ShellControl::new(exec.runtime.clone(), process_manager));
     let id = FeedId::from("app");
     let epoch = FeedEpoch::from(new_instance_id());
     let app_feed = Arc::new(CoreFeed::new(
@@ -534,6 +548,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         models,
         catalog,
         tidy_processes,
+        shell_control,
         stop_steps: std::sync::Mutex::new(Vec::new()),
         final_barriers: std::sync::Mutex::new(Vec::new()),
     })

@@ -1,0 +1,160 @@
+{
+  "args": {
+    "action": "connect",
+    "target": "openai"
+  },
+  "domain": "setup-ui",
+  "now": 1800000000000,
+  "owner": "desktop-window-1",
+  "receipt": {
+    "result": {
+      "ok": true
+    }
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-setup-ui.mjs",
+  "scenarios": [
+    {
+      "calls": [
+        {
+          "content": "Desktop settings request",
+          "handled": true,
+          "meta": {
+            "id": "2096f181-f3e2-45d5-8816-ec54a748b977",
+            "kind": "setup-ui"
+          },
+          "sessionId": "sess_setup"
+        }
+      ],
+      "claim": {
+        "args": {
+          "action": "connect",
+          "target": "openai"
+        },
+        "id": "2096f181-f3e2-45d5-8816-ec54a748b977",
+        "scope": "desktop-host"
+      },
+      "name": "attached",
+      "outcome": {
+        "value": {
+          "ok": true
+        }
+      },
+      "patches": [
+        {
+          "setupUiRequest": {
+            "at": 1800000000000,
+            "id": "2096f181-f3e2-45d5-8816-ec54a748b977"
+          }
+        }
+      ],
+      "received": [
+        {
+          "event": {
+            "content": "Desktop settings request",
+            "meta": {
+              "id": "2096f181-f3e2-45d5-8816-ec54a748b977",
+              "kind": "setup-ui"
+            }
+          },
+          "listener": "store",
+          "session": "sess_setup"
+        }
+      ],
+      "surfaces": [
+        {
+          "listener": "store",
+          "session": "sess_setup"
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "content": "Desktop settings request",
+          "handled": false,
+          "meta": {
+            "id": "25f167a3-bbd4-426b-b9d0-299e9be20a1d",
+            "kind": "setup-ui"
+          },
+          "sessionId": "sess_setup"
+        }
+      ],
+      "claim": null,
+      "name": "none",
+      "outcome": {
+        "code": "SETUP_DESKTOP_UNCLAIMED",
+        "error": "setup: no attached Desktop surface; nothing was changed"
+      },
+      "patches": [],
+      "received": [],
+      "surfaces": []
+    },
+    {
+      "calls": [
+        {
+          "content": "Desktop settings request",
+          "handled": false,
+          "meta": {
+            "id": "38cde0a0-1997-4d81-8059-0b0599573149",
+            "kind": "setup-ui"
+          },
+          "sessionId": "sess_setup"
+        }
+      ],
+      "claim": null,
+      "name": "other-session",
+      "outcome": {
+        "code": "SETUP_DESKTOP_UNCLAIMED",
+        "error": "setup: no attached Desktop surface; nothing was changed"
+      },
+      "patches": [],
+      "received": [],
+      "surfaces": [
+        {
+          "listener": "store",
+          "session": "sess_other"
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "content": "Desktop settings request",
+          "handled": false,
+          "meta": {
+            "id": "61e55197-1d9e-4dd5-bfc0-84911a29f495",
+            "kind": "setup-ui"
+          },
+          "sessionId": "sess_setup"
+        }
+      ],
+      "claim": null,
+      "name": "exec-only",
+      "outcome": {
+        "code": "SETUP_DESKTOP_UNCLAIMED",
+        "error": "setup: no attached Desktop surface; nothing was changed"
+      },
+      "patches": [],
+      "received": [
+        {
+          "event": {
+            "content": "Desktop settings request",
+            "meta": {
+              "id": "61e55197-1d9e-4dd5-bfc0-84911a29f495",
+              "kind": "setup-ui"
+            }
+          },
+          "listener": "exec",
+          "session": "sess_setup"
+        }
+      ],
+      "surfaces": [
+        {
+          "listener": "exec",
+          "session": "sess_setup"
+        }
+      ]
+    }
+  ],
+  "session": "sess_setup"
+}

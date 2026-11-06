@@ -1,6 +1,7 @@
 //! Real host-side implementations of the agent run loop's environment seams.
 
 pub mod admission;
+pub mod agent_home_deps;
 pub mod config_hosts;
 pub mod process;
 pub mod vault;

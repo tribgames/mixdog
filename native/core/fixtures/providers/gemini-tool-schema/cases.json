@@ -1,0 +1,1965 @@
+{
+  "recorder": "benchmarks/rust-core/recorders/record-gemini-tool-schema.mjs",
+  "cases": [
+    {
+      "id": "plain-object",
+      "tools": [
+        {
+          "name": "lookup",
+          "description": "The lookup tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ]
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "lookup",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "lookup",
+            "description": "The lookup tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "lookup",
+          "description": "The lookup tool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "no-arguments",
+      "tools": [
+        {
+          "name": "ping",
+          "description": "The ping tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "ping",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "ping",
+            "description": "The ping tool",
+            "parameters": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "ping",
+          "description": "The ping tool",
+          "parameters": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": "no-schema",
+      "tools": [
+        {
+          "name": "bare",
+          "description": "The bare tool",
+          "inputSchema": null
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "bare",
+            "inputSchema": null
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "bare",
+            "description": "The bare tool"
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "bare",
+          "description": "The bare tool"
+        }
+      ]
+    },
+    {
+      "id": "json-schema-path",
+      "tools": [
+        {
+          "name": "strict",
+          "description": "The strict tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "x-vendor": 1,
+            "$comment": "c"
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "strict",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "x-vendor": 1,
+              "$comment": "c"
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "strict",
+            "description": "The strict tool",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "strict",
+          "description": "The strict tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "array-without-items",
+      "tools": [
+        {
+          "name": "list",
+          "description": "The list tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "list": {
+                "type": "array"
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "list",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array"
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "list",
+            "description": "The list tool",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "list": {
+                  "type": "array"
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "list",
+          "description": "The list tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "list": {
+                "type": "array"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "tuple-items-draft07",
+      "tools": [
+        {
+          "name": "tuple",
+          "description": "The tuple tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pair": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": false,
+        "tools": [
+          {
+            "name": "tuple",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "pair": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "tuple",
+            "description": "The tuple tool",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "pair": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "tuple",
+          "description": "The tuple tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "pair": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "boolean-exclusive-bound-draft04",
+      "tools": [
+        {
+          "name": "bound",
+          "description": "The bound tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "number",
+                "minimum": 1,
+                "exclusiveMinimum": true
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": false,
+        "tools": [
+          {
+            "name": "bound",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "number",
+                  "exclusiveMinimum": 1
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "bound",
+            "description": "The bound tool",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "number",
+                  "exclusiveMinimum": 1
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "bound",
+          "description": "The bound tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "number",
+                "minimum": 1,
+                "exclusiveMinimum": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "definitions-ref-draft07",
+      "tools": [
+        {
+          "name": "refs",
+          "description": "The refs tool",
+          "inputSchema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "definitions": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "properties": {
+              "x": {
+                "$ref": "#/definitions/name"
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "refs",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "definitions": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object",
+              "properties": {
+                "x": {
+                  "$ref": "#/definitions/name"
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "refs",
+            "description": "The refs tool",
+            "parametersJsonSchema": {
+              "definitions": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object",
+              "properties": {
+                "x": {
+                  "$ref": "#/definitions/name"
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "refs",
+          "description": "The refs tool",
+          "parametersJsonSchema": {
+            "definitions": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "properties": {
+              "x": {
+                "$ref": "#/definitions/name"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ref-siblings-draft07",
+      "tools": [
+        {
+          "name": "siblings",
+          "description": "The siblings tool",
+          "inputSchema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "definitions": {
+              "n": {
+                "type": "integer"
+              }
+            },
+            "type": "object",
+            "properties": {
+              "x": {
+                "$ref": "#/definitions/n",
+                "description": "ignored"
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "siblings",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "definitions": {
+                "n": {
+                  "type": "integer"
+                }
+              },
+              "type": "object",
+              "properties": {
+                "x": {
+                  "$ref": "#/definitions/n",
+                  "description": "ignored"
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "siblings",
+            "description": "The siblings tool",
+            "parametersJsonSchema": {
+              "definitions": {
+                "n": {
+                  "type": "integer"
+                }
+              },
+              "type": "object",
+              "properties": {
+                "x": {
+                  "$ref": "#/definitions/n",
+                  "description": "ignored"
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "siblings",
+          "description": "The siblings tool",
+          "parametersJsonSchema": {
+            "definitions": {
+              "n": {
+                "type": "integer"
+              }
+            },
+            "type": "object",
+            "properties": {
+              "x": {
+                "$ref": "#/definitions/n",
+                "description": "ignored"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "dependencies-draft07",
+      "tools": [
+        {
+          "name": "deps",
+          "description": "The deps tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              },
+              "b": {
+                "type": "string"
+              }
+            },
+            "dependencies": {
+              "a": [
+                "b"
+              ]
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "deps",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                },
+                "b": {
+                  "type": "string"
+                }
+              },
+              "dependencies": {
+                "a": [
+                  "b"
+                ]
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "deps",
+            "description": "The deps tool",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                },
+                "b": {
+                  "type": "string"
+                }
+              },
+              "dependencies": {
+                "a": [
+                  "b"
+                ]
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "deps",
+          "description": "The deps tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              },
+              "b": {
+                "type": "string"
+              }
+            },
+            "dependencies": {
+              "a": [
+                "b"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "unresolvable-ref",
+      "tools": [
+        {
+          "name": "dangling",
+          "description": "The dangling tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "$ref": "#/$defs/missing"
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": false,
+        "tools": [],
+        "excluded": [
+          {
+            "name": "dangling",
+            "index": 0,
+            "pointer": "/properties/x/$ref",
+            "reason": "unresolvable $ref \"#/$defs/missing\"",
+            "message": "[gemini] tool \"dangling\" (tools[0]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+          }
+        ]
+      },
+      "exclusion": {
+        "name": "dangling",
+        "index": 0,
+        "pointer": "/properties/x/$ref",
+        "reason": "unresolvable $ref \"#/$defs/missing\"",
+        "message": "[gemini] tool \"dangling\" (tools[0]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+      },
+      "validated": {
+        "declarations": [],
+        "excluded": [
+          {
+            "name": "dangling",
+            "index": 0,
+            "pointer": "/properties/x/$ref",
+            "reason": "unresolvable $ref \"#/$defs/missing\"",
+            "message": "[gemini] tool \"dangling\" (tools[0]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+          }
+        ]
+      },
+      "plain": [
+        {
+          "name": "dangling",
+          "description": "The dangling tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "$ref": "#/$defs/missing"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "root-type-union",
+      "tools": [
+        {
+          "name": "nullable-root",
+          "description": "The nullable-root tool",
+          "inputSchema": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "nullable-root",
+            "inputSchema": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "nullable-root",
+            "description": "The nullable-root tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              },
+              "nullable": true
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "nullable-root",
+          "description": "The nullable-root tool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            },
+            "nullable": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "root-string-enum",
+      "tools": [
+        {
+          "name": "not-object",
+          "description": "The not-object tool",
+          "inputSchema": {
+            "type": "string",
+            "enum": [
+              "a",
+              "b"
+            ]
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": false,
+        "tools": [],
+        "excluded": [
+          {
+            "name": "not-object",
+            "index": 0,
+            "pointer": "/type",
+            "reason": "the input schema root must have type \"object\"",
+            "message": "[gemini] tool \"not-object\" (tools[0]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+          }
+        ]
+      },
+      "exclusion": {
+        "name": "not-object",
+        "index": 0,
+        "pointer": "/type",
+        "reason": "the input schema root must have type \"object\"",
+        "message": "[gemini] tool \"not-object\" (tools[0]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+      },
+      "validated": {
+        "declarations": [],
+        "excluded": [
+          {
+            "name": "not-object",
+            "index": 0,
+            "pointer": "/type",
+            "reason": "the input schema root must have type \"object\"",
+            "message": "[gemini] tool \"not-object\" (tools[0]) excluded: invalid input schema at \"/type\": the input schema root must have type \"object\""
+          }
+        ]
+      },
+      "plain": [
+        {
+          "name": "not-object",
+          "description": "The not-object tool",
+          "parameters": {
+            "type": "string",
+            "enum": [
+              "a",
+              "b"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "unsupported-type",
+      "tools": [
+        {
+          "name": "typed",
+          "description": "The typed tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "any"
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": false,
+        "tools": [],
+        "excluded": [
+          {
+            "name": "typed",
+            "index": 0,
+            "pointer": "/properties/x/type",
+            "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+            "message": "[gemini] tool \"typed\" (tools[0]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+          }
+        ]
+      },
+      "exclusion": {
+        "name": "typed",
+        "index": 0,
+        "pointer": "/properties/x/type",
+        "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+        "message": "[gemini] tool \"typed\" (tools[0]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+      },
+      "validated": {
+        "declarations": [],
+        "excluded": [
+          {
+            "name": "typed",
+            "index": 0,
+            "pointer": "/properties/x/type",
+            "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+            "message": "[gemini] tool \"typed\" (tools[0]) excluded: invalid input schema at \"/properties/x/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+          }
+        ]
+      },
+      "plain": [
+        {
+          "name": "typed",
+          "description": "The typed tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "any"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "required-not-declared",
+      "tools": [
+        {
+          "name": "required",
+          "description": "The required tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "b"
+            ]
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "required",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "b"
+              ]
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "required",
+            "description": "The required tool",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "b"
+              ]
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "required",
+          "description": "The required tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "b"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "any-of-property",
+      "tools": [
+        {
+          "name": "union",
+          "description": "The union tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "union",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "v": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "union",
+            "description": "The union tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "v": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "union",
+          "description": "The union tool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "nullable-type-union",
+      "tools": [
+        {
+          "name": "nullable",
+          "description": "The nullable tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "nullable",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "nullable",
+            "description": "The nullable tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "nullable",
+          "description": "The nullable tool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "const-and-numeric-enum",
+      "tools": [
+        {
+          "name": "consts",
+          "description": "The consts tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "k": {
+                "const": "x"
+              },
+              "e": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  2
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "consts",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "k": {
+                  "const": "x"
+                },
+                "e": {
+                  "type": "integer",
+                  "enum": [
+                    1,
+                    2
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "consts",
+            "description": "The consts tool",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "k": {
+                  "const": "x"
+                },
+                "e": {
+                  "type": "integer",
+                  "enum": [
+                    1,
+                    2
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "consts",
+          "description": "The consts tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "k": {
+                "const": "x"
+              },
+              "e": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  2
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "all-of-root",
+      "tools": [
+        {
+          "name": "conj",
+          "description": "The conj tool",
+          "inputSchema": {
+            "allOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "required": [
+                  "a"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "conj",
+            "inputSchema": {
+              "allOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "a": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "required": [
+                    "a"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "conj",
+            "description": "The conj tool",
+            "parameters": {
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              },
+              "type": "object",
+              "required": [
+                "a"
+              ]
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "conj",
+          "description": "The conj tool",
+          "parameters": {
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "required": [
+              "a"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "boolean-property-schema",
+      "tools": [
+        {
+          "name": "open",
+          "description": "The open tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "v": true
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "open",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "v": true
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "open",
+            "description": "The open tool",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "v": true
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "open",
+          "description": "The open tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "v": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "integer-exclusive-bound",
+      "tools": [
+        {
+          "name": "count",
+          "description": "The count tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": true,
+        "tools": [
+          {
+            "name": "count",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "count",
+            "description": "The count tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        ],
+        "excluded": []
+      },
+      "plain": [
+        {
+          "name": "count",
+          "description": "The count tool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "scalar-schema",
+      "tools": [
+        {
+          "name": "oops",
+          "description": "The oops tool",
+          "inputSchema": "oops"
+        }
+      ],
+      "accepted": {
+        "sameList": false,
+        "tools": [],
+        "excluded": [
+          {
+            "name": "oops",
+            "index": 0,
+            "pointer": "/",
+            "reason": "a Gemini Schema must be an object",
+            "message": "[gemini] tool \"oops\" (tools[0]) excluded: invalid input schema at \"/\": a Gemini Schema must be an object"
+          }
+        ]
+      },
+      "exclusion": {
+        "name": "oops",
+        "index": 0,
+        "pointer": "/",
+        "reason": "a Gemini Schema must be an object",
+        "message": "[gemini] tool \"oops\" (tools[0]) excluded: invalid input schema at \"/\": a Gemini Schema must be an object"
+      },
+      "validated": {
+        "declarations": [],
+        "excluded": [
+          {
+            "name": "oops",
+            "index": 0,
+            "pointer": "/",
+            "reason": "a Gemini Schema must be an object",
+            "message": "[gemini] tool \"oops\" (tools[0]) excluded: invalid input schema at \"/\": a Gemini Schema must be an object"
+          }
+        ]
+      },
+      "plain": [
+        {
+          "name": "oops",
+          "description": "The oops tool",
+          "parameters": "oops"
+        }
+      ]
+    },
+    {
+      "id": "array-schema",
+      "tools": [
+        {
+          "name": "listed",
+          "description": "The listed tool",
+          "inputSchema": [
+            {
+              "type": "object"
+            }
+          ]
+        }
+      ],
+      "accepted": {
+        "sameList": false,
+        "tools": [],
+        "excluded": [
+          {
+            "name": "listed",
+            "index": 0,
+            "pointer": "/",
+            "reason": "the input schema must be a JSON object schema",
+            "message": "[gemini] tool \"listed\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+          }
+        ]
+      },
+      "exclusion": {
+        "name": "listed",
+        "index": 0,
+        "pointer": "/",
+        "reason": "the input schema must be a JSON object schema",
+        "message": "[gemini] tool \"listed\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+      },
+      "validated": {
+        "declarations": [],
+        "excluded": [
+          {
+            "name": "listed",
+            "index": 0,
+            "pointer": "/",
+            "reason": "the input schema must be a JSON object schema",
+            "message": "[gemini] tool \"listed\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+          }
+        ]
+      },
+      "plain": [
+        {
+          "name": "listed",
+          "description": "The listed tool",
+          "parametersJsonSchema": [
+            {
+              "type": "object"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "properties-array",
+      "tools": [
+        {
+          "name": "odd",
+          "description": "The odd tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": [
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": false,
+        "tools": [],
+        "excluded": [
+          {
+            "name": "odd",
+            "index": 0,
+            "pointer": "/properties",
+            "reason": "not a valid JSON Schema 2020-12 schema: must be object",
+            "message": "[gemini] tool \"odd\" (tools[0]) excluded: invalid input schema at \"/properties\": not a valid JSON Schema 2020-12 schema: must be object"
+          }
+        ]
+      },
+      "exclusion": {
+        "name": "odd",
+        "index": 0,
+        "pointer": "/properties",
+        "reason": "not a valid JSON Schema 2020-12 schema: must be object",
+        "message": "[gemini] tool \"odd\" (tools[0]) excluded: invalid input schema at \"/properties\": not a valid JSON Schema 2020-12 schema: must be object"
+      },
+      "validated": {
+        "declarations": [],
+        "excluded": [
+          {
+            "name": "odd",
+            "index": 0,
+            "pointer": "/properties",
+            "reason": "not a valid JSON Schema 2020-12 schema: must be object",
+            "message": "[gemini] tool \"odd\" (tools[0]) excluded: invalid input schema at \"/properties\": not a valid JSON Schema 2020-12 schema: must be object"
+          }
+        ]
+      },
+      "plain": [
+        {
+          "name": "odd",
+          "description": "The odd tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": [
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "mixed-batch",
+      "tools": [
+        {
+          "name": "first",
+          "description": "The first tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "name": "dangling",
+          "description": "The dangling tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "$ref": "#/$defs/missing"
+              }
+            }
+          }
+        },
+        {
+          "name": "tuple",
+          "description": "The tuple tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pair": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "last",
+          "description": "The last tool",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "b": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      ],
+      "accepted": {
+        "sameList": false,
+        "tools": [
+          {
+            "name": "first",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "tuple",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "pair": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "name": "last",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "b": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        ],
+        "excluded": [
+          {
+            "name": "dangling",
+            "index": 1,
+            "pointer": "/properties/x/$ref",
+            "reason": "unresolvable $ref \"#/$defs/missing\"",
+            "message": "[gemini] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+          }
+        ]
+      },
+      "exclusion": null,
+      "validated": {
+        "declarations": [
+          {
+            "name": "first",
+            "description": "The first tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "tuple",
+            "description": "The tuple tool",
+            "parametersJsonSchema": {
+              "type": "object",
+              "properties": {
+                "pair": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "name": "last",
+            "description": "The last tool",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "b": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        ],
+        "excluded": [
+          {
+            "name": "dangling",
+            "index": 1,
+            "pointer": "/properties/x/$ref",
+            "reason": "unresolvable $ref \"#/$defs/missing\"",
+            "message": "[gemini] tool \"dangling\" (tools[1]) excluded: invalid input schema at \"/properties/x/$ref\": unresolvable $ref \"#/$defs/missing\""
+          }
+        ]
+      },
+      "plain": [
+        {
+          "name": "first",
+          "description": "The first tool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "name": "dangling",
+          "description": "The dangling tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "$ref": "#/$defs/missing"
+              }
+            }
+          }
+        },
+        {
+          "name": "tuple",
+          "description": "The tuple tool",
+          "parametersJsonSchema": {
+            "type": "object",
+            "properties": {
+              "pair": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "last",
+          "description": "The last tool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "b": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

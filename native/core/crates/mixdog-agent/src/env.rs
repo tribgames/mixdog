@@ -876,9 +876,5 @@ pub async fn or_cancelled<F: std::future::Future>(
     cancel: &CancellationToken,
     fut: F,
 ) -> Option<F::Output> {
-    tokio::select! {
-        biased;
-        _ = cancel.cancelled() => None,
-        out = fut => Some(out),
-    }
+    mixdog_rt::Scope::new().cancel(cancel).run(fut).await.done()
 }

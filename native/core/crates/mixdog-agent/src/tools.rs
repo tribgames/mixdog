@@ -44,6 +44,8 @@ use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::ToolCallId;
 use mixdog_protocol::TurnId;
+use mixdog_rt::Scope;
+use mixdog_rt::Scoped;
 use mixdog_rt::TaskClass;
 use tokio_util::sync::CancellationToken;
 
@@ -54,6 +56,7 @@ use crate::env::RunEvent;
 use crate::env::Stage;
 use crate::env::ToolGate;
 use crate::env::TurnGuards;
+use crate::env::or_cancelled;
 use crate::limits;
 use crate::message::AgentMessage;
 use crate::message::Source;
@@ -492,12 +495,14 @@ pub(crate) async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed 
     if executed.failed
         && let Some(hooks) = &env.hooks
     {
-        hooks
-            .after_failure(
+        or_cancelled(
+            &env.cancel,
+            hooks.after_failure(
                 &GateCall::new(call.name.clone(), call.arguments.clone()),
                 &executed.message.text(),
-            )
-            .await;
+            ),
+        )
+        .await;
     }
     executed
 }
@@ -623,11 +628,14 @@ pub async fn run_nested(
     let mut args = target.args.clone();
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
     let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone() };
-    let outcome = tool.call(&nested, args).await;
+    let outcome = match Scope::new().cancel(&nested.cancel).deadline(nested.deadline).run(tool.call(&nested, args)).await {
+        Scoped::Done(outcome) => outcome,
+        ended => Err(ended_error(&spec.name, &ended)),
+    };
     match outcome {
         Ok(mut output) => {
             if let (Some(hooks), Content::Text(visible)) = (&pipeline.hooks, render_output(output.parts.clone()))
-                && let Some(updated) = hooks.after_tool(&hook_call, &visible).await
+                && let Some(Some(updated)) = or_cancelled(&ctx.cancel, hooks.after_tool(&hook_call, &visible)).await
             {
                 output.parts = vec![ToolPart::Text(updated)];
             }
@@ -635,10 +643,32 @@ pub async fn run_nested(
         }
         Err(error) => {
             if let Some(hooks) = &pipeline.hooks {
-                hooks.after_failure(&hook_call, &error.message_for_model).await;
+                or_cancelled(&ctx.cancel, hooks.after_failure(&hook_call, &error.message_for_model)).await;
             }
             Err(error)
         }
+    }
+}
+
+/// The failure of a call the dispatcher stopped waiting for: its run was cancelled, or the
+/// tool's deadline passed while the tool was still running (a tool is never trusted for liveness).
+fn ended_error<T>(name: &str, ended: &Scoped<T>) -> ToolError {
+    match ended {
+        Scoped::DeadlineExceeded => ToolError::new(
+            ToolErrorCode::DeadlineExceeded { partial: false },
+            format!("Error: read-only I/O tool \"{name}\" timed out; narrow the scope and retry"),
+        ),
+        _ => ToolError::new(ToolErrorCode::Cancelled, "Error: tool call cancelled"),
+    }
+}
+
+/// Aborts the spawned tool task when the dispatcher stops waiting for it, whether it ended the
+/// wait (cancel, deadline) or was itself dropped by the batch.
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -692,17 +722,20 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     let mut args = target.args;
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
     let target_args_for_hook = args.clone();
+    let (cancel, deadline) = (ctx.cancel.clone(), ctx.deadline);
     let handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move {
         tool.call(&ctx, args).await
     });
-    let outcome: ToolOutcome = match handle.await {
-        Ok(outcome) => outcome,
-        Err(_) => Err(ToolError::new(
+    let _abort = AbortOnDrop(handle.abort_handle());
+    let outcome: ToolOutcome = match Scope::new().cancel(&cancel).deadline(deadline).run(handle).await {
+        Scoped::Done(Ok(outcome)) => outcome,
+        Scoped::Done(Err(_)) => Err(ToolError::new(
             ToolErrorCode::Internal {
                 incident_id: "tool-task".to_owned(),
             },
             "tool task failed",
         )),
+        ended => Err(ended_error(&name, &ended)),
     };
     match outcome {
         Ok(mut output) => {
@@ -712,16 +745,18 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
             // PostToolUse may override the model-visible text, never the
             // follow-up message channel.
             if let (Some(hooks), Content::Text(visible)) = (&env.hooks, &content)
-                && let Some(updated) = hooks
-                    .after_tool(
+                && let Some(Some(updated)) = or_cancelled(
+                    &env.cancel,
+                    hooks.after_tool(
                         &GateCall {
                             name: target.name.clone(),
                             args: target_args_for_hook,
                             schema_name: target.schema_name.clone(),
                         },
                         visible,
-                    )
-                    .await
+                    ),
+                )
+                .await
             {
                 content = Content::Text(updated);
             }
@@ -859,6 +894,112 @@ mod tests {
     }
 
     use super::*;
+
+    /// Ignores its token and never answers; signals when it starts and when it is dropped.
+    struct Stuck {
+        spec: ToolSpec,
+        started: Arc<tokio::sync::Notify>,
+        dropped: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    }
+
+    struct OnDrop(Option<tokio::sync::oneshot::Sender<()>>);
+    impl Drop for OnDrop {
+        fn drop(&mut self) {
+            if let Some(tx) = self.0.take() {
+                let _ = tx.send(());
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for Stuck {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+        async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+            let _guard = OnDrop(self.dropped.lock().unwrap().take());
+            self.started.notify_one();
+            std::future::pending().await
+        }
+    }
+
+    fn stuck_env(
+        deadline: Option<Duration>,
+    ) -> (Arc<CallEnv>, Arc<tokio::sync::Notify>, tokio::sync::oneshot::Receiver<()>) {
+        use mixdog_core_api::domain::mock::{MockApprovalGate, MockFileService, MockProcessManager, MockProgress};
+        let started = Arc::new(tokio::sync::Notify::new());
+        let (tx, dropped) = tokio::sync::oneshot::channel();
+        let tool = Arc::new(Stuck {
+            spec: ToolSpec {
+                name: "stuck".into(),
+                aliases: Vec::new(),
+                description: "stuck".into(),
+                input_schema: serde_json::json!({"type": "object"}),
+                annotations: Default::default(),
+                parallel_safe: true,
+                exclusive_with: Vec::new(),
+            },
+            started: started.clone(),
+            dropped: std::sync::Mutex::new(Some(tx)),
+        });
+        let tokens = mixdog_rt::testing::tokens();
+        let env = CallEnv {
+            tools: ToolSet::new(vec![tool]),
+            gate: Arc::new(crate::env::AllowAll),
+            hooks: None,
+            observer: Arc::new(crate::env::NullObserver),
+            guards: Arc::new(crate::env::NoGuards),
+            tool_env: ToolEnv {
+                thread_id: ThreadId::from("t"),
+                turn_id: TurnId::from("r"),
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                surface: SurfaceKind::Lead,
+                io: ToolIo {
+                    interactive: tokens.interactive_io,
+                    durability: tokens.durability_io,
+                    maintenance: tokens.maintenance_io,
+                },
+                approvals: Arc::new(MockApprovalGate::default()),
+                files: Arc::new(MockFileService::default()),
+                processes: Arc::new(MockProcessManager::default()),
+                progress: Arc::new(MockProgress::default()),
+                deadline_of: deadline.map(|d| Arc::new(move |_: &ToolSpec| Some(d)) as DeadlineFn),
+                notify: None,
+            },
+            cancel: CancellationToken::new(),
+        };
+        (Arc::new(env), started, dropped)
+    }
+
+    fn stuck_call() -> ToolCall {
+        ToolCall { id: "c1".into(), name: "stuck".into(), arguments: serde_json::json!({}), native_type: None }
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_run_releases_a_tool_that_ignores_its_token() {
+        let (env, started, dropped) = stuck_env(None);
+        let cancel = env.cancel.clone();
+        let call = tokio::spawn(execute_call(stuck_call(), env));
+        started.notified().await;
+        cancel.cancel();
+        let executed = call.await.unwrap();
+        assert!(executed.failed);
+        assert_eq!(executed.message.text(), "Error: tool call cancelled");
+        dropped.await.expect("the tool task was aborted, not left running");
+    }
+
+    #[tokio::test]
+    async fn a_tool_that_outlives_its_deadline_is_released_and_aborted() {
+        let (env, _started, dropped) = stuck_env(Some(Duration::ZERO));
+        let executed = execute_call(stuck_call(), env).await;
+        assert!(executed.failed);
+        assert_eq!(
+            executed.message.text(),
+            "Error: read-only I/O tool \"stuck\" timed out; narrow the scope and retry"
+        );
+        // The task may not have started before the deadline fired; either way it ends.
+        let _ = dropped.await;
+    }
 
     #[test]
     fn repeat_failure_cycles_are_detected() {

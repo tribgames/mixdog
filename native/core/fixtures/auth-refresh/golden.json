@@ -1,0 +1,228 @@
+{
+  "scenarios": [
+    {
+      "entry": "afterCredentialChange",
+      "refresh": "resolves",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "applyConfigChange",
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache"
+      ],
+      "calls": [
+        "applyConfigChange",
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache",
+        "invalidateProviderCaches",
+        "warmProviderModelCache"
+      ],
+      "blockedAfter": null
+    },
+    {
+      "entry": "afterCredentialChange",
+      "refresh": "rejects",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "applyConfigChange",
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache"
+      ],
+      "calls": [
+        "applyConfigChange",
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache"
+      ],
+      "blockedAfter": null
+    },
+    {
+      "entry": "afterCredentialChange",
+      "refresh": "throws",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "applyConfigChange",
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache"
+      ],
+      "calls": [
+        "applyConfigChange",
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache"
+      ],
+      "blockedAfter": null
+    },
+    {
+      "entry": "afterCredentialChange",
+      "refresh": "absent",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "applyConfigChange",
+        "invalidateProviderCaches",
+        "warmProviderModelCache"
+      ],
+      "calls": [
+        "applyConfigChange",
+        "invalidateProviderCaches",
+        "warmProviderModelCache"
+      ],
+      "blockedAfter": null
+    },
+    {
+      "entry": "adoptCredentials",
+      "refresh": "resolves",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache"
+      ],
+      "calls": [
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache",
+        "invalidateProviderCaches",
+        "warmProviderModelCache"
+      ],
+      "blockedAfter": null
+    },
+    {
+      "entry": "adoptCredentials",
+      "refresh": "rejects",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache"
+      ],
+      "calls": [
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache"
+      ],
+      "blockedAfter": null
+    },
+    {
+      "entry": "adoptCredentials",
+      "refresh": "throws",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache"
+      ],
+      "calls": [
+        "invalidateProviderCaches",
+        "refreshProviderCatalogs:{\"force\":true}",
+        "warmProviderModelCache"
+      ],
+      "blockedAfter": null
+    },
+    {
+      "entry": "adoptCredentials",
+      "refresh": "absent",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "invalidateProviderCaches",
+        "warmProviderModelCache"
+      ],
+      "calls": [
+        "invalidateProviderCaches",
+        "warmProviderModelCache"
+      ],
+      "blockedAfter": null
+    },
+    {
+      "entry": "afterUsageAuthChange",
+      "refresh": "resolves",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "applyConfigChange",
+        "invalidateProviderCaches"
+      ],
+      "calls": [
+        "applyConfigChange",
+        "invalidateProviderCaches"
+      ],
+      "blockedAfter": "rate-limit cooldown"
+    },
+    {
+      "entry": "afterUsageAuthChange",
+      "refresh": "rejects",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "applyConfigChange",
+        "invalidateProviderCaches"
+      ],
+      "calls": [
+        "applyConfigChange",
+        "invalidateProviderCaches"
+      ],
+      "blockedAfter": "rate-limit cooldown"
+    },
+    {
+      "entry": "afterUsageAuthChange",
+      "refresh": "throws",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "applyConfigChange",
+        "invalidateProviderCaches"
+      ],
+      "calls": [
+        "applyConfigChange",
+        "invalidateProviderCaches"
+      ],
+      "blockedAfter": "rate-limit cooldown"
+    },
+    {
+      "entry": "afterUsageAuthChange",
+      "refresh": "absent",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [
+        "applyConfigChange",
+        "invalidateProviderCaches"
+      ],
+      "calls": [
+        "applyConfigChange",
+        "invalidateProviderCaches"
+      ],
+      "blockedAfter": "rate-limit cooldown"
+    },
+    {
+      "entry": "releaseAdmissionCooldowns",
+      "refresh": "resolves",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [],
+      "calls": [],
+      "blockedAfter": null
+    },
+    {
+      "entry": "releaseAdmissionCooldowns",
+      "refresh": "rejects",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [],
+      "calls": [],
+      "blockedAfter": null
+    },
+    {
+      "entry": "releaseAdmissionCooldowns",
+      "refresh": "throws",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [],
+      "calls": [],
+      "blockedAfter": null
+    },
+    {
+      "entry": "releaseAdmissionCooldowns",
+      "refresh": "absent",
+      "blockedBefore": "rate-limit cooldown",
+      "syncCalls": [],
+      "calls": [],
+      "blockedAfter": null
+    }
+  ]
+}

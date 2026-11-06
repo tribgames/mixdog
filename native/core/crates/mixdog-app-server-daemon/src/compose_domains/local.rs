@@ -69,6 +69,7 @@ pub(super) struct Local {
     pub services: Vec<Arc<dyn DomainService>>,
     pub transfer_sources: Vec<Arc<dyn TransferSource>>,
     pub tool_modules_host: Arc<ServicesToolModulesHost>,
+    pub provider: Arc<LocalProvider>,
 }
 
 /// `Math.max(1, Number(process.env.MIXDOG_MEDIA_MAX_ACTIVE_JOBS) || 4)`: a count of `a` running
@@ -164,7 +165,7 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let command_error = local_service.clone();
     let tool_modules_host = ServicesToolModulesHost::new(
         HostParts {
-            local_provider: provider,
+            local_provider: provider.clone(),
             installation_command_error: Arc::new(move || command_error.installation_command_error()),
             embedder: inputs.models.embeddings.clone(),
             judge: inputs.models.effort_judge.clone(),
@@ -202,5 +203,5 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let setup = Arc::new(VoiceSetup::new(pipeline.clone(), Arc::new(ConfigVoiceEnabled::new(config.clone())), seams.voice_installer.clone()));
     services.push(Arc::new(VoiceService::new(pipeline, setup)));
 
-    Ok(Local { services, transfer_sources, tool_modules_host })
+    Ok(Local { services, transfer_sources, tool_modules_host, provider })
 }

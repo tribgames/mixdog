@@ -23,12 +23,15 @@ use std::time::Instant;
 pub mod cancel;
 pub mod exec;
 pub mod lanes;
+pub mod scoped;
 pub mod serial;
 pub mod ticker;
 pub mod tokens;
 
 pub use cancel::CancelSource;
 pub use cancel::CancelView;
+pub use scoped::Scope;
+pub use scoped::Scoped;
 pub use serial::ChainGuard;
 pub use serial::KeyedChains;
 pub use serial::SerialChain;

@@ -194,10 +194,9 @@ fn change(path: &Path, before: Option<&str>, after: Option<&str>) -> CallChange 
     CallChange { path: path.to_string_lossy().into_owned(), new_path: None, before: content(before), after: content(after) }
 }
 
-#[tokio::test]
-async fn undo_and_reapply_answer_what_nodes_turn_changes_answered() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = dir.path().join("turn");
+/// The turn the recorder edits: `a.txt` changed, `b.txt` removed, `new.txt` created, one review.
+async fn recorded_turn(parent: &Path, name: &str, sid: &str) -> (std::path::PathBuf, Arc<dyn TurnReviewApi>) {
+    let repo = parent.join(name);
     std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "core.autocrlf", "false"]);
@@ -207,9 +206,7 @@ async fn undo_and_reapply_answer_what_nodes_turn_changes_answered() {
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "init"]);
     let root = repo.to_string_lossy().into_owned();
-
-    let review: Arc<dyn TurnReviewApi> = Arc::new(test_review(&dir.path().join("review")));
-    let sid = "turn-session";
+    let review: Arc<dyn TurnReviewApi> = Arc::new(test_review(&parent.join(format!("review-{name}"))));
     review.begin_turn(&root, sid, TurnOpen { checkpoint_id: "cp".into(), continue_turn: false }).await.expect("a turn");
     std::fs::write(repo.join("a.txt"), "A\n").unwrap();
     std::fs::remove_file(repo.join("b.txt")).unwrap();
@@ -226,16 +223,88 @@ async fn undo_and_reapply_answer_what_nodes_turn_changes_answered() {
         )
         .await;
     assert!(review.complete_turn(sid, None).await);
+    (repo, review)
+}
 
+/// `git` as the recorder reads state: its output, or `exit N`.
+fn git_out(cwd: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git").current_dir(cwd).args(args).output().expect("git runs");
+    if out.status.success() { String::from_utf8_lossy(&out.stdout).trim().to_owned() } else { format!("exit {}", out.status.code().unwrap_or(-1)) }
+}
+
+fn lines(text: &str) -> Vec<String> {
+    text.split('\n').map(|l| l.trim_end_matches('\r').to_owned()).filter(|l| !l.is_empty()).collect()
+}
+
+fn sorted(mut items: Vec<String>) -> Vec<String> {
+    items.sort();
+    items
+}
+
+/// Every file under `dir` (but the top-level `.git` and `.mixdog`) with its text, by path.
+fn dir_files(dir: &Path, rel: &str) -> Vec<Value> {
+    let mut out = Vec::new();
+    let here = if rel.is_empty() { dir.to_path_buf() } else { dir.join(rel) };
+    for entry in std::fs::read_dir(here).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if rel.is_empty() && (name == ".git" || name == ".mixdog") {
+            continue;
+        }
+        let path = if rel.is_empty() { name } else { format!("{rel}/{name}") };
+        if entry.file_type().unwrap().is_dir() {
+            out.extend(dir_files(dir, &path));
+        } else {
+            out.push(json!({ "path": path, "content": std::fs::read_to_string(dir.join(&path)).unwrap() }));
+        }
+    }
+    out.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
+    out
+}
+
+/// The recorder's `checkoutState`: branch, status, branches, subjects, linked worktrees, files.
+fn checkout_state(dir: Option<&Path>) -> Value {
+    let Some(dir) = dir.filter(|d| d.exists()) else {
+        return json!({ "exists": false });
+    };
+    let worktrees = lines(&git_out(dir, &["worktree", "list", "--porcelain"])).into_iter().filter(|l| l.starts_with("branch ") || l == "detached").collect();
+    json!({
+        "exists": true,
+        "head": git_out(dir, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "status": sorted(lines(&git_out(dir, &["status", "--porcelain", "--untracked-files=all"]))),
+        "branches": sorted(lines(&git_out(dir, &["for-each-ref", "--format=%(refname:short)", "refs/heads"]))),
+        "log": lines(&git_out(dir, &["log", "--format=%s", "-n", "20"])),
+        "worktrees": sorted(worktrees),
+        "files": dir_files(dir, ""),
+    })
+}
+
+/// A recorded `write`/`rm` action applied to `base`.
+fn apply_file_action(base: &Path, action: &Value) {
+    let path = base.join(action["path"].as_str().unwrap());
+    match action["do"].as_str().unwrap() {
+        "write" => std::fs::write(path, action["content"].as_str().unwrap()).unwrap(),
+        "rm" if path.is_dir() => std::fs::remove_dir_all(path).unwrap(),
+        "rm" => {
+            let _ = std::fs::remove_file(path);
+        }
+        other => panic!("unplanned action {other}"),
+    }
+}
+
+#[tokio::test]
+async fn undo_and_reapply_answer_what_nodes_turn_changes_answered() {
+    let dir = tempfile::tempdir().unwrap();
+    let sid = "turn-session";
+    let (repo, review) = recorded_turn(dir.path(), "turn", sid).await;
     let svc = ThreadScmService::new(rig().ws.clone(), review, scopes(dir.path(), "thread").await);
     let mut roots: Vec<(String, &str)> = Vec::new();
     for form in root_forms(&repo) {
         roots.push((form, "<repo>"));
     }
     let golden = golden();
-    let steps = golden["changes"].as_array().unwrap();
     let (mut next_op, mut revision) = (0u64, 1i64);
-    for step in steps {
+    for step in golden["changes"].as_array().unwrap() {
         let name = step["name"].as_str().unwrap();
         let (method, file, at, checkpoint): (&'static str, Value, i64, &str) = match name {
             "revert: stale revision" => ("thread/revertTurnChanges", Value::Null, revision + 1, "cp"),
@@ -253,13 +322,121 @@ async fn undo_and_reapply_answer_what_nodes_turn_changes_answered() {
             revision = next;
         }
         mask(&mut got, &roots);
-        let mut want = step.clone();
-        want.as_object_mut().unwrap().remove("name");
-        // A plain Error carries a message alone: the golden has no code or details to compare.
-        if want.get("error").is_some() {
-            want = json!({ "error": { "message": want["error"]["message"] } });
-            got = json!({ "error": { "message": got["error"]["message"] } });
+        got["files"] = Value::Array(dir_files(&repo, ""));
+        assert_eq!(got, *step.as_object().map(|o| {
+            let mut o = o.clone();
+            o.shift_remove("name");
+            o
+        }).map(Value::Object).as_ref().unwrap(), "step {name}");
+    }
+}
+
+#[tokio::test]
+async fn undo_and_reapply_refuse_and_leave_the_files_as_nodes_did() {
+    let golden = golden();
+    for scenario in golden["turnScenarios"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let sid = scenario["threadId"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let (repo, review) = recorded_turn(dir.path(), "turn-sc", sid).await;
+        for action in scenario["tweak"].as_array().unwrap() {
+            apply_file_action(&repo, action);
         }
-        assert_eq!(got, want, "step {name}");
+        let svc = ThreadScmService::new(rig().ws.clone(), review, scopes(dir.path(), "thread").await);
+        let mut roots: Vec<(String, &str)> = Vec::new();
+        for form in root_forms(&repo) {
+            roots.push((form, "<repo>"));
+        }
+        let (mut next_op, mut revision) = (0u64, scenario["startRevision"].as_i64().unwrap());
+        for step in scenario["steps"].as_array().unwrap() {
+            let method = if step["kind"] == "revert" { "thread/revertTurnChanges" } else { "thread/reapplyTurnChanges" };
+            next_op += 1;
+            let params = with_op(json!({ "threadId": sid, "checkpointId": "cp", "file": step["file"], "revision": revision }), next_op);
+            let mut got = outcome(svc.call(request(method, params, Some(next_op))).await);
+            if let Some(next) = got["ok"]["revision"].as_i64() {
+                revision = next;
+            }
+            mask(&mut got, &roots);
+            got["files"] = Value::Array(dir_files(&repo, ""));
+            let mut want = step.clone();
+            want.as_object_mut().unwrap().remove("kind");
+            want.as_object_mut().unwrap().remove("file");
+            assert_eq!(got, want, "{name}: {} {}", step["kind"], step["file"]);
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_safety_scenarios_leave_the_git_and_disk_state_nodes_left() {
+    let golden = golden();
+    for scenario in golden["scenarios"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let tid = scenario["threadId"].as_str().unwrap();
+        let rig = rig();
+        let dir = tempfile::tempdir().unwrap();
+        let review: Arc<dyn TurnReviewApi> = Arc::new(test_review(dir.path()));
+        let svc = service(&rig, review, scopes(dir.path(), "thread").await);
+        let mut roots: Vec<(String, &str)> = Vec::new();
+        for form in root_forms(&rig.repo) {
+            roots.push((form, "<repo>"));
+        }
+        for form in root_forms(&rig.data) {
+            roots.push((form, "<data>"));
+        }
+        for form in root_forms(rig.repo.parent().unwrap()) {
+            roots.push((form, "<base>"));
+        }
+        let mut worktree: Option<std::path::PathBuf> = None;
+        let mut next_op = 0u64;
+        for (at, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
+            let action = &step["action"];
+            let mut result: Option<Value> = None;
+            let in_dir = |worktree: &Option<std::path::PathBuf>| match action["in"].as_str() {
+                Some("repo") => rig.repo.clone(),
+                _ => worktree.clone().expect("a worktree"),
+            };
+            match action["do"].as_str().unwrap() {
+                "call" => {
+                    let method = action["method"].as_str().unwrap();
+                    let input = &action["input"];
+                    let params = if input.is_null() { json!({ "threadId": tid }) } else { json!({ "threadId": tid, "input": input }) };
+                    let req = match method {
+                        "getBranchMenu" => request("thread/getBranchMenu", params, None),
+                        "getSessionWorktreeWork" => request("thread/getSessionWorktreeWork", params, None),
+                        "requestWorktree" | "selectBranch" | "mergeWorkspace" => {
+                            next_op += 1;
+                            let wire = match method {
+                                "requestWorktree" => "thread/requestWorktree",
+                                "selectBranch" => "thread/selectBranch",
+                                _ => "thread/mergeWorkspace",
+                            };
+                            request(wire, with_op(params, next_op), Some(next_op))
+                        }
+                        other => panic!("unplanned method {other}"),
+                    };
+                    let raw = outcome(svc.call(req).await);
+                    if let Some(cwd) = raw["ok"]["workspace"]["cwd"].as_str() {
+                        let cwd = std::path::PathBuf::from(cwd);
+                        if cwd.canonicalize().ok() != rig.repo.canonicalize().ok() && worktree.as_ref() != Some(&cwd) {
+                            roots.insert(0, (cwd.to_string_lossy().replace('\\', "/"), "<worktree>"));
+                            worktree = Some(cwd);
+                        }
+                    }
+                    let mut got = raw;
+                    mask(&mut got, &roots);
+                    result = Some(got);
+                }
+                "git" => {
+                    let args: Vec<&str> = action["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
+                    git(&in_dir(&worktree), &args);
+                }
+                _ => apply_file_action(&in_dir(&worktree), action),
+            }
+            let state = json!({ "repo": checkout_state(Some(&rig.repo)), "worktree": checkout_state(worktree.as_deref()) });
+            if let Some(want) = step.get("result") {
+                assert_eq!(result.as_ref(), Some(want), "{name} #{at} {action}");
+            }
+            assert_eq!(state, step["state"], "{name} #{at} {action}");
+        }
     }
 }

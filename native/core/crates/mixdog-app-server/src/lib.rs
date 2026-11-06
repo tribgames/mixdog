@@ -39,4 +39,5 @@ pub use outgoing::Outgoing;
 pub use server::AppServer;
 pub use server::ConnectionHandle;
 pub use server::Inbound;
+pub use server::is_control;
 pub use server::OriginOf;

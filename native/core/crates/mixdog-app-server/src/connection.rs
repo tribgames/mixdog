@@ -204,6 +204,13 @@ impl Connection {
             && self.is_live_on(feed)
     }
 
+    /// A session surface (`initialize` declared kind `desktop` or `tui`) live on `feed`.
+    pub(crate) fn is_surface_on(&self, feed: &FeedId) -> bool {
+        self.session().is_some_and(|session| {
+            matches!(session.client.kind, mixdog_protocol::ConnectionKind::Desktop | mixdog_protocol::ConnectionKind::Tui)
+        }) && self.is_live_on(feed)
+    }
+
     /// Whether a server request of `thread` shown on `surface` is for this connection
     /// (P §8.3): a subscriber of either feed, or an `approvalsInbox` connection.
     pub(crate) fn is_eligible(&self, thread: &FeedId, surface: &FeedId) -> bool {

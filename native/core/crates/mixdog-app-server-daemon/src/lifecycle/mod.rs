@@ -16,6 +16,9 @@ mod ports;
 mod real;
 mod release;
 mod stall;
+mod supervisor;
+#[cfg(test)]
+mod supervisor_tests;
 #[cfg(test)]
 pub(crate) mod testing;
 #[cfg(test)]
@@ -46,6 +49,7 @@ pub use stall::StallConfig;
 pub use stall::StallMonitor;
 pub use stall::StallReporter;
 pub use stall::tokio_post;
+pub use supervisor::ReleaseBudgets;
 
 pub(crate) use machine::ct_eq;
 pub(crate) use machine::hex;

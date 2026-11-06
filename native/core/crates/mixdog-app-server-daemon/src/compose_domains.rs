@@ -44,7 +44,6 @@ use mixdog_core_base::ops::ThreadOpGates;
 use mixdog_core_base::state::StateRuntime;
 use mixdog_core_base::support::OpScopes;
 use mixdog_core_config::config::Config;
-use mixdog_core_config::config::ConfigLanes;
 use mixdog_core_config::config::ConfigService;
 use mixdog_core_config::config::ConfigWatcher;
 use mixdog_core_config::config::OutputStyles;
@@ -88,8 +87,6 @@ pub type EnvReader = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ComposeDomainsError {
-    #[error("opening mixdog-config.json: {0}")]
-    Config(mixdog_core_config::config::ConfigError),
     #[error("watching mixdog-config.json: {0}")]
     Watch(mixdog_core_config::config::ConfigError),
     #[error("the op gate of `{0}` was not passed")]
@@ -185,8 +182,13 @@ pub struct DomainInputs {
     pub tokens: LaneTokens,
     pub paths: DomainPaths,
     pub env: EnvReader,
-    /// The app feed (`ComposedCore::app_feed_core`): only the returned `StateRuntime` publishes to it.
+    /// The app feed (`ComposedCore::app_feed_core`): the `state` runtime publishes to it.
     pub app_feed: Arc<dyn Feed>,
+    /// Opened by compose before this call (`StateRuntime::new(app_feed)`): `settings_effects`,
+    /// `feature_effects` and `ConfigHosts` need it first. Its publisher is `config`'s.
+    pub state: Arc<StateRuntime>,
+    /// `Config::open(<data_dir>/mixdog-config.json, state.publisher, ConfigLanes)` on `interactive_io` / `durability_io`, opened by compose.
+    pub config: Config,
     pub scoped_feeds: Arc<dyn ScopedFeeds>,
     pub host: Arc<dyn HostChannel>,
     pub ext_host: Arc<ExtHostPool>,
@@ -208,8 +210,10 @@ pub struct ComposedDomains {
     /// `mixdog_workspace::service::Deps.sources`.
     pub transfer_sources: Vec<Arc<dyn TransferSource>>,
     /// The one `StatePublisher` (`state.publisher`), the scoped-route table and the app sections.
-    pub state: StateRuntime,
+    pub state: Arc<StateRuntime>,
     pub config: Config,
+    /// The one local provider (`ProcessInputs.local_provider`).
+    pub local_provider: Arc<mixdog_services::local_provider::LocalProvider>,
     pub tool_modules: Arc<ToolModules>,
     /// Hold for the daemon's lifetime: the config file's external-edit watch.
     pub watcher: ConfigWatcher,
@@ -225,14 +229,7 @@ pub struct ComposedDomains {
 
 pub async fn compose_domains(inputs: DomainInputs) -> Result<ComposedDomains, ComposeDomainsError> {
     let mut services: Vec<Arc<dyn DomainService>> = Vec::new();
-    let state = StateRuntime::new(inputs.app_feed.clone());
-    let (config, _warnings) = Config::open(
-        inputs.paths.data_dir.join("mixdog-config.json"),
-        state.publisher.clone(),
-        ConfigLanes { read: inputs.tokens.interactive_io, write: inputs.tokens.durability_io },
-    )
-    .await
-    .map_err(ComposeDomainsError::Config)?;
+    let (state, config) = (inputs.state.clone(), inputs.config.clone());
     let watcher = ConfigWatcher::start(config.clone()).map_err(ComposeDomainsError::Watch)?;
     let local = local::build(&inputs, &config).await?;
     let tool_modules = ToolModules::new(config.clone(), local.tool_modules_host.clone(), state.publisher.clone(), inputs.cancel.clone());
@@ -281,5 +278,5 @@ pub async fn compose_domains(inputs: DomainInputs) -> Result<ComposedDomains, Co
         inputs.scopes.scopes("diagnostics")?,
         &inputs.tokens,
     ));
-    Ok(ComposedDomains { services, transfer_sources, state, config, tool_modules, watcher, late, system: rows.system, extensions, setup_requests })
+    Ok(ComposedDomains { services, transfer_sources, state, config, local_provider: local.provider, tool_modules, watcher, late, system: rows.system, extensions, setup_requests })
 }

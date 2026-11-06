@@ -2,6 +2,7 @@
 
 pub mod account;
 pub mod admin;
+pub mod auth_refresh;
 pub mod collaborators;
 pub mod custom_admin;
 pub mod custom_config;

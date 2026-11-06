@@ -1,0 +1,156 @@
+//! The release supervisor: a wedged or panicking release step never keeps the process alive, and
+//! the step that wedged is named in `last-exit.json`. No sleeps: the wedged step blocks on a
+//! channel nobody sends to, and its budget is zero, so it is over budget the moment it starts.
+
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures use blocking std")]
+
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::mpsc;
+use std::time::Duration;
+
+use super::*;
+use super::testing::Recorder;
+
+/// A step that cannot be over budget in a test.
+const AMPLE: Duration = Duration::from_secs(3600);
+
+#[derive(Clone, Copy)]
+enum Fault {
+    Wedge,
+    Panic,
+}
+
+/// Delegates to the recorder except for the step named `fault.0`, which wedges or panics.
+struct Faulty {
+    inner: Arc<Recorder>,
+    fault: (&'static str, Fault),
+    hold: Mutex<mpsc::Receiver<()>>,
+}
+
+impl Faulty {
+    fn at(&self, step: &str) {
+        if self.fault.0 != step {
+            return;
+        }
+        match self.fault.1 {
+            Fault::Wedge => {
+                // Nobody sends: this returns only when the test drops the sender at its end.
+                let _ = self.hold.lock().unwrap().recv();
+            }
+            Fault::Panic => panic!("injected failure in {step}"),
+        }
+    }
+}
+
+impl CorePort for Faulty {
+    fn drain_notice(&self, notice: &DrainNotice) {
+        self.inner.drain_notice(notice);
+    }
+    fn health(&self, stalled_ms: u64) {
+        self.inner.health(stalled_ms);
+    }
+    fn cancel_running(&self, running: &[Running]) {
+        self.inner.cancel_running(running);
+    }
+    fn release_decision(&self, pid: u32) {
+        self.inner.release_decision(pid);
+    }
+    fn final_barriers(&self) {
+        self.at("final_barriers");
+        self.inner.final_barriers();
+    }
+    fn close_connections(&self) {
+        self.at("close_connections");
+        self.inner.close_connections();
+    }
+    fn close_ext_host(&self) {
+        self.at("close_ext_host");
+        self.inner.close_ext_host();
+    }
+    fn close_data_handles(&self) {
+        self.at("close_data_handles");
+        self.inner.close_data_handles();
+    }
+}
+
+/// Every budget ample except the one of `step`, which is zero.
+fn budgets(step: &str) -> ReleaseBudgets {
+    let pick = |name: &str| if name == step { Duration::ZERO } else { AMPLE };
+    ReleaseBudgets {
+        final_barriers: pick("final_barriers"),
+        close_connections: pick("close_connections"),
+        close_ext_host: pick("close_ext_host"),
+        record_exit: AMPLE,
+        withdraw_discovery: AMPLE,
+        close_data_handles: pick("close_data_handles"),
+    }
+}
+
+struct Run {
+    recorder: Arc<Recorder>,
+    root: tempfile::TempDir,
+    /// Dropping it lets a wedged step thread end.
+    _unwedge: mpsc::Sender<()>,
+}
+
+/// Serves, then drops the only client: an idle core stops and the release runs.
+fn release_with(fault: (&'static str, Fault), budgets: ReleaseBudgets) -> Run {
+    let recorder = Arc::new(Recorder::default());
+    let root = tempfile::tempdir().unwrap();
+    let (unwedge, hold) = mpsc::channel();
+    let lifecycle = Lifecycle::with_budgets(
+        LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: root.path().to_owned() },
+        Ports {
+            core: Arc::new(Faulty { inner: recorder.clone(), fault, hold: Mutex::new(hold) }),
+            discovery: recorder.clone(),
+            exiter: recorder.clone(),
+        },
+        budgets,
+    );
+    lifecycle.set_serving().unwrap();
+    drop(lifecycle.connection());
+    Run { recorder, root, _unwedge: unwedge }
+}
+
+fn last_exit(root: &std::path::Path) -> serde_json::Value {
+    serde_json::from_slice(&std::fs::read(root.join(LAST_EXIT_FILE)).unwrap()).unwrap()
+}
+
+#[test]
+fn a_wedged_release_step_is_named_and_the_process_still_exits() {
+    for (step, name) in [
+        ("final_barriers", "finalBarriers"),
+        ("close_connections", "closeConnections"),
+        ("close_ext_host", "closeExtHost"),
+        ("close_data_handles", "closeDataHandles"),
+    ] {
+        let run = release_with((step, Fault::Wedge), budgets(step));
+        assert!(run.recorder.wait_exit(), "{step} wedged the release");
+        let exit = last_exit(run.root.path());
+        assert_eq!(exit["stuckStep"], name, "{step}");
+        assert_eq!(exit["reason"], "noClients", "{step}");
+        let events = run.recorder.events();
+        assert!(events.contains(&"withdraw".to_owned()), "discovery is withdrawn after {step} wedged: {events:?}");
+        if step != "close_data_handles" {
+            assert!(!events.contains(&"close_data_handles".to_owned()), "the closing steps after {step} are skipped: {events:?}");
+        }
+    }
+}
+
+#[test]
+fn a_panicking_release_step_does_not_stop_the_release() {
+    let run = release_with(("close_connections", Fault::Panic), budgets(""));
+    assert!(run.recorder.wait_exit(), "a panic in a step kept the process alive");
+    let events = run.recorder.events();
+    assert!(events.contains(&"close_ext_host".to_owned()), "{events:?}");
+    assert!(events.contains(&"close_data_handles".to_owned()), "{events:?}");
+    assert!(last_exit(run.root.path()).get("stuckStep").is_none());
+}
+
+#[test]
+fn a_clean_release_names_no_stuck_step() {
+    let run = release_with(("none", Fault::Wedge), budgets(""));
+    assert!(run.recorder.wait_exit());
+    assert!(last_exit(run.root.path()).get("stuckStep").is_none());
+}

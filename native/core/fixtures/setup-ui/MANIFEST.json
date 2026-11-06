@@ -1,0 +1,30 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-setup-ui.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3684,
+      "path": "golden.json",
+      "sha256": "1408d166e1c7a8c1d5be9de562c3a4cc8b0b18858953aee1a94d4493315e55da"
+    }
+  ],
+  "product": {
+    "appsSha256": "aea90486849b02f92891b7def4ed21ffafa4d67ead160c9aa5b8b157e284f2af",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9241,
+    "refComparison": {
+      "closestCommit": "caf95d9f8982e1a565e2442c879032b549ef0163",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 4439
+    },
+    "srcSha256": "0b9580cca2e51de41503da0fe8b30237f981f0c584bdc7511bc05a7a45b7ed84",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-setup-ui.mjs",
+  "set": "setup-ui",
+  "totalBytes": 3684
+}

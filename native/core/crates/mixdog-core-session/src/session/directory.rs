@@ -261,6 +261,17 @@ impl SessionDirectory {
         handle.inbox.send(Inbox::CompletionCard { content, meta }).await.is_ok()
     }
 
+    /// `notifySessionUi(id, content, meta)`: a UI-only notice for the surfaces attached to the
+    /// thread now, and whether there is one. A thread nobody is attached to gets nothing: the
+    /// notice is not kept for a later attach.
+    pub async fn notify_ui(&self, id: &ThreadId, content: String, meta: Value) -> bool {
+        let Some(handle) = self.inner.loaded(id) else { return false };
+        if handle.cell.attached() == 0 {
+            return false;
+        }
+        handle.inbox.send(Inbox::UiNotice { content, meta }).await.is_ok()
+    }
+
     /// The live compaction (ordinal and `cid`) whose replacement holds the entry `iid`.
     pub(crate) async fn compaction_entry(
         &self,

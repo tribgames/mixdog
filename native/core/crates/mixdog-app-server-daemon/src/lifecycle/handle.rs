@@ -13,6 +13,7 @@ use std::sync::MutexGuard;
 use std::sync::PoisonError;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use mixdog_core_api::CoreState;
@@ -29,9 +30,13 @@ use super::model::Migration;
 use super::model::ReleaseCause;
 use super::model::StopMode;
 use super::model::StopReason;
+use super::ports::CorePort;
 use super::ports::Ports;
 use super::release::LastExit;
 use super::release::write_last_exit;
+use super::supervisor::ReleaseBudgets;
+use super::supervisor::StepEnd;
+use super::supervisor::supervise;
 
 #[derive(Debug, Clone)]
 pub struct LifecycleConfig {
@@ -60,6 +65,7 @@ pub struct Lifecycle {
     hold_tx: watch::Sender<bool>,
     ports: Ports,
     cfg: LifecycleConfig,
+    budgets: ReleaseBudgets,
     stalled_ms: AtomicU64,
 }
 
@@ -69,6 +75,10 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl Lifecycle {
     pub fn new(cfg: LifecycleConfig, ports: Ports) -> Arc<Self> {
+        Self::with_budgets(cfg, ports, ReleaseBudgets::default())
+    }
+
+    pub fn with_budgets(cfg: LifecycleConfig, ports: Ports, budgets: ReleaseBudgets) -> Arc<Self> {
         let machine = Machine::new(cfg.instance_id.clone(), cfg.version.clone());
         let status = ArcSwap::from_pointee(machine.status());
         let (state_tx, _) = watch::channel(machine.core_state());
@@ -81,6 +91,7 @@ impl Lifecycle {
             hold_tx,
             ports,
             cfg,
+            budgets,
             stalled_ms: AtomicU64::new(0),
         })
     }
@@ -184,6 +195,7 @@ impl Lifecycle {
             reason: "userTerminated".to_owned(),
             instance_id: self.cfg.instance_id.clone(),
             stalled_ms: Some(self.stalled_ms()),
+            stuck_step: None,
         };
         if let Err(error) = write_last_exit(&self.cfg.runtime_root, &record) {
             tracing::error!(%error, "last-exit.json was not written");
@@ -261,23 +273,57 @@ impl Lifecycle {
 
     /// LR §5.3: final barriers, close connections, close the extension host, record the exit,
     /// withdraw discovery, close data handles, release `L` by leaving.
+    ///
+    /// Each step runs under the supervisor with its budget. A step over its budget is abandoned
+    /// on its thread and named in `last-exit.json` (`stuckStep`); the release then skips the
+    /// rest of the closing steps, records, withdraws discovery and exits anyway.
     fn release(self: &Arc<Self>, cause: ReleaseCause) {
+        let budgets = self.budgets;
         let core = &self.ports.core;
-        core.final_barriers();
-        core.close_connections();
-        core.close_ext_host();
-        let record = LastExit {
-            reason: cause.text(),
-            instance_id: self.cfg.instance_id.clone(),
-            stalled_ms: None,
-        };
-        if let Err(error) = write_last_exit(&self.cfg.runtime_root, &record) {
-            tracing::error!(%error, "last-exit.json was not written");
+        let closing: [(&'static str, Duration, fn(&dyn CorePort)); 3] = [
+            ("finalBarriers", budgets.final_barriers, |core| core.final_barriers()),
+            ("closeConnections", budgets.close_connections, |core| core.close_connections()),
+            ("closeExtHost", budgets.close_ext_host, |core| core.close_ext_host()),
+        ];
+        let mut stuck = None;
+        for (name, budget, step) in closing {
+            let core = Arc::clone(core);
+            if supervise(name, budget, move || step(&*core)) == StepEnd::OverBudget {
+                stuck = Some(name);
+                break;
+            }
         }
-        self.ports.discovery.withdraw();
-        core.close_data_handles();
+        let closed = stuck.is_none();
+        let reason = cause.text();
+        self.record_exit(&reason, stuck);
+        let discovery = Arc::clone(&self.ports.discovery);
+        if supervise("withdrawDiscovery", budgets.withdraw_discovery, move || discovery.withdraw()) == StepEnd::OverBudget {
+            stuck.get_or_insert("withdrawDiscovery");
+            self.record_exit(&reason, stuck);
+        }
+        if closed {
+            let core = Arc::clone(core);
+            if supervise("closeDataHandles", budgets.close_data_handles, move || core.close_data_handles()) == StepEnd::OverBudget {
+                self.record_exit(&reason, stuck.or(Some("closeDataHandles")));
+            }
+        }
         self.apply(Machine::mark_stopped);
         self.ports.exiter.exit();
+    }
+
+    fn record_exit(&self, reason: &str, stuck_step: Option<&'static str>) {
+        let record = LastExit {
+            reason: reason.to_owned(),
+            instance_id: self.cfg.instance_id.clone(),
+            stalled_ms: None,
+            stuck_step: stuck_step.map(str::to_owned),
+        };
+        let root = self.cfg.runtime_root.clone();
+        supervise("recordExit", self.budgets.record_exit, move || {
+            if let Err(error) = write_last_exit(&root, &record) {
+                tracing::error!(%error, "last-exit.json was not written");
+            }
+        });
     }
 }
 

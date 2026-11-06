@@ -7,12 +7,15 @@
 //! scheduler starts.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use mixdog_core_base::quota_resume::{Entry, QuotaError, QuotaResumeStore};
 use mixdog_js::json_number;
 use mixdog_rt::CancellationToken;
+use mixdog_rt::{Scope, Scoped};
 use serde_json::json;
 use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
@@ -23,6 +26,20 @@ pub const QUOTA_RESUME_RETRY_MS: f64 = 5.0 * 60_000.0;
 pub const QUOTA_RESUME_BUSY_RECHECK_MS: f64 = 30_000.0;
 /// The longest a JavaScript timer waits.
 const MAX_TIMER_MS: f64 = 2_147_483_647.0;
+/// The longest one call into the host (`materialize`, `route`, `usable`, `fire`) may take. A call
+/// past it fails its entry, which is deferred like any other failure, so one hung host call
+/// cannot stall the entries behind it or the timer.
+const HOST_CALL_BOUND: Duration = Duration::from_secs(120);
+
+/// `$what` awaited under [`Pass::bounded`]; the entry's pass returns early when it ends the wait.
+macro_rules! bounded {
+    ($pass:expr, $what:expr, $work:expr) => {
+        match $pass.bounded($what, $work).await {
+            Ok(out) => out,
+            Err(early) => return early,
+        }
+    };
+}
 
 /// `now` and `setTimer` of the scheduler's options.
 #[async_trait]
@@ -205,12 +222,23 @@ impl Pass {
         self.store.defer(&entry.session_id, Some(entry.generation), &json!({ "resetAt": json_number(reset_at), "attempts": attempts })).await.map(drop)
     }
 
+    /// One call into the host under the scheduler's token and [`HOST_CALL_BOUND`]: `Err` is how
+    /// the entry's pass ends early (stopped: closed; too slow: a failure the entry is deferred for).
+    async fn bounded<T>(&self, what: &str, work: impl Future<Output = T>) -> Result<T, Result<Outcome, String>> {
+        let scope = Scope::new().cancel(&self.cancel).deadline(Some(Instant::now() + HOST_CALL_BOUND));
+        match scope.run(work).await {
+            Scoped::Done(out) => Ok(out),
+            Scoped::Cancelled => Err(Ok(Outcome::Closed)),
+            Scoped::DeadlineExceeded => Err(Err(format!("{what} timed out"))),
+        }
+    }
+
     /// One due entry: load its session, take the fresh reading, then fire, re-check later, or
     /// clear it. The error is a failure the pass defers the entry for.
     async fn resume_due(&self, entry: &Entry) -> Result<Outcome, String> {
         let id = entry.session_id.as_str();
         let generation = entry.generation;
-        if let Err(error) = self.host.materialize(id).await {
+        if let Err(error) = bounded!(self, "materialize", self.host.materialize(id)) {
             if self.closed() {
                 return Ok(Outcome::Closed);
             }
@@ -221,13 +249,10 @@ impl Pass {
         if !self.is_current(entry) {
             return Ok(Outcome::Cancelled);
         }
-        let current_route = async {
-            let route = self.host.route(id).await;
-            let pick = |own: String, entry: &str| if own.is_empty() { entry.to_owned() } else { own };
-            (pick(route.provider, &entry.provider), pick(route.model, &entry.model))
-        };
-        let (provider, model) = current_route.await;
-        let usable = match self.host.usable(&provider, &model).await {
+        let route = bounded!(self, "route", self.host.route(id));
+        let pick = |own: String, entry: &str| if own.is_empty() { entry.to_owned() } else { own };
+        let (provider, model) = (pick(route.provider, &entry.provider), pick(route.model, &entry.model));
+        let usable = match bounded!(self, "usable", self.host.usable(&provider, &model)) {
             Ok(usable) => usable,
             Err(UsageError::ProxyUnavailable(error)) => return Err(error),
             Err(UsageError::Failed(error)) => {
@@ -238,7 +263,7 @@ impl Pass {
         if !self.is_current(entry) {
             return Ok(Outcome::Cancelled);
         }
-        let selected = self.host.route(id).await;
+        let selected = bounded!(self, "route", self.host.route(id));
         let selected_provider = if selected.provider.is_empty() { entry.provider.clone() } else { selected.provider };
         let selected_model = if selected.model.is_empty() { entry.model.clone() } else { selected.model };
         if selected_provider != provider || selected_model != model {
@@ -257,7 +282,7 @@ impl Pass {
             self.store.cancel(id, Some(generation)).await.map_err(message)?;
             return Ok(Outcome::Exhausted);
         }
-        let outcome = self.host.fire(id, generation).await?;
+        let outcome = bounded!(self, "fire", self.host.fire(id, generation))?;
         if matches!(outcome, FireOutcome::Busy | FireOutcome::Rejected) {
             self.defer(entry, self.clock.now_ms() + QUOTA_RESUME_BUSY_RECHECK_MS, entry.attempts).await.map_err(message)?;
         } else if self.is_current(entry) {
@@ -287,8 +312,8 @@ impl Pass {
         };
         match leader {
             Err(mut done) => {
-                // Ends when the leader's release signals, or when the leader is dropped.
-                let _ = done.wait_for(|finished| *finished).await;
+                // Ends when the leader's release signals, or when the leader is dropped, or at stop.
+                let _ = Scope::new().cancel(&self.cancel).run(done.wait_for(|finished| *finished)).await;
             }
             Ok(finished) => {
                 let _release = Release { pass: self, finished };
@@ -357,7 +382,12 @@ impl Pass {
                 biased;
                 () = self.cancel.cancelled() => return,
                 () = changed.notified() => {}
-                () = timer => self.tick().await,
+                // The pass runs under the token too: `stop` reaches it between host calls.
+                () = timer => {
+                    if Scope::new().cancel(&self.cancel).run(self.tick()).await == Scoped::Cancelled {
+                        return;
+                    }
+                }
             }
         }
     }

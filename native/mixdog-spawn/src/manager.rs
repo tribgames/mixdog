@@ -18,6 +18,7 @@ use std::sync::atomic::AtomicU32;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::thread;
+use std::time::Duration;
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -61,6 +62,10 @@ pub struct ProcessConfig {
     pub input_queue_bytes: usize,
     /// The shell a `CommandSpec::Shell` without a shell name runs under.
     pub default_shell: String,
+    /// How long the exit waits for the output pipes after the root has ended. A descendant that
+    /// inherited a pipe can hold it open long after the root is gone; once this has passed the
+    /// exit is published with the output that arrived, and later output is dropped.
+    pub output_drain: Duration,
 }
 
 impl Default for ProcessConfig {
@@ -70,6 +75,7 @@ impl Default for ProcessConfig {
             ring_bytes: 4 * 1024 * 1024,
             retained_exits: 256,
             input_queue_bytes: 1024 * 1024,
+            output_drain: Duration::from_millis(2_000),
             default_shell: if cfg!(windows) {
                 "powershell.exe".to_owned()
             } else {
@@ -87,8 +93,8 @@ pub trait OutputFilter: Send {
     fn finish(&mut self) -> Vec<u8>;
 }
 
-/// Runs on the process's waiter thread once the root and every output pipe are finished, before
-/// the exit event is published. The bytes it returns are the feed's last output (the terminal
+/// Runs on the process's waiter thread once the root has ended and its output pipes are finished
+/// or [`ProcessConfig::output_drain`] has passed, before the exit event is published. The bytes it returns are the feed's last output (the terminal
 /// tab's "[process exited …]" line).
 pub type ExitHook = Box<dyn FnOnce(&ProcessExit) -> Vec<u8> + Send>;
 
@@ -558,11 +564,58 @@ fn start_piped(
     })
 }
 
+/// The output pipes that have not reached their end yet, and the signal for the last one.
+struct Drain {
+    open: Mutex<usize>,
+    done: Condvar,
+}
+
+impl Drain {
+    fn new(pipes: usize) -> Arc<Self> {
+        Arc::new(Self {
+            open: Mutex::new(pipes),
+            done: Condvar::new(),
+        })
+    }
+
+    fn finished(&self) {
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        *open -= 1;
+        if *open == 0 {
+            self.done.notify_all();
+        }
+    }
+
+    /// Waits until every pipe has ended or `limit` has passed. A reader still blocked then is
+    /// left to end on its own; the feed drops what it pushes after the exit.
+    fn wait(&self, limit: Duration) {
+        let deadline = Instant::now() + limit;
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        while *open > 0 {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return;
+            }
+            open = self.done.wait_timeout(open, left).unwrap_or_else(|e| e.into_inner()).0;
+        }
+    }
+}
+
+/// Counts a reader out of its [`Drain`] when its thread ends, however it ends.
+struct Reading(Arc<Drain>);
+
+impl Drop for Reading {
+    fn drop(&mut self) {
+        self.0.finished();
+    }
+}
+
 fn read_loop(
     mut reader: Box<dyn Read + Send>,
     stream: OutputStream,
     feed: Arc<Feed>,
     mut filter: Option<Box<dyn OutputFilter>>,
+    _reading: Reading,
 ) {
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
@@ -582,12 +635,13 @@ fn read_loop(
     }
 }
 
-/// Waits for the root, then for the output to end, and publishes the exit as the last event.
+/// Waits for the root, then for the output to end (for at most [`ProcessConfig::output_drain`]),
+/// and publishes the exit as the last event.
 fn wait_and_finish(
     inner: Arc<Inner>,
     proc: Arc<Proc>,
     mut root: Root,
-    readers: Vec<thread::JoinHandle<()>>,
+    drain: Arc<Drain>,
     on_exit: Option<ExitHook>,
 ) {
     let status = root.wait();
@@ -599,16 +653,21 @@ fn wait_and_finish(
     // or stalled consumer would never reach the end of its stream, and closing a ConPTY waits
     // for its output to be read. What is left in the OS buffers is small and goes into the ring.
     proc.feed.release_reader();
-    if let Some(pty) = &proc.pty {
-        pty.close();
+    // Closing a ConPTY can wait for its output to be read, and the close is what ends that
+    // output; it runs beside the drain so a close that hangs is bounded by the same limit.
+    if proc.pty.is_some() {
+        let closing = Arc::clone(&proc);
+        let _ = thread::Builder::new().name("pty-close".to_owned()).spawn(move || {
+            if let Some(pty) = &closing.pty {
+                pty.close();
+            }
+        });
     }
-    for reader in readers {
-        let _ = reader.join();
-    }
+    drain.wait(inner.config.output_drain);
     if let Some(input) = &proc.input {
         input.shutdown();
     }
-    // Read after the join: a kill during the drain (descendants still holding the pipes) counts.
+    // Read after the drain: a kill during it (descendants still holding the pipes) counts.
     // Fixing the reason and closing the door to kills is one step under the lifecycle lock; a
     // later kill returns `AlreadyExited`.
     let killed = {
@@ -692,19 +751,17 @@ fn launch_process(
     // up to `max_processes` of these block in `read` at once, and a pool smaller than that would
     // leave a live process's output unread behind other processes' idle reads.
     let mut filter = options.filter;
-    let mut reader_threads = Vec::new();
+    let drain = Drain::new(readers.len());
     for (stream, reader) in readers {
         let feed = Arc::clone(&feed);
         let filter = filter.take();
+        let reading = Reading(Arc::clone(&drain));
         let started = thread::Builder::new()
             .name("io-pty-read".to_owned())
-            .spawn(move || read_loop(reader, stream, feed, filter));
-        match started {
-            Ok(thread) => reader_threads.push(thread),
-            Err(error) => {
-                let _ = proc.kill(KillReason::Requested);
-                return Err(io_error(&error));
-            }
+            .spawn(move || read_loop(reader, stream, feed, filter, reading));
+        if let Err(error) = started {
+            let _ = proc.kill(KillReason::Requested);
+            return Err(io_error(&error));
         }
     }
     if let (Some(input), Some(writer)) = (input, writer) {
@@ -721,7 +778,7 @@ fn launch_process(
         let proc = Arc::clone(&proc);
         thread::Builder::new()
             .name("process-wait".to_owned())
-            .spawn(move || wait_and_finish(inner, proc, root, reader_threads, options.on_exit))
+            .spawn(move || wait_and_finish(inner, proc, root, drain, options.on_exit))
     };
     if let Err(error) = waiter {
         let _ = proc.kill(KillReason::Requested);

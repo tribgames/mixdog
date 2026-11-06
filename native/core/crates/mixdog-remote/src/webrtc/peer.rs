@@ -2,14 +2,19 @@
 //!
 //! The connection runs on the `webrtc` crate's driver (ICE with consent freshness, DTLS, SCTP,
 //! SRTP). Path death is decided by that stack only: a `Failed` connection state (consent
-//! expiry, DTLS or SCTP close) ends the connection; no stall timer exists here.
+//! expiry, DTLS or SCTP close) ends the connection; no stall timer watches an established path.
+//! What is bounded here is the connection's own work: every awaited step of a connection runs
+//! under its [`PeerBudget`], and coming up has [`SETUP_BUDGET`].
 
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 
 use rtc::peer_connection::configuration::RTCOfferOptions;
 use rtc::peer_connection::transport::RTCIceServerTransportProtocol;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use webrtc::peer_connection::MediaEngine;
 use webrtc::peer_connection::PeerConnection;
 use webrtc::peer_connection::PeerConnectionBuilder;
@@ -38,6 +43,51 @@ use super::config::PeerFault;
 use super::config::RelayProtocol;
 use super::config::RemoteCertificate;
 use super::config::TransportProtocol;
+
+/// Longest one step of a connection may take: the pong timeout of the keepalive schedule
+/// (SPEC §4.9, H3). Each step is local work, so a step that long is a dead driver.
+pub(crate) const STEP_BUDGET: Duration = Duration::from_secs(10);
+/// Longest a connection may take to come up: the keepalive interval plus the pong timeout
+/// (SPEC §4.9, H3).
+pub(crate) const SETUP_BUDGET: Duration = Duration::from_secs(40);
+
+/// The one bound on a connection's awaits: its owner dropping the handle (`close`) or
+/// [`STEP_BUDGET`], whichever comes first.
+#[derive(Clone, Default)]
+pub(crate) struct PeerBudget {
+    cancel: CancellationToken,
+}
+
+impl PeerBudget {
+    /// Ends every step under this budget, and the helper tasks watching [`Self::token`].
+    pub(crate) fn close(&self) {
+        self.cancel.cancel();
+    }
+
+    pub(crate) fn token(&self) -> CancellationToken {
+        self.cancel.clone()
+    }
+
+    /// Runs `work`; when it outlasts the budget or the connection was closed, drops it and
+    /// reports a fault naming `what`.
+    pub(crate) async fn step<T>(&self, what: &'static str, work: impl Future<Output = T>) -> Result<T, PeerFault> {
+        tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => {
+                Err(PeerFault::new(PeerFailure::PeerHostUnavailable, "connection closed"))
+            }
+            () = tokio::time::sleep(STEP_BUDGET) => {
+                Err(PeerFault::new(PeerFailure::PeerHostUnavailable, format!("{what} timed out")))
+            }
+            out = work => Ok(out),
+        }
+    }
+}
+
+/// Closes the connection. A budget of its own: the connection's is closed by the time this runs.
+pub(crate) async fn close(pc: &Arc<dyn PeerConnection>) {
+    let _ = PeerBudget::default().step("close", pc.close()).await;
+}
 
 /// What a connection reports while it is set up and while it lives.
 #[derive(Debug)]
@@ -308,4 +358,36 @@ pub(crate) async fn selected_pair(pc: &dyn PeerConnection) -> Option<CandidatePa
         available_outgoing_bitrate: (pair.available_outgoing_bitrate > 0.0)
             .then_some(pair.available_outgoing_bitrate),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_step_that_never_finishes_ends_at_the_budget() {
+        let started = tokio::time::Instant::now();
+        let fault = PeerBudget::default()
+            .step("create offer", std::future::pending::<()>())
+            .await
+            .unwrap_err();
+        assert_eq!(started.elapsed(), STEP_BUDGET);
+        assert_eq!(fault.reason, PeerFailure::PeerHostUnavailable);
+        assert_eq!(fault.detail.as_deref(), Some("create offer timed out"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn closing_the_budget_ends_a_pending_step_at_once() {
+        let budget = PeerBudget::default();
+        budget.close();
+        let started = tokio::time::Instant::now();
+        let fault = budget.step("apply answer", std::future::pending::<()>()).await.unwrap_err();
+        assert_eq!(started.elapsed(), Duration::ZERO);
+        assert_eq!(fault.detail.as_deref(), Some("connection closed"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_step_that_finishes_returns_its_value() {
+        assert_eq!(PeerBudget::default().step("stats", async { 7 }).await.unwrap(), 7);
+    }
 }

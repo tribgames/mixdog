@@ -249,6 +249,55 @@ async fn only_a_desktop_live_on_the_app_feed_is_a_window() {
     assert!(rig.outgoing.desktop_attached());
 }
 
+#[tokio::test]
+async fn only_a_desktop_or_tui_watching_the_thread_is_a_session_surface() {
+    use std::sync::Arc;
+
+    use mixdog_core_api::FeedSource;
+    use mixdog_core_api::Reply;
+    use mixdog_core_api::SessionSurfaces;
+    use mixdog_core_api::Subscribe;
+    use mixdog_core_api::feed::Window;
+    use mixdog_core_api::ids::ThreadId;
+    let watch = |client: &super::Client, thread: &str| {
+        client.request(1, "thread/resume", json!({ "threadId": thread, "window": { "lastItems": 10 } }));
+    };
+    let (t1, t2) = (ThreadId::from("t1"), ThreadId::from("t2"));
+    let rig = Rig::new();
+    for id in [&t1, &t2] {
+        let thread = rig.core.mock.directory().insert(id.clone());
+        let feed: Arc<dyn FeedSource> = thread.feed().clone();
+        thread.set_handler(Arc::new(move |_| {
+            Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: feed.clone(), window: Window::LastItems(10), resume_from: None }))
+        }));
+    }
+    assert!(!rig.outgoing.surface_on(&t1), "nobody connected");
+
+    // `mixdog exec`, a bridge, a phone and a remote desktop watching the thread are not surfaces.
+    for (id, kind) in [(1, "cli"), (2, "channelBridge"), (3, "phone"), (4, "remoteDesktop")] {
+        let client = rig.ready_as(id, kind, kind);
+        watch(&client, "t1");
+        client.response(1).await;
+    }
+    assert!(!rig.outgoing.surface_on(&t1), "only desktops and TUIs are surfaces");
+
+    // A desktop counts only on the thread it watches.
+    let desktop = rig.ready_as(5, "PC", "desktop");
+    desktop.request(1, "app/subscribe", json!({}));
+    desktop.response(1).await;
+    assert!(!rig.outgoing.surface_on(&t1), "the app feed is not the thread's");
+    desktop.request(2, "thread/resume", json!({ "threadId": "t1", "window": { "lastItems": 10 } }));
+    desktop.response(2).await;
+    assert!(rig.outgoing.surface_on(&t1));
+    assert!(!rig.outgoing.surface_on(&t2));
+
+    // A TUI watching a thread is one too.
+    let tui = rig.ready_as(6, "term", "tui");
+    watch(&tui, "t2");
+    tui.response(1).await;
+    assert!(rig.outgoing.surface_on(&t2));
+}
+
 const EXECUTE: Method = Method("model/proxy/execute");
 
 #[tokio::test]
@@ -344,4 +393,31 @@ async fn a_model_proxy_call_given_up_is_cancelled_on_the_connection_and_an_answe
     pc.send(json!({ "id": request["id"], "result": 1 }));
     assert_eq!(call.await.unwrap(), Ok(json!(1)));
     assert!(pc.drain().is_empty());
+}
+
+#[tokio::test]
+async fn a_cancelled_caller_releases_a_host_request_the_claimant_never_answers() {
+    let rig = Rig::new();
+    let host = claimed(&rig, 1).await;
+    let cancel = mixdog_rt::CancellationToken::new();
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn({
+        let cancel = cancel.clone();
+        async move { outgoing.request_scoped(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" }), &cancel).await }
+    });
+    host.frames(1).await;
+    cancel.cancel();
+    assert_eq!(call.await.unwrap(), Err(unavailable("cancelled")));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_host_request_the_claimant_never_answers_ends_at_its_capability_deadline() {
+    let rig = Rig::new();
+    let host = claimed(&rig, 1).await;
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await });
+    host.frames(1).await;
+    assert!(!call.is_finished(), "still inside its deadline");
+    tokio::time::advance(HostCapability::SystemProxy.deadline() + std::time::Duration::from_secs(1)).await;
+    assert_eq!(call.await.unwrap(), Err(unavailable("timedOut")));
 }

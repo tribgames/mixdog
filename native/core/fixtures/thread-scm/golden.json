@@ -2,11 +2,41 @@
   "changes": [
     {
       "error": {
+        "code": null,
+        "details": null,
         "message": "turn changes changed; refresh"
       },
+      "files": [
+        {
+          "content": "A\n",
+          "path": "a.txt"
+        },
+        {
+          "content": "keep\n",
+          "path": "keep.txt"
+        },
+        {
+          "content": "new\n",
+          "path": "new.txt"
+        }
+      ],
       "name": "revert: stale revision"
     },
     {
+      "files": [
+        {
+          "content": "a\n",
+          "path": "a.txt"
+        },
+        {
+          "content": "keep\n",
+          "path": "keep.txt"
+        },
+        {
+          "content": "new\n",
+          "path": "new.txt"
+        }
+      ],
       "name": "revert: one file",
       "ok": {
         "canReapply": true,
@@ -45,11 +75,41 @@
     },
     {
       "error": {
+        "code": null,
+        "details": null,
         "message": "a.txt is already undone"
       },
+      "files": [
+        {
+          "content": "a\n",
+          "path": "a.txt"
+        },
+        {
+          "content": "keep\n",
+          "path": "keep.txt"
+        },
+        {
+          "content": "new\n",
+          "path": "new.txt"
+        }
+      ],
       "name": "revert: same file again"
     },
     {
+      "files": [
+        {
+          "content": "a\n",
+          "path": "a.txt"
+        },
+        {
+          "content": "b\n",
+          "path": "b.txt"
+        },
+        {
+          "content": "keep\n",
+          "path": "keep.txt"
+        }
+      ],
       "name": "revert: whole turn",
       "ok": {
         "canReapply": true,
@@ -89,17 +149,67 @@
     },
     {
       "error": {
+        "code": null,
+        "details": null,
         "message": "this turn has no changes to be undone"
       },
+      "files": [
+        {
+          "content": "a\n",
+          "path": "a.txt"
+        },
+        {
+          "content": "b\n",
+          "path": "b.txt"
+        },
+        {
+          "content": "keep\n",
+          "path": "keep.txt"
+        }
+      ],
       "name": "revert: nothing left"
     },
     {
       "error": {
+        "code": null,
+        "details": null,
         "message": "turn changes are unavailable: no record for this turn"
       },
+      "files": [
+        {
+          "content": "a\n",
+          "path": "a.txt"
+        },
+        {
+          "content": "b\n",
+          "path": "b.txt"
+        },
+        {
+          "content": "keep\n",
+          "path": "keep.txt"
+        }
+      ],
       "name": "revert: unknown checkpoint"
     },
     {
+      "files": [
+        {
+          "content": "a\n",
+          "path": "a.txt"
+        },
+        {
+          "content": "b\n",
+          "path": "b.txt"
+        },
+        {
+          "content": "keep\n",
+          "path": "keep.txt"
+        },
+        {
+          "content": "new\n",
+          "path": "new.txt"
+        }
+      ],
       "name": "reapply: one file",
       "ok": {
         "canReapply": true,
@@ -137,6 +247,20 @@
       }
     },
     {
+      "files": [
+        {
+          "content": "A\n",
+          "path": "a.txt"
+        },
+        {
+          "content": "keep\n",
+          "path": "keep.txt"
+        },
+        {
+          "content": "new\n",
+          "path": "new.txt"
+        }
+      ],
       "name": "reapply: whole turn",
       "ok": {
         "canReapply": false,
@@ -175,12 +299,5914 @@
     },
     {
       "error": {
+        "code": null,
+        "details": null,
         "message": "this turn has no changes to be reapplied"
       },
+      "files": [
+        {
+          "content": "A\n",
+          "path": "a.txt"
+        },
+        {
+          "content": "keep\n",
+          "path": "keep.txt"
+        },
+        {
+          "content": "new\n",
+          "path": "new.txt"
+        }
+      ],
       "name": "reapply: nothing left"
     }
   ],
   "note": "workspace steps (getBranchMenu, getSessionWorktreeWork, requestWorktree, selectBranch, mergeWorkspace) and turn-change steps (revertTurnChanges, reapplyTurnChanges) of the real 1.4.5 functions; paths, commit ids and times are masked as <repo>, <data>, <worktree>, <sha>, <time>",
+  "scenarios": [
+    {
+      "name": "merge: dirty worktree",
+      "steps": [
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "name": "feat0",
+              "provision": true,
+              "txId": "tx-prov-0"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "ok": {
+              "pending": false,
+              "revision": 1,
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat0",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat0"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat0",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "x\n",
+            "do": "write",
+            "in": "wt",
+            "path": "g.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat0",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? g.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "add",
+              "-A"
+            ],
+            "do": "git",
+            "in": "wt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat0",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "A  g.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "commit",
+              "-qm",
+              "work"
+            ],
+            "do": "git",
+            "in": "wt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat0",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "dirty\n",
+            "do": "write",
+            "in": "wt",
+            "path": "f.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat0",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "untracked\n",
+            "do": "write",
+            "in": "wt",
+            "path": "u.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "feat0",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "cleanup": true,
+              "confirmed": true
+            },
+            "method": "mergeWorkspace"
+          },
+          "result": {
+            "error": {
+              "code": "WORKTREE_DIRTY",
+              "details": {
+                "count": 2,
+                "operation": ""
+              },
+              "message": "Commit or finish the source work before merging."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "feat0",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "sessionIds": [
+                "lead"
+              ]
+            },
+            "method": "getSessionWorktreeWork"
+          },
+          "result": {
+            "ok": {
+              "sessionIds": [
+                "lead"
+              ]
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "feat0",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "cleanup": true,
+              "confirmed": true
+            },
+            "method": "mergeWorkspace"
+          },
+          "result": {
+            "error": {
+              "code": "WORKTREE_DIRTY",
+              "details": {
+                "count": 2,
+                "operation": ""
+              },
+              "message": "Commit or finish the source work before merging."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat0",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "feat0",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat0",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "merge: conflict with the project branch",
+      "steps": [
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "name": "feat1",
+              "provision": true,
+              "txId": "tx-prov-1"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "ok": {
+              "pending": false,
+              "revision": 1,
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat1",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat1"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "wt\n",
+            "do": "write",
+            "in": "wt",
+            "path": "f.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "wt\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "add",
+              "-A"
+            ],
+            "do": "git",
+            "in": "wt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "wt\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "M  f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "commit",
+              "-qm",
+              "wt-change"
+            ],
+            "do": "git",
+            "in": "wt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "wt\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "wt-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "main\n",
+            "do": "write",
+            "in": "repo",
+            "path": "f.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "main\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "wt\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "wt-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "add",
+              "-A"
+            ],
+            "do": "git",
+            "in": "repo"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "main\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "M  f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "wt\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "wt-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "commit",
+              "-qm",
+              "main-change"
+            ],
+            "do": "git",
+            "in": "repo"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "main\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "main-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "wt\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "wt-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "confirmed": false
+            },
+            "method": "mergeWorkspace"
+          },
+          "result": {
+            "error": {
+              "code": "WORKTREE_CONFIRM_REQUIRED",
+              "details": null,
+              "message": "mergeWorkspace requires confirmed: true."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "main\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "main-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "wt\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "wt-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "cleanup": true,
+              "confirmed": true
+            },
+            "method": "mergeWorkspace"
+          },
+          "result": {
+            "ok": {
+              "commit": null,
+              "conflicts": [
+                "f.txt"
+              ],
+              "merged": false,
+              "target": "main"
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "main\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "main-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "wt\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "wt-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "sessionIds": [
+                "lead"
+              ]
+            },
+            "method": "getSessionWorktreeWork"
+          },
+          "result": {
+            "ok": {
+              "sessionIds": [
+                "lead"
+              ]
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "main\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "main-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "wt\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "wt-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "confirmed": true
+            },
+            "method": "mergeWorkspace"
+          },
+          "result": {
+            "ok": {
+              "commit": null,
+              "conflicts": [
+                "f.txt"
+              ],
+              "merged": false,
+              "target": "main"
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "main\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "main-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat1",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "wt\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat1",
+              "log": [
+                "wt-change",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat1",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "merge: stale revision then retained",
+      "steps": [
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "name": "feat2",
+              "provision": true,
+              "txId": "tx-prov-2"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "ok": {
+              "pending": false,
+              "revision": 1,
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat2",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat2"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat2",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "x\n",
+            "do": "write",
+            "in": "wt",
+            "path": "g.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat2",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? g.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "add",
+              "-A"
+            ],
+            "do": "git",
+            "in": "wt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat2",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "A  g.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "commit",
+              "-qm",
+              "work"
+            ],
+            "do": "git",
+            "in": "wt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat2",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "confirmed": true,
+              "expectedRevision": 99
+            },
+            "method": "mergeWorkspace"
+          },
+          "result": {
+            "error": {
+              "code": "WORKTREE_REVISION_CONFLICT",
+              "details": {
+                "expectedRevision": 99,
+                "revision": 1
+              },
+              "message": "The session workspace changed; reload and try again."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat2",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "confirmed": true
+            },
+            "method": "mergeWorkspace"
+          },
+          "result": {
+            "ok": {
+              "commit": "<sha>",
+              "merged": true,
+              "target": "main"
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "Merge branch 'feat2' into main",
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat2",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "sessionIds": [
+                "lead"
+              ]
+            },
+            "method": "getSessionWorktreeWork"
+          },
+          "result": {
+            "ok": {
+              "sessionIds": []
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "Merge branch 'feat2' into main",
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat2",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "method": "getBranchMenu"
+          },
+          "result": {
+            "ok": {
+              "branches": [
+                {
+                  "current": false,
+                  "lastCommitAt": "<time>",
+                  "name": "feat2",
+                  "remote": false,
+                  "upstream": ""
+                },
+                {
+                  "current": true,
+                  "lastCommitAt": "<time>",
+                  "name": "main",
+                  "remote": false,
+                  "upstream": ""
+                }
+              ],
+              "occupancy": [
+                {
+                  "branch": "feat2",
+                  "kind": "session",
+                  "path": "<worktree>",
+                  "sessionId": "lead"
+                },
+                {
+                  "branch": "main",
+                  "kind": "current",
+                  "path": "<repo>"
+                }
+              ],
+              "pendingWorktree": null,
+              "retainedWorktree": {
+                "baseCommit": "<sha>",
+                "branch": "feat2",
+                "createdAt": "<ms>",
+                "disposable": false,
+                "id": "feat2",
+                "mergeTarget": "main",
+                "ownerSessionId": "lead",
+                "path": "<worktree>",
+                "projectPath": "<repo>",
+                "projectSubdir": "",
+                "repoCommonDir": "<repo>/.git",
+                "state": "ready",
+                "warnings": []
+              },
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat2",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat2"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "Merge branch 'feat2' into main",
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat2",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "confirmed": true
+            },
+            "method": "mergeWorkspace"
+          },
+          "result": {
+            "ok": {
+              "commit": "<sha>",
+              "merged": true,
+              "target": "main",
+              "upToDate": true
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "Merge branch 'feat2' into main",
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat2",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat2",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat2",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "merge: project tree dirty",
+      "steps": [
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "name": "feat3",
+              "provision": true,
+              "txId": "tx-prov-3"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "ok": {
+              "pending": false,
+              "revision": 1,
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat3",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat3"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat3",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "x\n",
+            "do": "write",
+            "in": "wt",
+            "path": "g.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat3",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? g.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "add",
+              "-A"
+            ],
+            "do": "git",
+            "in": "wt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat3",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "A  g.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "commit",
+              "-qm",
+              "work"
+            ],
+            "do": "git",
+            "in": "wt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat3",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "dirty\n",
+            "do": "write",
+            "in": "repo",
+            "path": "f.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat3",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "untracked\n",
+            "do": "write",
+            "in": "repo",
+            "path": "u.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat3",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "cleanup": true,
+              "confirmed": true
+            },
+            "method": "mergeWorkspace"
+          },
+          "result": {
+            "error": {
+              "code": "MERGE_TARGET_DIRTY",
+              "details": {
+                "count": 2,
+                "files": [
+                  "f.txt",
+                  "u.txt"
+                ],
+                "operation": ""
+              },
+              "message": "The merge target has uncommitted changes."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat3",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "sessionIds": [
+                "lead"
+              ]
+            },
+            "method": "getSessionWorktreeWork"
+          },
+          "result": {
+            "ok": {
+              "sessionIds": [
+                "lead"
+              ]
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat3",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat3",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat3",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "select: dirty project tree",
+      "steps": [
+        {
+          "action": {
+            "args": [
+              "branch",
+              "dev"
+            ],
+            "do": "git",
+            "in": "repo"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "dirty\n",
+            "do": "write",
+            "in": "repo",
+            "path": "f.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "untracked\n",
+            "do": "write",
+            "in": "repo",
+            "path": "u.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "dev",
+              "txId": "tx-1-4"
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "ok": {
+              "revision": 1,
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "dev",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "dev-2"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "dev",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "method": "getBranchMenu"
+          },
+          "result": {
+            "ok": {
+              "branches": [
+                {
+                  "current": false,
+                  "lastCommitAt": "<time>",
+                  "name": "dev",
+                  "remote": false,
+                  "upstream": ""
+                },
+                {
+                  "current": true,
+                  "lastCommitAt": "<time>",
+                  "name": "main",
+                  "remote": false,
+                  "upstream": ""
+                }
+              ],
+              "occupancy": [
+                {
+                  "branch": "dev",
+                  "kind": "session",
+                  "path": "<worktree>",
+                  "sessionId": "lead"
+                },
+                {
+                  "branch": "main",
+                  "kind": "current",
+                  "path": "<repo>"
+                }
+              ],
+              "pendingWorktree": null,
+              "retainedWorktree": {
+                "baseCommit": "<sha>",
+                "branch": "dev",
+                "createdAt": "<ms>",
+                "disposable": false,
+                "id": "dev-2",
+                "mergeTarget": null,
+                "ownerSessionId": "lead",
+                "path": "<worktree>",
+                "projectPath": "<repo>",
+                "projectSubdir": "",
+                "repoCommonDir": "<repo>/.git",
+                "state": "ready",
+                "warnings": []
+              },
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "dev",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "dev-2"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "dev",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "main",
+              "txId": "tx-2-4"
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "ok": {
+              "revision": 2,
+              "workspace": {
+                "baseCommit": null,
+                "branch": "main",
+                "cwd": "<repo>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 2,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": null
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "dev",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "select: leaving unmerged work",
+      "steps": [
+        {
+          "action": {
+            "args": [
+              "branch",
+              "dev"
+            ],
+            "do": "git",
+            "in": "repo"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "name": "feat5",
+              "provision": true,
+              "txId": "tx-prov-5"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "ok": {
+              "pending": false,
+              "revision": 1,
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat5",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat5"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat5",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "x\n",
+            "do": "write",
+            "in": "wt",
+            "path": "g.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat5",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? g.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "add",
+              "-A"
+            ],
+            "do": "git",
+            "in": "wt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat5",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "A  g.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "commit",
+              "-qm",
+              "work"
+            ],
+            "do": "git",
+            "in": "wt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat5",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "main",
+              "txId": "tx-1-5"
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "ok": {
+              "revision": 2,
+              "workspace": {
+                "baseCommit": null,
+                "branch": "main",
+                "cwd": "<repo>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 2,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": null
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat5",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "sessionIds": [
+                "lead"
+              ]
+            },
+            "method": "getSessionWorktreeWork"
+          },
+          "result": {
+            "ok": {
+              "sessionIds": [
+                "lead"
+              ]
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "x\n",
+                  "path": "g.txt"
+                }
+              ],
+              "head": "feat5",
+              "log": [
+                "work",
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "dev",
+              "txId": "tx-2-5"
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "ok": {
+              "revision": 3,
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "dev",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 3,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "dev-2"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "dev",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "method": "getBranchMenu"
+          },
+          "result": {
+            "ok": {
+              "branches": [
+                {
+                  "current": false,
+                  "lastCommitAt": "<time>",
+                  "name": "dev",
+                  "remote": false,
+                  "upstream": ""
+                },
+                {
+                  "current": false,
+                  "lastCommitAt": "<time>",
+                  "name": "feat5",
+                  "remote": false,
+                  "upstream": ""
+                },
+                {
+                  "current": true,
+                  "lastCommitAt": "<time>",
+                  "name": "main",
+                  "remote": false,
+                  "upstream": ""
+                }
+              ],
+              "occupancy": [
+                {
+                  "branch": "dev",
+                  "kind": "session",
+                  "path": "<worktree>",
+                  "sessionId": "lead"
+                },
+                {
+                  "branch": "feat5",
+                  "kind": "session",
+                  "path": "<worktree>",
+                  "sessionId": "lead"
+                },
+                {
+                  "branch": "main",
+                  "kind": "current",
+                  "path": "<repo>"
+                }
+              ],
+              "pendingWorktree": null,
+              "retainedWorktree": {
+                "baseCommit": "<sha>",
+                "branch": "dev",
+                "createdAt": "<ms>",
+                "disposable": false,
+                "id": "dev-2",
+                "mergeTarget": null,
+                "ownerSessionId": "lead",
+                "path": "<worktree>",
+                "projectPath": "<repo>",
+                "projectSubdir": "",
+                "repoCommonDir": "<repo>/.git",
+                "state": "ready",
+                "warnings": []
+              },
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "dev",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 3,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "dev-2"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "feat5",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "dev",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/feat5",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "select: branch held by a linked worktree",
+      "steps": [
+        {
+          "action": {
+            "args": [
+              "branch",
+              "dev"
+            ],
+            "do": "git",
+            "in": "repo"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "worktree",
+              "add",
+              "-q",
+              "-b",
+              "linked",
+              "../linked-wt"
+            ],
+            "do": "git",
+            "in": "repo"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "linked",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/linked",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "linked",
+              "txId": "tx-1-6"
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "ok": {
+              "revision": 1,
+              "workspace": {
+                "baseCommit": null,
+                "branch": "linked",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": null
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "linked",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/linked",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "linked",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "linked",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/linked",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "linked",
+              "txId": "tx-2-6"
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "ok": {
+              "revision": 2,
+              "workspace": {
+                "baseCommit": null,
+                "branch": "linked",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 2,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": null
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "linked",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/linked",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "linked",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "linked",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/linked",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "dev",
+              "txId": "tx-3-6"
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "ok": {
+              "revision": 3,
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "dev",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 3,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "dev-2"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "linked",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/linked",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "linked",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "dev",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/linked",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "method": "getBranchMenu"
+          },
+          "result": {
+            "ok": {
+              "branches": [
+                {
+                  "current": false,
+                  "lastCommitAt": "<time>",
+                  "name": "dev",
+                  "remote": false,
+                  "upstream": ""
+                },
+                {
+                  "current": false,
+                  "lastCommitAt": "<time>",
+                  "name": "linked",
+                  "remote": false,
+                  "upstream": ""
+                },
+                {
+                  "current": true,
+                  "lastCommitAt": "<time>",
+                  "name": "main",
+                  "remote": false,
+                  "upstream": ""
+                }
+              ],
+              "occupancy": [
+                {
+                  "branch": "dev",
+                  "kind": "session",
+                  "path": "<worktree>",
+                  "sessionId": "lead"
+                },
+                {
+                  "branch": "linked",
+                  "kind": "external",
+                  "path": "<worktree>"
+                },
+                {
+                  "branch": "main",
+                  "kind": "current",
+                  "path": "<repo>"
+                }
+              ],
+              "pendingWorktree": null,
+              "retainedWorktree": {
+                "baseCommit": "<sha>",
+                "branch": "dev",
+                "createdAt": "<ms>",
+                "disposable": false,
+                "id": "dev-2",
+                "mergeTarget": null,
+                "ownerSessionId": "lead",
+                "path": "<worktree>",
+                "projectPath": "<repo>",
+                "projectSubdir": "",
+                "repoCommonDir": "<repo>/.git",
+                "state": "ready",
+                "warnings": []
+              },
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "dev",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 3,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "dev-2"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "linked",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/linked",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "dev",
+                "linked",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "dev",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/dev",
+                "branch refs/heads/linked",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "select: stale revision and missing branch",
+      "steps": [
+        {
+          "action": {
+            "args": [
+              "branch",
+              "dev"
+            ],
+            "do": "git",
+            "in": "repo"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "dev",
+              "expectedRevision": 77
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "error": {
+              "code": "WORKTREE_REVISION_CONFLICT",
+              "details": {
+                "expectedRevision": 77,
+                "revision": 0
+              },
+              "message": "The session workspace changed; reload and try again."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "nope",
+              "txId": "tx-1-7"
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "error": {
+              "code": "WORKTREE_MISSING",
+              "details": null,
+              "message": "Branch does not exist."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "dev",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "args": [
+              "branch",
+              "-D",
+              "dev"
+            ],
+            "do": "git",
+            "in": "repo"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "dev",
+              "txId": "tx-2-7"
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "error": {
+              "code": "WORKTREE_MISSING",
+              "details": null,
+              "message": "Branch does not exist."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "method": "getBranchMenu"
+          },
+          "result": {
+            "ok": {
+              "branches": [
+                {
+                  "current": true,
+                  "lastCommitAt": "<time>",
+                  "name": "main",
+                  "remote": false,
+                  "upstream": ""
+                }
+              ],
+              "occupancy": [
+                {
+                  "branch": "main",
+                  "kind": "current",
+                  "path": "<repo>"
+                }
+              ],
+              "pendingWorktree": null,
+              "retainedWorktree": null,
+              "warnings": [],
+              "workspace": {
+                "baseCommit": null,
+                "branch": "main",
+                "cwd": "<repo>",
+                "mergeTarget": null,
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 0,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": null
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "missing worktree folder",
+      "steps": [
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "name": "feat8",
+              "provision": true,
+              "txId": "tx-prov-8"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "ok": {
+              "pending": false,
+              "revision": 1,
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat8",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat8"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat8",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat8",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat8",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat8",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat8",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "rm",
+            "in": "wt",
+            "path": ""
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat8",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat8",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "method": "getBranchMenu"
+          },
+          "result": {
+            "ok": {
+              "branches": [
+                {
+                  "current": false,
+                  "lastCommitAt": "<time>",
+                  "name": "feat8",
+                  "remote": false,
+                  "upstream": ""
+                },
+                {
+                  "current": true,
+                  "lastCommitAt": "<time>",
+                  "name": "main",
+                  "remote": false,
+                  "upstream": ""
+                }
+              ],
+              "occupancy": [
+                {
+                  "branch": "feat8",
+                  "kind": "session",
+                  "path": "<worktree>",
+                  "sessionId": "lead"
+                },
+                {
+                  "branch": "main",
+                  "kind": "current",
+                  "path": "<repo>"
+                }
+              ],
+              "pendingWorktree": null,
+              "retainedWorktree": {
+                "baseCommit": "<sha>",
+                "branch": "feat8",
+                "createdAt": "<ms>",
+                "disposable": false,
+                "id": "feat8",
+                "mergeTarget": "main",
+                "ownerSessionId": "lead",
+                "path": "<worktree>",
+                "projectPath": "<repo>",
+                "projectSubdir": "",
+                "repoCommonDir": "<repo>/.git",
+                "state": "ready",
+                "warnings": []
+              },
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat8",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat8"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat8",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat8",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "sessionIds": [
+                "lead"
+              ]
+            },
+            "method": "getSessionWorktreeWork"
+          },
+          "result": {
+            "ok": {
+              "sessionIds": []
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat8",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat8",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "confirmed": true
+            },
+            "method": "mergeWorkspace"
+          },
+          "result": {
+            "error": {
+              "code": "WORKTREE_UNSUPPORTED_REPO",
+              "details": null,
+              "message": "This repository does not support managed worktrees."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat8",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat8",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "branch": "main",
+              "txId": "tx-1-8"
+            },
+            "method": "selectBranch"
+          },
+          "result": {
+            "ok": {
+              "revision": 2,
+              "workspace": {
+                "baseCommit": null,
+                "branch": "main",
+                "cwd": "<repo>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 2,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": null
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat8",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat8",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "method": "getBranchMenu"
+          },
+          "result": {
+            "ok": {
+              "branches": [
+                {
+                  "current": false,
+                  "lastCommitAt": "<time>",
+                  "name": "feat8",
+                  "remote": false,
+                  "upstream": ""
+                },
+                {
+                  "current": true,
+                  "lastCommitAt": "<time>",
+                  "name": "main",
+                  "remote": false,
+                  "upstream": ""
+                }
+              ],
+              "occupancy": [
+                {
+                  "branch": "feat8",
+                  "kind": "session",
+                  "path": "<worktree>",
+                  "sessionId": "lead"
+                },
+                {
+                  "branch": "main",
+                  "kind": "current",
+                  "path": "<repo>"
+                }
+              ],
+              "pendingWorktree": null,
+              "retainedWorktree": {
+                "baseCommit": "<sha>",
+                "branch": "feat8",
+                "createdAt": "<ms>",
+                "disposable": false,
+                "id": "feat8",
+                "mergeTarget": "main",
+                "ownerSessionId": "lead",
+                "path": "<worktree>",
+                "projectPath": "<repo>",
+                "projectSubdir": "",
+                "repoCommonDir": "<repo>/.git",
+                "state": "ready",
+                "warnings": []
+              },
+              "warnings": [],
+              "workspace": {
+                "baseCommit": null,
+                "branch": "main",
+                "cwd": "<repo>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 2,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": null
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat8",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat8",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "request: dirty project, carry",
+      "steps": [
+        {
+          "action": {
+            "content": "dirty\n",
+            "do": "write",
+            "in": "repo",
+            "path": "f.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "untracked\n",
+            "do": "write",
+            "in": "repo",
+            "path": "u.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "carryChanges": "carry",
+              "name": "feat9",
+              "provision": true,
+              "txId": "tx-prov-9"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "ok": {
+              "changes": {
+                "count": 2,
+                "mode": "carried"
+              },
+              "pending": false,
+              "revision": 1,
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat9",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat9"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat9",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat9",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat9",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "feat9",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat9",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "sessionIds": [
+                "lead"
+              ]
+            },
+            "method": "getSessionWorktreeWork"
+          },
+          "result": {
+            "ok": {
+              "sessionIds": [
+                "lead"
+              ]
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat9",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat9",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat9",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "feat9",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat9",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "method": "getBranchMenu"
+          },
+          "result": {
+            "ok": {
+              "branches": [
+                {
+                  "current": false,
+                  "lastCommitAt": "<time>",
+                  "name": "feat9",
+                  "remote": false,
+                  "upstream": ""
+                },
+                {
+                  "current": true,
+                  "lastCommitAt": "<time>",
+                  "name": "main",
+                  "remote": false,
+                  "upstream": ""
+                }
+              ],
+              "occupancy": [
+                {
+                  "branch": "feat9",
+                  "kind": "session",
+                  "path": "<worktree>",
+                  "sessionId": "lead"
+                },
+                {
+                  "branch": "main",
+                  "kind": "current",
+                  "path": "<repo>"
+                }
+              ],
+              "pendingWorktree": null,
+              "retainedWorktree": {
+                "baseCommit": "<sha>",
+                "branch": "feat9",
+                "createdAt": "<ms>",
+                "disposable": false,
+                "id": "feat9",
+                "mergeTarget": "main",
+                "ownerSessionId": "lead",
+                "path": "<worktree>",
+                "projectPath": "<repo>",
+                "projectSubdir": "",
+                "repoCommonDir": "<repo>/.git",
+                "state": "ready",
+                "warnings": []
+              },
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat9",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat9"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat9",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat9",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat9",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "feat9",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat9",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "request: dirty project, leave",
+      "steps": [
+        {
+          "action": {
+            "content": "dirty\n",
+            "do": "write",
+            "in": "repo",
+            "path": "f.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "untracked\n",
+            "do": "write",
+            "in": "repo",
+            "path": "u.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "carryChanges": "leave",
+              "name": "feat10",
+              "provision": true,
+              "txId": "tx-prov-10"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "ok": {
+              "changes": {
+                "count": 2,
+                "mode": "left"
+              },
+              "pending": false,
+              "revision": 1,
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat10",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat10"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat10",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat10",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat10",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat10",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat10",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "method": "getBranchMenu"
+          },
+          "result": {
+            "ok": {
+              "branches": [
+                {
+                  "current": false,
+                  "lastCommitAt": "<time>",
+                  "name": "feat10",
+                  "remote": false,
+                  "upstream": ""
+                },
+                {
+                  "current": true,
+                  "lastCommitAt": "<time>",
+                  "name": "main",
+                  "remote": false,
+                  "upstream": ""
+                }
+              ],
+              "occupancy": [
+                {
+                  "branch": "feat10",
+                  "kind": "session",
+                  "path": "<worktree>",
+                  "sessionId": "lead"
+                },
+                {
+                  "branch": "main",
+                  "kind": "current",
+                  "path": "<repo>"
+                }
+              ],
+              "pendingWorktree": null,
+              "retainedWorktree": {
+                "baseCommit": "<sha>",
+                "branch": "feat10",
+                "createdAt": "<ms>",
+                "disposable": false,
+                "id": "feat10",
+                "mergeTarget": "main",
+                "ownerSessionId": "lead",
+                "path": "<worktree>",
+                "projectPath": "<repo>",
+                "projectSubdir": "",
+                "repoCommonDir": "<repo>/.git",
+                "state": "ready",
+                "warnings": []
+              },
+              "warnings": [],
+              "workspace": {
+                "baseCommit": "<sha>",
+                "branch": "feat10",
+                "cwd": "<worktree>",
+                "mergeTarget": "main",
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 1,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": "feat10"
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "feat10",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/feat10",
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "branches": [
+                "feat10",
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "a\nb\nc\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "feat10",
+              "log": [
+                "init"
+              ],
+              "status": [],
+              "worktrees": [
+                "branch refs/heads/feat10",
+                "branch refs/heads/main"
+              ]
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "request: dirty project, ask",
+      "steps": [
+        {
+          "action": {
+            "content": "dirty\n",
+            "do": "write",
+            "in": "repo",
+            "path": "f.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "untracked\n",
+            "do": "write",
+            "in": "repo",
+            "path": "u.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "carryChanges": "ask",
+              "name": "feat11",
+              "provision": true,
+              "txId": "tx-prov-11"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "error": {
+              "code": null,
+              "details": null,
+              "message": "carryChanges must be one of leave, carry."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "name": "feat11",
+              "provision": true,
+              "txId": "tx-again-11"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "error": {
+              "code": "WORKTREE_DIRTY_CHOICE",
+              "details": {
+                "count": 2,
+                "paths": [
+                  "f.txt",
+                  "u.txt"
+                ]
+              },
+              "message": "The project folder has uncommitted changes; choose whether to leave them there or carry them into the worktree."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    },
+    {
+      "name": "request: dirty project, no choice",
+      "steps": [
+        {
+          "action": {
+            "content": "dirty\n",
+            "do": "write",
+            "in": "repo",
+            "path": "f.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "content": "untracked\n",
+            "do": "write",
+            "in": "repo",
+            "path": "u.txt"
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "input": {
+              "name": "feat12",
+              "provision": true,
+              "txId": "tx-prov-12"
+            },
+            "method": "requestWorktree"
+          },
+          "result": {
+            "error": {
+              "code": "WORKTREE_DIRTY_CHOICE",
+              "details": {
+                "count": 2,
+                "paths": [
+                  "f.txt",
+                  "u.txt"
+                ]
+              },
+              "message": "The project folder has uncommitted changes; choose whether to leave them there or carry them into the worktree."
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        },
+        {
+          "action": {
+            "do": "call",
+            "method": "getBranchMenu"
+          },
+          "result": {
+            "ok": {
+              "branches": [
+                {
+                  "current": true,
+                  "lastCommitAt": "<time>",
+                  "name": "main",
+                  "remote": false,
+                  "upstream": ""
+                }
+              ],
+              "occupancy": [
+                {
+                  "branch": "main",
+                  "kind": "current",
+                  "path": "<repo>"
+                }
+              ],
+              "pendingWorktree": null,
+              "retainedWorktree": null,
+              "warnings": [],
+              "workspace": {
+                "baseCommit": null,
+                "branch": "main",
+                "cwd": "<repo>",
+                "mergeTarget": null,
+                "projectPath": "<repo>",
+                "repoCommonDir": "<repo>/.git",
+                "revision": 0,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                },
+                "worktreeId": null
+              }
+            }
+          },
+          "state": {
+            "repo": {
+              "branches": [
+                "main"
+              ],
+              "exists": true,
+              "files": [
+                {
+                  "content": "dirty\n",
+                  "path": "f.txt"
+                },
+                {
+                  "content": "untracked\n",
+                  "path": "u.txt"
+                }
+              ],
+              "head": "main",
+              "log": [
+                "init"
+              ],
+              "status": [
+                "?? u.txt",
+                "M f.txt"
+              ],
+              "worktrees": [
+                "branch refs/heads/main"
+              ]
+            },
+            "worktree": {
+              "exists": false
+            }
+          }
+        }
+      ],
+      "threadId": "lead"
+    }
+  ],
   "steps": [
     {
       "name": "menu: never moved",
@@ -665,6 +6691,443 @@
       "ok": {
         "sessionIds": []
       }
+    }
+  ],
+  "turnScenarios": [
+    {
+      "name": "after-turn edit of a changed file",
+      "startRevision": 1,
+      "steps": [
+        {
+          "error": {
+            "code": null,
+            "details": null,
+            "message": "undo failed; the worktree was not changed: error: patch failed: a.txt:1\nerror: a.txt: patch does not apply"
+          },
+          "file": null,
+          "files": [
+            {
+              "content": "USER\n",
+              "path": "a.txt"
+            },
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            },
+            {
+              "content": "new\n",
+              "path": "new.txt"
+            }
+          ],
+          "kind": "revert"
+        },
+        {
+          "error": {
+            "code": null,
+            "details": null,
+            "message": "undo failed; the worktree was not changed: error: patch failed: a.txt:1\nerror: a.txt: patch does not apply"
+          },
+          "file": "a.txt",
+          "files": [
+            {
+              "content": "USER\n",
+              "path": "a.txt"
+            },
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            },
+            {
+              "content": "new\n",
+              "path": "new.txt"
+            }
+          ],
+          "kind": "revert"
+        },
+        {
+          "error": {
+            "code": null,
+            "details": null,
+            "message": "this turn has no changes to be reapplied"
+          },
+          "file": null,
+          "files": [
+            {
+              "content": "USER\n",
+              "path": "a.txt"
+            },
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            },
+            {
+              "content": "new\n",
+              "path": "new.txt"
+            }
+          ],
+          "kind": "reapply"
+        }
+      ],
+      "threadId": "turn-sc-0",
+      "tweak": [
+        {
+          "content": "USER\n",
+          "do": "write",
+          "in": "repo",
+          "path": "a.txt"
+        }
+      ]
+    },
+    {
+      "name": "after-turn edit of a created file",
+      "startRevision": 1,
+      "steps": [
+        {
+          "error": {
+            "code": null,
+            "details": null,
+            "message": "undo failed; the worktree was not changed: error: patch failed: new.txt:1\nerror: new.txt: patch does not apply"
+          },
+          "file": "new.txt",
+          "files": [
+            {
+              "content": "A\n",
+              "path": "a.txt"
+            },
+            {
+              "content": "USER-B\n",
+              "path": "b.txt"
+            },
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            },
+            {
+              "content": "USER\n",
+              "path": "new.txt"
+            }
+          ],
+          "kind": "revert"
+        },
+        {
+          "error": {
+            "code": null,
+            "details": null,
+            "message": "undo failed; the worktree was not changed: error: patch failed: new.txt:1\nerror: new.txt: patch does not apply\nerror: b.txt: already exists in working directory"
+          },
+          "file": null,
+          "files": [
+            {
+              "content": "A\n",
+              "path": "a.txt"
+            },
+            {
+              "content": "USER-B\n",
+              "path": "b.txt"
+            },
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            },
+            {
+              "content": "USER\n",
+              "path": "new.txt"
+            }
+          ],
+          "kind": "revert"
+        },
+        {
+          "error": {
+            "code": null,
+            "details": null,
+            "message": "this turn has no changes to be reapplied"
+          },
+          "file": null,
+          "files": [
+            {
+              "content": "A\n",
+              "path": "a.txt"
+            },
+            {
+              "content": "USER-B\n",
+              "path": "b.txt"
+            },
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            },
+            {
+              "content": "USER\n",
+              "path": "new.txt"
+            }
+          ],
+          "kind": "reapply"
+        }
+      ],
+      "threadId": "turn-sc-1",
+      "tweak": [
+        {
+          "content": "USER\n",
+          "do": "write",
+          "in": "repo",
+          "path": "new.txt"
+        },
+        {
+          "content": "USER-B\n",
+          "do": "write",
+          "in": "repo",
+          "path": "b.txt"
+        }
+      ]
+    },
+    {
+      "name": "files gone",
+      "startRevision": 1,
+      "steps": [
+        {
+          "error": {
+            "code": null,
+            "details": null,
+            "message": "undo failed; the worktree was not changed: error: new.txt: No such file or directory\nerror: a.txt: No such file or directory"
+          },
+          "file": null,
+          "files": [
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            }
+          ],
+          "kind": "revert"
+        },
+        {
+          "error": {
+            "code": null,
+            "details": null,
+            "message": "a.txt is already reapplied"
+          },
+          "file": "a.txt",
+          "files": [
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            }
+          ],
+          "kind": "reapply"
+        },
+        {
+          "error": {
+            "code": null,
+            "details": null,
+            "message": "this turn has no changes to be reapplied"
+          },
+          "file": null,
+          "files": [
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            }
+          ],
+          "kind": "reapply"
+        }
+      ],
+      "threadId": "turn-sc-2",
+      "tweak": [
+        {
+          "do": "rm",
+          "in": "repo",
+          "path": "new.txt"
+        },
+        {
+          "do": "rm",
+          "in": "repo",
+          "path": "a.txt"
+        }
+      ]
+    },
+    {
+      "name": "untracked neighbour",
+      "startRevision": 1,
+      "steps": [
+        {
+          "file": null,
+          "files": [
+            {
+              "content": "a\n",
+              "path": "a.txt"
+            },
+            {
+              "content": "b\n",
+              "path": "b.txt"
+            },
+            {
+              "content": "extra\n",
+              "path": "extra.txt"
+            },
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            }
+          ],
+          "kind": "revert",
+          "ok": {
+            "canReapply": true,
+            "canUndo": false,
+            "checkpointId": "cp",
+            "files": [
+              {
+                "additions": 1,
+                "deletions": 1,
+                "path": "a.txt",
+                "revertable": true,
+                "state": "reverted",
+                "status": "M"
+              },
+              {
+                "additions": 0,
+                "deletions": 1,
+                "path": "b.txt",
+                "revertable": true,
+                "state": "reverted",
+                "status": "D"
+              },
+              {
+                "additions": 1,
+                "deletions": 0,
+                "path": "new.txt",
+                "revertable": true,
+                "state": "reverted",
+                "status": "A"
+              }
+            ],
+            "reason": "all changes in this turn are already undone",
+            "revision": 2,
+            "root": "<repo>",
+            "status": "ready"
+          }
+        },
+        {
+          "file": null,
+          "files": [
+            {
+              "content": "A\n",
+              "path": "a.txt"
+            },
+            {
+              "content": "extra\n",
+              "path": "extra.txt"
+            },
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            },
+            {
+              "content": "new\n",
+              "path": "new.txt"
+            }
+          ],
+          "kind": "reapply",
+          "ok": {
+            "canReapply": false,
+            "canUndo": true,
+            "checkpointId": "cp",
+            "files": [
+              {
+                "additions": 1,
+                "deletions": 1,
+                "path": "a.txt",
+                "revertable": true,
+                "state": "applied",
+                "status": "M"
+              },
+              {
+                "additions": 0,
+                "deletions": 1,
+                "path": "b.txt",
+                "revertable": true,
+                "state": "applied",
+                "status": "D"
+              },
+              {
+                "additions": 1,
+                "deletions": 0,
+                "path": "new.txt",
+                "revertable": true,
+                "state": "applied",
+                "status": "A"
+              }
+            ],
+            "revision": 3,
+            "root": "<repo>",
+            "status": "ready"
+          }
+        },
+        {
+          "file": null,
+          "files": [
+            {
+              "content": "a\n",
+              "path": "a.txt"
+            },
+            {
+              "content": "b\n",
+              "path": "b.txt"
+            },
+            {
+              "content": "extra\n",
+              "path": "extra.txt"
+            },
+            {
+              "content": "keep\n",
+              "path": "keep.txt"
+            }
+          ],
+          "kind": "revert",
+          "ok": {
+            "canReapply": true,
+            "canUndo": false,
+            "checkpointId": "cp",
+            "files": [
+              {
+                "additions": 1,
+                "deletions": 1,
+                "path": "a.txt",
+                "revertable": true,
+                "state": "reverted",
+                "status": "M"
+              },
+              {
+                "additions": 0,
+                "deletions": 1,
+                "path": "b.txt",
+                "revertable": true,
+                "state": "reverted",
+                "status": "D"
+              },
+              {
+                "additions": 1,
+                "deletions": 0,
+                "path": "new.txt",
+                "revertable": true,
+                "state": "reverted",
+                "status": "A"
+              }
+            ],
+            "reason": "all changes in this turn are already undone",
+            "revision": 4,
+            "root": "<repo>",
+            "status": "ready"
+          }
+        }
+      ],
+      "threadId": "turn-sc-3",
+      "tweak": [
+        {
+          "content": "extra\n",
+          "do": "write",
+          "in": "repo",
+          "path": "extra.txt"
+        }
+      ]
     }
   ]
 }

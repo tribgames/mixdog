@@ -42,6 +42,7 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::close::SessionClose;
 use super::close::stop_session_work;
+use super::route_session::ContextStatusCache;
 use super::route_session::has_user_conversation;
 use super::shell_jobs::OwnedShells;
 use super::thread_settings::has_conversation_messages;
@@ -898,19 +899,27 @@ impl SessionSwitches for SessionSwitchAdapter {
 
 // ---- the context switch -------------------------------------------------------------------------
 
-/// The runtime state a desktop context switch retargets for the next session, beyond the
-/// thread it leaves (`clearRoutePreparation`, `setDesktopSession`, `applyResolvedCwd`,
-/// `setRoute(resolveRoute(config, {}))` + `refreshRouteEffort`, `invalidateContextStatusCache`,
-/// `invalidatePreSessionToolSurface`).
-#[async_trait]
+/// What a desktop context switch does to the thread it leaves, beyond closing it:
+/// `invalidateContextStatusCache()` (and `invalidatePreSessionToolSurface()`, which has no object
+/// here: tool surfaces are read from each thread's header).
+///
+/// Divergence (decisions.md, "wp-run-host: thread/switchContext retargets no global"): Node also
+/// clears its route-preparation gate and retargets its single runtime for the NEXT session
+/// (`setDesktopSession`, `applyResolvedCwd`, `setRoute(resolveRoute(config, {}))` +
+/// `refreshRouteEffort`). The daemon has no such state: the next thread takes its cwd and desktop
+/// session from its own `thread/start`, its route cell resolves the configured Lead route on first
+/// read, and no route-preparation gate exists. Those calls are not made.
 pub trait ContextTarget: Send + Sync {
-    fn clear_route_preparation(&self);
-    fn set_desktop_session(&self, desktop: Option<Value>);
-    async fn apply_cwd(&self, cwd: Option<String>) -> Result<(), String>;
-    /// Back to the configured Lead route (a fresh desktop task must not inherit the route of
-    /// whichever session was open before).
-    async fn reset_route(&self);
-    fn invalidate(&self);
+    fn invalidate(&self, thread: &ThreadId);
+}
+/// The production [`ContextTarget`]: the thread left has its context gauge re-measured at the next
+/// read. The same `Arc` goes to `ConfigHosts.gauge`, the route adapter and the domain seams.
+pub struct GaugeTarget(pub Arc<dyn ContextStatusCache>);
+
+impl ContextTarget for GaugeTarget {
+    fn invalidate(&self, thread: &ThreadId) {
+        self.0.invalidate(thread);
+    }
 }
 
 /// `isScratchSession(session)`: an agent's home thread or a room's thread never is; any other
@@ -979,17 +988,14 @@ impl SessionContextSwitch {
 
 #[async_trait]
 impl ContextSwitch for SessionContextSwitch {
-    async fn switch_context(&self, thread: &str, cwd: Option<String>, desktop_session: Option<Value>, for_resume: bool) -> Result<(), String> {
-        self.target.clear_route_preparation();
-        if !thread.is_empty() {
-            self.leave(&ThreadId::from(thread)).await?;
+    async fn switch_context(&self, thread: &str, _cwd: Option<String>, _desktop_session: Option<Value>, _for_resume: bool) -> Result<(), String> {
+        // No outgoing thread: nothing is open, so there is no thread to name to the target.
+        if thread.is_empty() {
+            return Ok(());
         }
-        self.target.set_desktop_session(desktop_session);
-        self.target.apply_cwd(cwd).await?;
-        if !for_resume {
-            self.target.reset_route().await;
-        }
-        self.target.invalidate();
+        let thread = ThreadId::from(thread);
+        self.leave(&thread).await?;
+        self.target.invalidate(&thread);
         Ok(())
     }
 }

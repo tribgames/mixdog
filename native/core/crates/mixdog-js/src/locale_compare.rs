@@ -37,6 +37,18 @@ pub fn locale_compare_en(a: &str, b: &str) -> Ordering {
         .compare(a, b)
 }
 
+/// `new Intl.Collator('en', { numeric: true }).compare(a, b)`: English collation in which digit
+/// runs compare by value.
+pub fn locale_compare_en_numeric(a: &str, b: &str) -> Ordering {
+    static COLLATOR: OnceLock<CollatorBorrowed<'static>> = OnceLock::new();
+    COLLATOR
+        .get_or_init(|| {
+            let locale: Locale = "en-u-kn".parse().expect("static locale");
+            CollatorBorrowed::try_new((&locale).into(), CollatorOptions::default()).expect("compiled collation data")
+        })
+        .compare(a, b)
+}
+
 /// `a.localeCompare(b, 'en', { sensitivity: 'base' })`: English collation that ignores case and
 /// accents.
 pub fn locale_compare_en_base(a: &str, b: &str) -> Ordering {

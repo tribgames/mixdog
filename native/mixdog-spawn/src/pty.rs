@@ -156,7 +156,10 @@ mod windows {
 
         /// Called once the root has exited.
         pub(crate) fn close(&self) {
-            if let Some(console) = self.console().take() {
+            // The handle leaves the mutex before the close: `ClosePseudoConsole` can wait for its
+            // output to be read, and a `resize` must not wait behind it.
+            let console = self.console().take();
+            if let Some(console) = console {
                 unsafe { ClosePseudoConsole(console) };
             }
         }
