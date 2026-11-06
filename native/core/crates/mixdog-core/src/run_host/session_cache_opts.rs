@@ -12,8 +12,10 @@ use mixdog_agent::compact::settings::{Doc, normalize_auto_clear, resolve_idle_ms
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value, json};
 
-use crate::domains::ai_admin::hidden_agents::hidden_agent_traits;
-use crate::rooms::ids::{agent_home_session_id, agent_id_of_home_session, room_member_of_session};
+use mixdog_core_config::config::hidden_agents::hidden_agent_traits;
+use mixdog_core_base::rooms::ids::agent_home_session_id;
+use mixdog_core_base::rooms::ids::agent_id_of_home_session;
+use mixdog_core_base::rooms::ids::room_member_of_session;
 
 /// `PROVIDER_CACHE_CAPABILITY`: the providers whose cache is written with explicit breakpoints.
 fn is_explicit_breakpoint(provider: &str) -> bool {

@@ -13,7 +13,7 @@ icu_collator = { workspace = true }
 icu_locale_core = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
 mixdog-agent = { workspace = true }
-mixdog-core = { workspace = true }
+mixdog-core-prompt = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-mcp = { workspace = true }

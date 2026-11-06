@@ -12,12 +12,13 @@ use mixdog_ai::catalog::CatalogService;
 use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{Map, Value};
 
-use crate::ports::route::Route;
+use mixdog_core_ports::ports::route::Route;
 
 use super::deferred_manifest::apply_initial_manifest;
-use super::route_change::{ContextMeta, RouteFacts};
+use mixdog_core_run::run_host::session_context_meta::ContextMeta;
+use super::route_change::RouteFacts;
 use super::session_cache_opts::session_provider_cache_opts;
-use super::session_context_meta::session_context_meta;
+use mixdog_core_run::run_host::session_context_meta::session_context_meta;
 use super::tool_exposure::{
     bridge_surface_outdated, session_tool_exposure, tool_exposure_mode_for_provider, LoadToolDef, TOOL_EXPOSURE_BRIDGE, TOOL_EXPOSURE_NATIVE,
 };

@@ -16,8 +16,9 @@ use mixdog_rt::{CancellationToken, InLane, InteractiveIo, LaneToken};
 use mixdog_core_api::domain::process::{CommandSpec, EnvSpec, OutputMode, OutputStream, ProcessEvent, ProcessManager, ProcessOwner, SpawnRequest};
 use mixdog_protocol::ProcessHandle;
 
-use crate::prompt::probes::{ProbeRequest, StartupObservations};
-use crate::prompt::real_sources::SHELL_TOOL_STARTUP_NAMES;
+use mixdog_core_prompt::prompt::probes::ProbeRequest;
+use mixdog_core_prompt::prompt::probes::StartupObservations;
+use mixdog_core_prompt::prompt::real_sources::SHELL_TOOL_STARTUP_NAMES;
 
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -218,14 +219,14 @@ impl PromptFacts {
 }
 
 /// A composition run inside an io-interactive lane job, given the host facts and the probes.
-pub type ComposeJob<R> = Arc<dyn for<'a> Fn(&'a mixdog_rt::InLane<mixdog_rt::InteractiveIo>, crate::prompt::real_sources::HostFacts<'a>, &'a StartupObservations) -> R + Send + Sync>;
+pub type ComposeJob<R> = Arc<dyn for<'a> Fn(&'a mixdog_rt::InLane<mixdog_rt::InteractiveIo>, mixdog_core_prompt::prompt::real_sources::HostFacts<'a>, &'a StartupObservations) -> R + Send + Sync>;
 
 async fn in_lane<R: Send + 'static>(io: &ToolIo, facts: &Arc<PromptFacts>, observed: &Arc<StartupObservations>, job: &ComposeJob<R>) -> Result<R, String> {
     let (facts, observed, job) = (facts.clone(), observed.clone(), job.clone());
     let dropped = || "the prompt composition job was dropped".to_owned();
     io.interactive
         .submit(&mixdog_rt::CancellationToken::new(), move |lane| {
-            let host = crate::prompt::real_sources::HostFacts {
+            let host = mixdog_core_prompt::prompt::real_sources::HostFacts {
                 plugin_root: &facts.plugin_root,
                 data_dir: &facts.data_dir,
                 home_dir: &facts.home_dir,
@@ -274,10 +275,11 @@ mod tests {
 
     use mixdog_agent::env::Clock;
     use mixdog_core_api::domain::tool::ToolIo;
-use mixdog_rt::LaneToken;
 
     use super::*;
-    use crate::prompt::session::{compose_session_prompt, PromptPaths, SessionPromptInput};
+    use crate::run_host::prompt_session::compose_session_prompt;
+    use crate::run_host::prompt_session::PromptPaths;
+    use crate::run_host::prompt_session::SessionPromptInput;
 
     struct Fixed;
     impl Clock for Fixed {
@@ -304,7 +306,7 @@ use mixdog_rt::LaneToken;
         let facts = Arc::new(PromptFacts::from_process(data.path().to_path_buf(), data.path().to_path_buf(), None));
         let cwd = repo.path().to_string_lossy().into_owned();
         let job: ComposeJob<String> = Arc::new(move |lane, host, observed| {
-            let sources = crate::prompt::real_sources::RealSources::new(lane, host, observed);
+            let sources = mixdog_core_prompt::prompt::real_sources::RealSources::new(lane, host, observed);
             let input = SessionPromptInput { session_id: "s1", provider: "anthropic", model: "claude", cwd: Some(&cwd), has_git_tool: true, ..Default::default() };
             let paths = PromptPaths { plugin_root: host.plugin_root, data_dir: host.data_dir };
             compose_session_prompt(&input, &paths, &sources).environment_tail

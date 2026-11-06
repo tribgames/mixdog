@@ -19,7 +19,7 @@ use super::compaction_redactor::SensitiveRedactor;
 use super::compactors::{CompactionFacts, CompactionWorld};
 use super::media::{AttachmentFacts, MediaLowering};
 use super::summary_routes::{ForkSender, SavedRequest, SummaryHost};
-use crate::config::Config;
+use mixdog_core_config::config::Config;
 
 /// What a provider declares of its wire (Node reads `provider.nativePdf` / `.nativeDocuments`
 /// off the registered provider object).
@@ -123,14 +123,14 @@ pub(crate) mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::config::ConfigLanes;
+    use mixdog_core_config::config::ConfigLanes;
     use crate::run_host::assemble::CompactorInput;
     use crate::run_host::attachment_reference::{OriginalFile, StoredFile};
     use crate::run_host::compactors::SessionCompactors;
     use crate::run_host::host_seams::CompactorSource;
     use crate::run_host::media::StoredFacts;
     use crate::run_host::summary_routes::{MaintainerRoute, SessionRoute};
-    use crate::session::StoredRows;
+    use mixdog_core_session::session::StoredRows;
 
     struct Docs;
     #[async_trait]

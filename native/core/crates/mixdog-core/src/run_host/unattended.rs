@@ -2,6 +2,7 @@
 //! (`unattendedRunOf`, `session-runtime/held-requests.mjs:59`) and the contact bots
 //! (`isContactAgentId(id, readAgentDefinitionKind(id))`).
 
+use mixdog_core_ports::ports::run_stamps::RunStamps;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -14,25 +15,17 @@ use serde_json::Value;
 
 use super::mcp_seams::ContactBots;
 use super::mcp_seams::UnattendedRuns;
-use crate::agents::ContactIds;
-use crate::ports::gate::GateRun;
-use crate::rooms::ids::MIXY_AGENT_ID;
-use crate::rooms::ids::room_member_of_session;
-use crate::workflow::ids::truthy;
+use mixdog_core_agents::agents::ContactIds;
+use mixdog_core_ports::ports::gate::GateRun;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+use mixdog_core_base::rooms::ids::room_member_of_session;
+use mixdog_core_config::workflow::ids::truthy;
 
 #[async_trait]
 impl ContactBots for ContactIds {
     async fn is_contact_bot(&self, agent_id: &str) -> bool {
         ContactIds::is_contact_bot(self, agent_id).await
     }
-}
-
-/// The `run` stamped on a stored session (`runStampOf`, `human-gate/delegation.mjs:108`): the
-/// session's `run` object, after Node's backfill of records older than the stamp. The session
-/// directory owns it (WP-SESSION); it is answered without waiting from the headers it holds.
-#[async_trait]
-pub trait RunStamps: Send + Sync {
-    async fn stamp_of(&self, thread: &ThreadId) -> Option<Value>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -151,7 +144,7 @@ mod tests {
         assert_eq!(run(&registry, "sess_odd_mark").await, Some((RunKind::Schedule, "mailer".into())), "only a webhook stays a webhook");
         assert!(registry.mark("", RunKind::Schedule, "mailer", "").is_none());
         // A room member's own session is a room run of its agent.
-        let member = crate::rooms::ids::room_member_session_id("abc123", "ann").unwrap();
+        let member = mixdog_core_base::rooms::ids::room_member_session_id("abc123", "ann").unwrap();
         assert_eq!(run(&registry, &member).await, Some((RunKind::Room, "ann".into())));
         // Work a run started carries the run on its own record, if it names a schedule or webhook with an owner.
         assert_eq!(run(&registry, "sess_child").await, Some((RunKind::Webhook, "mailer".into())));

@@ -32,12 +32,18 @@ use tokio::sync::{mpsc, watch};
 
 use super::live_turn::LiveTurnPublisher;
 use super::message_row::{message_of, row_of};
-use super::progress::{ProgressPublisher, StreamKind};
+use mixdog_core_run::run_host::progress::ProgressPublisher;
+use mixdog_core_run::run_host::progress::StreamKind;
 use super::retry::{RandomJitter, TimerWait};
 use super::steer::SteerQueue;
 use super::tool_progress::{RunToolProgress, ToolHints};
-use crate::session::turn_snapshot::ReviewGate;
-use crate::session::{ItemCommit, RunFactory, RunOutcome, RunPort, RunStart, StoredRows};
+use mixdog_core_session::session::turn_snapshot::ReviewGate;
+use mixdog_core_session::session::ItemCommit;
+use mixdog_core_session::session::RunFactory;
+use mixdog_core_session::session::RunOutcome;
+use mixdog_core_session::session::RunPort;
+use mixdog_core_session::session::RunStart;
+use mixdog_core_session::session::StoredRows;
 
 /// What a turn's host assembly reads from the turn.
 pub struct AssembleInput<'a> {
@@ -167,7 +173,7 @@ fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
 
 enum Job {
     Commit(u64, ItemCommit),
-    Compact(u64, crate::session::run::Compaction),
+    Compact(u64, mixdog_core_session::session::run::Compaction),
 }
 
 /// `TranscriptSink` over the run's port: commits go to the actor in order on one task, and
@@ -247,8 +253,8 @@ impl PortSink {
 }
 
 /// The compacted record's identities from the loop's report.
-fn dropped_of(dropped: &mixdog_agent::env::Dropped) -> crate::session::run::Dropped {
-    crate::session::run::Dropped { message_ids: dropped.message_ids.clone(), call_ids: dropped.call_ids.clone() }
+fn dropped_of(dropped: &mixdog_agent::env::Dropped) -> mixdog_core_session::session::run::Dropped {
+    mixdog_core_session::session::run::Dropped { message_ids: dropped.message_ids.clone(), call_ids: dropped.call_ids.clone() }
 }
 
 #[async_trait]
@@ -292,7 +298,7 @@ impl TranscriptSink for PortSink {
     fn replace(&self, messages: &[AgentMessage], rewrite: &mixdog_agent::env::Rewrite) {
         let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let replacement = messages.iter().map(|m| (self.iid_of(m), row_of(m))).collect();
-        let compaction = crate::session::run::Compaction { replacement, at: self.clock.now_ms(), dropped_count: rewrite.dropped_count, dropped: rewrite.dropped.as_ref().map(dropped_of) };
+        let compaction = mixdog_core_session::session::run::Compaction { replacement, at: self.clock.now_ms(), dropped_count: rewrite.dropped_count, dropped: rewrite.dropped.as_ref().map(dropped_of) };
         let _ = self.jobs.send(Job::Compact(n, compaction));
     }
 
@@ -313,13 +319,13 @@ impl TranscriptSink for PortSink {
 // ---- the observer ------------------------------------------------------------------------------------
 
 enum Shown {
-    Section(crate::session::Section),
+    Section(mixdog_core_ports::ports::threads::Section),
     Started(ThreadItem),
     Delta(ItemId, String),
     ReasoningDelta(ItemId, String),
     ReasoningDone(ItemId, String),
     Notice(String),
-    Usage(crate::session::UsageReport),
+    Usage(mixdog_core_session::session::UsageReport),
     Compact(mixdog_agent::env::CompactEvent),
 }
 
@@ -402,7 +408,7 @@ impl RunObserver for PortObserver {
             }
             RunEvent::Usage { iteration, usage, delta } => {
                 self.end_reasoning();
-                let _ = self.out.send(Shown::Usage(crate::session::UsageReport::from_event(iteration, usage, delta)));
+                let _ = self.out.send(Shown::Usage(mixdog_core_session::session::UsageReport::from_event(iteration, usage, delta)));
             }
             RunEvent::Compact(event) => {
                 let _ = self.out.send(Shown::Compact(event));
@@ -410,11 +416,11 @@ impl RunObserver for PortObserver {
             // The context reading the footer shows (percent is the session's to derive).
             RunEvent::ContextPressure { used_tokens, .. } => {
                 let context = mixdog_app_protocol::v2::thread::ThreadContext { context_tokens: i64::try_from(used_tokens).ok(), ..Default::default() };
-                let _ = self.out.send(Shown::Section(crate::session::Section::Context(context)));
+                let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Context(context)));
             }
             RunEvent::Stage(Stage::ModelFallback { model }) => {
                 let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
-                let _ = self.out.send(Shown::Section(crate::session::Section::Route(route)));
+                let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
             }
             RunEvent::ToolCalls { calls, .. } => {
                 self.end_reasoning();
@@ -484,7 +490,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     let streaming = Arc::new(Mutex::new(None));
     let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), clock.clone(), blobs, on_tool_result);
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
-    let mut messages: Vec<AgentMessage> = crate::prompt::blocks::request_system_messages(&header)
+    let mut messages: Vec<AgentMessage> = mixdog_core_prompt::prompt::blocks::request_system_messages(&header)
         .into_iter()
         .map(|wire| {
             let mut message = AgentMessage::user_content(Content::Text(String::new()));
@@ -621,8 +627,8 @@ mod tests {
     use mixdog_store::schema::record::Record;
 
     use super::*;
-    use crate::session::testing::Rig;
-    use crate::session::SessionDirectory;
+    use mixdog_core_session::session::testing::Rig;
+    use mixdog_core_session::session::SessionDirectory;
 
     struct Steps(VecDeque<StreamEvent>);
 
@@ -1001,7 +1007,7 @@ mod tests {
 
     struct NoStamps;
     #[async_trait::async_trait]
-    impl super::super::unattended::RunStamps for NoStamps {
+    impl mixdog_core_ports::ports::run_stamps::RunStamps for NoStamps {
         async fn stamp_of(&self, _: &ThreadId) -> Option<Value> {
             None
         }
@@ -1016,7 +1022,7 @@ mod tests {
 
     struct NoEvidence;
     #[async_trait]
-    impl crate::agents::AgentEvidence for NoEvidence {
+    impl mixdog_core_agents::agents::AgentEvidence for NoEvidence {
         async fn home_greeted(&self, _: &str) -> bool {
             false
         }
@@ -1070,14 +1076,14 @@ mod tests {
     }
 
     struct NoHopSessions;
-    impl super::super::hop_host::HopSessions for NoHopSessions {
-        fn open(&self, _: &ThreadId) -> Option<Arc<dyn super::super::hop_host::HopSession>> {
+    impl mixdog_core_run::run_host::hop_host::HopSessions for NoHopSessions {
+        fn open(&self, _: &ThreadId) -> Option<Arc<dyn mixdog_core_run::run_host::hop_host::HopSession>> {
             None
         }
     }
 
     struct NoWiring;
-    impl super::super::hop_host::HopWiring for NoWiring {
+    impl mixdog_core_run::run_host::hop_host::HopWiring for NoWiring {
         fn wiring(&self, _: &Value, _: &Arc<dyn ProviderAdapter>) -> (Option<mixdog_agent::effort::EffortWiring>, Option<mixdog_agent::text_only::TextOnlyInput>) {
             (None, None)
         }
@@ -1085,7 +1091,7 @@ mod tests {
 
     struct NoBots;
     #[async_trait::async_trait]
-    impl super::super::route_chain::BotRoutes for NoBots {
+    impl mixdog_core_run::run_host::route_chain::BotRoutes for NoBots {
         async fn bot_route(&self, _: &str) -> Option<Option<Value>> {
             None
         }
@@ -1199,7 +1205,7 @@ mod tests {
             connectors,
             resolver: Arc::new(PoolResolver(pool.clone())),
             run_stamps: Arc::new(NoStamps),
-            agents: Arc::new(crate::agents::AgentDefinitions::new(workspace.path().join("shipped"), workspace.path().join("agents"), tokens.interactive_io, crate::config::AgentRoutes::new(compaction.config.clone(), workspace.path()), Arc::new(NoEvidence), Arc::new(|| json!({})), workspace.path())),
+            agents: Arc::new(mixdog_core_agents::agents::AgentDefinitions::new(workspace.path().join("shipped"), workspace.path().join("agents"), tokens.interactive_io, mixdog_core_config::config::AgentRoutes::new(compaction.config.clone(), workspace.path()), Arc::new(NoEvidence), Arc::new(|| json!({})), workspace.path())),
             allow_all: Arc::new(AllowNone),
             hub: (mixdog_mcp::McpHub::new(mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }, workspace.path().to_path_buf(), Default::default())),
             blobs: Arc::new(NoBlobs),
@@ -1233,8 +1239,8 @@ mod tests {
                     let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
                     let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), registry_dir, io);
                     let catalog = futures::executor::block_on(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata));
-                    super::super::hop_host::HopFactory::new(
-                        super::super::hop_host::HopDeps {
+                    mixdog_core_run::run_host::hop_host::HopFactory::new(
+                        mixdog_core_run::run_host::hop_host::HopDeps {
                             registry: registry.clone(),
                             catalog: Arc::new(catalog),
                             config: Arc::new(serde_json::Map::new),

@@ -20,9 +20,11 @@ use super::host_seams::{DirectoryParts, HostSeams, SeamParts};
 use super::settings::SettingsSources;
 use super::prewarm::StartupProbes;
 use super::reactions::ReactionTargets;
-use crate::ports::gate::GateEnv;
-use crate::prompt::probes::StartupObservations;
-use crate::session::{RunFactory, SessionDeps, SessionDirectory};
+use mixdog_core_ports::ports::gate::GateEnv;
+use mixdog_core_prompt::prompt::probes::StartupObservations;
+use mixdog_core_session::session::RunFactory;
+use mixdog_core_session::session::SessionDeps;
+use mixdog_core_session::session::SessionDirectory;
 
 /// What the turn assembly is made of; `HostServices` less the directory it is bound to.
 pub struct HostParts {

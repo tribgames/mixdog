@@ -18,7 +18,7 @@ use mixdog_rt::{CancellationToken, InteractiveIo, LaneToken};
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value};
 
-use super::route_chain::BotRoutes;
+use mixdog_core_run::run_host::route_chain::BotRoutes;
 use super::settings::{OutputCeilingSource, OutputCeilings};
 
 const BOTS_DIR: &str = "bots";

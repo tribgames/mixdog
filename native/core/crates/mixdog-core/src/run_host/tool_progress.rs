@@ -21,9 +21,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tokio_util::sync::DropGuard;
 
-use super::progress::RunProgress;
-use crate::session::RunPort;
-use crate::session::Section;
+use mixdog_core_run::run_host::progress::RunProgress;
+use mixdog_core_session::session::RunPort;
+use mixdog_core_ports::ports::threads::Section;
 
 /// The run's progress sink over the session cell's progress value.
 pub struct RunToolProgress {
@@ -96,7 +96,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::run_host::progress::ProgressPublisher;
+    use mixdog_core_run::run_host::progress::ProgressPublisher;
     use mixdog_agent::env::Clock;
 
     struct At(i64);
@@ -163,7 +163,7 @@ mod tests {
         publisher.tool_call(Some("shell"));
         sink.progress(ToolProgress::Output(b"out".to_vec()));
         assert!(hint(&tx).is_some());
-        publisher.stream_delta(crate::run_host::progress::StreamKind::Text);
+        publisher.stream_delta(mixdog_core_run::run_host::progress::StreamKind::Text);
         publisher.stage("streaming");
         assert_eq!(hint(&tx), None, "the tail is read in tool_running only");
 

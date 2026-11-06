@@ -1,0 +1,43 @@
+[package]
+name = "mixdog-core-review"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait = { workspace = true }
+base64 = { workspace = true }
+flate2 = { workspace = true }
+futures = { workspace = true, features = ["alloc", "async-await"] }
+indexmap = { workspace = true }
+mixdog-agent = { workspace = true }
+mixdog-core-api = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-protocol = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-scm = { workspace = true }
+mixdog-statefile = { workspace = true }
+mixdog-tools = { workspace = true }
+serde_json = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
+tokio-util = { workspace = true }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"], optional = true }
+
+[features]
+test-support = ["dep:mixdog-spawn", "mixdog-rt/test-support"]
+
+[dev-dependencies]
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+regex = { workspace = true }
+tempfile = { workspace = true }
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

@@ -14,7 +14,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mixdog_core::prompt::blocks::request_system_messages;
+use mixdog_core_prompt::prompt::blocks::request_system_messages;
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::domain::ext::ExtError;
 use mixdog_core_api::domain::ext::PdfIntake;

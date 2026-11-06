@@ -7,8 +7,8 @@ use mixdog_agent::env::SteerSource;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 
-use crate::session::RunPort;
-use crate::session::SteerInput;
+use mixdog_core_session::session::RunPort;
+use mixdog_core_session::session::SteerInput;
 
 /// `SteerSource` over the run's port. The drain's priority ceiling picks the entries: a `next`
 /// drain leaves `later` entries (queued behind a Sleep) queued, a `later` drain takes all.

@@ -20,7 +20,7 @@ use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_protocol::message_class::js::truthy;
 use serde_json::Value;
 
-use crate::session::StoredRows;
+use mixdog_core_session::session::StoredRows;
 
 pub const REACTION_TOOL_NAME: &str = "react";
 /// `ROOM_ROW_SOURCE` (`agent-room.mjs`).

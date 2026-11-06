@@ -5,13 +5,13 @@
 //! `{method, params}`, and the boot log counts those methods, so the wired/mock split is
 //! visible at every start. The thread directory, app feed,
 //! op index, host media sink and lifecycle are the [`MockCore`] seams until the session core
-//! (`mixdog-core::session`, `feed`, `ops`) lands.
+//! (`mixdog-core-session`, `mixdog-core-base::{feed, ops}`) lands.
 
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mixdog_core::feed::CoreScopedFeeds;
+use mixdog_core_base::feed::CoreScopedFeeds;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::effort_judge::judge::JudgeOptions;
 use mixdog_services::effort_judge::model::ModelConfig;
@@ -49,10 +49,10 @@ use crate::exec::Exec;
 use crate::exec::ExecEvents;
 use crate::exec::build_exec;
 use async_trait::async_trait;
-use mixdog_core::ops::CoreOpIndex;
-use mixdog_core::ops::OpGate;
-use mixdog_core::ops::StateOpStore;
-use mixdog_core::ops::ThreadOpGates;
+use mixdog_core_base::ops::CoreOpIndex;
+use mixdog_core_base::ops::OpGate;
+use mixdog_core_base::ops::StateOpStore;
+use mixdog_core_base::ops::ThreadOpGates;
 use mixdog_core_api::CallContext;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::ids::ThreadId;
@@ -60,13 +60,13 @@ use mixdog_core_api::ops::OpScope;
 use mixdog_store::sqlite::DbError;
 use mixdog_store::state::CoreState;
 
-use mixdog_core::domains::Domains;
-use mixdog_core::domains::DomainsBuilder;
-use mixdog_core::domains::DomainsError;
+use mixdog_core_domains::domains::Domains;
+use mixdog_core_domains::domains::DomainsBuilder;
+use mixdog_core_domains::domains::DomainsError;
 use mixdog_app_protocol::v2::host::CoreDrainParams;
-use mixdog_core::feed::CoreFeed;
-use mixdog_core::feed::FeedLimits;
-use mixdog_core::state::empty_view;
+use mixdog_core_base::feed::CoreFeed;
+use mixdog_core_base::feed::FeedLimits;
+use mixdog_core_base::state::empty_view;
 use mixdog_core_api::CoreHandle;
 use mixdog_core_api::ids::FeedEpoch;
 use mixdog_core_api::ids::FeedId;
@@ -323,7 +323,7 @@ struct Seams {
 /// `CoreWiring.drain_feed`: the `core/drain` notification as the next frame of the app feed, so
 /// every attached client gets it in order with the sections. `app` is the section state built over
 /// [`ComposedCore::app_feed_core`], the feed's only producer.
-pub fn drain_feed(app: Arc<mixdog_core::state::SectionFeedState>) -> Arc<dyn Fn(CoreDrainParams) + Send + Sync> {
+pub fn drain_feed(app: Arc<mixdog_core_base::state::SectionFeedState>) -> Arc<dyn Fn(CoreDrainParams) + Send + Sync> {
     Arc::new(move |params| app.notify("core/drain", &params))
 }
 
@@ -494,7 +494,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
 mod tests {
     use mixdog_app_protocol::CLIENT_METHODS;
     use mixdog_app_protocol::CLIENT_NOTIFICATIONS;
-    use mixdog_core::domains::CORE_NAMESPACES;
+    use mixdog_core_domains::domains::CORE_NAMESPACES;
     use mixdog_core_api::CallContext;
     use mixdog_core_api::CoreRequest;
     use mixdog_core_api::Reply;

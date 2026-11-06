@@ -21,11 +21,17 @@ use mixdog_protocol::ProviderId;
 use serde_json::{json, Value};
 
 use super::builder_env::CatalogCaps;
-use super::hop_host::{ErrorText, HopWiring};
+use mixdog_core_run::run_host::hop_host::ErrorText;
+use mixdog_core_run::run_host::hop_host::HopWiring;
 use super::ladder_sources::{cached_row, custom_config, provider_entry};
 use super::process::{LocalModels, ProcessServices};
-use super::route_wiring::{AnthropicEffortGates, CodexDeclared, LocalEntry, ProviderFacts, RouteWirer, WiringSource};
-use crate::config::Config;
+use mixdog_core_run::run_host::route_wiring::AnthropicEffortGates;
+use mixdog_core_run::run_host::route_wiring::CodexDeclared;
+use mixdog_core_run::run_host::route_wiring::LocalEntry;
+use mixdog_core_run::run_host::route_wiring::ProviderFacts;
+use mixdog_core_run::run_host::route_wiring::RouteWirer;
+use mixdog_core_run::run_host::route_wiring::WiringSource;
+use mixdog_core_config::config::Config;
 
 /// What the hop host takes from the process.
 pub struct HopBindings {
