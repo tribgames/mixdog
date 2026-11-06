@@ -1,0 +1,151 @@
+{
+  "routes": [
+    {
+      "levels": [
+        "low",
+        "high"
+      ],
+      "model": "gpt-5.5",
+      "options": [
+        "low",
+        "high"
+      ],
+      "provider": "openai-oauth"
+    },
+    {
+      "levels": null,
+      "model": "gpt-5.5",
+      "options": [],
+      "provider": "openai-oauth"
+    },
+    {
+      "levels": [
+        "low",
+        "high"
+      ],
+      "model": "grok-x",
+      "options": [
+        "low",
+        "high"
+      ],
+      "provider": "xai"
+    },
+    {
+      "levels": null,
+      "model": "grok-x",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "provider": "xai"
+    }
+  ],
+  "rows": {
+    "discovered": {
+      "contextWindow": 8000,
+      "id": "m1",
+      "name": "m1",
+      "outputTokens": null,
+      "provider": "custom-acme",
+      "reasoningLevels": [
+        "low",
+        "high"
+      ],
+      "reasoningOptions": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "high"
+          ]
+        }
+      ]
+    },
+    "manualOnly": {
+      "contextWindow": 8000,
+      "customReasoning": {
+        "replay": false,
+        "wireFormat": "standard",
+        "wireValues": {}
+      },
+      "hidden": false,
+      "id": "m1",
+      "inherited": {
+        "contextWindow": 8000,
+        "maxOutputTokens": null,
+        "name": "m1"
+      },
+      "manual": true,
+      "name": "m1",
+      "outputTokens": null,
+      "provider": "custom-acme",
+      "reasoningLevels": [
+        "low",
+        "high"
+      ],
+      "reasoningOptions": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "high"
+          ]
+        }
+      ],
+      "supportsReasoning": true
+    },
+    "manualWithLevels": {
+      "contextWindow": 8000,
+      "customReasoning": {
+        "replay": false,
+        "wireFormat": "standard",
+        "wireValues": {}
+      },
+      "hidden": false,
+      "id": "m1",
+      "inherited": {
+        "contextWindow": 8000,
+        "maxOutputTokens": null,
+        "name": "m1"
+      },
+      "manual": true,
+      "name": "m1",
+      "outputTokens": null,
+      "provider": "custom-acme",
+      "reasoningLevels": [
+        "medium"
+      ],
+      "reasoningOptions": [
+        {
+          "type": "effort",
+          "values": [
+            "medium"
+          ]
+        }
+      ],
+      "supportsReasoning": true
+    },
+    "notDiscovered": {
+      "contextWindow": 0,
+      "customReasoning": {
+        "replay": false,
+        "wireFormat": "standard",
+        "wireValues": {}
+      },
+      "hidden": false,
+      "id": "m1",
+      "inherited": {
+        "contextWindow": 0,
+        "maxOutputTokens": null,
+        "name": "m1"
+      },
+      "manual": true,
+      "name": "m1",
+      "outputTokens": null,
+      "provider": "custom-acme",
+      "supportsReasoning": false
+    }
+  }
+}

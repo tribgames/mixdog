@@ -56,6 +56,15 @@
       "totalBytes": 493490
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-client-versions.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "client-versions/MANIFEST.json",
+      "manifestSha256": "7084d21e5daf071a98cc886193409ea461ff02b60c699a97e6710aba9d7b651a",
+      "recorder": "benchmarks/rust-core/recorders/record-client-versions.mjs",
+      "set": "client-versions",
+      "totalBytes": 34095
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-compaction-redactor.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "compaction-redactor/MANIFEST.json",
@@ -113,10 +122,10 @@
       "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-desktop.mjs --tree <tree>",
       "fileCount": 31,
       "manifest": "desktop/MANIFEST.json",
-      "manifestSha256": "5260005b34934da6841918e859c18e0b71e8c2cdf05994e36a5700b0d4970469",
+      "manifestSha256": "26ac60a27469a8b5c7ac6e7988cfa9d97e47c4e730e54b9ef527777c12e690a2",
       "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
       "set": "desktop",
-      "totalBytes": 19953533
+      "totalBytes": 20229498
     },
     {
       "command": "written by the product's own tests: apps/desktop/src/main/host/host-twin.test.mjs and apps/desktop/src/main/browser/golden-twin.integration.ts (no P0-BENCH recorder)",
@@ -137,6 +146,15 @@
       "totalBytes": 1561864
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-google-traits.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "google-traits/MANIFEST.json",
+      "manifestSha256": "79f72e873d5229d00f2137b6539d2a53c1fafb712d8a267bafd209e7be80bea3",
+      "recorder": "benchmarks/rust-core/recorders/record-google-traits.mjs",
+      "set": "google-traits",
+      "totalBytes": 21747
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-hop-host.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "hop-host/MANIFEST.json",
@@ -153,6 +171,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-hosted-search.mjs",
       "set": "hosted-search",
       "totalBytes": 37471
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-ladder-rows.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "ladder-rows/MANIFEST.json",
+      "manifestSha256": "837a0cc87277c55195775da5dd1225c2e911b64306153097811964cf62a44ed3",
+      "recorder": "benchmarks/rust-core/recorders/record-ladder-rows.mjs",
+      "set": "ladder-rows",
+      "totalBytes": 2891
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-ledger-queries.mjs --tree <tree>",

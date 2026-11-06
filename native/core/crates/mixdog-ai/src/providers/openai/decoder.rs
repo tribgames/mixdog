@@ -197,6 +197,7 @@ fn usage_from(usage: &Value, service_tier: Option<&str>) -> Usage {
         reasoning_tokens: usage
             .pointer("/output_tokens_details/reasoning_tokens")
             .and_then(Value::as_u64),
+        reasoning_incomplete: false,
         cost: billed_cost(usage),
         raw: Some(raw),
     }

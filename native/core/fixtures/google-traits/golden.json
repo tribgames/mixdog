@@ -1,0 +1,1023 @@
+{
+  "configs": [
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 1024
+      },
+      "model": "gemini-2.5-pro",
+      "options": {
+        "effort": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 32768
+      },
+      "model": "gemini-2.5-pro",
+      "options": {
+        "effort": "High"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 128
+      },
+      "model": "gemini-2.5-pro",
+      "options": {
+        "effort": "minimal"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 8192
+      },
+      "model": "gemini-2.5-pro",
+      "options": {
+        "effort": "medium"
+      }
+    },
+    {
+      "error": "gemini-2.5-pro supports thinking levels minimal, low, medium, high; received xhigh.",
+      "model": "gemini-2.5-pro",
+      "options": {
+        "effort": "xhigh"
+      }
+    },
+    {
+      "error": "gemini-2.5-pro (Gemini 2.5 Pro) does not support thinkingLevel; use thinkingBudget.",
+      "model": "gemini-2.5-pro",
+      "options": {
+        "thinkingLevel": "low"
+      }
+    },
+    {
+      "error": "gemini-2.5-pro (Gemini 2.5 Pro) cannot disable thinking; thinkingBudget 0 is not allowed.",
+      "model": "gemini-2.5-pro",
+      "options": {
+        "thinkingBudget": 0
+      }
+    },
+    {
+      "error": "gemini-2.5-pro (Gemini 2.5 Pro) thinkingBudget must be -1, 128–32768; received 100.",
+      "model": "gemini-2.5-pro",
+      "options": {
+        "thinkingBudget": 100
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 2000
+      },
+      "model": "gemini-2.5-pro",
+      "options": {
+        "thinkingBudget": 2000
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": -1
+      },
+      "model": "gemini-2.5-pro",
+      "options": {
+        "thinkingBudget": -1
+      }
+    },
+    {
+      "error": "gemini-2.5-pro (Gemini 2.5 Pro) thinkingBudget must be -1, 128–32768; received 99999.",
+      "model": "gemini-2.5-pro",
+      "options": {
+        "thinkingBudget": 99999
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true
+      },
+      "model": "gemini-2.5-pro",
+      "options": {}
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 1024
+      },
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "effort": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 32768
+      },
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "effort": "High"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 128
+      },
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "effort": "minimal"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 8192
+      },
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "effort": "medium"
+      }
+    },
+    {
+      "error": "models/gemini-2.5-pro supports thinking levels minimal, low, medium, high; received xhigh.",
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "effort": "xhigh"
+      }
+    },
+    {
+      "error": "models/gemini-2.5-pro (Gemini 2.5 Pro) does not support thinkingLevel; use thinkingBudget.",
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "thinkingLevel": "low"
+      }
+    },
+    {
+      "error": "models/gemini-2.5-pro (Gemini 2.5 Pro) cannot disable thinking; thinkingBudget 0 is not allowed.",
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "thinkingBudget": 0
+      }
+    },
+    {
+      "error": "models/gemini-2.5-pro (Gemini 2.5 Pro) thinkingBudget must be -1, 128–32768; received 100.",
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "thinkingBudget": 100
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 2000
+      },
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "thinkingBudget": 2000
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": -1
+      },
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "thinkingBudget": -1
+      }
+    },
+    {
+      "error": "models/gemini-2.5-pro (Gemini 2.5 Pro) thinkingBudget must be -1, 128–32768; received 99999.",
+      "model": "models/gemini-2.5-pro",
+      "options": {
+        "thinkingBudget": 99999
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true
+      },
+      "model": "models/gemini-2.5-pro",
+      "options": {}
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 1024
+      },
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "effort": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 32768
+      },
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "effort": "High"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 128
+      },
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "effort": "minimal"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 8192
+      },
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "effort": "medium"
+      }
+    },
+    {
+      "error": "Gemini-2.5-Pro-preview supports thinking levels minimal, low, medium, high; received xhigh.",
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "effort": "xhigh"
+      }
+    },
+    {
+      "error": "Gemini-2.5-Pro-preview (Gemini 2.5 Pro) does not support thinkingLevel; use thinkingBudget.",
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "thinkingLevel": "low"
+      }
+    },
+    {
+      "error": "Gemini-2.5-Pro-preview (Gemini 2.5 Pro) cannot disable thinking; thinkingBudget 0 is not allowed.",
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "thinkingBudget": 0
+      }
+    },
+    {
+      "error": "Gemini-2.5-Pro-preview (Gemini 2.5 Pro) thinkingBudget must be -1, 128–32768; received 100.",
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "thinkingBudget": 100
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 2000
+      },
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "thinkingBudget": 2000
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": -1
+      },
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "thinkingBudget": -1
+      }
+    },
+    {
+      "error": "Gemini-2.5-Pro-preview (Gemini 2.5 Pro) thinkingBudget must be -1, 128–32768; received 99999.",
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {
+        "thinkingBudget": 99999
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true
+      },
+      "model": "Gemini-2.5-Pro-preview",
+      "options": {}
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 1024
+      },
+      "model": "gemini-2.5-flash",
+      "options": {
+        "effort": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 24576
+      },
+      "model": "gemini-2.5-flash",
+      "options": {
+        "effort": "High"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 0
+      },
+      "model": "gemini-2.5-flash",
+      "options": {
+        "effort": "minimal"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 8192
+      },
+      "model": "gemini-2.5-flash",
+      "options": {
+        "effort": "medium"
+      }
+    },
+    {
+      "error": "gemini-2.5-flash supports thinking levels minimal, low, medium, high; received xhigh.",
+      "model": "gemini-2.5-flash",
+      "options": {
+        "effort": "xhigh"
+      }
+    },
+    {
+      "error": "gemini-2.5-flash (Gemini 2.5 Flash) does not support thinkingLevel; use thinkingBudget.",
+      "model": "gemini-2.5-flash",
+      "options": {
+        "thinkingLevel": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 0
+      },
+      "model": "gemini-2.5-flash",
+      "options": {
+        "thinkingBudget": 0
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 100
+      },
+      "model": "gemini-2.5-flash",
+      "options": {
+        "thinkingBudget": 100
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 2000
+      },
+      "model": "gemini-2.5-flash",
+      "options": {
+        "thinkingBudget": 2000
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": -1
+      },
+      "model": "gemini-2.5-flash",
+      "options": {
+        "thinkingBudget": -1
+      }
+    },
+    {
+      "error": "gemini-2.5-flash (Gemini 2.5 Flash) thinkingBudget must be -1, 0, or 0–24576; received 99999.",
+      "model": "gemini-2.5-flash",
+      "options": {
+        "thinkingBudget": 99999
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true
+      },
+      "model": "gemini-2.5-flash",
+      "options": {}
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 1024
+      },
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "effort": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 24576
+      },
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "effort": "High"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 512
+      },
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "effort": "minimal"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 8192
+      },
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "effort": "medium"
+      }
+    },
+    {
+      "error": "gemini-2.5-flash-lite supports thinking levels minimal, low, medium, high; received xhigh.",
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "effort": "xhigh"
+      }
+    },
+    {
+      "error": "gemini-2.5-flash-lite (Gemini 2.5 Flash-Lite) does not support thinkingLevel; use thinkingBudget.",
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "thinkingLevel": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 0
+      },
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "thinkingBudget": 0
+      }
+    },
+    {
+      "error": "gemini-2.5-flash-lite (Gemini 2.5 Flash-Lite) thinkingBudget must be -1, 0, or 512–24576; received 100.",
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "thinkingBudget": 100
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 2000
+      },
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "thinkingBudget": 2000
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": -1
+      },
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "thinkingBudget": -1
+      }
+    },
+    {
+      "error": "gemini-2.5-flash-lite (Gemini 2.5 Flash-Lite) thinkingBudget must be -1, 0, or 512–24576; received 99999.",
+      "model": "gemini-2.5-flash-lite",
+      "options": {
+        "thinkingBudget": 99999
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true
+      },
+      "model": "gemini-2.5-flash-lite",
+      "options": {}
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 1024
+      },
+      "model": "gemini-2.5",
+      "options": {
+        "effort": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 24576
+      },
+      "model": "gemini-2.5",
+      "options": {
+        "effort": "High"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 0
+      },
+      "model": "gemini-2.5",
+      "options": {
+        "effort": "minimal"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 8192
+      },
+      "model": "gemini-2.5",
+      "options": {
+        "effort": "medium"
+      }
+    },
+    {
+      "error": "gemini-2.5 supports thinking levels minimal, low, medium, high; received xhigh.",
+      "model": "gemini-2.5",
+      "options": {
+        "effort": "xhigh"
+      }
+    },
+    {
+      "error": "gemini-2.5 (Gemini 2.5 Flash) does not support thinkingLevel; use thinkingBudget.",
+      "model": "gemini-2.5",
+      "options": {
+        "thinkingLevel": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 0
+      },
+      "model": "gemini-2.5",
+      "options": {
+        "thinkingBudget": 0
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 100
+      },
+      "model": "gemini-2.5",
+      "options": {
+        "thinkingBudget": 100
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 2000
+      },
+      "model": "gemini-2.5",
+      "options": {
+        "thinkingBudget": 2000
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": -1
+      },
+      "model": "gemini-2.5",
+      "options": {
+        "thinkingBudget": -1
+      }
+    },
+    {
+      "error": "gemini-2.5 (Gemini 2.5 Flash) thinkingBudget must be -1, 0, or 0–24576; received 99999.",
+      "model": "gemini-2.5",
+      "options": {
+        "thinkingBudget": 99999
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true
+      },
+      "model": "gemini-2.5",
+      "options": {}
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "low"
+      },
+      "model": "gemini-2.5x",
+      "options": {
+        "effort": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "high"
+      },
+      "model": "gemini-2.5x",
+      "options": {
+        "effort": "High"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "minimal"
+      },
+      "model": "gemini-2.5x",
+      "options": {
+        "effort": "minimal"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "medium"
+      },
+      "model": "gemini-2.5x",
+      "options": {
+        "effort": "medium"
+      }
+    },
+    {
+      "error": "gemini-2.5x supports thinking levels minimal, low, medium, high; received xhigh.",
+      "model": "gemini-2.5x",
+      "options": {
+        "effort": "xhigh"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "low"
+      },
+      "model": "gemini-2.5x",
+      "options": {
+        "thinkingLevel": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 0
+      },
+      "model": "gemini-2.5x",
+      "options": {
+        "thinkingBudget": 0
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 100
+      },
+      "model": "gemini-2.5x",
+      "options": {
+        "thinkingBudget": 100
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 2000
+      },
+      "model": "gemini-2.5x",
+      "options": {
+        "thinkingBudget": 2000
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": -1
+      },
+      "model": "gemini-2.5x",
+      "options": {
+        "thinkingBudget": -1
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 99999
+      },
+      "model": "gemini-2.5x",
+      "options": {
+        "thinkingBudget": 99999
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true
+      },
+      "model": "gemini-2.5x",
+      "options": {}
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "low"
+      },
+      "model": "gemini-3-pro",
+      "options": {
+        "effort": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "high"
+      },
+      "model": "gemini-3-pro",
+      "options": {
+        "effort": "High"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "minimal"
+      },
+      "model": "gemini-3-pro",
+      "options": {
+        "effort": "minimal"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "medium"
+      },
+      "model": "gemini-3-pro",
+      "options": {
+        "effort": "medium"
+      }
+    },
+    {
+      "error": "gemini-3-pro supports thinking levels minimal, low, medium, high; received xhigh.",
+      "model": "gemini-3-pro",
+      "options": {
+        "effort": "xhigh"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "low"
+      },
+      "model": "gemini-3-pro",
+      "options": {
+        "thinkingLevel": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 0
+      },
+      "model": "gemini-3-pro",
+      "options": {
+        "thinkingBudget": 0
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 100
+      },
+      "model": "gemini-3-pro",
+      "options": {
+        "thinkingBudget": 100
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 2000
+      },
+      "model": "gemini-3-pro",
+      "options": {
+        "thinkingBudget": 2000
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": -1
+      },
+      "model": "gemini-3-pro",
+      "options": {
+        "thinkingBudget": -1
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 99999
+      },
+      "model": "gemini-3-pro",
+      "options": {
+        "thinkingBudget": 99999
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true
+      },
+      "model": "gemini-3-pro",
+      "options": {}
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "low"
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "effort": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "high"
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "effort": "High"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "minimal"
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "effort": "minimal"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "medium"
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "effort": "medium"
+      }
+    },
+    {
+      "error": "claude-sonnet-4-5 supports thinking levels minimal, low, medium, high; received xhigh.",
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "effort": "xhigh"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingLevel": "low"
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "thinkingLevel": "low"
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 0
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "thinkingBudget": 0
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 100
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "thinkingBudget": 100
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 2000
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "thinkingBudget": 2000
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": -1
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "thinkingBudget": -1
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true,
+        "thinkingBudget": 99999
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {
+        "thinkingBudget": 99999
+      }
+    },
+    {
+      "config": {
+        "includeThoughts": true
+      },
+      "model": "claude-sonnet-4-5",
+      "options": {}
+    }
+  ],
+  "families": [
+    {
+      "isGemini": true,
+      "model": "gemini-2.5-pro"
+    },
+    {
+      "isGemini": true,
+      "model": "models/gemini-3.1-pro"
+    },
+    {
+      "isGemini": true,
+      "model": "GEMINI-4-argon"
+    },
+    {
+      "isGemini": true,
+      "model": "Models/Gemini-Pro-Agent"
+    },
+    {
+      "isGemini": true,
+      "model": "gemini-pro-agent"
+    },
+    {
+      "isGemini": true,
+      "model": "publishers/google/models/gemini-x"
+    },
+    {
+      "isGemini": false,
+      "model": "claude-sonnet-4-5"
+    },
+    {
+      "isGemini": false,
+      "model": "gpt-oss-120b-medium"
+    },
+    {
+      "isGemini": false,
+      "model": "xgemini-1"
+    },
+    {
+      "isGemini": false,
+      "model": "gemini"
+    },
+    {
+      "isGemini": false,
+      "model": "gemini2"
+    },
+    {
+      "isGemini": false,
+      "model": ""
+    }
+  ]
+}

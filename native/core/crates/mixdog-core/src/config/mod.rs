@@ -26,7 +26,9 @@ mod run_seams;
 mod schema;
 mod seams;
 mod service;
+mod turn_judge;
 
+pub use turn_judge::ModelTurnJudge;
 pub use auto_effort::{
     AutoEffortDecision, ConfigAutoEffort, EffortConfiguration, EffortDecisionLog, EffortDiagnostics, JudgeAnswer, RegistryConfiguration, TurnAutoEffort,
     TurnAutoEffortInput, TurnJudge, TurnJudgeInput,

@@ -512,6 +512,9 @@ pub struct ProxyUsage {
     /// Absent when the provider reported none; an explicit 0 stays 0.
     #[ts(type = "number | null")]
     pub reasoning_tokens: Option<u64>,
+    /// `reasoningTokensComplete === false` on an aggregate.
+    #[serde(default)]
+    pub reasoning_incomplete: bool,
     pub raw: Option<JsonValue>,
     #[ts(type = "number | null")]
     pub cost_ticks: Option<u64>,

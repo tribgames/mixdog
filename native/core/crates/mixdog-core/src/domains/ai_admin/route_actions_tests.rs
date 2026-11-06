@@ -73,7 +73,7 @@ impl Sessions {
 
 #[async_trait]
 impl RouteSetupSessions for Sessions {
-    fn caller_chain(&self, _: &ThreadId, _: &Obj) -> Option<CallerChain> {
+    async fn caller_chain(&self, _: &ThreadId, _: &Obj) -> Option<CallerChain> {
         let chain = &self.case["chain"];
         (!chain.is_null()).then(|| CallerChain { position: chain["position"].clone(), source_is_primary: chain["sourceIsPrimary"] == json!(true) })
     }

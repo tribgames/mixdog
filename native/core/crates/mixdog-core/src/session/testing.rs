@@ -150,6 +150,17 @@ impl ThreadStore for MemStore {
         Ok(HeadRead(Box::new(records)))
     }
 
+    /// The header of the session record, as `decode` takes it.
+    fn read_header(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
+        match self.records(id).first() {
+            Some((_, Record::Session(session))) => Ok(match &session.header {
+                Slot::Inline(header) => header.clone(),
+                _ => Header::new(),
+            }),
+            _ => Err(CoreError::ThreadNotFound { thread_id: id.clone() }),
+        }
+    }
+
     fn read_window(
         &self,
         _lane: &InLane<InteractiveIo>,

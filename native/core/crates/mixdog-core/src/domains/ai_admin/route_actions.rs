@@ -46,7 +46,7 @@ pub struct CallerChain {
 #[async_trait]
 pub trait RouteSetupSessions: Send + Sync {
     /// `None` when the caller has no agent (it follows no chain).
-    fn caller_chain(&self, thread: &ThreadId, config: &Obj) -> Option<CallerChain>;
+    async fn caller_chain(&self, thread: &ThreadId, config: &Obj) -> Option<CallerChain>;
     /// An open session by id, held here or stored (`mgr.getSession`); `None` when it is absent or
     /// closed.
     async fn session(&self, id: &str, config: &Obj) -> Option<SessionFacts>;
@@ -186,11 +186,11 @@ fn pair(entry: &Value) -> String {
 
 impl RouteActions {
     /// `chainReceipt`: whether the calling conversation now follows the saved chain.
-    fn receipt(&self, thread: &ThreadId, route: &Value, owner_kind: &str, owner_agent: Option<&str>) -> Obj {
+    async fn receipt(&self, thread: &ThreadId, route: &Value, owner_kind: &str, owner_agent: Option<&str>) -> Obj {
         let mut out = Obj::new();
         let Some(saved) = route.get("fallbacks").and_then(Value::as_array) else { return out };
         let config = self.writes.config();
-        let Some(chain) = self.sessions.caller_chain(thread, &config) else { return out };
+        let Some(chain) = self.sessions.caller_chain(thread, &config).await else { return out };
         let position = &chain.position;
         let kind_matches = position["kind"] == json!(owner_kind)
             && (owner_kind != "bot" || position.get("agent").and_then(Value::as_str) == owner_agent);
@@ -314,7 +314,7 @@ impl SetupActions for RouteActions {
                 let next = self.writes.set_route(thread, &route_input(source), &options).await.map_err(fail)?;
                 let mut out = Obj::new();
                 out.insert("route".into(), next);
-                out.extend(self.receipt(thread, source, "lead", None));
+                out.extend(self.receipt(thread, source, "lead", None).await);
                 Ok(Value::Object(out))
             }
             "set_agent_route" => {
@@ -325,7 +325,7 @@ impl SetupActions for RouteActions {
                 let mut out = Obj::new();
                 out.insert("agent".into(), json!(agent));
                 out.insert("route".into(), route);
-                out.extend(self.receipt(thread, source, "bot", Some(&agent)));
+                out.extend(self.receipt(thread, source, "bot", Some(&agent)).await);
                 Ok(Value::Object(out))
             }
             "reset_route_fallback" => self.reset_route_fallback(thread, args).await,

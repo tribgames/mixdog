@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use mixdog_agent::text_only::MediaText;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ListingLookup, ModelRecord, ModelsDevSource};
-use mixdog_ai::effort::RejectionEntry;
+use mixdog_ai::effort::{reasoning_row, RejectionEntry};
 use mixdog_ai::netproxy::NetworkProxy;
 use mixdog_ai::netproxy::system::SystemProxy;
 use mixdog_ai::oauth::CredentialIo;
@@ -25,7 +25,7 @@ use mixdog_core_api::domain::provider::{
 use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_protocol::ProviderId;
 use mixdog_store::schema::record::Header;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use super::accounting_scope::{accounting_deps, HeaderScope};
 use super::builder_env::{builder_env, client_identity, CatalogCaps, CatalogOpenAiFacts};
@@ -442,6 +442,64 @@ async fn the_ladder_facts_of_a_custom_and_an_anthropic_route() {
     let anthropic = ladder_facts(&ladder, "anthropic", "claude-opus-5").await;
     assert_eq!(anthropic.options, ["low", "medium", "high", "xhigh"]);
     assert!(anthropic.custom.is_none());
+}
+
+const LADDER_ROWS: &str = include_str!("../../../../fixtures/ladder-rows/golden.json");
+
+fn listed_row(provider: &str, id: &str, levels: &Value, options: &Value) -> ModelRecord {
+    let mut record = ModelRecord::new(ProviderId::from(provider), id);
+    record.reasoning_efforts = strings(levels);
+    record.picker.reasoning_options = serde_json::from_value(options.clone()).unwrap();
+    record
+}
+
+/// `autoEffortModel` asks every provider's `getCachedModelInfo`, not a fixed few: the OpenAI OAuth
+/// catalog's row and a compat provider's give the ladder Node's `effortOptionsFor` gives.
+#[tokio::test]
+async fn the_ladder_asks_every_provider_for_its_cached_row() {
+    let golden: Value = serde_json::from_str(LADDER_ROWS).unwrap();
+    for route in golden["routes"].as_array().unwrap() {
+        let (provider, model) = (route["provider"].as_str().unwrap(), route["model"].as_str().unwrap());
+        let records = match route["levels"].is_null() {
+            true => Vec::new(),
+            false => vec![listed_row(provider, model, &route["levels"], &json!([{"type": "effort", "values": route["levels"]}]))],
+        };
+        let w = world(&[], json!({}), records).await;
+        let ladder = ProcessLadder::new(&w.services);
+        assert_eq!(json!(ladder_facts(&ladder, provider, model).await.options), route["options"], "{provider} {}", route["levels"]);
+    }
+}
+
+/// `effectiveCustomModelRows` layers an override onto the discovered row, and the row keeps the
+/// discovered levels when the override states none (`{manual: true}`): the ladder reads the row
+/// the listing holds, not one rebuilt from the config. Before any listing the config's own manual
+/// row stands.
+#[tokio::test]
+async fn a_manual_override_keeps_the_levels_discovery_found() {
+    let golden: Value = serde_json::from_str(LADDER_ROWS).unwrap();
+    let levels_of = |row: &Map<String, Value>| reasoning_row(&Value::Object(row.clone())).effort_levels();
+    for (case, override_, want) in [
+        ("manualOnly", json!({"manual": true}), Some(vec!["low", "high"])),
+        ("manualWithLevels", json!({"manual": true, "reasoning": {"levels": ["medium"]}}), Some(vec!["medium"])),
+    ] {
+        let node = &golden["rows"][case];
+        assert_eq!(node["reasoningLevels"], json!(want), "{case}: Node's row");
+        let providers = json!({"custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
+            "modelOverrides": {"m1": override_}}});
+        let record = listed_row("custom-acme", "m1", &node["reasoningLevels"], &node["reasoningOptions"]);
+        let w = world(&[], providers, vec![record]).await;
+        let ladder = ProcessLadder::new(&w.services);
+        let row = ladder.cached_row("custom-acme", "m1").unwrap();
+        assert_eq!(levels_of(&row), want.map(|l| l.iter().map(|s| (*s).to_owned()).collect()), "{case}");
+    }
+    let providers = json!({"custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
+        "modelOverrides": {"m1": {"manual": true}}}});
+    let w = world(&[], providers, Vec::new()).await;
+    let row = ProcessLadder::new(&w.services).cached_row("custom-acme", "m1").unwrap();
+    let node = &golden["rows"]["notDiscovered"];
+    assert_eq!(row.get("reasoningLevels"), node.get("reasoningLevels"));
+    assert_eq!(row.get("supportsReasoning"), node.get("supportsReasoning"));
+    assert_eq!(row["manual"], node["manual"]);
 }
 
 #[tokio::test]

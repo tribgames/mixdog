@@ -196,6 +196,8 @@ fn usage_since(total: &Usage, earlier: Option<&Usage>) -> Option<Usage> {
         cache_write_1h_tokens: delta(total.cache_write_1h_tokens, earlier.cache_write_1h_tokens),
         // Only a total that reported reasoning has a reasoning share (`usageSince`).
         reasoning_tokens: total.reasoning_tokens.map(|t| delta(t, earlier.reasoning_tokens.unwrap_or(0))),
+        // `reasoningTokensComplete === true` of the total, carried onto the delta.
+        reasoning_incomplete: !total.reasoning_complete(),
         raw: None,
         cost: total.cost.map(|c| UsdTicks(c.0.saturating_sub(earlier.cost.map_or(0, |e| e.0)))),
     };
@@ -334,7 +336,7 @@ impl RouteHop {
         // Read from the session's settings at this hop: a chain edited while it runs applies now,
         // and one cleared to [] leaves the provider's own error.
         let config = self.host.config();
-        let (chain, _) = live_route_fallbacks(&session, &config, self.host.bots());
+        let (chain, _) = live_route_fallbacks(&session, &config, self.host.bots()).await;
         if chain.is_empty() {
             return plain(error);
         }
@@ -468,11 +470,12 @@ mod tests {
     }
 
     struct Bots;
+    #[async_trait]
     impl BotRoutes for Bots {
-        fn bot_route(&self, _: &str) -> Option<Option<Value>> {
+        async fn bot_route(&self, _: &str) -> Option<Option<Value>> {
             None
         }
-        fn stored_bot_route(&self, _: &str) -> Option<Value> {
+        async fn stored_bot_route(&self, _: &str) -> Option<Value> {
             None
         }
     }

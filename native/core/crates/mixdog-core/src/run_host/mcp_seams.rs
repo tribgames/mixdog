@@ -238,8 +238,9 @@ impl ToolResolver for McpAwareResolver {
 /// The unattended run that owns a session (`unattendedApprovalPort().runOf`,
 /// `session-runtime/held-requests.mjs` `unattendedRunOf`). Implemented by whoever tracks the
 /// schedule, webhook and room runs.
+#[async_trait]
 pub trait UnattendedRuns: Send + Sync {
-    fn run_of(&self, thread: &ThreadId) -> Option<GateRun>;
+    async fn run_of(&self, thread: &ThreadId) -> Option<GateRun>;
 }
 
 /// `isContactAgentId(id, readAgentDefinitionKind(id))`: the agent store owns the definitions, and
@@ -281,8 +282,8 @@ impl HostGateEnv {
 
 #[async_trait]
 impl GateEnv for HostGateEnv {
-    fn run_of(&self, thread: &ThreadId) -> Option<GateRun> {
-        self.runs.run_of(thread)
+    async fn run_of(&self, thread: &ThreadId) -> Option<GateRun> {
+        self.runs.run_of(thread).await
     }
 
     async fn is_contact_bot(&self, agent_id: &str) -> bool {

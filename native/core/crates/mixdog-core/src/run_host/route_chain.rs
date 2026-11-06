@@ -20,12 +20,16 @@ pub const AGENT_MODE: &str = "agent";
 pub const MIXY_AGENT_ID: &str = "lead";
 
 /// Where a bot's route lives (`agent-store.mjs`): the store Node keeps beside the config.
-pub trait BotRoutes {
+///
+/// Both reads are fresh on every call (Node's watcher cache invalidates on every change, so a
+/// read is never stale) and run on the IO lane, never on the runtime.
+#[async_trait::async_trait]
+pub trait BotRoutes: Send + Sync {
     /// The resolver `configuredAgentRouteCandidates` asks first: `None` when `agent_id` is no
     /// bot (the config decides), `Some(None)` for a bot without a route.
-    fn bot_route(&self, agent_id: &str) -> Option<Option<Value>>;
+    async fn bot_route(&self, agent_id: &str) -> Option<Option<Value>>;
     /// `storedBotRoute`: the own route of the bot a session acts as, Mixy's from its folder.
-    fn stored_bot_route(&self, agent_id: &str) -> Option<Value>;
+    async fn stored_bot_route(&self, agent_id: &str) -> Option<Value>;
 }
 
 const LEAF_FIELDS: [&str; 6] = ["effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
@@ -140,12 +144,12 @@ fn normalized_or_null(stored: &Value) -> Option<Value> {
 }
 
 /// `configuredAgentRouteCandidates(config, agentId)`.
-fn route_candidates(config: &Obj, agent_id: &str, bots: &dyn BotRoutes) -> Vec<Value> {
+async fn route_candidates(config: &Obj, agent_id: &str, bots: &dyn BotRoutes) -> Vec<Value> {
     let id = js_trim(agent_id);
     if id.is_empty() {
         return Vec::new();
     }
-    if let Some(bot) = bots.bot_route(id) {
+    if let Some(bot) = bots.bot_route(id).await {
         return bot.filter(|r| truthy(Some(r)).is_some()).into_iter().collect();
     }
     config.get("agents").and_then(|a| a.get(id)).filter(|r| truthy(Some(r)).is_some()).cloned().into_iter().collect()
@@ -153,7 +157,7 @@ fn route_candidates(config: &Obj, agent_id: &str, bots: &dyn BotRoutes) -> Vec<V
 
 /// `ownerConfiguredRoute`: the owner's stored route (primary plus `fallbacks`), normalized; `None`
 /// when the owner has none or it cannot be read.
-pub fn owner_configured_route(mode: &str, agent_id: &str, config: &Obj, bots: &dyn BotRoutes) -> Option<Value> {
+pub async fn owner_configured_route(mode: &str, agent_id: &str, config: &Obj, bots: &dyn BotRoutes) -> Option<Value> {
     if agent_id.is_empty() {
         return None;
     }
@@ -161,16 +165,18 @@ pub fn owner_configured_route(mode: &str, agent_id: &str, config: &Obj, bots: &d
         find_preset(config, config.get("default")).cloned()
     } else {
         // Before the bot split a bot's route is still in the config (Mixy's never).
-        bots.stored_bot_route(agent_id)
-            .filter(|r| truthy(Some(r)).is_some())
-            .or_else(|| if agent_id == MIXY_AGENT_ID { None } else { route_candidates(config, agent_id, bots).into_iter().next() })
+        match bots.stored_bot_route(agent_id).await.filter(|r| truthy(Some(r)).is_some()) {
+            Some(own) => Some(own),
+            None if agent_id == MIXY_AGENT_ID => None,
+            None => route_candidates(config, agent_id, bots).await.into_iter().next(),
+        }
     }?;
     normalized_or_null(&stored)
 }
 
 /// `ownerRouteFallbacks`: the owner's chain while the session runs on its configured primary.
-pub fn owner_route_fallbacks(mode: &str, agent_id: &str, provider: &str, model: &str, config: &Obj, bots: &dyn BotRoutes) -> Vec<Value> {
-    let Some(route) = owner_configured_route(mode, agent_id, config, bots) else { return Vec::new() };
+pub async fn owner_route_fallbacks(mode: &str, agent_id: &str, provider: &str, model: &str, config: &Obj, bots: &dyn BotRoutes) -> Vec<Value> {
+    let Some(route) = owner_configured_route(mode, agent_id, config, bots).await else { return Vec::new() };
     if !route.get("fallbacks").and_then(Value::as_array).is_some_and(|f| !f.is_empty()) {
         return Vec::new();
     }
@@ -183,15 +189,15 @@ pub fn owner_route_fallbacks(mode: &str, agent_id: &str, provider: &str, model: 
 
 /// `sessionChainSource`: the stored route the session's chain comes from, read now; `None` when
 /// it has no readable source (it then keeps its own chain).
-pub fn session_chain_source(session: &Value, config: &Obj, bots: &dyn BotRoutes) -> Option<Value> {
+pub async fn session_chain_source(session: &Value, config: &Obj, bots: &dyn BotRoutes) -> Option<Value> {
     let (mode, agent_id) = resolve_session_mode(session);
     if !agent_id.is_empty() {
-        return owner_configured_route(mode, &agent_id, config, bots);
+        return owner_configured_route(mode, &agent_id, config, bots).await;
     }
     let source = session.get("routeFallbackSource");
     if let Some(agent) = truthy(source.and_then(|s| s.get("agent"))) {
         // As the spawn resolved it: the agent's own route, else Main's.
-        let own = route_candidates(config, &value_to_string(agent), bots).iter().map(normalized_or_null).find(Option::is_some).flatten();
+        let own = route_candidates(config, &value_to_string(agent), bots).await.iter().map(normalized_or_null).find(Option::is_some).flatten();
         return own.or_else(|| find_preset(config, config.get("default")).and_then(normalized_or_null));
     }
     if let Some(preset) = truthy(source.and_then(|s| s.get("preset"))) {
@@ -201,8 +207,8 @@ pub fn session_chain_source(session: &Value, config: &Obj, bots: &dyn BotRoutes)
 }
 
 /// `liveRouteFallbacks`: `(chain, fromSettings)`, the fallback routes the session follows now.
-pub fn live_route_fallbacks(session: &Value, config: &Obj, bots: &dyn BotRoutes) -> (Vec<Value>, bool) {
-    let Some(source) = session_chain_source(session, config, bots) else {
+pub async fn live_route_fallbacks(session: &Value, config: &Obj, bots: &dyn BotRoutes) -> (Vec<Value>, bool) {
+    let Some(source) = session_chain_source(session, config, bots).await else {
         return (session.get("routeFallbacks").and_then(Value::as_array).cloned().unwrap_or_default(), false);
     };
     let on_source_primary = same_route_model(Some(&source), Some(&session_route_primary(session)));
@@ -222,8 +228,8 @@ pub fn next_route_fallback_index(session: &Value, chain: &[Value]) -> usize {
 }
 
 /// `routeFallbackPosition`: the public fallback position of one session.
-pub fn route_fallback_position(session: &Value, config: &Obj, bots: &dyn BotRoutes) -> Value {
-    let (chain, from_settings) = live_route_fallbacks(session, config, bots);
+pub async fn route_fallback_position(session: &Value, config: &Obj, bots: &dyn BotRoutes) -> Value {
+    let (chain, from_settings) = live_route_fallbacks(session, config, bots).await;
     let next = chain.get(next_route_fallback_index(session, &chain));
     let primary = session_route_primary(session);
     let (mode, agent_id) = resolve_session_mode(session);
@@ -264,14 +270,14 @@ pub fn route_fallback_position(session: &Value, config: &Obj, bots: &dyn BotRout
 
 /// `primaryRoute`: the route a reset returns `session` to — the one it left at its first hop,
 /// else its settings' route when that is still its primary.
-pub fn primary_route(session: &Value, config: &Obj, bots: &dyn BotRoutes) -> Obj {
+pub async fn primary_route(session: &Value, config: &Obj, bots: &dyn BotRoutes) -> Obj {
     if let Some(primary) = session.get("routeFallbackPrimary") {
         if truthy(primary.get("provider")).is_some() {
             return route_leaf(Some(primary));
         }
     }
     let primary = session_route_primary(session);
-    match session_chain_source(session, config, bots) {
+    match session_chain_source(session, config, bots).await {
         Some(source) if same_route_model(Some(&source), Some(&primary)) => route_leaf(Some(&source)),
         _ => route_leaf(Some(&primary)),
     }
@@ -282,15 +288,16 @@ mod tests {
     use super::*;
 
     struct Bots;
+    #[async_trait::async_trait]
     impl BotRoutes for Bots {
-        fn bot_route(&self, id: &str) -> Option<Option<Value>> {
+        async fn bot_route(&self, id: &str) -> Option<Option<Value>> {
             match id {
                 "botty" => Some(Some(json!({ "provider": "xai", "model": "grok-4", "fallbacks": [{ "provider": "anthropic", "model": "claude-sonnet-4" }] }))),
                 "nobot" => Some(None),
                 _ => None,
             }
         }
-        fn stored_bot_route(&self, _: &str) -> Option<Value> {
+        async fn stored_bot_route(&self, _: &str) -> Option<Value> {
             None
         }
     }
@@ -300,8 +307,8 @@ mod tests {
     }
 
     /// Every reader against Node's real `route-fallback-chain.mjs` on one config and 16 sessions.
-    #[test]
-    fn the_readers_follow_node() {
+    #[tokio::test]
+    async fn the_readers_follow_node() {
         let golden = golden();
         let config = golden["config"].as_object().unwrap();
         for (name, row) in golden["sessions"].as_object().unwrap() {
@@ -310,12 +317,12 @@ mod tests {
             assert_eq!(json!({ "mode": mode.0, "agentId": mode.1 }), row["mode"], "{name} mode");
             assert_eq!(json!(route_fallback_hopped(session)), row["hopped"], "{name} hopped");
             assert_eq!(session_route_primary(session), row["primary"], "{name} primary");
-            assert_eq!(session_chain_source(session, config, &Bots).unwrap_or(Value::Null), row["source"], "{name} source");
-            let (chain, from_settings) = live_route_fallbacks(session, config, &Bots);
+            assert_eq!(session_chain_source(session, config, &Bots).await.unwrap_or(Value::Null), row["source"], "{name} source");
+            let (chain, from_settings) = live_route_fallbacks(session, config, &Bots).await;
             assert_eq!(json!({ "chain": chain, "fromSettings": from_settings }), row["live"], "{name} live");
             assert_eq!(json!(next_route_fallback_index(session, &chain)), row["next"], "{name} next");
-            assert_eq!(route_fallback_position(session, config, &Bots), row["position"], "{name} position");
-            assert_eq!(Value::Object(primary_route(session, config, &Bots)), row["primaryRoute"], "{name} primaryRoute");
+            assert_eq!(route_fallback_position(session, config, &Bots).await, row["position"], "{name} position");
+            assert_eq!(Value::Object(primary_route(session, config, &Bots).await), row["primaryRoute"], "{name} primaryRoute");
             assert_eq!(Value::Object(route_leaf(Some(session))), row["leaf"], "{name} leaf");
         }
     }
@@ -329,13 +336,13 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_session_on_the_owners_primary_takes_the_owners_chain() {
+    #[tokio::test]
+    async fn a_session_on_the_owners_primary_takes_the_owners_chain() {
         let golden = golden();
         let config = golden["config"].as_object().unwrap();
-        let chain = owner_route_fallbacks(CODING_MODE, "lead", "openai-oauth", "gpt-5", config, &Bots);
+        let chain = owner_route_fallbacks(CODING_MODE, "lead", "openai-oauth", "gpt-5", config, &Bots).await;
         assert_eq!(chain.len(), 3);
-        assert!(owner_route_fallbacks(CODING_MODE, "lead", "groq", "llama-3", config, &Bots).is_empty());
-        assert!(owner_route_fallbacks(AGENT_MODE, "nobot", "xai", "grok-4", config, &Bots).is_empty());
+        assert!(owner_route_fallbacks(CODING_MODE, "lead", "groq", "llama-3", config, &Bots).await.is_empty());
+        assert!(owner_route_fallbacks(AGENT_MODE, "nobot", "xai", "grok-4", config, &Bots).await.is_empty());
     }
 }

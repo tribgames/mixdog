@@ -593,6 +593,14 @@ impl ThreadStore for StoreThreads {
         Ok(HeadRead(Box::new(self.open(lane, id)?)))
     }
 
+    #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
+    fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
+        if !self.dir(id.as_str()).is_dir() {
+            return Err(Self::not_found(id));
+        }
+        Ok(self.open(lane, id)?.fold.header.clone())
+    }
+
     fn read_window(
         &self,
         lane: &InLane<InteractiveIo>,

@@ -39,6 +39,9 @@ pub(crate) struct FakeHost {
     pub deliver_error: Mutex<Option<String>>,
     pub announced: Mutex<Vec<AnnouncedRun>>,
     pub heartbeats: Mutex<HashSet<String>>,
+    /// The process's heartbeat marks, when a test wires them: a turn records whether its session is marked.
+    pub marks: Mutex<Option<Arc<HeartbeatSessions>>>,
+    pub seen_marked: Mutex<Vec<bool>>,
 }
 
 #[async_trait]
@@ -56,10 +59,13 @@ impl RoutineHost for FakeHost {
     }
 
     fn is_heartbeat_session(&self, session_id: &str) -> bool {
-        self.heartbeats.lock().unwrap().contains(session_id)
+        self.heartbeats.lock().unwrap().contains(session_id) || self.marks.lock().unwrap().as_ref().is_some_and(|marks| marks.is_marked(session_id))
     }
 
     async fn run_turn(&self, turn: RoutineTurn, cancel: CancellationToken) -> TurnSettle {
+        if let Some(marks) = self.marks.lock().unwrap().as_ref() {
+            self.seen_marked.lock().unwrap().push(marks.is_marked(&turn.session_id));
+        }
         self.turns.lock().unwrap().push(turn);
         if *self.hold.lock().unwrap() {
             cancel.cancelled().await;

@@ -45,7 +45,7 @@ pub trait LiveHeader: Send + Sync {
 #[async_trait]
 pub trait GateEnv: Send + Sync {
     /// The unattended run that owns `thread`, if one does.
-    fn run_of(&self, thread: &ThreadId) -> Option<GateRun>;
+    async fn run_of(&self, thread: &ThreadId) -> Option<GateRun>;
     /// `isContactAgentId(id, readAgentDefinitionKind(id))`: the agent is a contact bot.
     async fn is_contact_bot(&self, agent_id: &str) -> bool;
     /// `developerOptionEnabledStrict('allowAllActions')`: unreadable or malformed is `false`.
@@ -73,8 +73,8 @@ impl SessionGate {
     }
 
     /// `ownBoundAgentId`: the unattended run's owner, a room member, a home thread's agent.
-    fn own_bound_agent(&self) -> String {
-        if let Some(run) = self.env.run_of(&self.thread).filter(|run| !run.agent_id.is_empty()) {
+    async fn own_bound_agent(&self) -> String {
+        if let Some(run) = self.env.run_of(&self.thread).await.filter(|run| !run.agent_id.is_empty()) {
             return run.agent_id;
         }
         let id = self.thread.as_str();
@@ -131,14 +131,14 @@ impl GateSession for SessionGate {
 
     async fn facts(&self) -> SessionFacts {
         let header = self.header.header();
-        let bound = self.own_bound_agent();
+        let bound = self.own_bound_agent().await;
         let acting_bot = self.acting_bot(&bound).await;
         SessionFacts {
             agent_id: if bound.is_empty() { MIXY_AGENT_ID.to_owned() } else { bound },
             contact_bot: acting_bot.clone().filter(|id| id != MIXY_AGENT_ID),
             acting_bot,
             connector_agent_id: connector_policy_agent(&header),
-            run: self.env.run_of(&self.thread).map(|run| run.kind),
+            run: self.env.run_of(&self.thread).await.map(|run| run.kind),
             life: life_mark(&header),
         }
     }
@@ -180,7 +180,7 @@ mod tests {
     }
     #[async_trait]
     impl GateEnv for Env {
-        fn run_of(&self, _: &ThreadId) -> Option<GateRun> {
+        async fn run_of(&self, _: &ThreadId) -> Option<GateRun> {
             self.run.clone()
         }
         async fn is_contact_bot(&self, id: &str) -> bool {

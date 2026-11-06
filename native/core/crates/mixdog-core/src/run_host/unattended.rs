@@ -30,8 +30,9 @@ impl ContactBots for ContactIds {
 /// The `run` stamped on a stored session (`runStampOf`, `human-gate/delegation.mjs:108`): the
 /// session's `run` object, after Node's backfill of records older than the stamp. The session
 /// directory owns it (WP-SESSION); it is answered without waiting from the headers it holds.
+#[async_trait]
 pub trait RunStamps: Send + Sync {
-    fn stamp_of(&self, thread: &ThreadId) -> Option<Value>;
+    async fn stamp_of(&self, thread: &ThreadId) -> Option<Value>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -83,10 +84,11 @@ impl UnattendedRunRegistry {
     }
 }
 
+#[async_trait]
 impl UnattendedRuns for UnattendedRunRegistry {
     /// A marked run; else a room member's own session (the room is the run's name); else the
     /// schedule or webhook run stamped on the session's record, with an owner.
-    fn run_of(&self, thread: &ThreadId) -> Option<GateRun> {
+    async fn run_of(&self, thread: &ThreadId) -> Option<GateRun> {
         let id = thread.as_str();
         if let Some(run) = self.marked.lock().unwrap_or_else(PoisonError::into_inner).get(id) {
             return Some(GateRun { kind: run.kind, agent_id: run.agent_id.clone() });
@@ -94,7 +96,7 @@ impl UnattendedRuns for UnattendedRunRegistry {
         if let Some(member) = room_member_of_session(id) {
             return Some(GateRun { kind: RunKind::Room, agent_id: member.agent_id });
         }
-        let stamp = self.stamps.stamp_of(thread)?;
+        let stamp = self.stamps.stamp_of(thread).await?;
         let kind = match stamp.get("kind").and_then(Value::as_str)? {
             "schedule" => RunKind::Schedule,
             "webhook" => RunKind::Webhook,
@@ -115,8 +117,9 @@ mod tests {
     use super::*;
 
     struct Stamped(HashMap<&'static str, Value>);
+    #[async_trait]
     impl RunStamps for Stamped {
-        fn stamp_of(&self, thread: &ThreadId) -> Option<Value> {
+        async fn stamp_of(&self, thread: &ThreadId) -> Option<Value> {
             self.0.get(thread.as_str()).cloned()
         }
     }
@@ -131,44 +134,44 @@ mod tests {
         ]))))
     }
 
-    fn run(registry: &UnattendedRunRegistry, id: &str) -> Option<(RunKind, String)> {
-        registry.run_of(&ThreadId::from(id.to_owned())).map(|run| (run.kind, run.agent_id))
+    async fn run(registry: &UnattendedRunRegistry, id: &str) -> Option<(RunKind, String)> {
+        registry.run_of(&ThreadId::from(id.to_owned())).await.map(|run| (run.kind, run.agent_id))
     }
 
-    #[test]
-    fn a_session_is_the_run_node_says_it_is() {
+    #[tokio::test]
+    async fn a_session_is_the_run_node_says_it_is() {
         let registry = registry();
-        assert_eq!(run(&registry, "sess_plain"), None, "an attended session");
+        assert_eq!(run(&registry, "sess_plain").await, None, "an attended session");
         // A marked run: a schedule unless a webhook, Mixy when no owner is given.
         let daily = registry.mark("sess_home_mailer", RunKind::Schedule, "mailer", "Daily").unwrap();
         let hook = registry.mark("sess_hook", RunKind::Webhook, "", "Hook").unwrap();
         let odd = registry.mark("sess_odd_mark", RunKind::Room, "mailer", "").unwrap();
-        assert_eq!(run(&registry, "sess_home_mailer"), Some((RunKind::Schedule, "mailer".into())));
-        assert_eq!(run(&registry, "sess_hook"), Some((RunKind::Webhook, "lead".into())));
-        assert_eq!(run(&registry, "sess_odd_mark"), Some((RunKind::Schedule, "mailer".into())), "only a webhook stays a webhook");
+        assert_eq!(run(&registry, "sess_home_mailer").await, Some((RunKind::Schedule, "mailer".into())));
+        assert_eq!(run(&registry, "sess_hook").await, Some((RunKind::Webhook, "lead".into())));
+        assert_eq!(run(&registry, "sess_odd_mark").await, Some((RunKind::Schedule, "mailer".into())), "only a webhook stays a webhook");
         assert!(registry.mark("", RunKind::Schedule, "mailer", "").is_none());
         // A room member's own session is a room run of its agent.
         let member = crate::rooms::ids::room_member_session_id("abc123", "ann").unwrap();
-        assert_eq!(run(&registry, &member), Some((RunKind::Room, "ann".into())));
+        assert_eq!(run(&registry, &member).await, Some((RunKind::Room, "ann".into())));
         // Work a run started carries the run on its own record, if it names a schedule or webhook with an owner.
-        assert_eq!(run(&registry, "sess_child"), Some((RunKind::Webhook, "mailer".into())));
-        assert_eq!(run(&registry, "sess_noowner"), None);
-        assert_eq!(run(&registry, "sess_odd"), None, "a stamp is never a room run");
+        assert_eq!(run(&registry, "sess_child").await, Some((RunKind::Webhook, "mailer".into())));
+        assert_eq!(run(&registry, "sess_noowner").await, None);
+        assert_eq!(run(&registry, "sess_odd").await, None, "a stamp is never a room run");
         // Any truthy owner is read as `String(owner)`; a falsy one is no owner.
-        assert_eq!(run(&registry, "sess_num"), Some((RunKind::Schedule, "123".into())));
-        assert_eq!(run(&registry, "sess_zero"), None);
+        assert_eq!(run(&registry, "sess_num").await, Some((RunKind::Schedule, "123".into())));
+        assert_eq!(run(&registry, "sess_zero").await, None);
         drop((daily, hook, odd));
-        assert_eq!(run(&registry, "sess_home_mailer"), None, "ending the run unmarks it");
+        assert_eq!(run(&registry, "sess_home_mailer").await, None, "ending the run unmarks it");
     }
 
-    #[test]
-    fn an_older_marks_end_does_not_unmark_a_newer_run() {
+    #[tokio::test]
+    async fn an_older_marks_end_does_not_unmark_a_newer_run() {
         let registry = registry();
         let first = registry.mark("sess_a", RunKind::Schedule, "mailer", "one").unwrap();
         let second = registry.mark("sess_a", RunKind::Webhook, "mailer", "two").unwrap();
         drop(first);
-        assert_eq!(run(&registry, "sess_a"), Some((RunKind::Webhook, "mailer".into())));
+        assert_eq!(run(&registry, "sess_a").await, Some((RunKind::Webhook, "mailer".into())));
         drop(second);
-        assert_eq!(run(&registry, "sess_a"), None);
+        assert_eq!(run(&registry, "sess_a").await, None);
     }
 }

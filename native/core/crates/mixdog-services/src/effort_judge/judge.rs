@@ -18,6 +18,9 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use tokio::sync::oneshot;
 
 use async_trait::async_trait;
 use mixdog_agent::step_effort::{StepEffortJudge, StepInput, StepResult};
@@ -29,12 +32,76 @@ use tokio_util::sync::CancellationToken;
 
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::install::{self, Manifest};
+use crate::effort_judge::input::{TurnInput, clip_turn};
 use crate::effort_judge::ladder::StepLadder;
 use crate::effort_judge::model::{JudgeModel, ModelConfig, available, available_on, steps_in};
 use crate::model_install::{InstallError, ProgressSink, run_on_lane};
 use crate::tool_state::{JudgeStatus, StateTick, onnx_runtime_supported};
 
 type Loaded = Option<Result<Arc<JudgeModel>, JudgeError>>;
+
+const EXITED: &str = "effort judge exited";
+const FAILURE_PREFIX: &str = "effort judge load failed: ";
+
+/// Node's judge-client waits (`judge-client.mjs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JudgeTiming {
+    /// `WARM_TIMEOUT_MS`: an answer's deadline, from when it is sent to the model.
+    pub warm: Duration,
+    /// `QUEUE_WAIT_MS`: how long a turn waits for its place behind earlier judgments.
+    pub queue: Duration,
+    /// `COLD_WAIT_MS`: how long a turn waits for a model that is still loading.
+    pub cold: Duration,
+    /// `LOAD_RETRY_MS`: after a failed load the model is not retried for this long.
+    pub retry: Duration,
+}
+
+impl JudgeTiming {
+    /// Node's values, with `MIXDOG_EFFORT_JUDGE_TIMEOUT_MS` and `MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS`
+    /// taken when `Number(value) > 0`.
+    pub fn from_env(env: &dyn Fn(&str) -> Option<String>) -> Self {
+        let positive = |name: &str, default: u64| {
+            let n = env(name).map_or(f64::NAN, |v| mixdog_js::string_to_number(&v));
+            if n > 0.0 { Duration::try_from_secs_f64(n / 1000.0).unwrap_or(Duration::from_millis(default)) } else { Duration::from_millis(default) }
+        };
+        Self {
+            warm: positive("MIXDOG_EFFORT_JUDGE_TIMEOUT_MS", 500),
+            queue: Duration::from_millis(1000),
+            cold: positive("MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS", 3000),
+            retry: Duration::from_secs(60),
+        }
+    }
+}
+
+/// `judgeTurn`'s answer.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TurnVerdict {
+    Probs { probs: Vec<f64>, ms: u64 },
+    Skipped(String),
+}
+
+impl TurnVerdict {
+    fn skipped(why: impl Into<String>) -> Self {
+        Self::Skipped(why.into())
+    }
+}
+
+fn raw_load_message(error: &str) -> &str {
+    error.strip_prefix(FAILURE_PREFIX).unwrap_or(error)
+}
+
+/// The `skipped` text for a failure: a load error carries the loader's own message.
+fn skip_reason(error: &JudgeError) -> String {
+    match error {
+        JudgeError::Load(message) => format!("load-error: {message}"),
+        JudgeError::NotInstalled(_) => "model-missing".to_owned(),
+        JudgeError::Installing => "installing".to_owned(),
+        JudgeError::Unsupported => "unsupported".to_owned(),
+        JudgeError::Worker(_) | JudgeError::Cancelled => EXITED.to_owned(),
+        JudgeError::Run(message) => message.clone(),
+        JudgeError::StepsUnsupported => "step-unsupported".to_owned(),
+    }
+}
 
 /// What the host chooses about a judge model.
 #[derive(Clone, Default)]
@@ -62,6 +129,8 @@ pub struct EffortJudgeModel {
     /// Readable without the turn lock, which a running judgment holds.
     ready: AtomicBool,
     last_error: std::sync::Mutex<String>,
+    /// When the remembered load failure happened (`lastLoadErrorAt`).
+    failed_at: std::sync::Mutex<Option<std::time::Instant>>,
     tick: StateTick,
     refresh_checked: AtomicBool,
     repair_started: AtomicBool,
@@ -92,6 +161,7 @@ impl EffortJudgeModel {
             installing: AtomicBool::new(false),
             ready: AtomicBool::new(false),
             last_error: std::sync::Mutex::new(String::new()),
+            failed_at: std::sync::Mutex::new(None),
             tick: options.tick,
             refresh_checked: AtomicBool::new(false),
             repair_started: AtomicBool::new(false),
@@ -126,6 +196,7 @@ impl EffortJudgeModel {
     }
 
     fn set_load_state(&self, ready: bool, error: String) {
+        *self.failed_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (!error.is_empty()).then(std::time::Instant::now);
         self.ready.store(ready, Ordering::Release);
         *self.last_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = error;
         self.tick.bump();
@@ -226,6 +297,104 @@ impl EffortJudgeModel {
             }
         };
         self.lane_job(move || model.probs(&input)).await?
+    }
+
+    /// `judgeTurn`: the turn's calibrated probabilities, or why the judge cannot answer in time.
+    /// Same order of checks and the same reasons as Node's judge client: a platform without a
+    /// binding, an install in progress, a missing model, a recent load failure, a load that outlasts
+    /// the cold wait, a queue that outlasts the queue wait, an inference that outlasts the deadline.
+    pub async fn judge_turn(self: &Arc<Self>, input: TurnInput, timing: JudgeTiming) -> TurnVerdict {
+        if !onnx_runtime_supported() {
+            return TurnVerdict::skipped("unsupported");
+        }
+        self.refresh_once();
+        if self.is_installing() {
+            return TurnVerdict::skipped("installing");
+        }
+        match available_on(self.lane, &self.config).await {
+            Ok(true) => {}
+            Ok(false) => return TurnVerdict::skipped("model-missing"),
+            Err(error) => return TurnVerdict::skipped(error.to_string()),
+        }
+        if !self.is_ready() {
+            if let Some(why) = self.recent_load_failure(timing.retry) {
+                return TurnVerdict::skipped(format!("load-error: {why}"));
+            }
+            let (done_tx, done_rx) = oneshot::channel();
+            let this = self.clone();
+            mixdog_rt::spawn("services.effort-judge.turn-load", TaskClass::Work, async move {
+                drop(done_tx.send(this.load_for_turn(timing.retry).await));
+            });
+            match tokio::time::timeout(timing.cold, done_rx).await {
+                Ok(Ok(Ok(()))) => {}
+                Ok(Ok(Err(error))) => return TurnVerdict::skipped(skip_reason(&error)),
+                Ok(Err(_)) => return TurnVerdict::skipped(EXITED),
+                Err(_) => {
+                    let why = self.last_error();
+                    return TurnVerdict::skipped(if why.is_empty() { "warming".to_owned() } else { format!("load-error: {}", raw_load_message(&why)) });
+                }
+            }
+        }
+        // The task takes its place in the queue and keeps it until the inference ends, even for a
+        // caller whose deadline has passed: an answer that missed its deadline still occupies the model.
+        let (started_tx, started_rx) = oneshot::channel();
+        let (result_tx, result_rx) = oneshot::channel();
+        let this = self.clone();
+        let clipped = clip_turn(&input);
+        mixdog_rt::spawn("services.effort-judge.turn", TaskClass::Work, async move {
+            let mut state = this.turn.lock().await;
+            if started_tx.send(()).is_err() {
+                return;
+            }
+            let outcome = async {
+                let model = this.ensure_loaded(&mut state).await?;
+                let began = std::time::Instant::now();
+                let probs = this.lane_job(move || model.turn_probs(&clipped)).await??;
+                Ok::<_, JudgeError>((probs, u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX)))
+            }
+            .await;
+            drop(result_tx.send(outcome));
+        });
+        match tokio::time::timeout(timing.queue, started_rx).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => return TurnVerdict::skipped(EXITED),
+            Err(_) => return TurnVerdict::skipped("busy"),
+        }
+        match tokio::time::timeout(timing.warm, result_rx).await {
+            Ok(Ok(Ok((probs, ms)))) => TurnVerdict::Probs { probs, ms },
+            Ok(Ok(Err(error))) => TurnVerdict::skipped(skip_reason(&error)),
+            Ok(Err(_)) => TurnVerdict::skipped(EXITED),
+            Err(_) => TurnVerdict::skipped("timeout"),
+        }
+    }
+
+    /// A load that failed less than `retry` ago and has not been replaced: Node does not start a
+    /// worker (and turns do not wait on one) inside this back-off.
+    fn recent_load_failure(&self, retry: Duration) -> Option<String> {
+        let why = self.last_error();
+        let failed = *self.failed_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (!self.is_ready() && !why.is_empty() && failed.is_some_and(|at| at.elapsed() < retry)).then(|| raw_load_message(&why).to_owned())
+    }
+
+    /// Loads the model for a turn that found none resident. A failure older than the back-off is
+    /// forgotten first, as Node starts a fresh worker then.
+    async fn load_for_turn(self: &Arc<Self>, retry: Duration) -> Result<(), JudgeError> {
+        let mut state = self.turn.lock().await;
+        if self.is_installing() {
+            return Err(JudgeError::Installing);
+        }
+        let failed = *self.failed_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if matches!(*state, Some(Err(_))) && failed.is_none_or(|at| at.elapsed() >= retry) {
+            *state = None;
+        }
+        match self.ensure_loaded(&mut state).await {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                drop(state);
+                self.repair_after_load_failure(&error);
+                Err(error)
+            }
+        }
     }
 
     /// The first judged step of this instance: a model that is not the current

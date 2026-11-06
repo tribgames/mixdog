@@ -139,6 +139,7 @@ impl UsageAcc {
             cache_write_tokens: self.cache_write,
             cache_write_1h_tokens: self.cache_write_1h,
             reasoning_tokens: None,
+            reasoning_incomplete: false,
             raw: Some(Value::Object(self.raw.clone())),
             cost: None,
         }

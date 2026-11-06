@@ -1,10 +1,11 @@
 //! `LadderSources` over the process services ([`ProcessLadder::new`]): what the step judge's
 //! ladder reads off the route (`step-auto-effort.mjs:164-167`).
 //!
-//! - the provider's cached model row (`providerImpl.getCachedModelInfo`): Node's adapters that
-//!   keep one are Cursor, Devin, the managed local runtime and the custom providers. The catalog's
-//!   listed row stands for the first three; a custom provider's is the row its config states for
-//!   the model (`effectiveCustomModelRows`), else the discovered row the catalog lists;
+//! - the provider's cached model row (`providerImpl.getCachedModelInfo`), asked of every provider
+//!   (`autoEffortModel`): the row the catalog lists for the model stands for the adapter's own
+//!   listing. A custom provider's listing is already its discovered rows under the config's
+//!   overrides; before any listing it holds the rows its config states
+//!   (`effectiveCustomModelRows(config, [])`);
 //! - the rejected efforts (`rejectedEffortLevelsSync`): the process's rejection store;
 //! - a custom provider's protocol and base URL (`providerClient.customConfig`): its config entry;
 //! - the Anthropic efforts (`anthropicEffortLevelsFor`): [`CatalogCaps::effort_levels_for`].
@@ -25,15 +26,12 @@ use super::process::{EffortRejections, ProcessServices};
 use super::step_judge::LadderSources;
 use crate::config::Config;
 
-/// The providers whose adapters keep a model listing of their own in Node.
-const LISTING_PROVIDERS: [&str; 4] = ["cursor-oauth", "cursor-api", "devin-oauth", "mixdog-local"];
-
 /// `config.providers[provider]`.
 pub(super) fn provider_entry(config: &Config, provider: &str) -> Option<Value> {
     config.agent().get("providers").and_then(|p| p.get(provider)).filter(|v| v.is_object()).cloned()
 }
 
-/// The row a custom provider's `getCachedModelInfo(model)` answers.
+/// The row a provider's `getCachedModelInfo(model)` answers.
 pub(super) fn cached_row(catalog: &CatalogService, config: &Config, provider: &str, model: &str) -> Option<Map<String, Value>> {
     let listed = || {
         let snapshot = catalog.snapshot();
@@ -45,12 +43,13 @@ pub(super) fn cached_row(catalog: &CatalogService, config: &Config, provider: &s
         Some(row)
     };
     if is_custom_provider_name(provider) {
-        let stated = provider_entry(config, provider).and_then(|entry| {
-            public_rows(&manual_rows(&entry)).into_iter().find(|r| r.get("id").and_then(Value::as_str) == Some(model)).and_then(|r| r.as_object().cloned())
+        return listed().or_else(|| {
+            provider_entry(config, provider).and_then(|entry| {
+                public_rows(&manual_rows(&entry)).into_iter().find(|r| r.get("id").and_then(Value::as_str) == Some(model)).and_then(|r| r.as_object().cloned())
+            })
         });
-        return stated.or_else(listed);
     }
-    LISTING_PROVIDERS.contains(&provider).then(listed).flatten()
+    listed()
 }
 
 /// The protocol and base URL of a custom provider's config entry.

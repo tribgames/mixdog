@@ -15,6 +15,7 @@ pub mod runner;
 pub mod runtime;
 pub mod sessions;
 pub mod turn;
+pub mod wake;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -28,3 +29,4 @@ pub use runner::{HomeScheduleRunner, HomeWebhookDispatch, WebhookEvents};
 pub use runtime::{AutomationRuns, Reservation, RoutineRecords, RoutineRuntime, RoutineState, StoreRoutineRecords};
 pub use sessions::{ScheduleRunOpts, WebhookRun};
 pub use turn::TurnArgs;
+pub use wake::{MixyWake, WakeHost, WakeItems, WakeOutcome};

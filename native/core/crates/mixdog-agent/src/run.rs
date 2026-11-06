@@ -365,7 +365,9 @@ pub(crate) fn reasoning_usage(usage: &Usage) -> (Option<u64>, bool) {
             .find_map(|path| path.iter().try_fold(raw, |v, key| v.get(*key)).and_then(count))
         })
     };
-    (found, found.is_some())
+    // A carried figure keeps its completeness (`reasoningTokensComplete !== false`); one found in
+    // the raw usage is complete.
+    (found, found.is_some() && !(usage.reasoning_tokens.is_some() && usage.reasoning_incomplete))
 }
 
 pub(crate) fn add_usage(total: Option<Usage>, next: &Usage) -> Usage {
@@ -377,7 +379,7 @@ pub(crate) fn add_usage(total: Option<Usage>, next: &Usage) -> Usage {
     total.cache_read_tokens += next.cache_read_tokens;
     total.cache_write_tokens += next.cache_write_tokens;
     total.cache_write_1h_tokens += next.cache_write_1h_tokens;
-    total.reasoning_tokens = Usage::sum_reasoning(total.reasoning_tokens, next.reasoning_tokens);
+    total.combine_reasoning(next);
     total.raw = next.raw.clone().or(total.raw);
     total
 }

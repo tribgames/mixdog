@@ -280,8 +280,9 @@ async fn the_resolver_finds_pool_tools_by_name_or_alias_and_nothing_else_without
 }
 
 struct Runs(Option<GateRun>);
+#[async_trait]
 impl UnattendedRuns for Runs {
-    fn run_of(&self, thread: &ThreadId) -> Option<GateRun> {
+    async fn run_of(&self, thread: &ThreadId) -> Option<GateRun> {
         (thread.as_str() == "sess_task").then(|| self.0.clone()).flatten()
     }
 }
@@ -348,8 +349,8 @@ async fn the_gate_env_binds_a_connector_call_to_the_hubs_account_choice() {
     let other = GateCall::new("mcp__other__search", json!({}));
     assert_eq!(env.connector_account(&ThreadId::from("sess_a"), &header, &other).await, Ok(None));
 
-    assert_eq!(env.run_of(&ThreadId::from("sess_task")), Some(run));
-    assert_eq!(env.run_of(&ThreadId::from("sess_a")), None);
+    assert_eq!(env.run_of(&ThreadId::from("sess_task")).await, Some(run));
+    assert_eq!(env.run_of(&ThreadId::from("sess_a")).await, None);
     assert!(env.is_contact_bot("ann").await && !env.is_contact_bot("bob").await);
     assert!(env.allow_all_actions());
 }

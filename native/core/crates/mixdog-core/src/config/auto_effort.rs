@@ -130,21 +130,31 @@ pub trait EffortDiagnostics: Send + Sync {
 
 /// [`EffortDiagnostics`] appending to `decisions.jsonl` as a durability-lane job, and warning on stderr.
 pub struct EffortDecisionLog {
-    path: PathBuf,
+    env: EnvReader,
+    plugin_data: PathBuf,
     lane: DurabilityIo,
 }
 
 impl EffortDecisionLog {
-    /// `MIXDOG_EFFORT_DECISIONS_LOG`, else `<plugin data>/effort-judge/decisions.jsonl`.
-    pub fn new(env: &EnvReader, plugin_data: &std::path::Path, lane: DurabilityIo) -> Self {
-        let path = env("MIXDOG_EFFORT_DECISIONS_LOG").filter(|p| !p.is_empty()).map_or_else(|| plugin_data.join("effort-judge").join("decisions.jsonl"), PathBuf::from);
-        Self { path, lane }
+    /// `plugin_data` is `resolvePluginData()` when `MIXDOG_DATA_DIR` is not set.
+    pub fn new(env: EnvReader, plugin_data: PathBuf, lane: DurabilityIo) -> Self {
+        Self { env, plugin_data, lane }
+    }
+
+    /// `process.env.MIXDOG_EFFORT_DECISIONS_LOG || join(resolvePluginData(), 'effort-judge',
+    /// 'decisions.jsonl')`, read at each append.
+    fn destination(&self) -> PathBuf {
+        let set = |name: &str| (self.env)(name).filter(|value| !value.is_empty());
+        set("MIXDOG_EFFORT_DECISIONS_LOG").map_or_else(
+            || set("MIXDOG_DATA_DIR").map_or_else(|| self.plugin_data.clone(), PathBuf::from).join("effort-judge").join("decisions.jsonl"),
+            PathBuf::from,
+        )
     }
 }
 
 impl EffortDiagnostics for EffortDecisionLog {
     fn record(&self, entry: Map<String, Value>) {
-        let (path, line) = (self.path.clone(), format!("{}\n", Value::Object(entry)));
+        let (path, line) = (self.destination(), format!("{}\n", Value::Object(entry)));
         #[allow(clippy::disallowed_methods, reason = "a lane job body")]
         let job = move |_: &mixdog_rt::InLane<DurabilityIo>| {
             use std::io::Write;

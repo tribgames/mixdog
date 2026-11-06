@@ -170,11 +170,12 @@ impl HopWiring for NoWiring {
 }
 
 struct NoBots;
+#[async_trait]
 impl BotRoutes for NoBots {
-    fn bot_route(&self, _: &str) -> Option<Option<Value>> {
+    async fn bot_route(&self, _: &str) -> Option<Option<Value>> {
         None
     }
-    fn stored_bot_route(&self, _: &str) -> Option<Value> {
+    async fn stored_bot_route(&self, _: &str) -> Option<Value> {
         None
     }
 }

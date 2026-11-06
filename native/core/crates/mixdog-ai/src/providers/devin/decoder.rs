@@ -126,6 +126,7 @@ impl DevinDecoder {
                 cache_write_tokens: write,
                 cache_write_1h_tokens: 0,
                 reasoning_tokens: None,
+                reasoning_incomplete: false,
                 raw: Some(json!({
                     "inputTokens": stats.input_tokens,
                     "outputTokens": stats.output_tokens,

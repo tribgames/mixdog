@@ -674,6 +674,7 @@ impl CursorDecoder {
             cache_write_tokens: 0,
             cache_write_1h_tokens: 0,
             reasoning_tokens: None,
+            reasoning_incomplete: false,
             raw: Some(json!({
                 "completion_tokens": self.output_tokens,
                 "input_tokens_known": false,

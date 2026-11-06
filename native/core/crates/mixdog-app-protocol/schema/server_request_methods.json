@@ -2450,6 +2450,11 @@
           "type": "integer"
         },
         "raw": true,
+        "reasoningIncomplete": {
+          "default": false,
+          "description": "`reasoningTokensComplete === false` on an aggregate.",
+          "type": "boolean"
+        },
         "reasoningTokens": {
           "description": "Absent when the provider reported none; an explicit 0 stays 0.",
           "format": "uint64",

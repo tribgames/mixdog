@@ -112,6 +112,7 @@ pub fn usage_of(um: &Value, style: UsageStyle) -> Usage {
         cache_write_tokens: 0,
         cache_write_1h_tokens: 0,
         reasoning_tokens: thoughts,
+        reasoning_incomplete: false,
         raw: Some(um.clone()),
         cost: None,
     }

@@ -102,6 +102,120 @@ pub fn step_result_window(text: &str) -> String {
     if text.chars().count() <= 3000 { text.to_owned() } else { format!("{}\n…\n{}", head(text, 2000), tail(text, 1000)) }
 }
 
+/// The inputs of a turn judgment (`judgeTurn({ request, prev, prevRequest })`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TurnInput {
+    pub request: String,
+    /// The last assistant text of the session.
+    pub prev: String,
+    /// The last user text of the session.
+    pub prev_request: String,
+}
+
+/// The text layout the model was trained on (`calibration.json` `inputFormat`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum InputFormat {
+    /// Previous reply tail (300 units), then the request.
+    #[default]
+    Pr,
+    Rp,
+    Rpq,
+    Rpc,
+    Pack,
+}
+
+impl InputFormat {
+    /// Any name but the four known ones is `pr`.
+    pub fn named(name: &str) -> Self {
+        match name {
+            "rp" => Self::Rp,
+            "rpq" => Self::Rpq,
+            "rpc" => Self::Rpc,
+            "pack" => Self::Pack,
+            _ => Self::Pr,
+        }
+    }
+}
+
+/// `text.slice(-n)`: the last `n` UTF-16 units. A cut inside a surrogate pair leaves a lone low
+/// surrogate in JavaScript; a Rust string shows it as U+FFFD.
+fn tail_units(text: &str, n: usize) -> String {
+    let total = mixdog_js::utf16_len(text);
+    if total <= n {
+        return text.to_owned();
+    }
+    let mut skip = total - n;
+    let mut chars = text.chars();
+    let mut broken = false;
+    while skip > 0 {
+        let Some(c) = chars.next() else { break };
+        let width = c.len_utf16();
+        if width > skip {
+            broken = true;
+            skip = 0;
+        } else {
+            skip -= width;
+        }
+    }
+    let rest = chars.as_str();
+    if broken { format!("\u{fffd}{rest}") } else { rest.to_owned() }
+}
+
+/// The client's clip before the text reaches the model: `request.slice(0, 3000)`,
+/// `prev.slice(-2000)`, `prevRequest.slice(0, 1200)`, in UTF-16 units.
+pub fn clip_turn(input: &TurnInput) -> TurnInput {
+    TurnInput {
+        request: mixdog_js::slice_utf16(&input.request, 3000),
+        prev: tail_units(&input.prev, 2000),
+        prev_request: mixdog_js::slice_utf16(&input.prev_request, 1200),
+    }
+}
+
+/// `judgeText(format, ...)` for the formats that are one text.
+pub fn turn_text(format: InputFormat, input: &TurnInput) -> String {
+    let TurnInput { request, prev, prev_request } = input;
+    match format {
+        InputFormat::Rpc => format!("request: {}\nprevious reply: {}", clean(&head(request, 1500)), clean(&tail(prev, 1000))),
+        InputFormat::Rpq => format!("request: {}\nprevious request: {}\nprevious reply: {}", head(request, 1500), head(prev_request, 300), tail(prev, 1000)),
+        InputFormat::Rp => format!("request: {}\nprevious reply: {}", mixdog_js::slice_utf16(request, 1500), tail_units(prev, 1000)),
+        InputFormat::Pr | InputFormat::Pack => format!("previous reply: {}\nrequest: {}", tail_units(prev, 300), mixdog_js::slice_utf16(request, 1500)),
+    }
+}
+
+/// What the `pack` format assembles from token budgets (`PACK_BUDGET`).
+const PACK_REQUEST: usize = 64;
+const PACK_PREV_REQUEST: usize = 24;
+const PACK_REPLY_HEAD: usize = 16;
+
+/// `packJudgeIds`: the ids between the template's prefix and suffix, each part cleaned, encoded on
+/// its own and cut to its budget; the previous reply's end gets what is left.
+pub fn pack_ids(tokenizer: &crate::effort_judge::tokenizer::BpeTokenizer, input: &TurnInput, max_tokens: usize) -> Vec<u32> {
+    let (prefix, suffix) = (&tokenizer.prefix, &tokenizer.suffix);
+    let room = max_tokens.saturating_sub(prefix.len() + suffix.len());
+    let cut = |mut ids: Vec<u32>, n: usize| {
+        ids.truncate(n);
+        ids
+    };
+    let req = cut(tokenizer.encode(&format!("request: {}", clean(&head(&input.request, 1500)))), PACK_REQUEST);
+    let q = if input.prev_request.is_empty() {
+        Vec::new()
+    } else {
+        cut(tokenizer.encode(&format!("previous request: {}", clean(&head(&input.prev_request, 600)))), PACK_PREV_REQUEST)
+    };
+    let reply = clean(&tail(&input.prev, 1000));
+    let (first, rest) = match reply.find('\n') {
+        Some(at) => (&reply[..at], &reply[at + 1..]),
+        None => (reply.as_str(), ""),
+    };
+    let top = if first.is_empty() { Vec::new() } else { cut(tokenizer.encode(&format!("previous reply: {first}")), PACK_REPLY_HEAD) };
+    let left = room.saturating_sub(req.len() + q.len() + top.len());
+    let end = if !rest.is_empty() && left > 0 { tokenizer.encode(rest) } else { Vec::new() };
+    let end = &end[end.len().saturating_sub(left)..];
+    let mut ids: Vec<u32> = prefix.iter().chain(&req).chain(&q).chain(&top).chain(end).chain(suffix).copied().collect();
+    ids.truncate(max_tokens);
+    ids
+}
+
 pub fn step_judge_text(input: &StepInput) -> String {
     let mut parts = vec![format!("step {}", input.step), format!("request: {}", clean(&head(&input.request, 300)))];
     let said = clean(&tail(&input.plan, 300));

@@ -36,8 +36,8 @@ fn spread(value: Option<&Value>) -> Map<String, Value> {
 }
 
 /// `clearGatewaySessionRoute(sessionId)` (no host pid) on `path`: the session's `sessions` entry
-/// goes. As Node's mutator, the store read (`{}` when missing) is written back unchanged when the
-/// session has no entry. False for an id the store never keys.
+/// goes. As Node's mutator (`undefined` when nothing changed), a session with no entry leaves the
+/// store untouched. False for an id the store never keys.
 pub fn clear_session_route(lane: &InLane<MaintenanceIo>, path: &Path, session_id: &str, now_ms: i64) -> Result<bool, String> {
     let Some(sid) = normalize_session_id(session_id) else { return Ok(false) };
     let drop_route = |raw: Option<Value>| {
@@ -47,7 +47,7 @@ pub fn clear_session_route(lane: &InLane<MaintenanceIo>, path: &Path, session_id
         };
         let mut sessions = spread(cur.get("sessions"));
         if sessions.shift_remove(sid).is_none() {
-            return Ok::<_, std::convert::Infallible>(Some(cur));
+            return Ok::<_, std::convert::Infallible>(None);
         }
         let hosts = spread(cur.get("sessionHosts"));
         Ok(Some(json!({ "version": 2, "updatedAt": now_ms, "sessions": sessions, "sessionHosts": hosts })))
