@@ -306,6 +306,26 @@ fn conversation_account(all: &Map<String, Value>, conversation: &str, connector:
     account_of(all.get(conversation)?.get("accounts")?.as_object()?.get(connector)?)
 }
 
+/// `forgetConversationConnectorAccounts(conversation)`: a deleted session's remembered account
+/// choices leave `connector-accounts-by-conversation.json` under `data_dir`; nothing is written
+/// when it has none.
+pub fn forget_conversation(lane: &InLane<MaintenanceIo>, data_dir: &Path, conversation: &str) -> Result<(), String> {
+    let id = js_trim(conversation);
+    let path = data_dir.join(CONVERSATION_FILE);
+    if id.is_empty() || !read_state(lane, &path).map_err(|e| e.to_string())?.contains_key(id) {
+        return Ok(());
+    }
+    let drop_it = |stored: Option<Value>| {
+        let mut rest = match stored {
+            Some(Value::Object(map)) => map,
+            _ => Map::new(),
+        };
+        rest.shift_remove(id);
+        Ok::<_, std::convert::Infallible>(Some(Value::Object(rest)))
+    };
+    mixdog_statefile::update_json(lane, &path, drop_it, &mixdog_statefile::Opts::default()).map(drop).map_err(|e| e.to_string())
+}
+
 /// Node `readJsonStateSync` with an object `validate` and an empty `fallback`: the object, `{}`
 /// when the file is missing; a damaged file is handled as in [`mixdog_statefile::read_json`].
 fn read_state(lane: &InLane<MaintenanceIo>, path: &Path) -> std::io::Result<Map<String, Value>> {

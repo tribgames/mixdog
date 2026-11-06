@@ -54,6 +54,16 @@ pub trait ApprovalIds: Send + Sync + 'static {
 /// "approval", block)`).
 pub struct StoreApprovalIds(pub mixdog_store::state::IdAllocator);
 
+impl StoreApprovalIds {
+    /// The `approval` counter's ids: one durable reservation per [`Self::BLOCK`] ids.
+    pub const BLOCK: u64 = 100;
+
+    /// Over the core's `state/core.sqlite` (`CoreState::open`); reserves the first block.
+    pub async fn open(state: mixdog_store::state::CoreState) -> Result<Self, mixdog_store::sqlite::DbError> {
+        Ok(Self(mixdog_store::state::IdAllocator::new(state, "approval", Self::BLOCK).await?))
+    }
+}
+
 #[async_trait::async_trait]
 impl ApprovalIds for StoreApprovalIds {
     async fn next(&self) -> Result<ApprovalId, CoreError> {

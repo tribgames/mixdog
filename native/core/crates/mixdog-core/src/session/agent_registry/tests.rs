@@ -491,3 +491,30 @@ async fn a_settled_row_ages_into_a_tombstone_and_a_reuse_consumes_it() {
     assert!(rig.store.map("sess_old").is_none());
     assert!(registry.read_all_tag_tombstones().is_empty());
 }
+
+/// `forgetDeletedSession` (`gone-rows.mjs`): a deleted session's settled row leaves the index as
+/// a tombstone; a working row, a Lead pool row and an owed restart failure stay.
+#[tokio::test]
+async fn a_deleted_sessions_settled_row_becomes_a_tombstone() {
+    let rig = Rig::new();
+    rig.store.write("s-done", Some(worker_row("s-done", "done", json!({ "cwd": "/w" }))));
+    rig.store.write("s-busy", Some(worker_row("s-busy", "busy", json!({ "status": "running" }))));
+    rig.store.write("s-lead", Some(worker_row("s-lead", "lead", json!({ "agent": "lead" }))));
+    let registry = rig.registry();
+
+    assert!(registry.forget_deleted_session(" s-done ").await);
+    let map = rig.store.map("s-done").expect("the tombstone stays");
+    assert!(!map.contains_key("sessionId"), "the row is gone: {map:?}");
+    assert_eq!(
+        map["tombstone"],
+        json!({
+            "tag": "done", "agent": "worker", "cwd": "/w", "clientHostPid": PID,
+            "parentSessionId": "lead-a", "ownerSessionId": "lead-a", "reapedAt": at(NOW),
+        })
+    );
+    for kept in ["s-busy", "s-lead", "s-missing", ""] {
+        assert!(!registry.forget_deleted_session(kept).await, "{kept}");
+    }
+    assert!(rig.store.map("s-busy").unwrap().contains_key("sessionId"));
+    assert!(rig.store.map("s-lead").unwrap().contains_key("sessionId"));
+}

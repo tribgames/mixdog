@@ -24,7 +24,7 @@ pub struct ToolResultArtifacts {
 
 /// Session ids are path segments: anything outside `[A-Za-z0-9_-]` becomes `_`, so a `..` or a
 /// slash cannot leave the tool-results root.
-fn safe_segment(session_id: &str) -> String {
+pub(crate) fn safe_segment(session_id: &str) -> String {
     let cleaned: String = session_id
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })

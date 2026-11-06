@@ -23,17 +23,23 @@ pub trait PurgeHook: Send + Sync {
     fn purge(&self, session_id: &str, cwds: &[String]);
 }
 
+impl<F: Fn(&str, &[String]) + Send + Sync> PurgeHook for F {
+    fn purge(&self, session_id: &str, cwds: &[String]) {
+        self(session_id, cwds);
+    }
+}
+
 /// The store purge hooks in the order a booted 1.4.5 daemon registers (and so runs) them
 /// (`delete_goldens/purge_order.json`). The turn review's (`runtime-review-api.mjs:26`) is
 /// `SessionDeps.turn_review`'s `forget_session`, run in its place between `connector_accounts`
-/// and `worker_turns`.
+/// and `worker_turns`. A `None` hook is state no Rust owner holds yet; it runs nothing.
 pub struct PurgeHooks {
     /// `tool-result-offload.mjs:506` `clearOffloadSessionSync`.
     pub tool_result_offload: Arc<dyn PurgeHook>,
     /// `usage-metrics.mjs:21` `dropMetricSeenState`.
-    pub usage_metrics: Arc<dyn PurgeHook>,
+    pub usage_metrics: Option<Arc<dyn PurgeHook>>,
     /// `runtime-liveness.mjs:65` `forgetBrowserSession`.
-    pub browser_session: Arc<dyn PurgeHook>,
+    pub browser_session: Option<Arc<dyn PurgeHook>>,
     /// `session-transcript-purge.mjs:20`: the conversation transcripts under `cwds` and their
     /// memory ingest offsets.
     pub transcripts: Arc<dyn PurgeHook>,
@@ -42,9 +48,9 @@ pub struct PurgeHooks {
     /// `read-cache.mjs:317`.
     pub read_cache: Arc<dyn PurgeHook>,
     /// `compaction-archive-capture.mjs:738`.
-    pub compaction_capture: Arc<dyn PurgeHook>,
+    pub compaction_capture: Option<Arc<dyn PurgeHook>>,
     /// `session-close.mjs:282` `closeProviderConnections(id, 'session-deleted')`.
-    pub provider_connections: Arc<dyn PurgeHook>,
+    pub provider_connections: Option<Arc<dyn PurgeHook>>,
     /// `boot/providers.mjs:54` `forgetConversationConnectorAccounts`.
     pub connector_accounts: Arc<dyn PurgeHook>,
     /// `worker-turns.mjs:208`.
@@ -65,16 +71,19 @@ impl PurgeHooks {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(hook));
         };
         for hook in [
-            &self.tool_result_offload,
-            &self.usage_metrics,
-            &self.browser_session,
-            &self.transcripts,
-            &self.cache_warm,
-            &self.read_cache,
-            &self.compaction_capture,
-            &self.provider_connections,
-            &self.connector_accounts,
-        ] {
+            Some(&self.tool_result_offload),
+            self.usage_metrics.as_ref(),
+            self.browser_session.as_ref(),
+            Some(&self.transcripts),
+            Some(&self.cache_warm),
+            Some(&self.read_cache),
+            self.compaction_capture.as_ref(),
+            self.provider_connections.as_ref(),
+            Some(&self.connector_accounts),
+        ]
+        .into_iter()
+        .flatten()
+        {
             guarded(&|| hook.purge(id, cwds));
         }
         guarded(&|| review.forget_session(id));

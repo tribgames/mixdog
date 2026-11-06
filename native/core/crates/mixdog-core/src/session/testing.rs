@@ -731,13 +731,13 @@ impl Rig {
         let hook = |name: &'static str| -> Arc<dyn super::delete::PurgeHook> { Arc::new(Hook(name, self.deletes.clone())) };
         super::delete::PurgeHooks {
             tool_result_offload: hook("toolResultOffload"),
-            usage_metrics: hook("usageMetrics"),
-            browser_session: hook("browserSession"),
+            usage_metrics: Some(hook("usageMetrics")),
+            browser_session: Some(hook("browserSession")),
             transcripts: hook("transcripts"),
             cache_warm: hook("cacheWarm"),
             read_cache: hook("readCache"),
-            compaction_capture: hook("compactionCapture"),
-            provider_connections: hook("providerConnections"),
+            compaction_capture: Some(hook("compactionCapture")),
+            provider_connections: Some(hook("providerConnections")),
             connector_accounts: hook("connectorAccounts"),
             worker_turns: hook("workerTurns"),
             agent_status: hook("agentStatus"),

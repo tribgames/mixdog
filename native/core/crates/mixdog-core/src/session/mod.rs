@@ -27,6 +27,8 @@ mod cards;
 mod completions;
 mod control;
 pub mod delete;
+pub mod purge;
+pub mod effort_prewarm;
 mod directory;
 pub mod goal_lane;
 mod live_rows;
@@ -65,6 +67,8 @@ pub(crate) mod testing;
 mod tests;
 #[cfg(test)]
 mod goal_lane_tests;
+#[cfg(test)]
+mod assembly_tests;
 
 use std::sync::Arc;
 

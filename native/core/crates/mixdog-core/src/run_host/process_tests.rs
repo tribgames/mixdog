@@ -376,7 +376,7 @@ async fn a_send_with_no_session_header_is_scoped_by_its_options_alone() {
 async fn the_ladder_reads_the_process_stores() {
     let providers = json!({
         "custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
-            "modelOverrides": {"m1": {"reasoningLevels": ["low", "high"]}}},
+            "modelOverrides": {"m1": {"manual": true, "reasoning": {"levels": ["low", "high"]}}}},
     });
     let w = world(&[], providers, vec![anthropic_row("claude-sonnet-4-6", &["low", "medium", "high", "max"])]).await;
     w.rejections.0.lock().unwrap().insert(("openai".into(), "gpt-5.5".into()), RejectionEntry { rejected: vec!["xhigh".into()], allowed: Vec::new() });
@@ -388,6 +388,7 @@ async fn the_ladder_reads_the_process_stores() {
     assert!(ladder.custom_config("custom-missing").is_none());
     let row = ladder.cached_row("custom-acme", "m1").unwrap();
     assert_eq!(row["reasoningLevels"], json!(["low", "high"]));
+    assert_eq!(row["reasoningOptions"], json!([{"type": "effort", "values": ["low", "high"]}]));
     // First-party adapters without a listing of their own have no cached row.
     assert!(ladder.cached_row("openai", "gpt-5.5").is_none());
 
@@ -405,7 +406,7 @@ async fn the_ladder_reads_the_process_stores() {
 async fn the_ladder_facts_of_a_custom_and_an_anthropic_route() {
     let providers = json!({
         "custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
-            "modelOverrides": {"m1": {"reasoningLevels": ["low", "high"]}}},
+            "modelOverrides": {"m1": {"manual": true, "reasoning": {"levels": ["low", "high"]}}}},
     });
     let w = world(&[], providers, Vec::new()).await;
     let ladder = ProcessLadder::new(&w.services);
@@ -452,16 +453,16 @@ async fn adapter_of(w: &World, name: &str) -> Arc<dyn ProviderAdapter> {
 async fn the_hop_wires_a_route_as_the_turn_start_does() {
     let providers = json!({
         "custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
-            "modelOverrides": {"m1": {"reasoningLevels": ["low", "high"]}}},
+            "modelOverrides": {"m1": {"manual": true, "reasoning": {"levels": ["low", "high"]}}}},
     });
     let w = world(&[], providers, Vec::new()).await;
     let bindings = HopBindings::new(&w.services);
     let openai = adapter_of(&w, "openai").await;
 
     // A first-party Responses route projects its efforts; it is not text-only.
-    let (effort, text_only) = bindings.wiring.wiring(&json!({"provider": "openai", "model": "gpt-5.5", "effort": "high", "messages": []}), &openai);
+    let (effort, text_only) = bindings.wiring.wiring(&json!({"provider": "openai", "model": "gpt-6-astra", "effort": "high", "messages": []}), &openai);
     let effort = effort.expect("the Responses route projects efforts");
-    assert_eq!((effort.route.provider.as_str(), effort.route.model.as_str()), ("openai", "gpt-5.5"));
+    assert_eq!((effort.route.provider.as_str(), effort.route.model.as_str()), ("openai", "gpt-6-astra"));
     assert!(text_only.is_none());
 
     // A custom route's effort rides each request: nothing is projected.
