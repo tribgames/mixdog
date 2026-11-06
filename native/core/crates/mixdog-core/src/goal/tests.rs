@@ -155,6 +155,7 @@ fn tool_ctx(thread: &str) -> ToolContext {
         files: Arc::new(MockFileService::default()),
         processes: Arc::new(MockProcessManager::default()),
         options: Default::default(),
+        review: None,
     }
 }
 
@@ -520,6 +521,9 @@ async fn replay(case: &Value) -> Result<(), String> {
                 actual.insert("error".into(), namer.name(&scrub(&dir, &Value::String(message))));
             }
         }
+        if std::env::var("GOAL_CASE").is_ok() {
+            eprintln!("STEP {index} {op} {}", shorten(actual.get("value").unwrap_or(&Value::Null)));
+        }
         let events = Value::Array(run.events.lock().unwrap().clone());
         actual.insert("events".into(), namer.name(&events));
         let errors = Value::Array(run.errors.lock().unwrap().iter().cloned().map(Value::String).collect());
@@ -567,6 +571,9 @@ async fn the_runtime_answers_like_node_operation_by_operation() {
     let mut failures = Vec::new();
     let cases = twin["cases"].as_array().unwrap();
     for case in cases {
+        if std::env::var("GOAL_CASE").is_ok_and(|only| only != case["name"].as_str().unwrap()) {
+            continue;
+        }
         if let Err(message) = replay(case).await {
             failures.push(format!("{}: {message}", case["name"]));
         }

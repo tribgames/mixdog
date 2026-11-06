@@ -111,7 +111,7 @@ fn pdf_not_prepared(label: &str) -> ProviderError {
 
 fn lower_part(part: &ContentPart) -> Result<Option<JsonValue>, ProviderError> {
     Ok(match part {
-        ContentPart::Text(text) => (!text.is_empty()).then(|| text_part(text)),
+        ContentPart::Text(text, _) => (!text.is_empty()).then(|| text_part(text)),
         ContentPart::Image(ImageSource::Base64 { data, mime_type }) => Some(
             json!({"type": "image_url", "image_url": {"url": format!("data:{mime_type};base64,{data}")}}),
         ),
@@ -417,7 +417,7 @@ mod tests {
             text: None,
         };
         match spec["kind"].as_str().unwrap() {
-            "text" => ContentPart::Text(text("text")),
+            "text" => ContentPart::Text(text("text"), false),
             "image_url" => ContentPart::Image(ImageSource::Url(text("url"))),
             "image_base64" => ContentPart::Image(ImageSource::Base64 { data: text("data"), mime_type: text("mime") }),
             "image_file_id" => ContentPart::Image(ImageSource::FileId(text("id"))),

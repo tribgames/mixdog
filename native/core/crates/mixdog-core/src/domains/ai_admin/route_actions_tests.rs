@@ -78,11 +78,11 @@ impl RouteSetupSessions for Sessions {
         (!chain.is_null()).then(|| CallerChain { position: chain["position"].clone(), source_is_primary: chain["sourceIsPrimary"] == json!(true) })
     }
 
-    fn session(&self, id: &str, _: &Obj) -> Option<SessionFacts> {
+    async fn session(&self, id: &str, _: &Obj) -> Option<SessionFacts> {
         self.facts(id)
     }
 
-    fn agent_sessions(&self, agent: &str, _: &Obj) -> Vec<SessionFacts> {
+    async fn agent_sessions(&self, agent: &str, _: &Obj) -> Vec<SessionFacts> {
         let ids = self.case["agentSessions"][agent].as_array().cloned().unwrap_or_default();
         ids.iter().filter_map(|id| self.facts(id.as_str().unwrap())).collect()
     }

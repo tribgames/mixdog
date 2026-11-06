@@ -83,7 +83,7 @@ pub struct TextAttachment {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ContentPart {
-    Text(String),
+    Text(String, bool),
     Image(ImageSource),
     File {
         source: BinarySource,
@@ -949,6 +949,9 @@ pub struct ModelRecord {
     /// The largest window the model can be served with, where the listing
     /// states one above the served `context_window` (`maxContextWindow`).
     pub max_context_window: Option<u64>,
+    /// The capacity a managed local runtime has allocated, which bounds any
+    /// selected window (`runtimeContextWindow`).
+    pub runtime_context_window: Option<u64>,
     pub max_output_tokens: Option<u64>,
     /// The listing's own prices, USD per million tokens (`inputCostPerM` …),
     /// left out when not finite. They describe the row; the ledger prices a
@@ -997,6 +1000,7 @@ impl ModelRecord {
             supports_prompt_caching: None,
             context_window: None,
             max_context_window: None,
+            runtime_context_window: None,
             max_output_tokens: None,
             input_cost_per_m: None,
             output_cost_per_m: None,

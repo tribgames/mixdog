@@ -25,8 +25,7 @@ fn content(side: ReviewSide) -> ReviewContent {
     match side {
         ReviewSide::Absent => ReviewContent::Absent,
         ReviewSide::Bytes(bytes) => ReviewContent::bytes(bytes),
-        // The writer kept no size for what it did not capture.
-        ReviewSide::Omitted => ReviewContent::Omitted { size: 0, reason: None },
+        ReviewSide::Omitted { size, reason } => ReviewContent::Omitted { size, reason },
     }
 }
 
@@ -112,6 +111,8 @@ mod tests {
         assert_eq!((files[0]["path"].as_str(), files[0]["status"].as_str()), (Some("a.docx"), Some("A")));
 
         let handle = AgentTurnReviews::new(review.clone()).begin("lead", "worker-1", "task", "worker");
+        let worker_change = ReviewChange { path: format!("{ws}/w.docx"), before: ReviewSide::Absent, after: ReviewSide::Bytes(b"w\n".to_vec()) };
+        recorder.record(&ThreadId::from("worker-1"), &ToolCallId::from("c2"), vec![worker_change]).await;
         handle.complete(Vec::new());
         let reply = review.turn_review_diff(&ws, "lead", ReviewRead::default()).await;
         assert_eq!(reply["agents"].as_array().unwrap().len(), 1);

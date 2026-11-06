@@ -62,7 +62,7 @@ pub fn user_text(message: &AgentMessage) -> String {
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|p| match p {
-                ContentPart::Text(t) => Some(t.as_str()),
+                ContentPart::Text(t, _) => Some(t.as_str()),
                 _ => None,
             })
             .collect(),
@@ -373,7 +373,7 @@ fn envelope_content(content: &Content, kind: SyntheticKind) -> Content {
             let texts: Vec<usize> = parts
                 .iter()
                 .enumerate()
-                .filter(|(_, p)| matches!(p, ContentPart::Text(_)))
+                .filter(|(_, p)| matches!(p, ContentPart::Text(_, _)))
                 .map(|(i, _)| i)
                 .collect();
             let (Some(&first), Some(&last)) = (texts.first(), texts.last()) else {
@@ -384,10 +384,10 @@ fn envelope_content(content: &Content, kind: SyntheticKind) -> Content {
                     .iter()
                     .enumerate()
                     .map(|(i, part)| match part {
-                        ContentPart::Text(t) if i == first || i == last => {
+                        ContentPart::Text(t, _) if i == first || i == last => {
                             let open = if i == first { open_tag(kind) } else { String::new() };
                             let close = if i == last { close_tag() } else { String::new() };
-                            ContentPart::Text(format!("{open}{t}{close}"))
+                            ContentPart::Text(format!("{open}{t}{close}"), false)
                         }
                         other => other.clone(),
                     })

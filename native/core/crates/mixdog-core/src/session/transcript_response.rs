@@ -83,7 +83,7 @@ fn item(row: Row) -> ThreadItem {
 }
 
 /// `taskNotificationHasBody(text)`.
-fn has_body(text: &str) -> bool {
+pub(in crate::session) fn has_body(text: &str) -> bool {
     match parse_task_notification(text) {
         Some(n) => !n.result.is_empty() || !n.error.is_empty(),
         None => re(r"\n\s*\n[\s\S]*\S", "").is_match(text),

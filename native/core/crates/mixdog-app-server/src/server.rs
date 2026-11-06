@@ -590,7 +590,9 @@ impl Shared {
 
     /// A method served by the core: the thread directory or a loaded thread for the thread
     /// namespaces (a request that names a `threadId` is addressed to that thread), the domain
-    /// service that claims the exact method for every other one.
+    /// service that claims the exact method for every other one. A thread-namespace method a
+    /// domain service claims (`thread/continueInModel`, `thread/quotaResume/*`: they act on the
+    /// route and on daemon-wide stores, not on the thread's actor) goes to that service.
     fn route(
         &self,
         conn: &Connection,
@@ -612,7 +614,7 @@ impl Shared {
             ctx,
         };
         let core = Arc::clone(&self.core);
-        if THREAD_NAMESPACES.contains(&namespace) {
+        if THREAD_NAMESPACES.contains(&namespace) && core.domain_for(spec.method).is_none() {
             // A control that targets a loaded thread stays on RT-C; a cold open awaits the
             // core's load jobs and so runs on RT-W.
             let loaded = thread

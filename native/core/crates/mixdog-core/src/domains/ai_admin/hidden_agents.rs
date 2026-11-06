@@ -17,9 +17,24 @@ pub fn hidden_agents() -> HashSet<String> {
         .unwrap_or_default()
 }
 
+/// `getHiddenAgent(name)`'s `kind` and `toolSchemaProfile`: `None` for a name that is not an
+/// internal agent, `Some((kind, profile))` otherwise (either `None` when the entry has none).
+pub fn hidden_agent_traits(name: &str) -> Option<(Option<String>, Option<String>)> {
+    let raw: Value = serde_json::from_str(AGENTS).unwrap_or(Value::Null);
+    let entry = raw.get("agents")?.as_array()?.iter().rev().find(|e| e.get("agent").and_then(Value::as_str) == Some(name))?;
+    let text = |key: &str| entry.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned);
+    Some((text("kind"), text("toolSchemaProfile")))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::hidden_agents;
+    use super::{hidden_agent_traits, hidden_agents};
+
+    #[test]
+    fn the_traits_of_an_internal_agent_are_its_kind_and_profile() {
+        assert_eq!(hidden_agent_traits("title-agent"), Some((Some("maintenance".into()), Some("none".into()))));
+        assert_eq!(hidden_agent_traits("worker"), None);
+    }
 
     #[test]
     fn the_shipped_internal_agents_are_hidden() {

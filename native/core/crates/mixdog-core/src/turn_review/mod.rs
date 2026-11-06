@@ -12,6 +12,7 @@
 
 mod api;
 mod apply;
+mod baselines;
 mod call_diff;
 mod content;
 mod disk;
@@ -24,8 +25,11 @@ pub mod ports;
 mod reads;
 mod review_diff;
 mod scm_ports;
+mod shadow;
+mod snapshot;
 mod seams;
 mod service;
+mod session_review;
 mod store;
 mod tracker;
 mod undo;
@@ -33,9 +37,16 @@ mod undo;
 #[cfg(test)]
 mod tests;
 
+/// A component over the real lane disk and Git, for the tests of the layers that serve it.
+#[cfg(test)]
+pub(crate) fn test_review(data: &std::path::Path) -> TurnReview {
+    tests::review_at(data)
+}
+
 pub use call_diff::call_ui_diff;
 pub use disk::LaneDisk;
 pub use scm_ports::ScmGit;
+pub use shadow::ShadowRepos;
 pub use scm_ports::ScmWorktrees;
 pub use seams::AgentTurnReviews;
 pub use seams::ThreadCwd;

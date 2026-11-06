@@ -525,6 +525,48 @@ fn agent_job_result_text(value: &str, job: &AgentJob) -> String {
     if stripped.is_empty() { value.to_owned() } else { stripped }
 }
 
+/// `isStatusOnlyAgentCompletionNotification(text)`: a completed or cancelled agent result that
+/// carries no result text (a header-only status line), which updates the agent's status but
+/// never shows a card.
+pub fn is_status_only_agent_completion(text: &str) -> bool {
+    static FINISHED: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(completed|cancelled|canceled)$", "i"));
+    if parse_task_notification(text).is_some() {
+        return false;
+    }
+    if let Some(background) = parse_background_task_envelope(text)
+        && background.name == "agent"
+        && FINISHED.is_match(&background.label)
+    {
+        return !(has_agent_response_result_text(&background.result) || has_agent_response_result_text(text));
+    }
+    let Some(job) = parse_agent_job(js_trim(text)) else { return false };
+    if job.task_id.is_empty() || !FINISHED.is_match(&job.status) {
+        return false;
+    }
+    let result = agent_job_result_text(text, &job);
+    !(has_agent_response_result_text(&result) || has_agent_response_result_text(text))
+}
+
+/// `hasAgentResponseResultText(text)`.
+fn has_agent_response_result_text(text: &str) -> bool {
+    static STATUS_LINE: LazyLock<JsRegex> = LazyLock::new(|| {
+        re(r"^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$", "i")
+    });
+    static HEADER: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(?:background task\b|agent task:|task_id:)", "i"));
+    static BODY: LazyLock<JsRegex> = LazyLock::new(|| re(r"\n\s*\n[\s\S]*\S", ""));
+    let value = js_trim(text);
+    if value.is_empty() {
+        return false;
+    }
+    if let Some(notification) = parse_task_notification(value) {
+        return !notification.result.is_empty();
+    }
+    if STATUS_LINE.is_match(value) {
+        return false;
+    }
+    !(HEADER.is_match(value) && !BODY.is_match(value))
+}
+
 /// `parseSyntheticAgentMessage(text)`.
 pub fn parse_synthetic_agent_message(text: &str) -> Option<Parsed> {
     let value = js_trim(text);

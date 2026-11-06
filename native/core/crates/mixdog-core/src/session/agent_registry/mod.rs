@@ -1091,7 +1091,7 @@ impl LiveSessions for super::SessionDirectory {
     }
 
     fn running(&self, session: &str) -> bool {
-        self.handle(&ThreadId::from(session)).is_some_and(|h| h.cell.run.load().as_ref().is_some_and(|run| !run.cancel.is_cancelled()))
+        self.handle(&ThreadId::from(session)).is_some_and(|h| h.cell.run.load().as_ref().is_some_and(|run| !run.cancel.is_aborted()))
     }
 
     fn has_live_work(&self, session: &str) -> bool {

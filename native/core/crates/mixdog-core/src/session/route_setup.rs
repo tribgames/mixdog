@@ -3,9 +3,9 @@
 //! `executor.mjs` `chainReceipt`), and the daemon's configure lane that reaches another session
 //! (`daemon-session-control/route-control.mjs`).
 //!
-//! A session is its acked header with its id, read as Node reads the live object. The trait reads
-//! synchronously, so only a thread this process has loaded is found; Node's `getSession` and the
-//! agent's home thread may also come from disk (`mgr.getSession`, `loadSession`).
+//! A session is its acked header with its id, read as Node reads the live object. The reads are
+//! async so that a stored thread and the agent's home thread can come from disk
+//! (`mgr.getSession`, `loadSession`); for now only a thread this process has loaded is found.
 
 use std::sync::Arc;
 
@@ -127,12 +127,12 @@ impl RouteSetupSessions for SessionRouteSetup {
         Some(CallerChain { position, source_is_primary: same_route_model(source.as_ref(), Some(&primary)) })
     }
 
-    fn session(&self, id: &str, config: &Obj) -> Option<SessionFacts> {
+    async fn session(&self, id: &str, config: &Obj) -> Option<SessionFacts> {
         self.open(id).map(|session| self.facts(&session, config))
     }
 
     /// The agent's chats held here (home, room seats), then its home thread.
-    fn agent_sessions(&self, agent: &str, config: &Obj) -> Vec<SessionFacts> {
+    async fn agent_sessions(&self, agent: &str, config: &Obj) -> Vec<SessionFacts> {
         let mut sessions: Vec<Value> = self
             .directory
             .loaded_ids()
@@ -235,12 +235,12 @@ mod tests {
         let setup = SessionRouteSetup::new(directory.clone(), Arc::new(NoBots), calls.clone());
         let config = Obj::new();
 
-        let home = setup.session("sess_home_scout", &config).expect("held");
+        let home = setup.session("sess_home_scout", &config).await.expect("held");
         assert_eq!((home.acting_agent.as_str(), home.hopped), ("scout", false));
         assert_eq!(Value::Object(home.current), json!({ "provider": "openai", "model": "gpt-a" }));
-        assert!(setup.session("sess_w1", &config).is_none(), "a closed session is not found");
-        assert!(setup.session("sess_missing", &config).is_none());
-        let ids: Vec<String> = setup.agent_sessions("scout", &config).into_iter().map(|s| s.id).collect();
+        assert!(setup.session("sess_w1", &config).await.is_none(), "a closed session is not found");
+        assert!(setup.session("sess_missing", &config).await.is_none());
+        let ids: Vec<String> = setup.agent_sessions("scout", &config).await.into_iter().map(|s| s.id).collect();
         assert_eq!(ids, ["sess_home_scout"]);
         assert!(setup.caller_chain(&ThreadId::from("sess_home_scout"), &config).is_none(), "no own agent, no chain");
 

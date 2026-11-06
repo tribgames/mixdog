@@ -110,7 +110,7 @@ impl Sessions for AgentSessions {
         }
         let Some(handle) = self.directory.handle(&thread) else { return true };
         if let Some(run) = handle.cell.run.load_full() {
-            let _ = handle.cell.interrupt(&run.turn);
+            let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::close_session_reason(session_id, reason));
         }
         let queued: Vec<String> = handle.cell.queued.load().iter().cloned().collect();
         for qid in queued {

@@ -23,6 +23,7 @@ use mixdog_core_api::domain::process::ProcessExit;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_core_api::domain::tool::ToolContext;
+use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_protocol::ProcessHandle;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::DurabilityIo;
@@ -366,6 +367,9 @@ pub struct Job {
     pub started_ms: u64,
     /// The run limit (0: none), to say how much of it was left when the task was promoted.
     pub time_limit_ms: u64,
+    /// The turn review of the call that started the task: its end happens outside any call
+    /// context but is still a boundary for the folder it ran in.
+    pub review: Option<Arc<dyn TurnReviewApi>>,
     pub stdout_log: PathBuf,
     pub stderr_log: PathBuf,
     /// Waits that ran to their ceiling, so a repeated one can suggest a different move.
@@ -931,6 +935,7 @@ impl ExecRuntime {
         command: String,
         owner: ThreadId,
         time_limit_ms: u64,
+        review: Option<Arc<dyn TurnReviewApi>>,
         cancel: &CancellationToken,
     ) -> Result<Arc<Job>, ProcessError> {
         let handle = request.handle.clone();
@@ -952,6 +957,7 @@ impl ExecRuntime {
             handle: handle.clone(),
             started_ms,
             time_limit_ms,
+            review,
             stdout_log,
             stderr_log,
             wait_hits: AtomicU32::new(0),
@@ -1014,6 +1020,7 @@ impl ExecRuntime {
             handle: job.handle.clone(),
             started_ms: self.now_ms(),
             time_limit_ms: 0,
+            review: job.review.clone(),
             stdout_log: job.stdout_log.clone(),
             stderr_log: job.stderr_log.clone(),
             wait_hits: AtomicU32::new(0),
@@ -1056,6 +1063,8 @@ impl ExecRuntime {
         }
         let status = if cancelled { SpawnStatus::Cancelled } else { SpawnStatus::Completed };
         let _ = self.config.tasks.finish(&job.id, TaskOutcome { status, exit_code: None });
+        // The tracked task's end, like `completeBackgroundTask`: its folder may have changed.
+        super::settle::note_command_settled(job.review.as_ref(), &job.cwd);
         if let Some(notifier) = &self.config.notifier {
             let word = if cancelled { "cancelled" } else { "completed" };
             notifier.finished(&job.owner, "shell", &job.id, word, job.survivors_notification(word)).await;
@@ -1124,6 +1133,8 @@ async fn collect(
     );
     let _ = runtime.config.tasks.finish(&job.id, outcome);
     if detached {
+        // A background task's end is a boundary for the review of its folder (`completeBackgroundTask`).
+        super::settle::note_command_settled(job.review.as_ref(), &job.cwd);
         let output = job.read_output(ReadOptions { terminal: true, ..ReadOptions::default() });
         job.state().completion_output = Some(output.clone());
         if let Some(notifier) = &runtime.config.notifier {

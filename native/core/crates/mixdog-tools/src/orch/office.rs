@@ -53,8 +53,8 @@ pub enum WriteSide {
     Absent,
     /// The content, captured byte for byte.
     Bytes(Vec<u8>),
-    /// The file changed but its bytes were not captured: no undo.
-    Uncaptured,
+    /// The file changed but its bytes were not captured: no undo. size and reason are the worker's omitted marker (Node's { omitted, size, reason }).
+    Uncaptured { size: u64, reason: Option<String> },
 }
 
 /// A file an office call wrote, for the thread's turn review and undo.
@@ -138,12 +138,12 @@ fn map_ext_error(error: ExtError, wrote: bool) -> ToolError {
 }
 
 /// `writes` entries of the worker's receipt: `null` absent, `{bytes: n}` taken from the chunk
-/// stream, `{uncaptured: true}` nothing sent.
+/// stream, `{uncaptured: true, size, reason?}` nothing sent.
 fn side(spec: &Value, chunks: &mut std::vec::IntoIter<Vec<u8>>) -> WriteSide {
     if spec.is_null() {
         WriteSide::Absent
     } else if spec.get("uncaptured") == Some(&Value::Bool(true)) {
-        WriteSide::Uncaptured
+        WriteSide::Uncaptured { size: spec.get("size").and_then(Value::as_u64).unwrap_or(0), reason: spec.get("reason").and_then(Value::as_str).map(str::to_owned) }
     } else {
         WriteSide::Bytes(chunks.next().unwrap_or_default())
     }
@@ -249,12 +249,12 @@ mod tests {
     fn receipts_pair_chunks_in_before_then_after_order() {
         let writes = json!([
             {"path":"/a","before":null,"after":{"bytes":2}},
-            {"path":"/b","before":{"bytes":3},"after":{"uncaptured":true}},
+            {"path":"/b","before":{"bytes":3},"after":{"uncaptured":true,"size":9,"reason":"binary"}},
             {"path":"/c","before":{"uncaptured":true},"after":{"bytes":1}},
         ]);
         let got = receipts(&writes, vec![b"hi".to_vec(), b"old".to_vec(), b"x".to_vec()]);
         assert_eq!(got[0], WriteReceipt { path: "/a".into(), before: WriteSide::Absent, after: WriteSide::Bytes(b"hi".to_vec()) });
-        assert_eq!(got[1], WriteReceipt { path: "/b".into(), before: WriteSide::Bytes(b"old".to_vec()), after: WriteSide::Uncaptured });
+        assert_eq!(got[1], WriteReceipt { path: "/b".into(), before: WriteSide::Bytes(b"old".to_vec()), after: WriteSide::Uncaptured { size: 9, reason: Some("binary".into()) } });
         assert_eq!(got[2].after, WriteSide::Bytes(b"x".to_vec()));
     }
 

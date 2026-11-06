@@ -41,14 +41,14 @@ static IMAGE_FILE: LazyLock<JsRegex> = LazyLock::new(|| re(r"\.(?:png|jpe?g|gif|
 fn is_image_part(part: &ContentPart) -> bool {
     match part {
         ContentPart::Image(_) => true,
-        ContentPart::Text(text) => text.starts_with(STORED_IMAGE_PLACEHOLDER),
+        ContentPart::Text(text, _) => text.starts_with(STORED_IMAGE_PLACEHOLDER),
         _ => false,
     }
 }
 
 fn content_parts(content: &Content) -> Vec<ContentPart> {
     match content {
-        Content::Text(text) => vec![ContentPart::Text(text.clone())],
+        Content::Text(text) => vec![ContentPart::Text(text.clone(), false)],
         Content::Parts(parts) => parts.clone(),
     }
 }
@@ -60,7 +60,7 @@ fn with_parts(content: &Content, parts: Vec<ContentPart>) -> Content {
             parts
                 .iter()
                 .map(|part| match part {
-                    ContentPart::Text(text) => text.as_str(),
+                    ContentPart::Text(text, _) => text.as_str(),
                     _ => "",
                 })
                 .collect::<Vec<_>>()
@@ -153,8 +153,8 @@ fn observation_of(message: &AgentMessage, call: Option<(&str, &JsonValue)>) -> O
             kind: Kind::Image { path: path.to_owned() },
         });
     }
-    let text_index = parts.iter().position(|p| matches!(p, ContentPart::Text(_)) && !is_image_part(p))?;
-    let ContentPart::Text(text) = &parts[text_index] else {
+    let text_index = parts.iter().position(|p| matches!(p, ContentPart::Text(_, _)) && !is_image_part(p))?;
+    let ContentPart::Text(text, _) = &parts[text_index] else {
         return None;
     };
     let text = text.clone();
@@ -331,7 +331,7 @@ pub fn supersede_observation(message: &AgentMessage, found: &Found, origin: &str
         let text = format!(
             "[Image read of {path} superseded: a newer read of this file follows. Read the file again to view it. {origin}]"
         );
-        out.message.content = with_parts(content, vec![ContentPart::Text(text)]);
+        out.message.content = with_parts(content, vec![ContentPart::Text(text, false)]);
         return out;
     }
     let text = match &found.kind {
@@ -382,7 +382,7 @@ pub fn supersede_observation(message: &AgentMessage, found: &Found, origin: &str
         .enumerate()
         .filter_map(|(index, part)| {
             if index == found.text_index {
-                Some(ContentPart::Text(text.clone()))
+                Some(ContentPart::Text(text.clone(), false))
             } else if is_image_part(part) {
                 None
             } else {

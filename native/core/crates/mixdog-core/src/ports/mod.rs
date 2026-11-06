@@ -3,6 +3,7 @@
 
 pub mod gate;
 pub mod memory_source;
+pub mod reactions;
 pub mod route;
 pub mod route_write;
 pub mod threads;

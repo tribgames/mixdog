@@ -440,8 +440,8 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
     let mut rendered: Vec<ContentPart> = Vec::new();
     for part in parts {
         match part {
-            ToolPart::Text(text) => rendered.push(ContentPart::Text(text)),
-            ToolPart::Json(value) => rendered.push(ContentPart::Text(value.to_string())),
+            ToolPart::Text(text) => rendered.push(ContentPart::Text(text, false)),
+            ToolPart::Json(value) => rendered.push(ContentPart::Text(value.to_string(), false)),
             ToolPart::Image { mime, data } => {
                 text_only = false;
                 let source = match data {
@@ -459,7 +459,7 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
         let joined = rendered
             .into_iter()
             .filter_map(|part| match part {
-                ContentPart::Text(text) => Some(text),
+                ContentPart::Text(text, _) => Some(text),
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -578,6 +578,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         files: Arc::clone(&env.tool_env.files),
         processes: Arc::clone(&env.tool_env.processes),
         options: Default::default(),
+        review: None,
     };
     // Node: arguments are coerced to the declared schema before the tool sees
     // them (a model that hands an object argument as its JSON text).

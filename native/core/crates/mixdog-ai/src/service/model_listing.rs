@@ -38,6 +38,9 @@ pub fn listing_value(record: &ModelRecord) -> Value {
     if let Some(window) = record.max_context_window {
         put("maxContextWindow", json!(window));
     }
+    if let Some(window) = record.runtime_context_window {
+        put("runtimeContextWindow", json!(window));
+    }
     if let Some(tokens) = record.output_tokens {
         put("outputTokens", json!(tokens));
     }

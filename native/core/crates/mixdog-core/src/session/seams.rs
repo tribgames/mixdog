@@ -416,6 +416,13 @@ pub struct RunStart {
     pub turn_messages: watch::Sender<Arc<Vec<Value>>>,
     /// Cancelled by `turn/interrupt` (RL §5.2): every await of the run selects on it.
     pub cancel: CancellationToken,
+    /// The same cancellation with the reason it was aborted for (Node's abort texts): the
+    /// run's `RunConfig.signal`.
+    pub signal: mixdog_agent::cancel::Cancel,
+    /// The turn's review: the run calls `start` once its workspace is final and installs
+    /// [`super::turn_snapshot::ReviewGate`] so no tool executes before the baseline; the actor
+    /// seals it at settle.
+    pub review: super::turn_snapshot::TurnSnapshot,
 }
 
 #[derive(Clone, Debug, PartialEq)]

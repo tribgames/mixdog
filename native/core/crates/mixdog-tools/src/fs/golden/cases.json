@@ -2544,6 +2544,42 @@
     }
   },
   {
+    "name": "patch-shattered-array-value",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "*** Begin Patch",
+      "*** Add File: e.txt": [
+        "+hello"
+      ],
+      "*** End Patch": "",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Create e.txt — +1 Line",
+    "isError": false,
+    "after": {
+      "e.txt": "hello\n"
+    }
+  },
+  {
+    "name": "patch-shattered-array-spaced",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "*** Begin Patch",
+      "*** Add File: e.txt": [
+        " +hello"
+      ],
+      "*** End Patch": "",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Create e.txt — +1 Line",
+    "isError": false,
+    "after": {
+      "e.txt": " +hello\n"
+    }
+  },
+  {
     "name": "patch-salvage-leading-blank",
     "tool": "apply_patch",
     "files": {
@@ -3485,6 +3521,601 @@
     "after": {
       "a.txt": "one\n",
       "b.txt": "two\n"
+    }
+  },
+  {
+    "name": "patch-base-below-cwd-v4a",
+    "tool": "apply_patch",
+    "files": {
+      "sub/a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>/sub"
+    },
+    "text": "  OK Modify a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "sub/a.txt": "ONE\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-base-below-cwd-two-files",
+    "tool": "apply_patch",
+    "files": {
+      "sub/a.txt": "one\n",
+      "sub/b.txt": "two\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** Update File: b.txt\n@@\n-two\n+TWO\n*** End Patch\n",
+      "base_path": "<ROOT>/sub"
+    },
+    "text": "apply_patch: applied 2 section(s)\n  OK Modify a.txt — +1/-1\n  OK Modify b.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "sub/a.txt": "ONE\n",
+      "sub/b.txt": "TWO\n"
+    }
+  },
+  {
+    "name": "patch-base-below-cwd-unified",
+    "tool": "apply_patch",
+    "files": {
+      "sub/d/a.txt": "one\n"
+    },
+    "input": {
+      "patch": "--- a/d/a.txt\n+++ b/d/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n",
+      "base_path": "<ROOT>/sub"
+    },
+    "text": "  OK Modify d/a.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "sub/d/a.txt": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-base-below-cwd-stale",
+    "tool": "apply_patch",
+    "files": {
+      "sub/a.txt": "one\n"
+    },
+    "input": {
+      "patch": "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-nope\n+X\n",
+      "base_path": "<ROOT>/sub"
+    },
+    "text": "Error: native patch failed — a/a.txt: hunk rejected in a/a.txt expected first old/context line in a.txt: \"nope\"; nearest line 1: \"one\"; use exact current lines, no stubs.\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "sub/a.txt": "one\n"
+    }
+  },
+  {
+    "name": "patch-base-below-cwd-rename",
+    "tool": "apply_patch",
+    "files": {
+      "sub/a.txt": "one\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: b.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>/sub"
+    },
+    "text": "OK b.txt (renamed from a.txt, ~2 lines touched, engine=v4a-rename)\n",
+    "isError": false,
+    "after": {
+      "sub/b.txt": "ONE\n"
+    }
+  },
+  {
+    "name": "patch-base-below-cwd-delete-create",
+    "tool": "apply_patch",
+    "files": {
+      "sub/old.txt": "x\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: old.txt\n*** Add File: new.txt\n+n\n*** End Patch\n",
+      "base_path": "<ROOT>/sub"
+    },
+    "text": "apply_patch: applied 2 section(s)\n  OK Delete old.txt — -1\n  OK Create new.txt — +1 Line",
+    "isError": false,
+    "after": {
+      "sub/new.txt": "n\n"
+    }
+  },
+  {
+    "name": "patch-out-of-base-unified",
+    "tool": "apply_patch",
+    "files": {},
+    "outside": {
+      "x.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify <OUT>/x.txt — +1 Line · -1 Line",
+    "isError": false,
+    "after": {},
+    "after_out": {
+      "x.txt": "ONE\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-out-of-base-unified-stale",
+    "tool": "apply_patch",
+    "files": {},
+    "outside": {
+      "x.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1 +1 @@\n-nope\n+X\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: hunk context not found in <OUT>/x.txt; expected first old/context line: \"nope\"; nearest line 1: \"one\"; use exact current lines, no stubs.\ncurrent file lines 1-2 (verbatim — build the retry from these):\n    1| one\n    2| two\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {},
+    "after_out": {
+      "x.txt": "one\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-out-of-base-unified-fuzz",
+    "tool": "apply_patch",
+    "files": {},
+    "outside": {
+      "x.txt": "alpha\nbeta\ngamma\ndelta\n"
+    },
+    "input": {
+      "patch": "--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1,4 +1,4 @@\n alpha\n betaX\n-gamma\n+GAMMA\n delta\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify <OUT>/x.txt — +1 Line · -1 Line",
+    "isError": false,
+    "after": {},
+    "after_out": {
+      "x.txt": "alpha\nbetaX\nGAMMA\ndelta\n"
+    }
+  },
+  {
+    "name": "patch-out-of-base-unified-overlap",
+    "tool": "apply_patch",
+    "files": {},
+    "outside": {
+      "x.txt": "a\nb\nc\nd\n"
+    },
+    "input": {
+      "patch": "--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1,2 +1,2 @@\n a\n-b\n+B\n@@ -2,2 +2,2 @@\n b\n-c\n+C\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: hunk context not found in <OUT>/x.txt; expected first old/context line: \"b\"; nearest line 2: \"b\"; use exact current lines, no stubs.\ncurrent file lines 1-4 (verbatim — build the retry from these):\n    1| a\n    2| b\n    3| c\n    4| d\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {},
+    "after_out": {
+      "x.txt": "a\nb\nc\nd\n"
+    }
+  },
+  {
+    "name": "patch-out-of-base-unified-no-newline",
+    "tool": "apply_patch",
+    "files": {},
+    "outside": {
+      "x.txt": "one\ntwo"
+    },
+    "input": {
+      "patch": "--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1,2 +1,2 @@\n one\n-two\n\\ No newline at end of file\n+TWO\n\\ No newline at end of file\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify <OUT>/x.txt — +1 Line · -1 Line",
+    "isError": false,
+    "after": {},
+    "after_out": {
+      "x.txt": "one\nTWO"
+    }
+  },
+  {
+    "name": "patch-out-of-base-unified-crlf",
+    "tool": "apply_patch",
+    "files": {},
+    "outside": {
+      "x.txt": "one\r\ntwo\r\n"
+    },
+    "input": {
+      "patch": "--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify <OUT>/x.txt — +1 Line · -1 Line",
+    "isError": false,
+    "after": {},
+    "after_out": {
+      "x.txt": "ONE\r\ntwo\r\n"
+    }
+  },
+  {
+    "name": "patch-out-of-base-unified-create",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "--- /dev/null\n+++ <OUT>/new.txt\n@@ -0,0 +1,2 @@\n+hello\n+world\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Create <OUT>/new.txt — +2 Lines",
+    "isError": false,
+    "after": {}
+  },
+  {
+    "name": "patch-out-of-base-unified-delete",
+    "tool": "apply_patch",
+    "files": {},
+    "outside": {
+      "x.txt": "x\ny\n"
+    },
+    "input": {
+      "patch": "--- <OUT>/x.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-x\n-y\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Delete <OUT>/x.txt — -2 Lines",
+    "isError": false,
+    "after": {},
+    "after_out": {}
+  },
+  {
+    "name": "patch-out-of-base-unified-delete-missing",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "--- <OUT>/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-x\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: ENOENT: no such file or directory, lstat '<OUT>\\gone.txt'\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {}
+  },
+  {
+    "name": "patch-out-of-base-unified-missing-update",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "--- <OUT>/gone.txt\n+++ <OUT>/gone.txt\n@@ -1 +1 @@\n-x\n+y\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: ENOENT: no such file or directory, lstat '<OUT>\\gone.txt'\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {}
+  },
+  {
+    "name": "patch-out-of-base-v4a",
+    "tool": "apply_patch",
+    "files": {},
+    "outside": {
+      "x.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: <OUT>/x.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify <OUT>/x.txt — +1 Line · -1 Line",
+    "isError": false,
+    "after": {},
+    "after_out": {
+      "x.txt": "ONE\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-out-of-base-v4a-overlap",
+    "tool": "apply_patch",
+    "files": {},
+    "outside": {
+      "x.txt": "a\nb\nc\nd\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: <OUT>/x.txt\n@@\n a\n-b\n+B\n@@\n b\n-c\n+C\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: hunk context not found in <OUT>/x.txt; expected first old/context line: \"b\"; nearest line 2: \"b\"; use exact current lines, no stubs.\ncurrent file lines 1-4 (verbatim — build the retry from these):\n    1| a\n    2| b\n    3| c\n    4| d\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {},
+    "after_out": {
+      "x.txt": "a\nb\nc\nd\n"
+    }
+  },
+  {
+    "name": "patch-utf16-bom-unified",
+    "tool": "apply_patch",
+    "files": {
+      "u.txt": {
+        "b64": "//5vAG4AZQANAAoAdAB3AG8ADQAKAA=="
+      }
+    },
+    "input": {
+      "patch": "--- a/u.txt\n+++ b/u.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify u.txt — +1 Line · -1 Line",
+    "isError": false,
+    "after": {
+      "u.txt": {
+        "b64": "//5PAE4ARQANAAoAdAB3AG8ADQAKAA=="
+      }
+    }
+  },
+  {
+    "name": "patch-utf16-bom-v4a",
+    "tool": "apply_patch",
+    "files": {
+      "u.txt": {
+        "b64": "//5vAG4AZQAKAHQAdwBvAAoA"
+      }
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: u.txt\n@@\n-two\n+TWO\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify u.txt — +1 Line · -1 Line",
+    "isError": false,
+    "after": {
+      "u.txt": {
+        "b64": "//5vAG4AZQAKAFQAVwBPAAoA"
+      }
+    }
+  },
+  {
+    "name": "patch-utf16-bom-stale",
+    "tool": "apply_patch",
+    "files": {
+      "u.txt": {
+        "b64": "//5vAG4AZQAKAHQAdwBvAAoA"
+      }
+    },
+    "input": {
+      "patch": "--- a/u.txt\n+++ b/u.txt\n@@ -1 +1 @@\n-nope\n+X\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: hunk context not found in u.txt; expected first old/context line: \"nope\"; nearest line 1: \"one\"; use exact current lines, no stubs.\ncurrent file lines 1-2 (verbatim — build the retry from these):\n    1| one\n    2| two\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "u.txt": {
+        "b64": "//5vAG4AZQAKAHQAdwBvAAoA"
+      }
+    }
+  },
+  {
+    "name": "patch-utf16-bomless-unified",
+    "tool": "apply_patch",
+    "files": {
+      "u.txt": {
+        "b64": "YQBsAHAAaABhACAAbwBuAGUACgBiAGUAdABhACAAdAB3AG8ACgBnAGEAbQBtAGEAIAB0AGgAcgBlAGUACgA="
+      }
+    },
+    "input": {
+      "patch": "--- a/u.txt\n+++ b/u.txt\n@@ -2 +2 @@\n-beta two\n+BETA\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify u.txt — +1 Line · -1 Line",
+    "isError": false,
+    "after": {
+      "u.txt": "a\u0000l\u0000p\u0000h\u0000a\u0000 \u0000o\u0000n\u0000e\u0000\n\u0000B\u0000E\u0000T\u0000A\u0000\n\u0000g\u0000a\u0000m\u0000m\u0000a\u0000 \u0000t\u0000h\u0000r\u0000e\u0000e\u0000\n\u0000"
+    }
+  },
+  {
+    "name": "patch-utf16-be-bom-v4a",
+    "tool": "apply_patch",
+    "files": {
+      "u.txt": {
+        "b64": "/v8AbwBuAGUACgB0AHcAbwAK"
+      }
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: u.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify u.txt — +1 Line · -1 Line",
+    "isError": false,
+    "after": {
+      "u.txt": {
+        "b64": "/v8ATwBOAEUACgB0AHcAbwAK"
+      }
+    }
+  },
+  {
+    "name": "patch-utf16-bom-delete",
+    "tool": "apply_patch",
+    "files": {
+      "u.txt": {
+        "b64": "//5vAG4AZQAKAA=="
+      }
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: u.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: native patch failed — a/u.txt: refusing hunkless delete: \\\\?\\<ROOT>\\u.txt is non-empty (10 byte(s) on disk); a delete entry with zero hunks may only remove a 0-byte file\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "u.txt": {
+        "b64": "//5vAG4AZQAKAA=="
+      }
+    }
+  },
+  {
+    "name": "patch-utf16-odd-length",
+    "tool": "apply_patch",
+    "files": {
+      "u.txt": {
+        "b64": "//5hAGI="
+      }
+    },
+    "input": {
+      "patch": "--- a/u.txt\n+++ b/u.txt\n@@ -1 +1 @@\n-a\n+A\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: u.txt is malformed UTF-16 (odd payload length) — refusing to rewrite it, because the dangling byte cannot be preserved.\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "u.txt": {
+        "b64": "//5hAGI="
+      }
+    }
+  },
+  {
+    "name": "patch-binary-update-v4a",
+    "tool": "apply_patch",
+    "files": {
+      "b.bin": {
+        "b64": "YQBigAAB"
+      }
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: b.bin\n@@\n-a\n+A\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A update target unreadable: b.bin (apply_patch: <ROOT>/b.bin is binary (NUL bytes without a decidable text encoding, 6 bytes) — refusing to edit or rename it, because its pre-patch bytes cannot be snapshotted for rollback. Replace or move it with a shell command instead.).",
+    "isError": true,
+    "after": {
+      "b.bin": {
+        "b64": "YQBigAAB"
+      }
+    }
+  },
+  {
+    "name": "patch-binary-update-unified",
+    "tool": "apply_patch",
+    "files": {
+      "b.bin": {
+        "b64": "YQBigAAB"
+      }
+    },
+    "input": {
+      "patch": "--- a/b.bin\n+++ b/b.bin\n@@ -1 +1 @@\n-a\n+A\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: <ROOT>/b.bin is binary (NUL bytes without a decidable text encoding, 6 bytes) — refusing to edit or rename it, because its pre-patch bytes cannot be snapshotted for rollback. Replace or move it with a shell command instead.",
+    "isError": true,
+    "after": {
+      "b.bin": {
+        "b64": "YQBigAAB"
+      }
+    }
+  },
+  {
+    "name": "patch-binary-update-unified-dry-run",
+    "tool": "apply_patch",
+    "files": {
+      "b.bin": {
+        "b64": "YQBigAAB"
+      }
+    },
+    "input": {
+      "patch": "--- a/b.bin\n+++ b/b.bin\n@@ -1 +1 @@\n-a\n+A\n",
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: b.bin is binary (NUL bytes without a decidable text encoding, 6 bytes) — refusing to edit or rename it, because its pre-patch bytes cannot be snapshotted for rollback. Replace or move it with a shell command instead.",
+    "isError": true,
+    "after": {
+      "b.bin": {
+        "b64": "YQBigAAB"
+      }
+    }
+  },
+  {
+    "name": "patch-binary-delete",
+    "tool": "apply_patch",
+    "files": {
+      "b.bin": {
+        "b64": "YQBigAAB"
+      },
+      "k.txt": "k\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: b.bin\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Delete b.bin",
+    "isError": false,
+    "after": {
+      "k.txt": "k\n"
+    }
+  },
+  {
+    "name": "patch-binary-delete-with-edit",
+    "tool": "apply_patch",
+    "files": {
+      "b.bin": {
+        "b64": "YQBigAAB"
+      },
+      "k.txt": "k\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: b.bin\n*** Update File: k.txt\n@@\n-k\n+K\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: applied 2 section(s)\n  OK Delete b.bin\n  OK Modify k.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "k.txt": "K\n"
+    }
+  },
+  {
+    "name": "patch-binary-delete-then-failure",
+    "tool": "apply_patch",
+    "files": {
+      "b.bin": {
+        "b64": "YQBigAAB"
+      },
+      "k.txt": "k\n",
+      "n.txt": "taken\n"
+    },
+    "input": {
+      "patch": "--- a/b.bin\n+++ /dev/null\n--- a/k.txt\n+++ b/k.txt\n@@ -1 +1 @@\n-k\n+K\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1 @@\n+hi\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: Add File target already exists: n.txt; read it and use Update File instead\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "b.bin": {
+        "b64": "YQBigAAB"
+      },
+      "k.txt": "k\n",
+      "n.txt": "taken\n"
+    }
+  },
+  {
+    "name": "patch-invalid-utf8-unified",
+    "tool": "apply_patch",
+    "files": {
+      "i.txt": {
+        "b64": "Yf8KYgo="
+      }
+    },
+    "input": {
+      "patch": "--- a/i.txt\n+++ b/i.txt\n@@ -2 +2 @@\n-b\n+B\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: i.txt is neither valid UTF-8 nor BOM-marked UTF-16 — refusing to rewrite it, because the edit would transcode every byte.\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "i.txt": {
+        "b64": "Yf8KYgo="
+      }
+    }
+  },
+  {
+    "name": "patch-invalid-utf8-v4a",
+    "tool": "apply_patch",
+    "files": {
+      "i.txt": {
+        "b64": "Yf8KYgo="
+      }
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: i.txt\n@@\n-b\n+B\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A update target unreadable: i.txt (apply_patch: <ROOT>/i.txt is neither valid UTF-8 nor BOM-marked UTF-16 — refusing to rewrite it, because the edit would transcode every byte.).",
+    "isError": true,
+    "after": {
+      "i.txt": {
+        "b64": "Yf8KYgo="
+      }
     }
   },
   {

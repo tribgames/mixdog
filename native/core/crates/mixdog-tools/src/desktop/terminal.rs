@@ -533,6 +533,15 @@ impl Tool for TerminalTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        // On every exit, a cancelled call included, the command is a turn boundary for the
+        // session's folder.
+        let _settled = crate::exec::settle::SettleGuard::new(ctx.review.clone(), ctx.cwd.as_path().to_string_lossy().into_owned());
+        self.run(ctx, args).await
+    }
+}
+
+impl TerminalTool {
+    async fn run(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let action = validate(&args).map_err(|m| invalid("action", m))?;
         let thread = &ctx.thread_id;
         let work = async {
@@ -595,6 +604,37 @@ mod tests {
         }
         // JavaScript white space does not slip a command past the policy.
         assert!(refusal("echo ok |\u{a0}sh").is_some());
+    }
+
+    struct QuietPort;
+
+    #[async_trait]
+    impl TerminalPort for QuietPort {
+        async fn list(&self, _: &ThreadId) -> Result<Vec<TabInfo>, PortError> {
+            Ok(Vec::new())
+        }
+        async fn read(&self, _: &ThreadId, _: Option<u64>, _: Option<u64>) -> Result<TerminalRead, PortError> {
+            Err(PortError::Invalid { field: "tab".into(), reason: "no such tab".into() })
+        }
+        async fn run(&self, _: &ThreadId, _: Option<u64>, _: &str) -> Result<TerminalRun, PortError> {
+            Err(PortError::Invalid { field: "tab".into(), reason: "no such tab".into() })
+        }
+    }
+
+    /// Every terminal call — answered, failed by the port, refused by the policy or invalid —
+    /// tells the turn review the session's folder.
+    #[tokio::test]
+    async fn a_finished_terminal_call_notes_the_session_folder_for_the_turn_review() {
+        let review = Arc::new(crate::exec::settle::RecordingReview::default());
+        let tool = TerminalTool::new(Arc::new(QuietPort), Arc::new(ExecPolicyGate::node()));
+        let mut ctx = crate::orch::tests::ctx();
+        ctx.review = Some(review.clone());
+        let _ = tool.call(&ctx, json!({"action": "list"})).await;
+        let _ = tool.call(&ctx, json!({"action": "read"})).await;
+        let _ = tool.call(&ctx, json!({"action": "run", "command": "shutdown now"})).await;
+        let _ = tool.call(&ctx, json!({"action": "nope"})).await;
+        let folder = ctx.cwd.as_path().to_string_lossy().into_owned();
+        assert_eq!(*review.notes.lock().unwrap(), vec![Some(vec![folder]); 4]);
     }
 
     #[test]

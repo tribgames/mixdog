@@ -151,8 +151,19 @@ fn item_completed(thread: &ThreadId, row: &ItemRecord, item: &ThreadItem) -> Not
     )
 }
 
+/// The execution of a queued completion whose copy shows no row of its own.
+fn suppressed_execution(entry: &Value) -> Option<String> {
+    if entry.get("suppressDisplay") != Some(&Value::Bool(true)) {
+        return None;
+    }
+    entry.pointer("/execution/id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned)
+}
+
 /// A request routed to the actor.
 pub(crate) enum Inbox {
+    /// A completion as the session's listeners receive it (`{content, meta}`): shown as a live
+    /// card when the card gates admit it.
+    CompletionCard { content: String, meta: Value },
     /// `TaskNotifier`: a detached job of this thread finished.
     TaskNotification {
         surface: String,
@@ -207,7 +218,7 @@ pub(crate) enum Init {
 
 struct RunSlot {
     turn: TurnId,
-    cancel: CancellationToken,
+    cancel: mixdog_agent::cancel::Cancel,
     input: watch::Sender<InputState>,
     /// The run's input never became durable: no terminal record follows.
     start_failed: bool,
@@ -244,6 +255,12 @@ pub(crate) struct SessionActor {
     ops: OpTable,
     run: Option<RunSlot>,
     steer_marked: Vec<QueuedId>,
+    /// Which completions showed a live card (Node's per-session execution dedup).
+    cards: super::cards::CardGate,
+    /// Executions the session's listener took: their queued copy is `suppressDisplay`.
+    listened: std::collections::HashSet<String>,
+    /// Executions whose queued copy a turn took in: its input row shows no row live.
+    suppressed: std::collections::HashSet<String>,
     /// Completions a wake drained that still wait for their own turns, oldest first.
     wake_tail: Vec<String>,
     generation: u64,
@@ -324,6 +341,9 @@ impl SessionActor {
             ops: OpTable::default(),
             run: None,
             steer_marked: Vec::new(),
+            cards: Default::default(),
+            listened: Default::default(),
+            suppressed: Default::default(),
             wake_tail: Vec::new(),
             generation: 0,
             pending: false,
@@ -432,6 +452,7 @@ impl SessionActor {
         effects: Vec<Effect>,
     ) {
         let record = Arc::new(record);
+        let shown = !matches!(display, Display::Suppressed);
         let change = Change::Record {
             record: record.clone(),
             display,
@@ -440,7 +461,7 @@ impl SessionActor {
         let entry = self
             .outbox
             .push(Some((record.clone(), class)), change, notes, effects);
-        self.submit_encode(entry, record);
+        self.submit_encode(entry, record, shown);
     }
 
     /// A view-only change, released in order with the records around it.
@@ -449,7 +470,8 @@ impl SessionActor {
         self.outbox.push(None, change, notes, Vec::new());
     }
 
-    fn submit_encode(&mut self, entry: u64, record: Arc<Record>) {
+    /// `shown`: whether the record's items show live (a suppressed row shows none).
+    fn submit_encode(&mut self, entry: u64, record: Arc<Record>, shown: bool) {
         let deps = self.deps.clone();
         let jobs = self.jobs_tx.clone();
         let generation = self.generation;
@@ -459,6 +481,9 @@ impl SessionActor {
                 let Record::Item(row) = &*record else {
                     return (encoded, Vec::new(), Vec::new());
                 };
+                if !shown {
+                    return (encoded, Vec::new(), Vec::new());
+                }
                 let shown = deps.transcript.items(lane, row);
                 // An update's frame carries the merged item: it is built at release.
                 let notes = shown
@@ -797,7 +822,7 @@ impl SessionActor {
                     if let Some(run) = &mut self.run {
                         run.start_failed = true;
                         run.input.send_replace(InputState::Failed);
-                        run.cancel.cancel();
+                        run.cancel.abort_default();
                     }
                 }
                 Effect::ItemAck(tx) => {
@@ -965,7 +990,8 @@ impl SessionActor {
             Ctl::Shutdown(done) => {
                 self.cell.closed.store(true, SeqCst);
                 if let Some(run) = &self.run {
-                    run.cancel.cancel();
+                    // Teardown's `quiesce('cli-exit')`.
+                    run.cancel.abort(&mixdog_agent::cancel::session_closed(self.id.as_str(), "runtime close (reason=cli-exit)"));
                 }
                 let _ = done.send(self.close_ingest());
             }
@@ -1184,7 +1210,10 @@ impl SessionActor {
             prompt: PromptContent::Text(completions::text(&next.entry)),
             options: None,
         };
-        self.start_run_with(input, completions::input_row(&next.entry), None, None, None);
+        if let Some(execution) = suppressed_execution(&next.entry) {
+            self.suppressed.insert(execution);
+        }
+        self.start_run_with(input, completions::input_row(&next.entry), None, None, None, true);
     }
 
     /// A route saved while a turn runs is held for the next turn (`pendingRoute`, written
@@ -1228,11 +1257,12 @@ impl SessionActor {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
                 }
+                let display = self.row_display(item.role.as_deref(), &item.body);
                 match self.item_record(&turn, item, None) {
                     Ok(record) => self.accept_record(
                         record,
                         Class::Normal,
-                        Display::None,
+                        display,
                         Vec::new(),
                         vec![Effect::ItemAck(ack)],
                     ),
@@ -1378,6 +1408,13 @@ impl SessionActor {
                     }
                 }
                 for qid in &taken {
+                    // A completion the listener already showed comes back as the turn's row
+                    // with no row of its own (`suppressDisplay`).
+                    if let Some(q) = self.acked.queue.iter().find(|q| q.qid == qid.as_str())
+                        && let Some(execution) = suppressed_execution(&q.entry)
+                    {
+                        self.suppressed.insert(execution);
+                    }
                     self.accept_record(
                         dequeue(qid.as_str()),
                         Class::Control,
@@ -1388,6 +1425,16 @@ impl SessionActor {
                 }
                 let _ = reply.send(out);
             }
+        }
+    }
+
+    /// The live display of a user row: the row of a completion the listener showed is durable
+    /// but shows no row of its own.
+    fn row_display(&mut self, role: Option<&str>, body: &Value) -> Display {
+        let execution = (role == Some("user")).then(|| body.pointer("/meta/execution/id").and_then(Value::as_str)).flatten();
+        match execution {
+            Some(execution) if self.suppressed.remove(execution) => Display::Suppressed,
+            _ => Display::None,
         }
     }
 
@@ -1498,6 +1545,7 @@ impl SessionActor {
 
     fn on_inbox(&mut self, msg: Inbox) {
         match msg {
+            Inbox::CompletionCard { content, meta } => self.completion_card(&content, &meta),
             Inbox::TaskNotification {
                 surface,
                 task_id,
@@ -1955,17 +2003,52 @@ impl SessionActor {
         })
     }
 
+    /// `pushAsyncAgentResponse` behind Node's card gates (`execution-delivery.mjs`): the
+    /// completion's live card, a new item or the last inbound agent card extended. The card is
+    /// view state: no record, so a reopen shows the completion where its turn took it in.
+    fn completion_card(&mut self, content: &str, meta: &Value) {
+        let Some(card) = self.cards.admit(content, meta) else { return };
+        // The listener queues this completion's model copy itself, with no row of its own
+        // (`suppressDisplay`): its card (or the earlier one it would duplicate) stands for it.
+        if let Some(execution) = meta.get("execution_id").and_then(Value::as_str).filter(|e| !e.is_empty()) {
+            self.listened.insert(execution.to_owned());
+        }
+        if !card {
+            return;
+        }
+        let previous = match self.projected.live.last() {
+            Some(live) => Some(live.item.clone()),
+            None => self.projected.window.back().map(|row| (*row.item).clone()),
+        };
+        let completion = super::transcript::Completion { content, meta };
+        let id = new_id();
+        let Some(delivery) = super::transcript::agent_response(&completion, &id, previous.as_ref(), self.deps.clock.now_ms())
+        else {
+            return;
+        };
+        let (super::transcript::Delivery::Push(card) | super::transcript::Delivery::Patch(card)) = delivery;
+        let note = Note::new(
+            "item/completed",
+            &ItemNotificationParams { thread_id: self.id.clone(), turn_id: TurnId::from(""), item: card.clone() },
+        );
+        self.accept_view(Change::Card(card), vec![note]);
+    }
+
     /// A detached job's completion joins the queue as today's completion entry
     /// (`enqueuePendingMessage`) and ends the running turn's passive wait; the turn takes it at
     /// its next model-call boundary ([`RunPort::take_steers`]). An idle thread is woken: the
     /// completion starts a turn (`createCompletionWakeScheduler`, `notification-bus.mjs:80-96`),
     /// unless the thread was opened only for it (Node wakes only the live session).
     fn task_notification(&mut self, surface: &str, task_id: String, status: String, text: String, live: bool) {
-        let Some((qid, entry)) =
+        let Some((qid, mut entry)) =
             completions::entry(surface, &task_id, &status, &text, self.deps.clock.now_ms())
         else {
             return;
         };
+        // Queued by the listener that showed it (`execution-delivery.mjs` `suppressDisplay`).
+        if self.listened.remove(&task_id) {
+            entry["suppressDisplay"] = Value::Bool(true);
+        }
         // The same completion queued twice is one entry (`pendingIdStillQueued`).
         if self.projected.queue.iter().any(|q| q.qid == qid) {
             return;
@@ -1998,7 +2081,7 @@ impl SessionActor {
         prompt: Option<String>,
     ) {
         let body = self.deps.transcript.user_message(&input);
-        self.start_run_with(input, body, op_ref, reply, prompt);
+        self.start_run_with(input, body, op_ref, reply, prompt, false);
     }
 
     /// Whether a completion may wake this idle thread: the session did not turn
@@ -2009,7 +2092,8 @@ impl SessionActor {
             && self.acked.header.get(super::session_options::AUTO_WAKE_COMPLETIONS) != Some(&Value::Bool(false))
     }
 
-    /// [`Self::start_run`] over an input row already built.
+    /// [`Self::start_run`] over an input row already built. `wake`: a completion wake, which
+    /// continues the turn that launched the worker (`ask('', {continueTurn: true})`).
     fn start_run_with(
         &mut self,
         input: TurnInput,
@@ -2017,6 +2101,7 @@ impl SessionActor {
         op_ref: Option<OpRef>,
         reply: Option<Effect>,
         prompt: Option<String>,
+        wake: bool,
     ) {
         let turn = TurnId::from(new_id());
         let facts = self.user_facts(&mut body);
@@ -2026,7 +2111,17 @@ impl SessionActor {
             op.result = Json::try_from(value.clone()).ok();
         }
         let input_iid = mixdog_core_api::ids::ItemId::from(new_id());
+        // The first submitted row is the turn's checkpoint; a wake submits none. Its key rides
+        // the row's transcript metadata so the change record maps back to it (`stampCheckpoint`).
+        let checkpoint = if wake { "" } else { input_iid.as_str() };
+        if !checkpoint.is_empty()
+            && let Some(meta) = body.pointer_mut("/meta/transcript").and_then(Value::as_object_mut)
+        {
+            meta.insert("checkpointId".into(), Value::String(checkpoint.to_owned()));
+        }
+        let review = super::turn_snapshot::TurnSnapshot::new(self.deps.turn_review.clone(), self.id.as_str(), checkpoint, wake);
         let input_body = body.clone();
+        let input_display = self.row_display(Some("user"), &input_body);
         let item = Record::Item(ItemRecord {
             iid: id(input_iid.as_str()),
             turn: Some(id(turn.as_str())),
@@ -2040,7 +2135,7 @@ impl SessionActor {
             refs: Vec::new().try_into().expect("empty list fits"),
             body: Slot::Inline(body),
         });
-        self.accept_record(item, Class::Normal, Display::None, Vec::new(), Vec::new());
+        self.accept_record(item, Class::Normal, input_display, Vec::new(), Vec::new());
         self.deps.turn_starts.turn_started(&self.id);
         let started = Record::Run(RunRecord {
             rid: id(turn.as_str()),
@@ -2055,7 +2150,8 @@ impl SessionActor {
         if let Some(Effect::Reply { op, tx, .. }) = reply {
             effects.push(Effect::Reply { op, tx, value });
         }
-        let cancel = CancellationToken::new();
+        let token = CancellationToken::new();
+        let cancel = mixdog_agent::cancel::Cancel::from_token(&token);
         let (input_tx, input_rx) = watch::channel(InputState::Pending);
         let jobs = self.jobs_tx.clone();
         let marks = self.deps.sensitive.on_marked(
@@ -2121,11 +2217,15 @@ impl SessionActor {
             surface: self.surface.subscribe(),
             progress: self.cell.progress.clone(),
             turn_messages: self.cell.turn_messages.clone(),
-            cancel,
+            cancel: token,
+            signal: cancel.clone(),
+            review: review.clone(),
         });
         let ctl = self.cell.ctl_tx.clone();
         mixdog_rt::spawn("session-run", TaskClass::Work, async move {
             let outcome = future.await;
+            // The turn's review is sealed before the turn reports settled.
+            review.finish(cancel.is_aborted()).await;
             let _ = ctl.send(Ctl::RunEnded { turn, outcome }).await;
         });
     }

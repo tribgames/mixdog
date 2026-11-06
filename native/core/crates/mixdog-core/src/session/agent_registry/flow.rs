@@ -157,34 +157,44 @@ impl SessionCompletions {
         Self { directory }
     }
 
-    fn enqueue(&self, session_id: &str, text: &str, meta: &Value) -> bool {
+    /// Shows the completion to the live session (`card`), then queues its model-visible text, in
+    /// that order, on one task. The queue write opens a session not loaded.
+    fn deliver(&self, target: String, text: &str, meta: Value, card: bool, queue: Option<String>) {
+        let directory = self.directory.clone();
+        let content = text.to_owned();
+        drop(mixdog_rt::spawn("session-completion", mixdog_rt::TaskClass::Work, async move {
+            let thread = ThreadId::from(target.as_str());
+            if card {
+                directory.show_completion(&thread, content, meta.clone()).await;
+            }
+            if let Some(visible) = queue {
+                let field = |key: &str| clean(meta.get(key));
+                let (surface, task, status) = (field("execution_surface"), field("execution_id"), field("status"));
+                directory.queue_completion(&thread, &surface, &task, &status, visible).await;
+            }
+        }));
+    }
+}
+
+impl WorkerInbox for SessionCompletions {
+    /// `enqueueCompletionMessage(sessionId, text, meta)`: the worker's own queue only (no
+    /// listener sees it).
+    fn enqueue_completion(&self, session_id: &str, text: &str, meta: &Value) -> bool {
         let target = clean_str(session_id);
         let Some(visible) = model_visible(text, meta) else { return false };
         if target.is_empty() {
             return false;
         }
-        let surface = clean(meta.get("execution_surface"));
-        let task = clean(meta.get("execution_id"));
-        let status = clean(meta.get("status"));
-        let directory = self.directory.clone();
-        // The queue write runs on the session, opened when not loaded.
-        drop(mixdog_rt::spawn("session-completion", mixdog_rt::TaskClass::Work, async move {
-            directory.finished(&ThreadId::from(target.as_str()), &surface, &task, &status, visible).await;
-        }));
+        self.deliver(target, text, meta.clone(), false, Some(visible));
         true
-    }
-}
-
-impl WorkerInbox for SessionCompletions {
-    /// `enqueueCompletionMessage(sessionId, text, meta)`.
-    fn enqueue_completion(&self, session_id: &str, text: &str, meta: &Value) -> bool {
-        self.enqueue(session_id, text, meta)
     }
 }
 
 impl OwnerNotify for SessionCompletions {
     /// `notifyOwner` → `notifySessionCompletion(owner, text, meta)`: the owner's own id as the
-    /// caller, never a routing session; a closed owner keeps nothing for the model.
+    /// caller, never a routing session. The live owner shows the card (a bodyless preview too);
+    /// the model-visible text is queued unless the owner is closed. `true` when the live owner
+    /// took it or it was queued.
     fn notify(&self, owner_session_id: &str, text: &str, meta: &Value) -> bool {
         let owner = clean_str(owner_session_id);
         if owner.is_empty() {
@@ -193,19 +203,22 @@ impl OwnerNotify for SessionCompletions {
         let mut owner_meta = meta.as_object().cloned().unwrap_or_default();
         owner_meta.insert("caller_session_id".into(), Value::String(owner.clone()));
         owner_meta.shift_remove("routing_session_id");
-        let closed = self
-            .directory
-            .handle(&ThreadId::from(owner.as_str()))
-            .is_some_and(|handle| handle.cell.header.load().get("closed") == Some(&Value::Bool(true)));
-        if closed {
-            return false;
+        let owner_meta = Value::Object(owner_meta);
+        let handle = self.directory.handle(&ThreadId::from(owner.as_str()));
+        let live = handle.is_some();
+        let closed = handle.is_some_and(|handle| handle.cell.header.load().get("closed") == Some(&Value::Bool(true)));
+        let queue = if closed { None } else { model_visible(text, &owner_meta) };
+        let queued = queue.is_some();
+        if live || queued {
+            self.deliver(owner, text, owner_meta, live, queue);
         }
-        self.enqueue(&owner, text, &Value::Object(owner_meta))
+        live || queued
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use mixdog_protocol::ThreadItem as ThreadItemKind;
     use serde_json::json;
 
     use super::*;
@@ -320,7 +333,87 @@ mod tests {
             })
         };
         crate::session::tests::eventually(|| queued().then_some(())).await;
-        assert!(!completions.notify("sess_owner", envelope, &meta), "a closed owner keeps nothing for the model");
+        let owner = ThreadId::from("sess_owner");
+        assert!(completions.notify("sess_owner", envelope, &meta), "the live owner takes it");
+        let owner_queued = rig.store.records(&owner).iter().any(|(_, record)| matches!(record, mixdog_store::schema::record::Record::Queue(_)));
+        assert!(!owner_queued, "a closed owner keeps nothing for the model");
         assert!(!completions.notify(" ", envelope, &meta));
+    }
+
+    /// `suppressDisplay`: the completion the live session showed wakes a turn whose input row is
+    /// durable but adds no row; one queued without a listener shows its row when taken in.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_shown_completions_turn_row_adds_no_second_row() {
+        use crate::session::tests::eventually;
+        use crate::session::tests::idle;
+        use crate::session::tests::start_thread;
+        use mixdog_store::schema::record::Record;
+        use mixdog_tools::exec::TaskNotifier;
+
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = start_thread(&directory).await;
+        let rows = |records: &[(u64, Record)]| {
+            records.iter().filter(|(_, r)| matches!(r, Record::Item(item) if item.role.as_ref().is_some_and(|r| r.as_str() == "user"))).count()
+        };
+        directory.finished(&handle.id, "agent", "t1", "completed", ENVELOPE.to_owned()).await;
+        eventually(|| (rows(&rig.store.records(&handle.id)) == 1 && idle(&handle)).then_some(())).await;
+        let items = handle.cell.view.load_full().items.clone();
+        assert_eq!(items.len(), 1, "the card alone: {items:?}");
+        assert!(matches!(items[0].as_ref(), ThreadItemKind::ToolCall { .. }));
+
+        // A worker's own completion has no listener: its row shows when its turn takes it in.
+        let completions = SessionCompletions::new(directory.clone());
+        let other = ENVELOPE.replace("t1", "t2");
+        let meta = json!({ "execution_surface": "agent", "execution_id": "t2", "status": "completed" });
+        assert!(completions.enqueue_completion(handle.id.as_str(), &other, &meta));
+        eventually(|| (rows(&rig.store.records(&handle.id)) == 2 && idle(&handle)).then_some(())).await;
+        eventually(|| (handle.cell.view.load_full().items.len() == 2).then_some(())).await;
+    }
+
+    /// The live owner's cards (`execution-delivery.mjs`): a failed bodyless preview shows a card,
+    /// a successful one does not, and the body that follows shows its own card.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_live_owner_shows_the_cards_node_shows() {
+        use crate::session::tests::eventually;
+        use crate::session::tests::start_thread;
+        use mixdog_tools::exec::TaskNotifier;
+
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = start_thread(&directory).await;
+        let completions = SessionCompletions::new(directory.clone());
+        let cards = || {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .filter(|item| matches!(item.as_ref(), ThreadItemKind::ToolCall { .. }))
+                .count()
+        };
+        let preview = |status: &str| {
+            format!("background task\ntask_id: t1\nsurface: agent\nstatus: {status}\nstarted: 2026-01-01T00:00:00.000Z")
+        };
+        let preview_meta = |status: &str| {
+            json!({ "type": "agent_task_result", "model_visible": false, "execution_surface": "agent", "execution_id": "t1", "status": status })
+        };
+        assert!(completions.notify(handle.id.as_str(), &preview("completed"), &preview_meta("completed")));
+        assert!(completions.notify(handle.id.as_str(), &preview("failed"), &preview_meta("failed")));
+        eventually(|| (cards() == 1).then_some(())).await;
+        let has_body = || {
+            handle.cell.view.load_full().items.iter().any(|item| match item.as_ref() {
+                ThreadItemKind::ToolCall { meta, .. } => meta.ext.get("agentResponseHasBody") == Some(&Value::Bool(true)),
+                _ => false,
+            })
+        };
+        let body = "<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>Agent \"rev\" completed</summary>\n<result>\nall done\n</result>\n</task-notification>";
+        directory.finished(&handle.id, "agent", "t1", "completed", body.to_owned()).await;
+        // The body of the same execution replaces its preview on the tail card.
+        eventually(|| has_body().then_some(())).await;
+        directory.finished(&handle.id, "agent", "t1", "completed", body.to_owned()).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(cards(), 1, "one card for the execution; its body shows once");
     }
 }

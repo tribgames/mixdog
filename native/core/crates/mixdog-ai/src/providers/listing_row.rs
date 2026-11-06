@@ -27,6 +27,8 @@ pub fn record(row: Map<String, Value>) -> ModelRecord {
     record.supports_prompt_caching = flag("supportsPromptCaching");
     record.reasoning_content_field = text("reasoningContentField");
     record.context_window = count("contextWindow");
+    record.max_context_window = count("maxContextWindow");
+    record.runtime_context_window = count("runtimeContextWindow");
     record.max_output_tokens = count("outputTokens");
     record.supports_reasoning = flag("supportsReasoning");
     record.reasoning_levels = typed(&row, "reasoningLevels");

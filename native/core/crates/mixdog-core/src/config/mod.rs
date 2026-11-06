@@ -62,6 +62,8 @@ pub use settings::NoEffects;
 pub use settings::Settings;
 pub use settings::SettingsEffects;
 pub use settings::SettingsEnv;
+pub(crate) use agent_routes::bot_migration;
+pub(crate) use agent_routes::is_store_bot;
 pub use agent_routes::AgentRoutes;
 pub use agent_routes::MIXY_RUNTIME_ID;
 pub use agent_routes::RouteHome;

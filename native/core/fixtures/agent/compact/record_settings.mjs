@@ -10,16 +10,15 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { commitStage, parseArgs, refreshSetManifest, resolveTree, stageSet } from '../../../../../benchmarks/rust-core/recorders/lib/common.mjs';
+import { parseArgs, refreshSetManifest, resolveTree } from '../../../../../benchmarks/rust-core/recorders/lib/common.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const nodeRoot = resolveTree(parseArgs());
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-settings-golden-'));
-// The `agent` set is shared with the agent-loop recorders: stage a copy, overwrite only this recorder's goldens,
-// re-list the shared manifest, then swap the finished copy in.
+// The `agent` set is shared with the agent-loop recorders, which record beside this one: write only this
+// recorder's own goldens, then re-list the shared manifest. Nothing else in the set is copied or swapped.
 const agentDir = resolve(here, '..');
-const stage = stageSet(agentDir, []);
-const outDir = join(stage, 'compact');
+const outDir = here;
 mkdirSync(join(outDir, 'golden'), { recursive: true });
 const load = (rel) => import(pathToFileURL(join(nodeRoot, rel)).href);
 
@@ -223,5 +222,4 @@ writeFileSync(
   join(outDir, 'golden', 'settings.json'),
   `${JSON.stringify({ configKeys: keys.COMPACTION_CONFIG_KEYS, cases, reap }, null, 2)}\n`
 );
-refreshSetManifest(stage, nodeRoot);
-commitStage(stage, agentDir);
+refreshSetManifest(agentDir, nodeRoot);

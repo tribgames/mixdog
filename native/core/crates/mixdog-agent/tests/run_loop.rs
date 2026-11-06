@@ -1334,7 +1334,7 @@ async fn a_stored_text_reference_reaches_the_request_as_its_text_and_stays_a_ref
     let text_ref = reference("text-ref", Some(TextAttachment { kind: Some("file".into()) }));
     let image_ref = reference("image-ref", None);
     let prompt = AgentMessage::user_content(Content::Parts(vec![
-        ContentPart::Text("see".into()),
+        ContentPart::Text("see".into(), false),
         text_ref,
         image_ref.clone(),
     ]));
@@ -1345,8 +1345,8 @@ async fn a_stored_text_reference_reaches_the_request_as_its_text_and_stays_a_ref
     assert_eq!(
         sent,
         &Content::Parts(vec![
-            ContentPart::Text("see".into()),
-            ContentPart::Text("<file name=\"notes.md\">\nbody\n</file>".into()),
+            ContentPart::Text("see".into(), false),
+            ContentPart::Text("<file name=\"notes.md\">\nbody\n</file>".into(), false),
             image_ref,
         ])
     );
@@ -1362,7 +1362,7 @@ async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
     let prompt = AgentMessage::user_content(Content::Parts(vec![
-        ContentPart::Text("look".into()),
+        ContentPart::Text("look".into(), false),
         ContentPart::Image(ImageSource::Url("u".into())),
     ]));
     let output = finish(h.run(config(), vec![], vec![prompt])).await;
@@ -1372,8 +1372,8 @@ async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
     assert_eq!(
         requests[1].messages[0].content,
         Content::Parts(vec![
-            ContentPart::Text("look".into()),
-            ContentPart::Text(mixdog_agent::recovery_placeholder().into()),
+            ContentPart::Text("look".into(), false),
+            ContentPart::Text(mixdog_agent::recovery_placeholder().into(), false),
         ])
     );
     // the stored transcript keeps the image
@@ -1618,6 +1618,7 @@ async fn request_media_arms_a_compaction_that_need_not_reduce() {
 
 #[tokio::test]
 async fn a_one_shot_call_retries_through_the_decider_keeps_its_cap_and_sends_rows_unwrapped() {
+    use mixdog_agent::one_shot::CallShape;
     use mixdog_agent::one_shot::OneShot;
     use mixdog_agent::one_shot::OneShotCall;
     let mut transient = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
@@ -1627,7 +1628,7 @@ async fn a_one_shot_call_retries_through_the_decider_keeps_its_cap_and_sends_row
         turn(vec![text("SUMMARY"), done(StopReason::EndTurn)]),
     ]);
     let one = OneShot::new(&h.run_env(), h.tool_env(), h.provider.clone(), h.cancel.clone());
-    let call = OneShotCall { model: "m".into(), max_output_tokens: 4096, fast: true };
+    let call = OneShotCall { model: "m".into(), max_output_tokens: 4096, fast: true, shape: CallShape::compaction() };
     // a prompt that the loop would wrap as a synthetic row goes out as written
     let prompt = "[mixdog-runtime] not a real runtime row";
     let out = one.call_prompt(&call, "sys", prompt).await.expect("one shot");
@@ -1651,16 +1652,78 @@ async fn a_cancelled_one_shot_call_is_an_aborted_summary_failure() {
     use mixdog_agent::compact::summary_run::SummaryCall;
     use mixdog_agent::compact::summary_run::SummaryFailure;
     use mixdog_agent::compact::summary_run::SummarySender;
+    use mixdog_agent::one_shot::CallShape;
     use mixdog_agent::one_shot::OneShot;
     let h = Harness::new(vec![turn(vec![text("par"), Step::Hang])]);
     let one = OneShot::new(&h.run_env(), h.tool_env(), h.provider.clone(), h.cancel.clone());
-    let call = SummaryCall { model: "m".into(), max_output_tokens: 4096, fast: false };
+    let call = SummaryCall { model: "m".into(), max_output_tokens: 4096, fast: false, shape: CallShape::compaction() };
     let task = tokio::spawn(async move { one.send("sys", "prompt", &call).await });
     while h.provider.requests().is_empty() {
         tokio::task::yield_now().await;
     }
     h.cancel.cancel();
     assert!(matches!(task.await.unwrap(), Err(SummaryFailure::Aborted)));
+}
+
+fn overloaded() -> Attempt {
+    let mut error = ProviderError::new(ErrorKind::Overloaded, DeliveryState::NotSent);
+    error.status = Some(529);
+    error.message = "overloaded".into();
+    Attempt::Reject(error)
+}
+
+fn shaped(model: &str, shape: mixdog_agent::one_shot::CallShape) -> mixdog_agent::one_shot::OneShotCall {
+    mixdog_agent::one_shot::OneShotCall { model: model.into(), max_output_tokens: 400, fast: false, shape }
+}
+
+/// The compaction summary keeps Node's values: kind `compaction`, effort `low`, the provider's own
+/// cache policy, and an overload retried like any transient failure.
+#[tokio::test]
+async fn a_compaction_call_keeps_its_kind_effort_cache_and_retries_an_overload() {
+    use mixdog_agent::one_shot::{CallShape, OneShot};
+    let h = Harness::new(vec![overloaded(), turn(vec![text("SUMMARY"), done(StopReason::EndTurn)])]);
+    let one = OneShot::new(&h.run_env(), h.tool_env(), h.provider.clone(), h.cancel.clone());
+    let out = one.call_prompt(&shaped("m", CallShape::compaction()), "sys", "p").await.expect("retried");
+    assert_eq!(out.text, "SUMMARY");
+    let requests = h.provider.requests();
+    assert_eq!(requests.len(), 2, "the 529 is retried");
+    for r in &requests {
+        assert_eq!(r.options.request_kind.as_deref(), Some("compaction"));
+        assert_eq!(r.options.effort.as_deref(), Some("low"));
+        assert_eq!(r.options.model_parameters, None, "the route's cache policy is left alone");
+    }
+}
+
+/// The room supervisor's step: the route's own effort (`low` when it names none), no request kind,
+/// no prompt cache, and an overload surfaces at once with no wait.
+#[tokio::test]
+async fn a_room_supervisor_call_sends_the_routes_effort_without_kind_or_cache_and_surfaces_an_overload() {
+    use mixdog_agent::one_shot::{CallShape, OneShot};
+    let mut parameters = serde_json::Map::new();
+    parameters.insert("temperature".into(), json!(0.2));
+    parameters.insert("cacheStrategy".into(), json!({ "messages": "1h" }));
+    for (route_effort, want) in [(Some(" high "), "high"), (Some("  "), "low"), (None, "low")] {
+        let h = Harness::new(vec![turn(vec![text("{}"), done(StopReason::EndTurn)])]);
+        let options = mixdog_core_api::domain::provider::RequestOptions { model_parameters: Some(JsonValue::Object(parameters.clone())), ..Default::default() };
+        let one = OneShot::new(&h.run_env(), h.tool_env(), h.provider.clone(), h.cancel.clone()).with_options(options);
+        one.call_prompt(&shaped("m", CallShape::room_supervisor(route_effort)), "sys", "p").await.expect("answered");
+        let sent = h.provider.requests();
+        assert_eq!(sent[0].options.effort.as_deref(), Some(want));
+        assert_eq!(sent[0].options.request_kind, None);
+        assert_eq!(
+            sent[0].options.model_parameters,
+            Some(json!({
+                "temperature": 0.2,
+                "cacheStrategy": { "tools": "none", "system": "none", "tier3": "none", "messages": "none" },
+            }))
+        );
+    }
+    let h = Harness::new(vec![overloaded(), turn(vec![text("never"), done(StopReason::EndTurn)])]);
+    let one = OneShot::new(&h.run_env(), h.tool_env(), h.provider.clone(), h.cancel.clone());
+    let failure = one.call_prompt(&shaped("m", CallShape::room_supervisor(None)), "sys", "p").await.expect_err("surfaced");
+    assert!(matches!(failure, AgentError::Provider(ref e) if e.status == Some(529)), "{failure:?}");
+    assert_eq!(h.provider.requests().len(), 1, "no retry of a 529");
+    assert!(h.waiter.0.lock().unwrap().is_empty(), "and no wait");
 }
 
 // ---- the model fallback decision ---------------------------------------------------------------
@@ -1813,4 +1876,33 @@ async fn a_cancelled_reacquisition_ends_the_ask_with_the_cancels_text() {
     cancel.cancel();
     let failure = task.await.unwrap().expect_err("the slot was not taken back");
     assert!(matches!(&failure.error, AgentError::Admission(text) if text == mixdog_agent::cancel::ABORTED), "{:?}", failure.error);
+}
+
+/// The text of a turn cancelled while it waits to take its slot back is the reason its source
+/// aborted the session's controller with (Node's provider-request signal), not a bare abort.
+#[tokio::test]
+async fn a_turn_cancelled_in_the_slot_wait_reads_its_sources_reason() {
+    use mixdog_agent::cancel::{
+        AGENT_TASK_CANCEL, CLI_ABORT, PARENT_ABORTED, abort_session_turn_reason, close_session_reason, runtime_abort_reason,
+    };
+    let cases = [
+        ("job cancel", close_session_reason("sess_w1", AGENT_TASK_CANCEL), "Session \"sess_w1\" closed: closeSession (reason=agent-task-cancel)"),
+        ("user stop", runtime_abort_reason("sess_w1", CLI_ABORT), "Session \"sess_w1\" closed: runtime abort (reason=cli-abort)"),
+        ("user stop (manager)", abort_session_turn_reason("sess_w1", "user-cancel"), "Session \"sess_w1\" closed: abortSessionTurn (reason=user-cancel)"),
+        ("session close", close_session_reason("sess_w1", "cli-agent-close"), "Session \"sess_w1\" closed: closeSession (reason=cli-agent-close)"),
+        ("parent signal", PARENT_ABORTED.to_owned(), "parent signal aborted"),
+    ];
+    for (source, reason, want) in cases {
+        let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        let mut cfg = config();
+        let waiting = Arc::new(tokio::sync::Notify::new());
+        cfg.slot = Some(Arc::new(Cancelled(waiting.clone())));
+        let signal = mixdog_agent::cancel::Cancel::from_token(&h.cancel);
+        cfg.signal = Some(signal.clone());
+        let task = tokio::spawn(h.run(cfg, vec![], vec![AgentMessage::user("go")]).run());
+        waiting.notified().await;
+        signal.abort(&reason);
+        let failure = task.await.unwrap().expect_err("the slot was not taken back");
+        assert!(matches!(&failure.error, AgentError::Admission(text) if text == want), "{source}: {:?}", failure.error);
+    }
 }

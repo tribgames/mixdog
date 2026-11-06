@@ -29,6 +29,23 @@ pub struct MaintainerRoute {
     pub provider: String,
     pub model: String,
     pub fast: bool,
+    /// The route's own effort, trimmed; `low` when it names none (the room Maintainer's step).
+    pub effort: String,
+}
+
+/// `String(route.effort || '').trim() || 'low'`: the effort a Maintainer route carries.
+pub fn maintainer_effort(effort: Option<&serde_json::Value>) -> String {
+    use serde_json::Value;
+    let text = match effort {
+        None | Some(Value::Null | Value::Bool(false)) => String::new(),
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) if n.as_f64() == Some(0.0) => String::new(),
+        Some(other) => mixdog_js::value_to_string(other),
+    };
+    match mixdog_js::js_trim(&text) {
+        "" => "low".to_owned(),
+        trimmed => trimmed.to_owned(),
+    }
 }
 
 /// What the route plan reads from the runtime around it.
@@ -62,7 +79,14 @@ impl SummaryRoutes {
     }
 
     /// `summaryRoute`: the provider, its model and the window the summary request must fit.
-    async fn route(&self, step: RouteStep, provider: &str, model: &str, fast: bool) -> Result<SummaryRoute, SummaryFailure> {
+    async fn route(
+        &self,
+        step: RouteStep,
+        provider: &str,
+        model: &str,
+        fast: bool,
+        effort: Option<String>,
+    ) -> Result<SummaryRoute, SummaryFailure> {
         let ready = !provider.is_empty() && !model.is_empty() && self.host.provider_ready(provider).await?;
         if !ready {
             let shown = |text: &str| if text.is_empty() { "unknown".to_owned() } else { text.to_owned() };
@@ -85,13 +109,14 @@ impl SummaryRoutes {
             context_window,
             calibration: self.host.calibration(provider, model),
             fast,
+            effort,
             sender: self.host.sender(provider),
         })
     }
 
     async fn session_route(&self) -> Result<SummaryRoute, SummaryFailure> {
         let session = self.host.session();
-        self.route(RouteStep::Session, &session.provider, &session.model, false).await
+        self.route(RouteStep::Session, &session.provider, &session.model, false, None).await
     }
 }
 
@@ -102,7 +127,9 @@ impl RouteResolver for SummaryRoutes {
             RouteStep::Session => self.session_route().await.map(Some),
             RouteStep::Maintainer => match self.host.maintainer_route() {
                 None => Ok(None),
-                Some(route) => self.route(RouteStep::Maintainer, &route.provider, &route.model, route.fast).await.map(Some),
+                Some(route) => {
+                    self.route(RouteStep::Maintainer, &route.provider, &route.model, route.fast, Some(route.effort)).await.map(Some)
+                }
             },
             // The newest lighter model of a subscription provider's saved catalog; none on any
             // other provider, without a saved catalog, when none is listed, or when the
@@ -112,7 +139,7 @@ impl RouteResolver for SummaryRoutes {
                 let catalog = self.host.saved_catalog(&session.provider_name).await.unwrap_or_default();
                 match lighter_subscription_model(&session.provider_name, &catalog) {
                     Some(lighter) if lighter != session.model => {
-                        self.route(RouteStep::Lighter, &session.provider_name, &lighter, false).await.map(Some)
+                        self.route(RouteStep::Lighter, &session.provider_name, &lighter, false, None).await.map(Some)
                     }
                     _ => Ok(None),
                 }
@@ -246,14 +273,14 @@ mod tests {
     #[tokio::test]
     async fn the_conversations_own_window_is_reused_only_for_its_own_model() {
         let mut h = host("openai-oauth", "gpt-5");
-        h.maintainer = Some(MaintainerRoute { provider: "openai-oauth".into(), model: "gpt-5".into(), fast: true });
+        h.maintainer = Some(MaintainerRoute { provider: "openai-oauth".into(), model: "gpt-5".into(), fast: true, effort: "low".into() });
         let routes = SummaryRoutes::new(Arc::new(h));
         let own = routes.resolve(RouteStep::Session).await.unwrap().unwrap();
         assert_eq!((own.context_window, own.calibration, own.fast), (272_000, 1.25, false));
         let same = routes.resolve(RouteStep::Maintainer).await.unwrap().unwrap();
         assert_eq!((same.step, same.context_window, same.fast), (RouteStep::Maintainer, 272_000, true));
         let mut other = host("openai-oauth", "gpt-5");
-        other.maintainer = Some(MaintainerRoute { provider: "anthropic".into(), model: "claude-haiku-4-5".into(), fast: false });
+        other.maintainer = Some(MaintainerRoute { provider: "anthropic".into(), model: "claude-haiku-4-5".into(), fast: false, effort: "low".into() });
         let routes = SummaryRoutes::new(Arc::new(other));
         assert_eq!(routes.resolve(RouteStep::Maintainer).await.unwrap().unwrap().context_window, 200_000);
     }

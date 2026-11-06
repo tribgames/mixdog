@@ -18,8 +18,6 @@ use mixdog_protocol::ProviderId;
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::modelsdev::ModelsDev;
-use super::modelsdev_source::ModelsDevSource;
 use super::record::ModelRecord;
 use super::sources::ModelSource;
 
@@ -247,40 +245,7 @@ impl ProviderCatalog {
     /// [`refresh`](Self::refresh), asking only the providers `ask` selects.
     pub async fn refresh_asking(&self, sources: &[ModelSource], ask: Ask) -> RefreshOutcome {
         let listed = self.list_all(sources, ask).await;
-        self.publish(listed, None)
-    }
-
-    /// [`refresh`](Self::refresh), with the models.dev layer loaded
-    /// concurrently with the listings and applied to the snapshot before it
-    /// is published: the one place metadata meets the catalog, never a read.
-    pub async fn refresh_with_metadata(
-        &self,
-        sources: &[ModelSource],
-        metadata: &Arc<ModelsDevSource>,
-    ) -> RefreshOutcome {
-        self.refresh_with_metadata_asking(sources, metadata, Ask::All).await
-    }
-
-    /// [`refresh_with_metadata`](Self::refresh_with_metadata), asking only the
-    /// providers `ask` selects.
-    pub async fn refresh_with_metadata_asking(
-        &self,
-        sources: &[ModelSource],
-        metadata: &Arc<ModelsDevSource>,
-        ask: Ask,
-    ) -> RefreshOutcome {
-        let (layer, listed) = futures::future::join(metadata.load(false), self.list_all(sources, ask)).await;
-        self.publish(listed, layer.as_deref())
-    }
-
-    /// Applies an already-resident layer (a cold start that warmed
-    /// `modelsdev-catalog.json` from disk) in one atomic swap.
-    pub fn apply_metadata(&self, layer: &ModelsDev) {
-        self.current.rcu(|current| {
-            let mut next = current.with_metadata(layer);
-            next.generation = current.generation + 1;
-            Arc::new(next)
-        });
+        self.publish(listed)
     }
 
     /// Lists the providers `ask` selects, concurrently. A provider not asked
@@ -314,7 +279,7 @@ impl ProviderCatalog {
         Listed { epoch, entries }
     }
 
-    fn publish(&self, listed: Listed, layer: Option<&ModelsDev>) -> RefreshOutcome {
+    fn publish(&self, listed: Listed) -> RefreshOutcome {
         let mut outcome = RefreshOutcome {
             refreshed: Vec::new(),
             failed: Vec::new(),
@@ -349,11 +314,6 @@ impl ProviderCatalog {
                     models.insert(provider.clone(), list.clone());
                 }
                 status.insert(provider.clone(), state.clone());
-            }
-            if let Some(layer) = layer {
-                models = CatalogSnapshot { generation: 0, models, status: BTreeMap::new() }
-                    .with_metadata(layer)
-                    .models;
             }
             Arc::new(CatalogSnapshot {
                 generation: current.generation + 1,

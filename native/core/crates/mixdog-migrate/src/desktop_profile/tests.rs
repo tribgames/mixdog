@@ -756,7 +756,7 @@ fn crash_child() {
     let seen = Arc::new(AtomicUsize::new(0));
     let hook: FaultHook = Arc::new(move |_| {
         if seen.fetch_add(1, Ordering::SeqCst) == kill_at {
-            std::process::abort();
+            kill_self();
         }
         Ok(())
     });
@@ -765,16 +765,44 @@ fn crash_child() {
     std::process::exit(0);
 }
 
+/// Ends this process the way a kill does. Not `abort`: on Windows it is a fail-fast that
+/// starts Windows Error Reporting, which holds every child for seconds.
+fn kill_self() -> ! {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+        use windows_sys::Win32::System::Threading::TerminateProcess;
+        // SAFETY: the pseudo-handle of this process is always valid.
+        unsafe { TerminateProcess(GetCurrentProcess(), 1) };
+    }
+    std::process::abort()
+}
+
+/// The longest one child migration of the corpus may take before the matrix fails.
+const CHILD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// Runs the migration in a child process that dies at fault point `kill_at`.
 fn run_child_killed_at(work: &Path, kill_at: usize) -> std::process::ExitStatus {
-    std::process::Command::new(std::env::current_exe().unwrap())
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", &format!("{}::crash_child", module_path!().trim_start_matches("mixdog_migrate::")), "--nocapture", "--test-threads=1"])
         .env(CHILD_ROOT, work)
         .env(CHILD_KILL_AT, kill_at.to_string())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
-        .unwrap()
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return status;
+        }
+        if started.elapsed() > CHILD_DEADLINE {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the child for kill point {kill_at} ran past {CHILD_DEADLINE:?}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 }
 
 #[test]

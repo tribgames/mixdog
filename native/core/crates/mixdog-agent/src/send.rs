@@ -12,12 +12,14 @@ use std::sync::Arc;
 
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ModelRequest;
+use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::retry::JitterSamples;
 use mixdog_core_api::domain::retry::RetryClass;
+use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_core_api::domain::retry::RetryState;
 use mixdog_core_api::domain::retry::Verdict;
 
@@ -128,6 +130,18 @@ fn escalate(class: RetryClass, error: &ProviderError) -> Option<RetryClass> {
     } else {
         None
     }
+}
+
+/// The provider's retry policy for one request: `retry_529: false` (Node `opts.retry529 === false`,
+/// `retry-executor.mjs`) stops an overload retrying, ahead of the overload fallback.
+fn request_policy(provider: &dyn ProviderAdapter, retry_529: bool) -> std::borrow::Cow<'_, RetryPolicy> {
+    let policy = provider.retry_policy();
+    if retry_529 {
+        return std::borrow::Cow::Borrowed(policy);
+    }
+    let mut policy = policy.clone();
+    policy.status.retry_529 = false;
+    std::borrow::Cow::Owned(policy)
 }
 
 impl Run {
@@ -244,7 +258,7 @@ impl Run {
         // The provider request is I/O: an agent job's slot goes back to the pool for its length.
         let Some(slot) = self.config.slot.clone() else { return self.exchange(request, builder).await };
         let mut settled = None;
-        let turn = crate::cancel::Cancel::from_token(&self.cancel);
+        let turn = self.config.signal.clone().unwrap_or_else(|| crate::cancel::Cancel::from_token(&self.cancel));
         let yielded = slot
             .run_yielded(
                 Box::pin(async {
@@ -400,11 +414,12 @@ impl Run {
         let mut class = first_class(&decide_on, midstream);
         let mut spent: Vec<RetryState> = Vec::new();
         let provider = Arc::clone(&self.provider);
+        let policy = request_policy(provider.as_ref(), self.config.retry_529);
         let committed = loop {
             let decision = self.env.decider.verdict(
                 &decide_on,
                 self.retry.get(class),
-                provider.retry_policy(),
+                &policy,
                 JitterSamples {
                     step: self.env.jitter.draw(),
                     advice: self.env.jitter.draw(),
@@ -465,8 +480,7 @@ impl Run {
             self.emit(RunEvent::Stage(Stage::ModelFallback { model }));
         }
         if let Some((delay, reason)) = wait {
-            let max = provider
-                .retry_policy()
+            let max = policy
                 .row(next.class())
                 .map_or(0, |row| row.schedule.max_retries);
             self.emit(RunEvent::Stage(Stage::Reconnecting {

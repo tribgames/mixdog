@@ -1,0 +1,22 @@
+{
+  "pages": [
+    {
+      "name": "more",
+      "text": "{\"entries\":[{\"id\":1,\"index_revision\":\"rev-1\",\"summary\":\"Prefers tabs\",\"record_id\":11},{\"id\":2,\"index_revision\":\"rev-1\",\"summary\":\"Line one\\nLine two 한글\",\"record_id\":12}],\"nextOffset\":2}"
+    },
+    {
+      "name": "last with archived",
+      "text": "{\"entries\":[{\"id\":1,\"index_revision\":\"rev-1\",\"summary\":\"Prefers tabs\",\"record_id\":11},{\"id\":2,\"index_revision\":\"rev-1\",\"summary\":\"Line one\\nLine two 한글\",\"record_id\":12},{\"id\":null,\"index_revision\":null,\"summary\":\"Archived\",\"record_id\":99}],\"nextOffset\":null}"
+    },
+    {
+      "name": "empty",
+      "text": "{\"entries\":[],\"nextOffset\":null}"
+    }
+  ],
+  "deletes": [
+    "core deleted (agent=reviewer id=1): Prefers tabs. Remaining indices were compacted; list memories before the next write.",
+    "memory indices changed; list memories again before editing or deleting",
+    "no memory index=5 in agent=reviewer",
+    ""
+  ]
+}

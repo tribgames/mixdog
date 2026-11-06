@@ -114,7 +114,7 @@ fn data_url_parts(url: &str) -> Option<(&str, &str)> {
 
 fn part_to_block(part: &ContentPart) -> Value {
     match part {
-        ContentPart::Text(text) => json!({ "type": "text", "text": text }),
+        ContentPart::Text(text, _) => json!({ "type": "text", "text": text }),
         ContentPart::Image(ImageSource::Base64 { data, mime_type }) => json!({
             "type": "image",
             "source": { "type": "base64", "media_type": mime_type, "data": data },
@@ -193,7 +193,7 @@ fn assistant_text(content: &Content) -> String {
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|part| match part {
-                ContentPart::Text(text) => Some(text.as_str()),
+                ContentPart::Text(text, _) => Some(text.as_str()),
                 _ => None,
             })
             .collect(),

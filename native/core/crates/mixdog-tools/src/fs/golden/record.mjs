@@ -5,7 +5,7 @@
 // workspace afterwards.
 //
 //   node record.mjs --tree <Node product tree with node_modules> [--native-root <dir holding mixdog-patch>]
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -31,6 +31,8 @@ const { normalizeToolEnvelope } = await importFrom('src/runtime/agent/orchestrat
 const patch = (...lines) => `*** Begin Patch\n${lines.join('\n')}\n*** End Patch\n`;
 const edit = (name, files, input) => ({ name: `edit-${name}`, tool: 'edit', files, input });
 const apply = (name, files, text, extra = {}) => ({ name: `patch-${name}`, tool: 'apply_patch', files, input: { patch: text, ...extra } });
+// A patch case with a second tree (outside, named <OUT>), a base below the workspace, or links.
+const applyIn = (name, world, text, extra = {}) => ({ ...apply(name, world.files ?? {}, text, extra), ...world });
 
 const cases = [
   edit('typo-double-quotes', { 't.txt': 'He said “hi” there\n' }, { path: 't.txt', old_string: 'said "hi"', new_string: 'said "bye"' }),
@@ -194,6 +196,8 @@ const cases = [
   apply('compacted-placeholder-midbody', { 'a.txt': 'one\n' }, '*** Begin Patch\n[mixdog compacted patch v4a, sha256:abcd]\n*** End Patch\n'),
   apply('empty-patch', { 'a.txt': 'one\n' }, '   \n'),
   apply('shattered-keys', { 'a.txt': 'one\n' }, '*** Begin Patch', { '*** Update File: a.txt': '@@', '-one': '+ONE', '*** End Patch': '' }),
+  apply('shattered-array-value', {}, '*** Begin Patch', { '*** Add File: e.txt': ['+hello'], '*** End Patch': '' }),
+  apply('shattered-array-spaced', {}, '*** Begin Patch', { '*** Add File: e.txt': [' +hello'], '*** End Patch': '' }),
   apply('salvage-leading-blank', { 'a.txt': 'one\n' }, '\n\n*** Update File: a.txt\n@@\n-one\n+ONE\n'),
   apply('salvage-begin-patch-case', { 'a.txt': 'one\n' }, '***  begin patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** End Patch\n'),
   apply('salvage-implied-path', { 'a.txt': 'one\n' }, '*** Begin Patch\na.txt\n@@\n-one\n+ONE\n*** End Patch\n'),
@@ -252,8 +256,55 @@ const cases = [
   apply('reject-partial-false-ordered', { 'a.txt': 'one\ntwo\n', 'b.txt': 'x\n' }, patch('*** Update File: a.txt', '@@', '-one', '+ONE', '@@', '-nope', '+X', '*** Update File: b.txt', '@@', '-x', '+X'), { reject_partial: false, sequence: true }),
   apply('reject-partial-false-unified-files', { 'a.txt': 'one\n', 'b.txt': 'two\n' }, '--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-nope\n+X\n', { reject_partial: false }),
   apply('reject-partial-false-unified-dry-run', { 'a.txt': 'one\n', 'b.txt': 'two\n' }, '--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-nope\n+X\n', { reject_partial: false, dry_run: true }),
+  // Row paths follow the patch header, relative to the base (here a folder below the cwd).
+  applyIn('base-below-cwd-v4a', { files: { 'sub/a.txt': 'one\ntwo\n' }, base_sub: 'sub' }, patch('*** Update File: a.txt', '@@', '-one', '+ONE')),
+  applyIn('base-below-cwd-two-files', { files: { 'sub/a.txt': 'one\n', 'sub/b.txt': 'two\n' }, base_sub: 'sub' }, patch('*** Update File: a.txt', '@@', '-one', '+ONE', '*** Update File: b.txt', '@@', '-two', '+TWO')),
+  applyIn('base-below-cwd-unified', { files: { 'sub/d/a.txt': 'one\n' }, base_sub: 'sub' }, '--- a/d/a.txt\n+++ b/d/a.txt\n@@ -1 +1 @@\n-one\n+ONE\n'),
+  applyIn('base-below-cwd-stale', { files: { 'sub/a.txt': 'one\n' }, base_sub: 'sub' }, '--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-nope\n+X\n'),
+  applyIn('base-below-cwd-rename', { files: { 'sub/a.txt': 'one\n' }, base_sub: 'sub' }, patch('*** Update File: a.txt', '*** Move to: b.txt', '@@', '-one', '+ONE')),
+  applyIn('base-below-cwd-delete-create', { files: { 'sub/old.txt': 'x\n' }, base_sub: 'sub' }, patch('*** Delete File: old.txt', '*** Add File: new.txt', '+n')),
+  // Targets outside the base take the codec-preserving writer.
+  applyIn('out-of-base-unified', { outside: { 'x.txt': 'one\ntwo\n' } }, '--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n'),
+  applyIn('out-of-base-unified-stale', { outside: { 'x.txt': 'one\ntwo\n' } }, '--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1 +1 @@\n-nope\n+X\n'),
+  applyIn('out-of-base-unified-fuzz', { outside: { 'x.txt': 'alpha\nbeta\ngamma\ndelta\n' } }, '--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1,4 +1,4 @@\n alpha\n betaX\n-gamma\n+GAMMA\n delta\n'),
+  applyIn('out-of-base-unified-overlap', { outside: { 'x.txt': 'a\nb\nc\nd\n' } }, '--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1,2 +1,2 @@\n a\n-b\n+B\n@@ -2,2 +2,2 @@\n b\n-c\n+C\n'),
+  applyIn('out-of-base-unified-no-newline', { outside: { 'x.txt': 'one\ntwo' } }, '--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1,2 +1,2 @@\n one\n-two\n\\ No newline at end of file\n+TWO\n\\ No newline at end of file\n'),
+  applyIn('out-of-base-unified-crlf', { outside: { 'x.txt': 'one\r\ntwo\r\n' } }, '--- <OUT>/x.txt\n+++ <OUT>/x.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n'),
+  applyIn('out-of-base-unified-create', {}, '--- /dev/null\n+++ <OUT>/new.txt\n@@ -0,0 +1,2 @@\n+hello\n+world\n'),
+  applyIn('out-of-base-unified-delete', { outside: { 'x.txt': 'x\ny\n' } }, '--- <OUT>/x.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-x\n-y\n'),
+  applyIn('out-of-base-unified-delete-missing', {}, '--- <OUT>/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-x\n'),
+  applyIn('out-of-base-unified-missing-update', {}, '--- <OUT>/gone.txt\n+++ <OUT>/gone.txt\n@@ -1 +1 @@\n-x\n+y\n'),
+  applyIn('out-of-base-v4a', { outside: { 'x.txt': 'one\ntwo\n' } }, patch('*** Update File: <OUT>/x.txt', '@@', '-one', '+ONE')),
+  applyIn('out-of-base-v4a-overlap', { outside: { 'x.txt': 'a\nb\nc\nd\n' } }, patch('*** Update File: <OUT>/x.txt', '@@', ' a', '-b', '+B', '@@', ' b', '-c', '+C')),
+  // UTF-16 targets keep their codec.
+  applyIn('utf16-bom-unified', { files: { 'u.txt': { b64: Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('one\r\ntwo\r\n', 'utf16le')]).toString('base64') } } }, '--- a/u.txt\n+++ b/u.txt\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two\n'),
+  applyIn('utf16-bom-v4a', { files: { 'u.txt': { b64: Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('one\ntwo\n', 'utf16le')]).toString('base64') } } }, patch('*** Update File: u.txt', '@@', '-two', '+TWO')),
+  applyIn('utf16-bom-stale', { files: { 'u.txt': { b64: Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('one\ntwo\n', 'utf16le')]).toString('base64') } } }, '--- a/u.txt\n+++ b/u.txt\n@@ -1 +1 @@\n-nope\n+X\n'),
+  applyIn('utf16-bomless-unified', { files: { 'u.txt': { b64: Buffer.from('alpha one\nbeta two\ngamma three\n', 'utf16le').toString('base64') } } }, '--- a/u.txt\n+++ b/u.txt\n@@ -2 +2 @@\n-beta two\n+BETA\n'),
+  applyIn('utf16-be-bom-v4a', { files: { 'u.txt': { b64: Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from('one\ntwo\n', 'utf16le').swap16()]).toString('base64') } } }, patch('*** Update File: u.txt', '@@', '-one', '+ONE')),
+  applyIn('utf16-bom-delete', { files: { 'u.txt': { b64: Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('one\n', 'utf16le')]).toString('base64') } } }, patch('*** Delete File: u.txt')),
+  applyIn('utf16-odd-length', { files: { 'u.txt': { b64: Buffer.from([0xff, 0xfe, 0x61, 0x00, 0x62]).toString('base64') } } }, '--- a/u.txt\n+++ b/u.txt\n@@ -1 +1 @@\n-a\n+A\n'),
+  // Binary and invalid text are refused, not rewritten.
+  applyIn('binary-update-v4a', { files: { 'b.bin': { b64: Buffer.from([0x61, 0, 0x62, 0x80, 0, 1]).toString('base64') } } }, patch('*** Update File: b.bin', '@@', '-a', '+A')),
+  applyIn('binary-update-unified', { files: { 'b.bin': { b64: Buffer.from([0x61, 0, 0x62, 0x80, 0, 1]).toString('base64') } } }, '--- a/b.bin\n+++ b/b.bin\n@@ -1 +1 @@\n-a\n+A\n'),
+  applyIn('binary-update-unified-dry-run', { files: { 'b.bin': { b64: Buffer.from([0x61, 0, 0x62, 0x80, 0, 1]).toString('base64') } } }, '--- a/b.bin\n+++ b/b.bin\n@@ -1 +1 @@\n-a\n+A\n', { dry_run: true }),
+  applyIn('binary-delete', { files: { 'b.bin': { b64: Buffer.from([0x61, 0, 0x62, 0x80, 0, 1]).toString('base64') }, 'k.txt': 'k\n' } }, patch('*** Delete File: b.bin')),
+  applyIn('binary-delete-with-edit', { files: { 'b.bin': { b64: Buffer.from([0x61, 0, 0x62, 0x80, 0, 1]).toString('base64') }, 'k.txt': 'k\n' } }, patch('*** Delete File: b.bin', '*** Update File: k.txt', '@@', '-k', '+K')),
+  applyIn('binary-delete-then-failure', { files: { 'b.bin': { b64: Buffer.from([0x61, 0, 0x62, 0x80, 0, 1]).toString('base64') }, 'k.txt': 'k\n', 'n.txt': 'taken\n' } }, '--- a/b.bin\n+++ /dev/null\n--- a/k.txt\n+++ b/k.txt\n@@ -1 +1 @@\n-k\n+K\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1 @@\n+hi\n'),
+  applyIn('invalid-utf8-unified', { files: { 'i.txt': { b64: Buffer.from([0x61, 0xff, 0x0a, 0x62, 0x0a]).toString('base64') } } }, '--- a/i.txt\n+++ b/i.txt\n@@ -2 +2 @@\n-b\n+B\n'),
+  applyIn('invalid-utf8-v4a', { files: { 'i.txt': { b64: Buffer.from([0x61, 0xff, 0x0a, 0x62, 0x0a]).toString('base64') } } }, patch('*** Update File: i.txt', '@@', '-b', '+B')),
+  // A plain symlink needs a privilege some machines lack; the recorder skips it there.
+  applyIn('symlink-unified', { files: { 'real.txt': 'one\ntwo\n' }, symlinks: { 'link.txt': 'real.txt' } }, '--- a/link.txt\n+++ b/link.txt\n@@ -1 +1 @@\n-one\n+ONE\n'),
+  applyIn('symlink-out-of-base-unified', { outside: { 'real.txt': 'one\ntwo\n' }, symlinks: { 'link.txt': '<OUT>/real.txt' } }, '--- a/link.txt\n+++ b/link.txt\n@@ -1 +1 @@\n-one\n+ONE\n'),
   apply('tier-exact-not-fuzzy', { 'a.txt': 'alpha one\nbeta two\ngamma three\n' }, patch('*** Update File: a.txt', '@@', ' alpha one', ' beta twoo', '-gamma three', '+GAMMA'), { fuzzy: false }),
 ];
+
+// A file's bytes as JSON: its text when that round-trips as UTF-8, else base64 (UTF-16, binary).
+const encode = (buf) => {
+  const text = buf.toString('utf8');
+  return Buffer.from(text, 'utf8').equals(buf) ? text : { b64: buf.toString('base64') };
+};
+const decode = (value) => (typeof value === 'string' ? Buffer.from(value, 'utf8') : Buffer.from(value.b64, 'base64'));
 
 const snapshot = (root) => {
   const out = {};
@@ -261,7 +312,7 @@ const snapshot = (root) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else out[relative(root, full).split('\\').join('/')] = readFileSync(full, 'utf8');
+      else out[relative(root, full).split('\\').join('/')] = encode(readFileSync(full));
     }
   };
   walk(root);
@@ -274,11 +325,36 @@ for (const [index, c] of cases.entries()) {
   mkdirSync(ws, { recursive: true });
   for (const [rel, data] of Object.entries(c.files)) {
     mkdirSync(dirname(join(ws, rel)), { recursive: true });
-    writeFileSync(join(ws, rel), data);
+    writeFileSync(join(ws, rel), decode(data));
+  }
+  // A second tree outside the workspace, named <OUT> in the patch text.
+  const out = join(work, `out${index}`);
+  mkdirSync(out, { recursive: true });
+  for (const [rel, data] of Object.entries(c.outside ?? {})) {
+    mkdirSync(dirname(join(out, rel)), { recursive: true });
+    writeFileSync(join(out, rel), decode(data));
+  }
+  let linkFailed = null;
+  for (const [rel, target] of Object.entries(c.symlinks ?? {})) {
+    try {
+      symlinkSync(target.startsWith('<OUT>') ? join(out, target.slice(6)) : join(ws, target), join(ws, rel), 'file');
+    } catch (e) {
+      linkFailed = e.code;
+    }
+  }
+  if (linkFailed) {
+    console.log(`skipped ${c.name}: cannot create a symlink (${linkFailed})`);
+    continue;
   }
   const fwd = ws.replace(/\\/g, '/');
-  const scrub = (text) => String(text).replaceAll(ws, '<ROOT>').replaceAll(fwd, '<ROOT>');
-  const input = c.tool === 'apply_patch' ? { ...c.input, base_path: ws } : c.input;
+  const fwdOut = out.replace(/\\/g, '/');
+  const scrub = (text) =>
+    String(text).replaceAll(out, '<OUT>').replaceAll(fwdOut, '<OUT>').replaceAll(ws, '<ROOT>').replaceAll(fwd, '<ROOT>');
+  const baseDir = c.base_sub ? join(ws, c.base_sub) : ws;
+  const input =
+    c.tool === 'apply_patch'
+      ? { ...c.input, patch: c.input.patch.replaceAll('<OUT>', fwdOut), base_path: baseDir }
+      : c.input;
   let outcome;
   try {
     const raw = c.tool === 'apply_patch' ? await executePatchTool('apply_patch', input, ws) : await executeBuiltinTool(c.tool, input, ws);
@@ -291,9 +367,12 @@ for (const [index, c] of cases.entries()) {
     name: c.name,
     tool: c.tool,
     files: c.files,
-    input: c.tool === 'apply_patch' ? { ...c.input, base_path: '<ROOT>' } : c.input,
+    ...(c.outside ? { outside: c.outside } : {}),
+    ...(c.symlinks ? { symlinks: c.symlinks } : {}),
+    input: c.tool === 'apply_patch' ? { ...c.input, base_path: c.base_sub ? `<ROOT>/${c.base_sub}` : '<ROOT>' } : c.input,
     ...outcome,
     after: snapshot(ws),
+    ...(c.outside ? { after_out: snapshot(out) } : {}),
   });
 }
 const out = join(dirname(fileURLToPath(import.meta.url)), 'cases.json');

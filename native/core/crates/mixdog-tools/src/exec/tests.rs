@@ -188,6 +188,7 @@ struct Rig {
     processes: Arc<FakeProcesses>,
     /// What the tool sees: the fake, or the real manager of a test that runs real processes.
     manager: Arc<dyn ProcessManager>,
+    review: Arc<super::settle::RecordingReview>,
 }
 
 fn rig() -> Rig {
@@ -202,6 +203,7 @@ impl ElevationGate for RefuseElevation {
 }
 
 fn rig_with(elevation: Arc<dyn ElevationGate>) -> Rig {
+    let review = Arc::new(super::settle::RecordingReview::default());
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let runtime = ExecRuntime::new(ExecConfig {
@@ -236,6 +238,7 @@ fn rig_with(elevation: Arc<dyn ElevationGate>) -> Rig {
         dir,
         manager: processes.clone(),
         processes,
+        review,
     }
 }
 
@@ -260,6 +263,7 @@ fn ctx(rig: &Rig, call: &str) -> ToolContext {
         files: Arc::new(MockFileService::default()),
         processes: rig.manager.clone(),
         options: Default::default(),
+        review: Some(rig.review.clone()),
     }
 }
 
@@ -414,6 +418,58 @@ async fn task_read_wait_and_list_match_the_goldens_recorded_from_node() {
     assert_eq!(normalize(&body(rig.task.call(&c, input).await)), golden["text"].as_str().unwrap());
     let golden = fixture("task", "task-list-after");
     assert_eq!(normalize(&body(rig.task.call(&c, golden["input"].clone()).await)), golden["text"].as_str().unwrap());
+}
+
+/// Every finished shell call — failed or refused included — tells the turn review the folder it
+/// ran in (Node `noteCommandToolSettled(effectiveToolCwd(...))` → `noteTurnWorktreeChange([cwd])`),
+/// and the end of a background task does too (`completeBackgroundTask`).
+#[tokio::test]
+async fn a_settled_shell_command_notes_its_folder_for_the_turn_review() {
+    let rig = rig();
+    let session = rig.dir.path().to_string_lossy().into_owned();
+    let notes = || rig.review.notes.lock().unwrap().clone();
+    rig.shell.call(&ctx(&rig, "n1"), serde_json::json!({"command": "echo hi"})).await.unwrap();
+    // A folder that does not exist fails the call, and the folder is still noted, resolved.
+    rig.shell.call(&ctx(&rig, "n2"), serde_json::json!({"command": "echo hi", "cwd": "sub/../gone"})).await.unwrap_err();
+    // So does a refused command and an invalid call.
+    rig.shell.call(&ctx(&rig, "n3"), serde_json::json!({"command": "shutdown now"})).await.unwrap_err();
+    rig.shell.call(&ctx(&rig, "n4"), serde_json::json!({"nope": 1})).await.unwrap_err();
+    let gone = rig.dir.path().join("gone").to_string_lossy().into_owned();
+    assert_eq!(
+        notes(),
+        vec![Some(vec![session.clone()]), Some(vec![gone]), Some(vec![session.clone()]), Some(vec![session.clone()])]
+    );
+
+    rig.shell.call(&ctx(&rig, "a"), serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
+    assert_eq!(notes().len(), 5);
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.values_mut().find(|(tx, _)| !tx.is_closed()).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    }
+    rig.runtime.get(&ThreadId::from("t"), "task-a").unwrap().settled().await;
+    assert_eq!(notes().len(), 6);
+    assert_eq!(notes()[5], Some(vec![session]));
+}
+
+/// A call dropped mid-run (cancelled) still notes its folder, as Node's `finally` does.
+#[tokio::test]
+async fn a_cancelled_shell_call_still_notes_its_folder() {
+    let rig = rig();
+    let context = ctx(&rig, "x1");
+    let call = rig.shell.call(&context, fixture("shell", "shell-cancelled-foreground")["input"].clone());
+    let running = async {
+        while rig.processes.senders.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    };
+    // The command is running when the future is dropped.
+    tokio::select! {
+        _ = call => panic!("the call finished"),
+        () = running => {}
+    }
+    assert_eq!(rig.review.notes.lock().unwrap().len(), 1);
+    assert_eq!(*rig.review.notes.lock().unwrap(), vec![Some(vec![rig.dir.path().to_string_lossy().into_owned()])]);
 }
 
 /// A promoted command that hits its run limit says how much of the limit was left at promotion

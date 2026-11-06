@@ -23,6 +23,7 @@ mod actor;
 mod agent_host;
 pub mod agent_registry;
 mod attachments;
+mod cards;
 mod completions;
 mod control;
 mod directory;
@@ -31,6 +32,7 @@ mod frames;
 mod handle;
 mod message_reactions;
 mod model_switch;
+pub mod room_log;
 pub mod route_session;
 pub mod route_setup;
 mod ops;
@@ -43,6 +45,7 @@ mod state;
 mod store;
 mod surface;
 mod transcript;
+pub mod turn_snapshot;
 pub mod user_text;
 pub mod user_cwd;
 pub mod user_facts;
@@ -53,7 +56,7 @@ mod view;
 pub mod worktree;
 
 #[cfg(test)]
-mod testing;
+pub(crate) mod testing;
 #[cfg(test)]
 mod tests;
 
@@ -142,6 +145,8 @@ pub struct SessionDeps {
     pub clock: Arc<dyn Clock>,
     /// Told of every turn start (today's `onSessionTurnStart`).
     pub turn_starts: Arc<dyn TurnStarts>,
+    /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.
+    pub turn_review: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
     pub lanes: SessionLanes,
     pub limits: SessionLimits,
 }

@@ -718,6 +718,7 @@ const raceScenarios = [
       { op: 'until', log: 'resolveTag:dup:false', count: 2 },
       { op: 'until', log: 'unload:agent-turn-complete', count: 1 },
       { op: 'until', log: 'status', count: 4 },
+      { op: 'until', notices: 1 },
       { op: 'release', n: 1 },
       { op: 'settle' },
     ],
@@ -729,7 +730,7 @@ const raceScenarios = [
     ops: [
       { op: 'start', as: 'a', args: { agent: 'worker', prompt: 'p', tag: 'dup' } },
       { op: 'settle' },
-      { op: 'until', log: 'status', count: 4 },
+      { op: 'until', log: 'status', count: 3 },
       { op: 'start', as: 'b', args: { agent: 'worker', prompt: 'p', tag: 'dup' } },
       { op: 'settle' },
     ],
@@ -812,7 +813,8 @@ for (const race of raceScenarios) {
       if (lastJob !== before) jobs[op.as] = lastJob;
     } else if (op.op === 'until') {
       const matches = (c) => (op.head ? (Array.isArray(c) ? c[0] : c) === op.head : sameEntry(c, op.log));
-      while (calls.filter(matches).length < op.count) await tick();
+      if (op.notices) while (world.notices.length < op.notices) await tick();
+      else while (calls.filter(matches).length < op.count) await tick();
     } else if (op.op === 'release') {
       world.release(op.n);
     } else if (op.op === 'cancel') {

@@ -78,6 +78,7 @@ async fn idle_run(idle: Duration) {
         user_data_dir: base.join("userdata"),
         sources: Vec::new(),
         code_graph: None,
+        turn_review: None,
     })
     .unwrap();
     service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None).await.unwrap();

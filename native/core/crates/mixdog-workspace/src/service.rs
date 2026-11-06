@@ -180,6 +180,10 @@ pub struct Deps {
     pub sources: Vec<Arc<dyn crate::transfer::TransferSource>>,
     /// The shared `code_graph` tool, adapted (`project/codeGraph`); `None` answers `unsupported`.
     pub code_graph: Option<Arc<dyn CodeGraph>>,
+    /// The turn review (`noteTurnWorktreeChange`): told of every change the service makes itself.
+    /// Watcher batches are not told, as in Node, where the native search watcher is `canonical`
+    /// and turn review capture follows tool boundaries only. `None` tells no one.
+    pub turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>>,
 }
 
 /// `project/codeGraph` runs the agent tools' `code_graph` tool (one instance, one cache): `args`
@@ -211,6 +215,7 @@ pub struct WorkspaceService {
     lsp_feeds: Arc<LspFeeds>,
     sources: Vec<Arc<dyn crate::transfer::TransferSource>>,
     code_graph: Option<Arc<dyn CodeGraph>>,
+    turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>>,
     backups: Arc<crate::editorcfg::Backups>,
     user_data: PathBuf,
     tracked: Arc<dyn crate::zip::TrackedFiles>,
@@ -266,6 +271,7 @@ impl WorkspaceService {
             lsp_feeds,
             sources: deps.sources,
             code_graph: deps.code_graph,
+            turn_review: deps.turn_review,
             tracked: deps.tracked,
             backups: Arc::new(crate::editorcfg::Backups::new(&deps.user_data_dir)),
             user_data: deps.user_data_dir,
@@ -333,6 +339,22 @@ impl WorkspaceService {
 
     async fn root_of(&self, params: &Value, key: &str) -> WsResult<PathBuf> {
         self.catalog.resolve(s(params, key)?).await
+    }
+
+    /// Files this service itself changed, as absolute paths (Node's cache invalidation of a tool
+    /// write: `noteTurnWorktreeChange(paths)`).
+    fn note_written<S: AsRef<str>>(&self, root: &Path, rels: &[S]) {
+        if let Some(review) = &self.turn_review {
+            let paths: Vec<String> = rels.iter().map(|r| crate::pathguard::lexical(&root.join(r.as_ref())).to_string_lossy().into_owned()).collect();
+            review.note_change(Some(&paths));
+        }
+    }
+
+    /// A change that names no file: anything may have changed (`noteTurnWorktreeChange(null)`).
+    fn note_anything(&self) {
+        if let Some(review) = &self.turn_review {
+            review.note_change(None);
+        }
     }
 
     /// Lexical paths and their resolved aliases: a queued operation must not be
@@ -432,7 +454,9 @@ impl WorkspaceService {
                 let encoding = params.get("encoding").and_then(Value::as_str).map(fsops::parse_encoding).transpose()?;
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
                 let fs = self.fs.clone();
+                let (note_root, note_rel) = (root.clone(), rel.clone());
                 let mtime = run_fallible(self.lanes.durability, &cancel, move || fs.write_text(&root, &rel, &content, &expected, encoding)).await?;
+                self.note_written(&note_root, &[&note_rel]);
                 value(json!({ "mtimeMs": mtime }))
             }
             "projectFs/writeTextBatch" => {
@@ -441,7 +465,9 @@ impl WorkspaceService {
                 let rels: Vec<&str> = files.iter().map(|f| f.rel_path.as_str()).collect();
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &rels)?).await;
                 let fs = self.fs.clone();
+                let (note_root, note_rels) = (root.clone(), files.iter().map(|f| f.rel_path.clone()).collect::<Vec<_>>());
                 run_fallible(self.lanes.durability, &cancel, move || fs.write_batch(&root, &files, true)).await?;
+                self.note_written(&note_root, &note_rels);
                 value(json!({}))
             }
             "projectFs/create" => {
@@ -449,7 +475,9 @@ impl WorkspaceService {
                 let (dir, name, directory) = (s(params, "relDir")?.to_owned(), s(params, "name")?.to_owned(), opt_bool(params, "directory"));
                 let target = PathBuf::from(&dir).join(name.replace('\\', "/"));
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&target.to_string_lossy()])?).await;
+                let note_root = root.clone();
                 run_fallible(self.lanes.durability, &cancel, move || fsops::create_entry(&root, &dir, &name, directory)).await?;
+                self.note_written(&note_root, &[&target.to_string_lossy()]);
                 value(json!({}))
             }
             "projectFs/rename" => {
@@ -457,18 +485,26 @@ impl WorkspaceService {
                 let (rel, new_name) = (s(params, "rel")?.to_owned(), s(params, "newName")?.to_owned());
                 let destination = fsops::rename_destination_rel(&rel, &new_name)?;
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &destination])?).await;
+                let (note_root, note_rel) = (root.clone(), rel.clone());
                 run_fallible(self.lanes.durability, &cancel, move || fsops::rename_entry(&root, &rel, &new_name)).await?;
+                self.note_written(&note_root, &[&note_rel, &destination]);
                 value(json!({}))
             }
             "projectFs/move" | "projectFs/copy" => {
                 let root = self.root(params).await?;
                 let (rel, target) = (s(params, "rel")?.to_owned(), s(params, "targetDirRel")?.to_owned());
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &target])?).await;
+                let note_root = root.clone();
+                let leaf = |rel: &str| rel.rsplit('/').next().unwrap_or_default().to_owned();
                 if req.method.as_str() == "projectFs/move" {
+                    let (from, to) = (rel.clone(), format!("{}/{}", target, leaf(&rel)));
                     run_fallible(self.lanes.durability, &cancel, move || fsops::move_entry(&root, &rel, &target)).await?;
+                    self.note_written(&note_root, &[&from, &to]);
                     value(json!({}))
                 } else {
+                    let dir = target.clone();
                     let name = run_fallible(self.lanes.durability, &cancel, move || fsops::copy_entry(&root, &rel, &target)).await?;
+                    self.note_written(&note_root, &[&format!("{dir}/{name}")]);
                     value(json!({ "name": name }))
                 }
             }
@@ -485,6 +521,7 @@ impl WorkspaceService {
                     trash::delete(&moved).map_err(|e| WsError::new(Reason::Io, e.to_string()))
                 })
                 .await?;
+                self.note_written(&root, &[rel]);
                 value(json!({}))
             }
             "projectFs/searchText" => {
@@ -524,7 +561,9 @@ impl WorkspaceService {
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &rels)?).await;
                 let paths: Vec<String> = files.iter().map(|f| f.rel_path.clone()).collect();
                 let fs = self.fs.clone();
+                let note_root = root.clone();
                 run_fallible(self.lanes.durability, &cancel, move || fs.write_batch(&root, &files, true)).await?;
+                self.note_written(&note_root, &paths);
                 value(json!({ "filesChanged": paths.len(), "replacements": plan.replacements, "paths": paths }))
             }
             "projectFs/recovery" => {
@@ -541,7 +580,10 @@ impl WorkspaceService {
                 let this2 = this.clone();
                 let lane_root = root;
                 let response = if mutating {
-                    run_fallible(self.lanes.durability, &cancel, move || this2.fs.recovery.execute(&lane_root, action)).await?
+                    let done = run_fallible(self.lanes.durability, &cancel, move || this2.fs.recovery.execute(&lane_root, action)).await?;
+                    // A restore or discard may touch any file of the project.
+                    self.note_anything();
+                    done
                 } else {
                     run_fallible(self.lanes.interactive, &cancel, move || this2.fs.recovery.execute(&lane_root, action)).await?
                 };
@@ -596,6 +638,7 @@ impl WorkspaceService {
                     include_directories: opt_bool(params, "includeDirectories"),
                     consumer: params.get("consumer").and_then(Value::as_str).map(str::to_owned),
                     scan_cap: None,
+                    beyond_budget: None,
                 };
                 let publisher = self.search.start(&id, config)?;
                 self.search_owner.lock().expect("search owners").insert(id, Self::owner(req));
@@ -678,6 +721,7 @@ impl WorkspaceService {
                 let id = s(params, "transferId")?.to_owned();
                 let (owner, t) = (Self::owner(req), self.transfers.clone());
                 let size = run_fallible(self.lanes.durability, &cancel, move || t.commit(&owner, &id)).await?;
+                self.note_anything();
                 value(json!({ "size": size }))
             }
             "transfer/abort" => value(json!({ "aborted": self.transfers.abort(&Self::owner(req), s(params, "transferId")?) })),
@@ -691,7 +735,10 @@ impl WorkspaceService {
                 let rel = params.get("rel").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let permanent = opt_bool(params, "permanent");
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
-                value(run_fallible(self.lanes.durability, &cancel, move || crate::servertrash::entry(&root, &rel, permanent)).await?)
+                let (note_root, note_rel) = (root.clone(), rel.clone());
+                let outcome = run_fallible(self.lanes.durability, &cancel, move || crate::servertrash::entry(&root, &rel, permanent)).await?;
+                self.note_written(&note_root, &[&note_rel]);
+                value(outcome)
             }
             "projectFs/backup/read" => {
                 let (backups, source) = (self.backups.clone(), s(params, "sourcePath")?.to_owned());

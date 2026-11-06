@@ -731,6 +731,7 @@ impl Rig {
             devices: Arc::new(NamedDevices),
             clock: self.clock.clone(),
             turn_starts: self.turn_starts.clone(),
+            turn_review: Arc::new(crate::turn_review::test_review(&self._data.path().join("turn-review"))),
             lanes: SessionLanes {
                 cpu: tokens.cpu_interactive,
                 io: tokens.interactive_io,

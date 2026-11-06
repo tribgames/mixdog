@@ -1,8 +1,8 @@
 //! The models.dev metadata layer (`api.json`): per provider, per model, the
-//! facts the provider's own listing lacks. It fills gaps only
-//! ([`ModelRecord::fill_gaps_from`]); what it states is the SDK package
-//! (`npm`, which names the wire), the output modalities, limits, rates and
-//! capabilities.
+//! facts the provider's own listing lacks. It is read beside the catalog
+//! (`CatalogTraits`, the metadata lookup), never merged into it; what it
+//! states is the SDK package (`npm`, which names the wire), the output
+//! modalities, limits, rates and capabilities.
 
 use std::collections::BTreeMap;
 
@@ -12,7 +12,6 @@ use mixdog_protocol::ProviderId;
 use super::record::Capability;
 use super::record::MetadataSource;
 use super::record::ModelRecord;
-use super::store::CatalogSnapshot;
 use crate::providers::compat::models::ModelTable;
 
 #[derive(Clone, Default, Debug)]
@@ -143,31 +142,11 @@ impl ModelsDev {
     }
 }
 
-impl CatalogSnapshot {
-    /// This snapshot with every record's gaps filled from `layer`.
-    pub fn with_metadata(&self, layer: &ModelsDev) -> Self {
-        let mut next = self.clone();
-        for (provider, records) in &mut next.models {
-            for record in records {
-                if let Some(meta) = layer.find(provider, &record.id) {
-                    record.fill_gaps_from(meta);
-                }
-            }
-        }
-        next
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::CatalogTraits;
-    use crate::catalog::ModelTraits;
-    use crate::catalog::ProviderCatalog;
     use crate::providers::compat::profile::CompatProfile;
-    use crate::providers::compat::profile::Wire;
     use serde_json::json;
-    use std::sync::Arc;
 
     fn fixture() -> Vec<u8> {
         json!({
@@ -207,25 +186,6 @@ mod tests {
         );
         assert!(layer.models_of(&"broken".into()).is_empty());
         assert!(ModelsDev::parse(b"[]").is_none());
-    }
-
-    #[test]
-    fn a_gateway_model_with_no_row_of_its_own_gets_wire_and_picker_from_models_dev() {
-        let layer = ModelsDev::parse(&fixture()).unwrap();
-        // The gateway lists other providers' models under their ids and states nothing.
-        let mut snapshot = CatalogSnapshot::default();
-        snapshot.models.insert(
-            "gateway".into(),
-            ["claude-x", "tts-x", "unlisted"]
-                .map(|id| ModelRecord::new("gateway".into(), id))
-                .to_vec(),
-        );
-        let filled = snapshot.with_metadata(&layer);
-        let traits = CatalogTraits::new(Arc::new(ProviderCatalog::new(filled)), "gateway".into());
-        assert_eq!(traits.catalog_wire("claude-x"), Some(Wire::Messages));
-        assert!(traits.outputs_text("claude-x"));
-        assert!(!traits.outputs_text("tts-x"));
-        assert_eq!(traits.catalog_wire("unlisted"), None);
     }
 
     #[test]

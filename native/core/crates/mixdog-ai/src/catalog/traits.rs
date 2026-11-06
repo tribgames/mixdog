@@ -6,6 +6,7 @@ use std::sync::Arc;
 use mixdog_protocol::ProviderId;
 
 use super::record::ModelRecord;
+use super::modelsdev_source::ModelsDevSource;
 use super::record::Thinking;
 use crate::providers::compat::profile::Wire;
 use crate::providers::compat::wire_route::wire_of_package;
@@ -31,61 +32,56 @@ pub trait ModelTraits: Send + Sync {
     }
 }
 
-/// [`ModelTraits`] read from the catalog snapshot of one provider. Each call
-/// is one atomic load; it never waits on a refresh.
+/// [`ModelTraits`] read from the catalog snapshot of one provider, and from
+/// the models.dev layer for what the provider's own row does not state (a
+/// gateway lists other providers' models under their ids). Each call is one
+/// atomic load; it never waits on a refresh.
 pub struct CatalogTraits {
     catalog: Arc<ProviderCatalog>,
     provider: ProviderId,
+    models_dev: Option<Arc<ModelsDevSource>>,
 }
 
 impl CatalogTraits {
     pub fn new(catalog: Arc<ProviderCatalog>, provider: ProviderId) -> Self {
-        Self { catalog, provider }
+        Self { catalog, provider, models_dev: None }
+    }
+
+    /// Reads what the provider's row leaves unstated from `source`'s resident layer.
+    pub fn with_models_dev(mut self, source: Arc<ModelsDevSource>) -> Self {
+        self.models_dev = Some(source);
+        self
     }
 }
 
 impl CatalogTraits {
-    fn record<R>(&self, model: &str, read: impl FnOnce(&ModelRecord) -> R) -> Option<R> {
+    /// `read` over the provider's own row, else over the layer's row for the model.
+    fn stated<R>(&self, model: &str, read: impl Fn(&ModelRecord) -> Option<R>) -> Option<R> {
         let snapshot = self.catalog.snapshot();
-        snapshot
-            .models_of(&self.provider)
-            .iter()
-            .find(|record| record.id == model)
-            .map(read)
+        let own = snapshot.models_of(&self.provider).iter().find(|record| record.id == model).and_then(&read);
+        own.or_else(|| {
+            let layer = self.models_dev.as_ref()?.current()?;
+            layer.find(&self.provider, model).and_then(read)
+        })
     }
 }
 
 impl ModelTraits for CatalogTraits {
     fn catalog_wire(&self, model: &str) -> Option<Wire> {
-        self.record(model, |r| r.npm.clone())
-            .flatten()
-            .and_then(|package| wire_of_package(Some(&package)))
+        self.stated(model, |r| r.npm.clone()).and_then(|package| wire_of_package(Some(&package)))
     }
 
     fn outputs_text(&self, model: &str) -> bool {
-        self.record(model, |r| {
-            r.output_modalities.is_empty() || r.output_modalities.iter().any(|m| m == "text")
-        })
-        .unwrap_or(true)
+        self.stated(model, |r| (!r.output_modalities.is_empty()).then(|| r.output_modalities.iter().any(|m| m == "text")))
+            .unwrap_or(true)
     }
 
     fn family(&self, model: &str) -> Option<String> {
-        let snapshot = self.catalog.snapshot();
-        snapshot
-            .models_of(&self.provider)
-            .iter()
-            .find(|record| record.id == model)
-            .and_then(|record| record.family.clone())
+        self.stated(model, |r| r.family.clone())
     }
 
     fn thinking(&self, model: &str) -> Thinking {
-        let snapshot = self.catalog.snapshot();
-        snapshot
-            .models_of(&self.provider)
-            .iter()
-            .find(|record| record.id == model)
-            .map(|record| record.thinking.clone())
-            .unwrap_or_default()
+        self.stated(model, |r| (r.thinking != Thinking::Unspecified).then(|| r.thinking.clone())).unwrap_or_default()
     }
 }
 

@@ -1,14 +1,17 @@
 //! The catalog as the daemon runs it: one handle owning the snapshot, the
 //! model sources built from the full config, and the models.dev source. The
 //! cold start serves the cached metadata without the network; every refresh
-//! lists the sources and loads models.dev concurrently, then publishes one
-//! snapshot with the metadata applied. Reads never refresh.
+//! lists the sources and loads models.dev concurrently, then publishes the
+//! listings as they are; models.dev stays its own layer, read by
+//! [`CatalogService::traits`] and the metadata lookup. Reads never refresh.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use mixdog_protocol::ProviderId;
 
+use super::CatalogTraits;
 use super::ListingLookup;
 use super::ModelSource;
 use super::ModelsDev;
@@ -45,9 +48,6 @@ impl CatalogService {
     ) -> Self {
         let catalog = Arc::new(ProviderCatalog::new(initial));
         metadata.warm_from_disk().await;
-        if let Some(layer) = metadata.current() {
-            catalog.apply_metadata(&layer);
-        }
         let service = Self {
             catalog,
             sources,
@@ -129,9 +129,15 @@ impl CatalogService {
         }
     }
 
-    /// The catalog readers hold (`CatalogTraits::new(service.catalog(), ..)`).
+    /// The catalog readers hold.
     pub fn catalog(&self) -> Arc<ProviderCatalog> {
         self.catalog.clone()
+    }
+
+    /// The traits of `provider`'s models: its catalog rows, and the models.dev
+    /// layer for what a row does not state.
+    pub fn traits(&self, provider: ProviderId) -> CatalogTraits {
+        CatalogTraits::new(self.catalog.clone(), provider).with_models_dev(self.metadata.clone())
     }
 
     pub fn snapshot(&self) -> Arc<CatalogSnapshot> {
@@ -162,8 +168,9 @@ impl CatalogService {
                 source.load(false).await;
             }
         };
-        let (outcome, ()) = futures::future::join(
-            self.catalog.refresh_with_metadata_asking(&self.sources, &self.metadata, ask),
+        let (outcome, _, ()) = futures::future::join3(
+            self.catalog.refresh_asking(&self.sources, ask),
+            self.metadata.load(false),
             litellm,
         )
         .await;

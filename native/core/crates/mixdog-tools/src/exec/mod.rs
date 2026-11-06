@@ -18,6 +18,7 @@ mod invocation;
 mod jobs;
 mod psfix;
 pub(crate) mod scan;
+pub(crate) mod settle;
 mod shell;
 mod snapshot;
 mod spill;

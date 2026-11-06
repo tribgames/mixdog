@@ -239,11 +239,33 @@ pub(super) fn review_at(data: &Path) -> TurnReview {
     let scm = mixdog_scm::engine::Scm::new(processes, tokens.maintenance_io, data.join("scm-scratch"));
     let disk: Arc<dyn ReviewDisk> = Arc::new(super::LaneDisk::new(tokens));
     let git: Arc<dyn ReviewGit> = Arc::new(super::ScmGit::new(scm.clone()));
-    let worktrees = Arc::new(super::ScmWorktrees::new(scm, git.clone(), disk.clone()));
+    let shadow = Arc::new(super::ShadowRepos::new(data.join("turn-worktree-snapshots-v1"), git.clone(), disk.clone()));
+    let worktrees = Arc::new(super::ScmWorktrees::new(shadow));
     TurnReview::new(Config { disabled: false }, tokens.cpu_interactive, data, disk, git, worktrees)
 }
 pub(super) fn plain(path: &Path) -> String {
     path.to_string_lossy().trim_start_matches(r"\\?\").to_owned()
+}
+
+/// The persisted bytes of a session's file in one store directory (`""` = the turn index), clocks
+/// zeroed and the scenario's directories tokenized, as the recorder's `persistedText`.
+fn persisted_text(data: &Path, sub: &str, session: &str, ws: &str, data_text: &str) -> Value {
+    use sha2::Digest;
+    let digest: String = sha2::Sha256::digest(session.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+    let file = data.join("turn-snapshots").join(sub).join(format!("{}.json", &digest[..24]));
+    let Ok(text) = std::fs::read_to_string(&file) else { return Value::Null };
+    let clocks = regex::Regex::new(r#""(at|touched|createdAt|updatedAt|clearedAt|incompleteAt|foldedAt)":[0-9.e+-]+"#).unwrap();
+    let mut text = clocks.replace_all(&text, r#""$1":0"#).into_owned();
+    text = regex::Regex::new(r"\[[0-9.e+-]+,").unwrap().replace_all(&text, "[0,").into_owned();
+    text = regex::Regex::new(r#""baselineTree":"[0-9a-f]+""#).unwrap().replace_all(&text, r#""baselineTree":"<tree>""#).into_owned();
+    let parent = Path::new(ws).parent().unwrap().to_string_lossy().into_owned();
+    for (dir, token) in [(data_text, "<data>"), (ws, "<ws>"), (parent.as_str(), "<sc>")] {
+        for form in [dir.to_owned(), dir.to_lowercase()] {
+            let escaped = serde_json::to_string(&form).unwrap();
+            text = text.replace(&escaped[1..escaped.len() - 1], token);
+        }
+    }
+    Value::String(text)
 }
 
 /// Node's normalisation of a result: the scenario directories become tokens, clocks zero.
@@ -294,7 +316,7 @@ async fn run_scenario(name: &str, scenario: &Value) {
     std::fs::create_dir_all(&ws).unwrap();
     std::fs::create_dir_all(&data).unwrap();
     let (ws_text, data_text) = (plain(&ws), plain(&data));
-    let mut review = review_at(&data.join("turn-snapshots"));
+    let mut review = review_at(&data);
     let mut tokens: std::collections::HashMap<String, TurnToken> = Default::default();
     let mut handles: std::collections::HashMap<String, Box<dyn AgentReview>> = Default::default();
     let mut known: std::collections::HashMap<String, String> = Default::default();
@@ -415,7 +437,9 @@ async fn run_scenario(name: &str, scenario: &Value) {
             }
             "clearHistory" => actual.push((index, wrap(review.clear_change_history(session).await))),
             "restart" => {
-                review = review_at(&data.join("turn-snapshots"));
+                // The process is gone; the files stay. Its queued baseline writes land first.
+                review.inner.baselines.settle().await;
+                review = review_at(&data);
                 tokens.clear();
             }
             "agentBegin" => {
@@ -429,7 +453,12 @@ async fn run_scenario(name: &str, scenario: &Value) {
                 let patches = op.get("patches").and_then(Value::as_array).map(|a| a.iter().map(|p| p.as_str().unwrap().to_owned()).collect()).unwrap_or_default();
                 actual.push((index, json!({"joined": handles[op["handle"].as_str().unwrap()].complete(patches)})));
             }
-            "forget" => review.forget_session(session),
+            "forget" => review.inner.forget_session(session),
+            "sessionReview" => actual.push((index, Value::Object(review.session_review_diff(&ws_text, session).await))),
+            "sessionFile" => actual.push((
+                index,
+                Value::Object(review.session_review_file_patch(&ws_text, session, op["file"].as_str().unwrap(), op.get("oldPath").and_then(Value::as_str).unwrap_or("")).await),
+            )),
             "disk" => {
                 let text = match read_disk(path) {
                     ReviewContent::Bytes(bytes) => Value::String(base64::engine::general_purpose::STANDARD.encode(bytes)),
@@ -437,9 +466,28 @@ async fn run_scenario(name: &str, scenario: &Value) {
                 };
                 actual.push((index, json!({"text": text})));
             }
-            "cleared" => actual.push((index, json!({"cleared": review.store().session_change_history_cleared(session).await}))),
-            // The stored records: compared through `changes` (their reader) rather than raw.
-            "records" | "snapshotRecord" => {}
+            "cleared" => {
+                let cleared = review.store().session_change_history_cleared(session).await;
+                actual.push((index, json!({"cleared": cleared, "file": persisted_text(&data, "cleared", session, &ws_text, &data_text)})));
+            }
+            "baselineIndex" => actual.push((index, json!({"text": persisted_text(&data, "baselines", session, &ws_text, &data_text)}))),
+            "records" => {
+                let records = review.store().load_turn_change_records(session).await;
+                let records: Vec<Value> = records.iter().cloned().map(Value::Object).collect();
+                actual.push((index, json!({"records": records, "file": persisted_text(&data, "changes", session, &ws_text, &data_text)})));
+            }
+            "snapshotRecord" => {
+                let mut o = serde_json::Map::new();
+                if let Some(found) = review.store().load_turn_snapshot_record(session).await {
+                    for key in ["generation", "checkpointId", "root", "toolFiles", "sealed"] {
+                        if let Some(v) = found.get(key) {
+                            o.insert(key.into(), v.clone());
+                        }
+                    }
+                }
+                o.insert("file".into(), persisted_text(&data, "", session, &ws_text, &data_text));
+                actual.push((index, Value::Object(o)));
+            }
             other => panic!("{name}: unknown op {other}"),
         }
     }
@@ -447,7 +495,6 @@ async fn run_scenario(name: &str, scenario: &Value) {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|r| !matches!(scenario["ops"][r["op"].as_u64().unwrap() as usize]["op"].as_str(), Some("records" | "snapshotRecord")))
         .map(|r| (r["op"].as_u64().unwrap() as usize, r["result"].clone()))
         .collect();
     let expected: Vec<(usize, Value)> = expected
@@ -455,8 +502,71 @@ async fn run_scenario(name: &str, scenario: &Value) {
         .map(|(i, v)| if scenario["ops"][i]["op"] == "agentBegin" { (i, json!({"handle": !v["handle"].is_null()})) } else { (i, v) })
         .collect();
     let actual: Vec<(usize, Value)> = actual.into_iter().map(|(i, v)| (i, normalize(&v, &ws_text, &data_text))).collect();
+    // Compared as text: key order is part of what is persisted and published.
     for (want, got) in expected.iter().zip(actual.iter()) {
-        assert_eq!(want, got, "{name}: op {} ({})", want.0, scenario["ops"][want.0]["op"]);
+        assert_eq!(want.1.to_string(), got.1.to_string(), "{name}: op {} ({})", want.0, scenario["ops"][want.0]["op"]);
     }
     assert_eq!(expected.len(), actual.len(), "{name}: result count");
+}
+
+/// Every file under `dir` with its bytes' length and a cheap checksum, for before/after comparison.
+fn tree_listing(dir: &Path) -> Vec<(String, u64, u64)> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<(String, u64, u64)>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(base, &path, out);
+            } else {
+                let bytes = std::fs::read(&path).unwrap();
+                let sum = bytes.iter().fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(*b as u64));
+                out.push((path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/"), bytes.len() as u64, sum));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
+}
+
+/// The baseline tree and tool baselines live in the shadow repository (borrowing the user's
+/// objects through `objects/info/alternates`): the user's `.git` gains no object, no ref and no
+/// index change from a whole turn, its session review and its undo.
+#[tokio::test(flavor = "multi_thread")]
+async fn user_repository_is_never_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = PathBuf::from(plain(&dir.path().canonicalize().unwrap()));
+    let (ws, data) = (base.join("ws"), base.join("data"));
+    std::fs::create_dir_all(&ws).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args).current_dir(&ws).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    };
+    git(&["init", "-q"]);
+    std::fs::write(ws.join("a.txt"), "one\ntwo\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "first"]);
+    let before = tree_listing(&ws.join(".git"));
+    let ws_text = plain(&ws);
+    let review = review_at(&data);
+    let token = review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp1".into(), continue_turn: false }).await;
+    std::fs::write(ws.join("a.txt"), "one\n2\n").unwrap();
+    std::fs::write(ws.join("b.txt"), "new\n").unwrap();
+    let change = |path: &str, before: ReviewContent, after: &str| CallChange { path: plain(&ws.join(path)), new_path: None, before, after: ReviewContent::bytes(after.as_bytes().to_vec()) };
+    review.record_tool_changes("s1", &ws_text, vec![change("a.txt", ReviewContent::bytes(b"one\ntwo\n".to_vec()), "one\n2\n"), change("b.txt", ReviewContent::Absent, "new\n")]).await;
+    let reply = review.turn_review_diff(&ws_text, "s1", ReviewRead::default()).await;
+    assert_eq!(reply["files"].as_array().unwrap().len(), 2);
+    assert!(review.complete_turn("s1", token.as_ref()).await);
+    review.session_review_diff(&ws_text, "s1").await;
+    review.revert_turn_review(&ws_text, "s1", "cp1").await.unwrap();
+    assert_eq!(tree_listing(&ws.join(".git")), before, "the user's .git changed");
+    // The baseline lives in the shadow repository: one directory under the snapshot store, with
+    // the user's objects borrowed.
+    let shadows: Vec<PathBuf> = std::fs::read_dir(data.join("turn-worktree-snapshots-v1")).unwrap().map(|e| e.unwrap().path()).collect();
+    assert_eq!(shadows.len(), 1);
+    let name = shadows[0].file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.len() == 24 && name.bytes().all(|b| b.is_ascii_hexdigit()), "{name}");
+    let alternates = std::fs::read_to_string(shadows[0].join("objects").join("info").join("alternates")).unwrap();
+    assert!(alternates.lines().any(|l| nodepath::resolve_host(&[l]) == nodepath::resolve_host(&[&plain(&ws.join(".git").join("objects"))])), "{alternates}");
+    assert!(shadows[0].join("objects").read_dir().unwrap().count() > 2, "the baseline objects are in the shadow repository");
 }

@@ -18,6 +18,7 @@ use mixdog_js::js_trim;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use super::patch_review::committed_edit;
 use super::edit_plan::SAME_STRINGS;
 use super::edit_plan::apply;
 use super::edit_plan::dialect;
@@ -140,19 +141,19 @@ impl Tool for EditTool {
                     format!("Error: cannot create {full}: file exists: to replace it entirely pass its current content as old_string (read it first); to change part, pass that part as old_string with the replacement as new_string"),
                 ));
             }
-            write_checked(ctx, &abs, &full, encode_text(new, codec), WritePrecondition::ContentEquals(bytes)).await?;
-            return Ok(text_output(format!("Updated {shown} (filled empty file)")));
+            let after = encode_text(new, codec);
+            write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::ContentEquals(bytes.clone())).await?;
+            return Ok(committed_edit(ctx, &abs, Some(bytes), after, text_output(format!("Updated {shown} (filled empty file)"))).await);
         }
         let (old, new) = dialect(&content, is_markdown(&abs), old.to_owned(), new.to_owned(), replace_all);
         if old == new {
             return Err(invalid("new_string", "same_as_old", SAME_STRINGS));
         }
         let (next, applied) = apply(&content, &old, &new, replace_all, codec.encoding == Encoding::Utf8)?;
-        write_checked(ctx, &abs, &full, encode_text(&next, codec), WritePrecondition::ContentEquals(bytes)).await?;
-        Ok(text_output(format!(
-            "Updated {shown} ({applied} replacement{})",
-            if applied == 1 { "" } else { "s" }
-        )))
+        let after = encode_text(&next, codec);
+        write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::ContentEquals(bytes.clone())).await?;
+        let text = text_output(format!("Updated {shown} ({applied} replacement{})", if applied == 1 { "" } else { "s" }));
+        Ok(committed_edit(ctx, &abs, Some(bytes), after, text).await)
     }
 }
 
@@ -189,5 +190,5 @@ async fn create(ctx: &ToolContext, abs: &AbsPath, shown: &str, full: &str, new: 
         }
     }
     write_checked(ctx, abs, full, new.as_bytes().to_vec(), WritePrecondition::Absent).await?;
-    Ok(text_output(format!("Created {shown} ({} bytes)", new.len())))
+    Ok(committed_edit(ctx, abs, None, new.as_bytes().to_vec(), text_output(format!("Created {shown} ({} bytes)", new.len()))).await)
 }

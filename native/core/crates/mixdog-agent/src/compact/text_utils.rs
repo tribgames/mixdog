@@ -50,7 +50,7 @@ fn media_marker(part: &ContentPart) -> String {
         }
     };
     match part {
-        ContentPart::Text(_) => String::new(),
+        ContentPart::Text(_, _) => String::new(),
         ContentPart::Image(_) => "[image]".to_owned(),
         ContentPart::File { mime_type, filename, .. } => pdf(js_trim(filename.as_deref().unwrap_or("")), mime_type),
         ContentPart::Document { source, title } => {
@@ -71,7 +71,7 @@ pub fn content_text(content: &Content) -> String {
         Content::Parts(parts) => parts
             .iter()
             .map(|part| match part {
-                ContentPart::Text(text) => text.clone(),
+                ContentPart::Text(text, _) => text.clone(),
                 other => media_marker(other),
             })
             .filter(|t| !t.is_empty())

@@ -82,7 +82,7 @@ fn content_of(value: &Value) -> Content {
             parts
                 .iter()
                 .map(|part| match part["type"].as_str() {
-                    Some("text") => ContentPart::Text(part["text"].as_str().unwrap_or_default().to_owned()),
+                    Some("text") => ContentPart::Text(part["text"].as_str().unwrap_or_default().to_owned(), false),
                     other => panic!("unsupported content part {other:?}"),
                 })
                 .collect(),
@@ -176,7 +176,7 @@ fn content_row(content: &Content) -> Value {
             parts
                 .iter()
                 .map(|p| match p {
-                    ContentPart::Text(t) => serde_json::json!({"type": "text", "text": t}),
+                    ContentPart::Text(t, _) => serde_json::json!({"type": "text", "text": t}),
                     other => panic!("unsupported part {other:?}"),
                 })
                 .collect(),

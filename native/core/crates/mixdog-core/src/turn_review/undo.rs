@@ -460,7 +460,9 @@ impl Inner {
             // Invalidate every producer of the old history BEFORE the awaited deletion, so nothing
             // begun before the delete can write it back.
             inner.discard_session_change_state(&owner2);
-            let turns = inner.store.clear_session_change_history(&owner2).await.map_err(|e| ReviewError::new(e.to_string()))?;
+            // The session's first-seen baselines go too: later edits start fresh ones.
+            let (turns, ()) = tokio::join!(inner.store.clear_session_change_history(&owner2), inner.baselines.clear(&owner2));
+            let turns = turns.map_err(|e| ReviewError::new(e.to_string()))?;
             let mut reply = Reply::new();
             reply.insert("turns".into(), Value::from(turns));
             Ok(reply)

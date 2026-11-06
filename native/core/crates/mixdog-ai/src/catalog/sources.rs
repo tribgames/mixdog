@@ -161,6 +161,7 @@ fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::domain::provid
     record.prompt_caching = tri(listed.supports_prompt_caching);
     record.context_window = listed.context_window;
     record.max_context_window = listed.max_context_window;
+    record.runtime_context_window = listed.runtime_context_window;
     record.output_tokens = listed.max_output_tokens;
     record.rates = Rates {
         input: listed.input_cost_per_m.filter(|v| v.is_finite()),

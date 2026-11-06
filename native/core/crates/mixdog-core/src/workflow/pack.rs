@@ -66,7 +66,7 @@ fn none_data(text: &str) -> bool {
 }
 
 /// `readTextSafe`: the trimmed text, empty when unreadable or holding no data.
-fn read_text_safe(path: &Path) -> String {
+pub(crate) fn read_text_safe(path: &Path) -> String {
     match std::fs::read(path) {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes);

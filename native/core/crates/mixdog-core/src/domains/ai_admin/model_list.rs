@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::catalog::CatalogService;
+use mixdog_ai::catalog::{CatalogService, CatalogSnapshot};
 use mixdog_ai::effort::effort_items_for;
 use mixdog_ai::service::admin_models::{
     HydrationFacts, hydrate_provider_model_row, is_selectable_llm_model, model_proxy_client_mode, provider_available,
@@ -51,6 +51,7 @@ pub struct ModelListService {
 /// The facts row hydration reads, over the catalog and the effort modules.
 struct RowFacts<'a> {
     catalog: &'a CatalogService,
+    snapshot: &'a CatalogSnapshot,
     unsupported: &'a UnsupportedEfforts,
     config: &'a Obj,
 }
@@ -74,9 +75,12 @@ impl HydrationFacts for RowFacts<'_> {
     }
 
     fn effort_configuration_mode(&self, provider: &str, model: &str, opts: &Value) -> bool {
-        // The OAuth catalog's own `supportsReasoningEffortUpdates` is not on the catalog record
-        // yet, so the version rule answers alone.
-        effort_configuration_mode(provider, &Value::from(model), opts, self.unsupported, &|_| None).is_some()
+        // `codexModelSupportsEffortUpdates(id)`: the OAuth catalog's own statement for the model.
+        let declared = |id: &str| {
+            let (_, records) = self.snapshot.models.iter().find(|(p, _)| p.as_str() == "openai-oauth")?;
+            records.iter().find(|r| r.id == id)?.supports_reasoning_effort_updates
+        };
+        effort_configuration_mode(provider, &Value::from(model), opts, self.unsupported, &declared).is_some()
     }
 
     fn custom_auto_effort_capable(&self, provider: &str, protocol: Option<&Value>, row: &Value) -> bool {
@@ -129,7 +133,7 @@ impl ModelListService {
                 rows.push(Value::Object(row));
             }
         }
-        let facts = RowFacts { catalog: &self.catalog, unsupported: &self.unsupported, config: &config };
+        let facts = RowFacts { catalog: &self.catalog, snapshot: &snapshot, unsupported: &self.unsupported, config: &config };
         let mut rows: Vec<Value> = rows
             .iter()
             .filter(|row| provider_available(row.get("provider").and_then(Value::as_str).unwrap_or_default(), client_mode, &developer))

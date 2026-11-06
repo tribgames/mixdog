@@ -19,6 +19,9 @@ pub const LEGACY_SESSION_PROTOCOL: u64 = 1;
 pub const LEGACY_SESSION_REVISION: u64 = 6;
 /// Connect timeout of the loopback request (transport configuration).
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Longest single read or write of that request, so a daemon that stops answering
+/// ends the call instead of holding the migration.
+const IO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The session endpoint of a 1.4.5 daemon (legacy discovery `endpoints.session`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +50,10 @@ pub struct Answer {
 fn request(endpoint: &LegacyEndpoint, method: &str, path: &str, body: Option<&Value>) -> Result<Answer, String> {
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, endpoint.port));
     let mut stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(|e| e.to_string())?;
+    stream
+        .set_read_timeout(Some(IO_TIMEOUT))
+        .and_then(|()| stream.set_write_timeout(Some(IO_TIMEOUT)))
+        .map_err(|e| e.to_string())?;
     let payload = body.map(|b| b.to_string()).unwrap_or_default();
     let head = format!(
         "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nx-mixdog-daemon-token: {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
@@ -128,10 +135,12 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let server = std::thread::spawn(move || {
             let (mut s, _) = listener.accept().unwrap();
+            s.set_read_timeout(Some(IO_TIMEOUT)).unwrap();
             let mut buf = vec![0u8; 4096];
             let mut got = Vec::new();
             while !got.windows(4).any(|w| w == b"\r\n\r\n") || !got.ends_with(b"}") {
                 let n = s.read(&mut buf).unwrap();
+                assert_ne!(n, 0, "the request ended early: {}", String::from_utf8_lossy(&got));
                 got.extend_from_slice(&buf[..n]);
             }
             let reply = br#"{"accepted":true}"#;

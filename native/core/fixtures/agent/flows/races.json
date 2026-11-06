@@ -94,6 +94,10 @@
         "count": 4
       },
       {
+        "op": "until",
+        "notices": 1
+      },
+      {
         "op": "release",
         "n": 1
       },
@@ -464,6 +468,11 @@
       },
       {
         "op": "settle"
+      },
+      {
+        "op": "until",
+        "log": "status",
+        "count": 3
       },
       {
         "op": "start",

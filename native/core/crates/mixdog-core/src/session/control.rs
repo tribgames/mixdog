@@ -15,7 +15,7 @@ use mixdog_core_api::ids::QueuedId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::thread::Decision;
-use mixdog_rt::CancellationToken;
+use mixdog_agent::cancel::Cancel;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::policy::SessionSurface;
 use serde_json::Value;
@@ -51,7 +51,8 @@ pub(crate) enum Ctl {
 /// The active run as RT-C sees it.
 pub(crate) struct ActiveRun {
     pub turn: TurnId,
-    pub cancel: CancellationToken,
+    /// The run's signal: aborted with Node's reason text.
+    pub cancel: Cancel,
     /// Queue entries marked steer, waiting for the run's next model-call boundary.
     pub steers: Mutex<VecDeque<QueuedId>>,
 }
@@ -160,15 +161,23 @@ impl ControlCell {
         })
     }
 
-    /// `turn/interrupt` → `{cancelRequested: true, turnId}` (R12). The run stops at its next
-    /// poll; its `run{interrupted}` record follows through the control reserve.
+    /// `turn/interrupt` → `{cancelRequested: true, turnId}` (R12): the user's stop
+    /// (`abortRuntime`, `cli-abort`). The run stops at its next poll; its `run{interrupted}`
+    /// record follows through the control reserve.
     pub fn interrupt(&self, turn: &TurnId) -> Result<Value, CoreError> {
+        let reason = mixdog_agent::cancel::runtime_abort_reason(self.thread.as_str(), mixdog_agent::cancel::CLI_ABORT);
+        self.abort(turn, &reason)
+    }
+
+    /// Aborts the running `turn` with `reason`, Node's abort text (`closeSession`,
+    /// `abortSessionTurn`, `abortRuntime`).
+    pub fn abort(&self, turn: &TurnId, reason: &str) -> Result<Value, CoreError> {
         let run = self.run.load_full();
         let Some(run) = run.filter(|run| &run.turn == turn) else {
             return Err(self.not_active(Some(turn)));
         };
         self.send(Ctl::Abort { turn: turn.clone() })?;
-        run.cancel.cancel();
+        run.cancel.abort(reason);
         Ok(json!({ "cancelRequested": true, "turnId": turn }))
     }
 

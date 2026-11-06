@@ -9,7 +9,6 @@
 use std::sync::LazyLock;
 
 use mixdog_core_api::domain::provider::Role;
-use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_js::JsRegex;
 use mixdog_js::math::round;
 use serde_json::Map;
@@ -20,9 +19,20 @@ use sha2::Sha256;
 
 use super::estimate::IMAGE_TOKEN_ALLOWANCE;
 use super::estimate::MessageMeter;
+use super::execution_tail::MessageRows;
+use super::tool_schema::RequestTools;
 use super::tool_schema::estimate_request_reserve_tokens;
 use super::tool_schema::tool_schema_signature;
 use crate::message::AgentMessage;
+
+mod rows;
+
+pub use rows::AttachmentBytes;
+pub use rows::BlobError;
+pub use rows::{clean_image_mime, image_descriptor, image_identity};
+pub use rows::restore_turn_checkpoint_context_state_rows;
+pub use rows::rows_exact_signature;
+pub use rows::rows_shape_signature;
 
 /// A session header: its fields under Node's names.
 pub type Header = Map<String, Value>;
@@ -197,21 +207,28 @@ fn role_name(message: &AgentMessage) -> &'static str {
     }
 }
 
+/// sha256 over `JSON(identity) + '\0'` of each message identity, in order (hex).
+fn digest_identities(identities: impl Iterator<Item = Value>) -> String {
+    let mut hash = Sha256::new();
+    for identity in identities {
+        hash.update(mixdog_js::json_stringify(&identity).as_bytes());
+        hash.update([0u8]);
+    }
+    hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// `contextMessagesSignature` / `contextMessagesShapeSignature`: sha256 over
 /// `JSON(identity(message)) + '\0'` for each message of the slice, in order.
 pub struct TranscriptSigner<'a> {
     pub meter: &'a MessageMeter<'a>,
     pub images: &'a dyn ImageIdentities,
+    /// The stored row of a message (the snapshot's tail id is read from it).
+    pub rows: &'a dyn MessageRows,
 }
 
 impl TranscriptSigner<'_> {
     fn digest(messages: &[AgentMessage], identity: impl Fn(&AgentMessage) -> Value) -> String {
-        let mut hash = Sha256::new();
-        for message in messages {
-            hash.update(mixdog_js::json_stringify(&identity(message)).as_bytes());
-            hash.update([0u8]);
-        }
-        hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
+        digest_identities(messages.iter().map(identity))
     }
 
     /// The signature of `messages` as they are, images included.
@@ -239,10 +256,17 @@ impl TranscriptSigner<'_> {
     }
 }
 
-/// `contextUsageSnapshotTail`. Agent messages carry no `uuid` or `id`; a tool result is
-/// identified by its call id.
-fn snapshot_tail(messages: &[AgentMessage]) -> (&'static str, &str) {
-    messages.last().map_or(("", ""), |m| (role_name(m), m.tool_call_id().unwrap_or_default()))
+impl TranscriptSigner<'_> {
+    /// `contextUsageSnapshotTail`: the last message's role and `uuid || id || toolCallId`. An
+    /// agent message carries no `uuid` or `id`; they are read from the row the store holds for
+    /// it, and a message with no stored row has none.
+    fn snapshot_tail(&self, messages: &[AgentMessage]) -> (&'static str, String) {
+        messages.last().map_or(("", String::new()), |m| {
+            let row = self.rows.row(m);
+            let id = or(or(row.get("uuid"), row.get("id")), row.get("toolCallId"));
+            (role_name(m), string_or_empty(id))
+        })
+    }
 }
 
 // --- The usage snapshot -----------------------------------------------------
@@ -278,7 +302,7 @@ pub fn record_context_usage_snapshot(
         Some(n) if n.is_finite() => round(n).max(0.0),
         Some(_) => signer.meter.messages(messages) as f64,
     };
-    let (tail_role, tail_id) = snapshot_tail(messages);
+    let (tail_role, tail_id) = signer.snapshot_tail(messages);
     let limit = positive_int(or(policy.get("triggerTokens"), policy.get("boundaryTokens")));
     let updated_at = if args.updated_at.is_some_and(|u| u != 0.0 && !u.is_nan()) { args.updated_at.unwrap() } else { args.now };
     let snapshot = json!({
@@ -345,8 +369,8 @@ fn provider_pressure_tokens(usage: &Value, input_excludes_cache: bool) -> f64 {
 pub struct BaselineArgs<'a> {
     /// `'request'` when the usage arrived before the reply was appended, else complete.
     pub boundary: &'a str,
-    /// The tools the request carried.
-    pub send_tools: &'a [ToolDefinition],
+    /// The tools the request carried, with the provider-native prefix the run host exposed.
+    pub send_tools: RequestTools<'a>,
     /// `providerInputExcludesCache(session.provider)`.
     pub input_excludes_cache: bool,
     /// `providerTokenCalibration(session.provider)`.
@@ -377,8 +401,8 @@ pub fn record_provider_context_baseline(
     patch.put("contextPressureBaselineShapeSignature", signer.shape(messages).into());
     patch.put("contextPressureBaselineProvider", or_null(header.get("provider")));
     patch.put("contextPressureBaselineModel", or_null(header.get("model")));
-    patch.put("contextPressureBaselineToolSignature", tool_schema_signature(args.send_tools).into());
-    let reserve = estimate_request_reserve_tokens(args.send_tools) as f64 * args.token_calibration;
+    patch.put("contextPressureBaselineToolSignature", tool_schema_signature(&args.send_tools).into());
+    let reserve = estimate_request_reserve_tokens(&args.send_tools) as f64 * args.token_calibration;
     patch.put("contextPressureBaselineRequestReserveTokens", num(round(reserve).max(0.0)));
     patch.put("contextPressureBaselineBoundary", if args.boundary == "request" { "request" } else { "complete" }.into());
     patch.put("contextPressureBaselineUpdatedAt", num(args.now));
@@ -429,27 +453,33 @@ fn non_negative_count(value: Option<&Value>) -> Option<usize> {
 }
 
 /// `checkpointContextSliceMatches`.
-fn slice_matches(messages: &[AgentMessage], state: &Value, signer: &TranscriptSigner<'_>) -> bool {
+fn slice_matches<M, E>(messages: &[M], state: &Value, exact: &dyn Fn(&[M]) -> Result<String, E>) -> Result<bool, E> {
     let (Some(committed), Some(turn)) =
         (non_negative_count(state.get("committedPrefixCount")), non_negative_count(state.get("turnMessageCount")))
     else {
-        return false;
+        return Ok(false);
     };
     if committed + turn > messages.len() {
-        return false;
+        return Ok(false);
     }
-    if signer.exact(&messages[..committed]) != string_or_empty(state.get("committedPrefixSignature")) {
-        return false;
+    if exact(&messages[..committed])? != string_or_empty(state.get("committedPrefixSignature")) {
+        return Ok(false);
     }
-    signer.exact(&messages[committed..committed + turn]) == string_or_empty(state.get("turnPrefixSignature"))
+    Ok(exact(&messages[committed..committed + turn])? == string_or_empty(state.get("turnPrefixSignature")))
 }
 
 /// `legacyProviderBaselineMatches`.
-fn legacy_baseline_matches(header: &Header, messages: &[AgentMessage], signer: &TranscriptSigner<'_>) -> bool {
-    non_negative_count(header.get("contextPressureBaselineMessageCount")).is_some_and(|count| {
-        count <= messages.len()
-            && string_or_empty(header.get("contextPressureBaselinePrefixSignature")) == signer.exact(&messages[..count])
-    })
+fn legacy_baseline_matches<M, E>(
+    header: &Header,
+    messages: &[M],
+    exact: &dyn Fn(&[M]) -> Result<String, E>,
+) -> Result<bool, E> {
+    match non_negative_count(header.get("contextPressureBaselineMessageCount")) {
+        Some(count) if count <= messages.len() => {
+            Ok(string_or_empty(header.get("contextPressureBaselinePrefixSignature")) == exact(&messages[..count])?)
+        }
+        _ => Ok(false),
+    }
 }
 
 /// `markUnanchoredContext`: a retained reading that no longer describes the transcript.
@@ -486,31 +516,50 @@ pub fn restore_turn_checkpoint_context_state(
     signer: &TranscriptSigner<'_>,
     now: f64,
 ) -> Restored {
+    match restore_with(header, messages, checkpoint, &|slice| Ok::<_, std::convert::Infallible>(signer.exact(slice)), now) {
+        Ok(restored) => restored,
+        Err(never) => match never {},
+    }
+}
+
+/// The restore over any message form: `exact` signs a slice of `messages` the way
+/// `contextMessagesSignature` does.
+fn restore_with<M, E>(
+    header: &Header,
+    messages: &[M],
+    checkpoint: &Value,
+    exact: &dyn Fn(&[M]) -> Result<String, E>,
+    now: f64,
+) -> Result<Restored, E> {
     let state = checkpoint.get("contextState").filter(|s| truthy(Some(s)));
     let raw_used = number(state.and_then(|s| s.get("usedTokens")));
-    let usable = state.filter(|s| {
-        s.get("version").and_then(Value::as_u64) == Some(TURN_CONTEXT_STATE_VERSION)
+    let mut usable = None;
+    if let Some(s) = state {
+        if s.get("version").and_then(Value::as_u64) == Some(TURN_CONTEXT_STATE_VERSION)
             && raw_used.is_finite()
             && raw_used >= 0.0
             && string_or_empty(s.get("provider")) == string_or_empty(header.get("provider"))
             && string_or_empty(s.get("model")) == string_or_empty(header.get("model"))
-            && slice_matches(messages, s, signer)
-    });
+            && slice_matches(messages, s, exact)?
+        {
+            usable = Some(s);
+        }
+    }
     let Some(state) = usable else {
-        if legacy_baseline_matches(header, messages, signer) {
+        if legacy_baseline_matches(header, messages, exact)? {
             let mut patch = HeaderPatch::default();
             patch.remove("contextPressureUnanchoredAfterRestart");
             patch.remove("contextPressureUnanchoredReason");
-            return Restored { anchored: true, patch };
+            return Ok(Restored { anchored: true, patch });
         }
-        return Restored { anchored: false, patch: mark_unanchored_context(header).unwrap_or_default() };
+        return Ok(Restored { anchored: false, patch: mark_unanchored_context(header).unwrap_or_default() });
     };
 
     let count = non_negative_count(state.get("committedPrefixCount")).unwrap_or(0)
         + non_negative_count(state.get("turnMessageCount")).unwrap_or(0);
     let used = round(raw_used).max(0.0);
     let output = rounded_count(state.get("outputTokens"));
-    let prefix_signature = signer.exact(&messages[..count]);
+    let prefix_signature = exact(&messages[..count])?;
     let updated_at = round(if number_or_zero(state.get("updatedAt")) != 0.0 { number_or_zero(state.get("updatedAt")) } else { now }).max(0.0);
     let post_compact = state.get("kind").and_then(Value::as_str) == Some("post_compact");
 
@@ -564,5 +613,5 @@ pub fn restore_turn_checkpoint_context_state(
     }
     patch.remove("contextPressureUnanchoredAfterRestart");
     patch.remove("contextPressureUnanchoredReason");
-    Restored { anchored: true, patch }
+    Ok(Restored { anchored: true, patch })
 }
