@@ -341,7 +341,7 @@ impl SessionActor {
         &mut self,
         snapshot: Vec<mixdog_core_api::ids::ItemId>,
         compaction: super::super::run::Compaction,
-        header: Option<HeaderChange>,
+        header: Option<super::super::turn_ops::CompactionHeader>,
         tx: oneshot::Sender<Result<super::super::turn_ops::CompactionCommit, CoreError>>,
     ) {
         use super::super::turn_ops::CompactionCommit;
@@ -381,7 +381,11 @@ impl SessionActor {
         if self.compaction_blocked() || self.runs_begun != begun || !extends {
             return drop(tx.send(Ok(CompactionCommit::Moved)));
         }
-        compaction.replacement.extend(rows.into_iter().skip(snapshot.len()));
+        let appended: Vec<_> = rows.into_iter().skip(snapshot.len()).collect();
+        // The header the commit carries is computed here, where the rows a finished turn appended
+        // meanwhile are known (withAppendedMessages), from the header as it stands.
+        let header = header.map(|header| header(&self.projected.header, &appended));
+        compaction.replacement.extend(appended);
         let (ack, durable) = oneshot::channel();
         // No turn: the divider is shown live with no turn id, as a card outside a turn is.
         self.on_producer(ProducerMsg::Compacted { turn: TurnId::from(""), compaction, header, ack });

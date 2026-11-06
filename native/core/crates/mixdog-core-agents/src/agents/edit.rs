@@ -82,7 +82,7 @@ pub(super) fn write_bytes(lane: &InLane<DurabilityIo>, file: &Path, bytes: &[u8]
 
 /// A failed publication worded as Node throws it: `EPERM: operation not permitted, rename '<tmp>' ->
 /// '<file>'`, code `EPERM`. The temp file of a failed write is already removed by the publication.
-fn publish_failure(failure: state::PublishFailure) -> CoreError {
+pub(super) fn publish_failure(failure: state::PublishFailure) -> CoreError {
     use mixdog_core_base::support::FsFailure;
     use mixdog_core_base::support::FsStep;
     let step = match failure.step {

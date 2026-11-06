@@ -116,6 +116,8 @@ pub(crate) struct DirInner {
     opens: std::sync::atomic::AtomicU64,
     /// `onGoalStatusChange`: each change goes to its loaded thread's Goal lane.
     goal_events: Mutex<Option<mixdog_core_goal::goal::Subscription>>,
+    /// Cancels the staged-originals deadline timer when the directory goes.
+    _prune: tokio_util::sync::DropGuard,
 }
 
 /// A thread to create (`thread/start`, `thread/fork`).
@@ -142,12 +144,16 @@ struct Opened {
 
 impl SessionDirectory {
     pub fn new(deps: Arc<SessionDeps>) -> Self {
+        // Startup prune and the deadline timer for abandoned staged originals (`startStagedOriginalsPrune`).
+        let prune = mixdog_rt::CancellationToken::new();
+        deps.staged_originals.start_prune(deps.lanes.durability, deps.clock.clone(), prune.clone());
         let inner = Arc::new_cyclic(|me| DirInner {
             deps,
             shards: (0..SHARDS).map(|_| Mutex::new(HashMap::new())).collect(),
             me: me.clone(),
             opens: Default::default(),
             goal_events: Mutex::new(None),
+            _prune: prune.drop_guard(),
         });
         let me = Arc::downgrade(&inner);
         let subscription = inner.deps.goals.on_goal_change(Box::new(move |event| {
@@ -749,6 +755,7 @@ impl DirInner {
             deps: deps.clone(),
             directory: self.me.clone(),
             reactions: Default::default(),
+            submits: Default::default(),
         });
         let durability = DurabilityTask::new(
             id.clone(),

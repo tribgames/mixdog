@@ -22,7 +22,10 @@ use mixdog_core_api::domain::ext::ExtError;
 use mixdog_core_api::domain::ext::ExtFrame;
 use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_core_api::domain::ext::ImageResizeError;
+use mixdog_core_api::domain::ext::ImageProfile;
 use mixdog_core_api::domain::ext::ImageResizer;
+use mixdog_core_api::domain::ext::ProfiledImageResizer;
+use mixdog_core_api::domain::ext::ProfiledResizeError;
 use mixdog_core_api::domain::ext::ResizedImage;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
@@ -73,7 +76,8 @@ pub struct StillRendition {
 
 /// What an image call can end in, besides an answer.
 enum Failure {
-    Invalid,
+    /// The decoder's sentence (empty when the worker gave none).
+    Invalid(String),
     /// No sharp, or the machine failed (`isEnvironmentError`).
     Environment,
     Host(ExtError),
@@ -88,13 +92,13 @@ fn bad_answer(method: &str) -> ExtError {
 fn host_error(failure: Failure) -> ExtError {
     match failure {
         Failure::Host(error) => error,
-        Failure::Invalid | Failure::Environment => bad_answer("image"),
+        Failure::Invalid(_) | Failure::Environment => bad_answer("image"),
     }
 }
 
 fn codec_error(failure: Failure) -> CodecError {
     match failure {
-        Failure::Invalid => CodecError::Invalid,
+        Failure::Invalid(_) => CodecError::Invalid,
         Failure::Environment => CodecError::Environment(None),
         Failure::Host(error) => {
             tracing::warn!(?error, "the image host could not answer; the image is not judged");
@@ -120,14 +124,28 @@ impl ExtImageCodec {
     /// `Err(Invalid)` is the decoder rejecting the bytes; `Err(Host(_))` is a host that is down or
     /// cannot answer.
     pub async fn read_resize(&self, thread: &ThreadId, bytes: &[u8], ext: &str) -> Result<Option<ReadResize>, ReadResizeError> {
+        match self.resize_with(thread, bytes, ext, None).await {
+            Err(Failure::Invalid(_)) => Err(ReadResizeError::Invalid),
+            Err(other) => Err(ReadResizeError::Host(host_error(other))),
+            Ok(resized) => Ok(resized),
+        }
+    }
+
+    /// `resizeImageBuffer(bytes, ext, { profile })`; the read tool names no profile.
+    async fn resize_with(&self, thread: &ThreadId, bytes: &[u8], ext: &str, profile: Option<ImageProfile>) -> Result<Option<ReadResize>, Failure> {
         let method = "image.resize";
-        match self.ask(thread, method, json!({ "data": STANDARD.encode(bytes), "ext": ext })).await {
-            Ok(JsonValue::Null) => Ok(None),
+        let mut params = json!({ "data": STANDARD.encode(bytes), "ext": ext });
+        if let Some(profile) = profile {
+            params["profile"] = json!(match profile {
+                ImageProfile::Anthropic => "anthropic",
+                ImageProfile::OpenAi => "openai",
+            });
+        }
+        match self.ask(thread, method, params).await? {
+            JsonValue::Null => Ok(None),
             // `resizeImageBuffer` throws for every decoder failure, so the worker never answers
             // "environment" here; if it did, that is not an answer.
-            Ok(ok) => read_resized(&ok).map(Some).ok_or_else(|| ReadResizeError::Host(bad_answer(method))),
-            Err(Failure::Invalid) => Err(ReadResizeError::Invalid),
-            Err(other) => Err(ReadResizeError::Host(host_error(other))),
+            ok => read_resized(&ok).map(Some).ok_or_else(|| Failure::Host(bad_answer(method))),
         }
     }
 
@@ -148,7 +166,7 @@ impl ExtImageCodec {
         let ok = match self.ask(thread, method, json!({ "data": STANDARD.encode(bytes), "variant": variant })).await {
             Ok(ok) => ok,
             // Node's `encodeStill` has no third outcome: it answers `null` for these.
-            Err(Failure::Invalid | Failure::Environment) => return Ok(None),
+            Err(Failure::Invalid(_) | Failure::Environment) => return Ok(None),
             Err(Failure::Host(error)) => return Err(error),
         };
         if ok.is_null() {
@@ -176,7 +194,7 @@ impl ExtImageCodec {
             }
         };
         match answer.get("error").and_then(JsonValue::as_str) {
-            Some("invalid") => Err(Failure::Invalid),
+            Some("invalid") => Err(Failure::Invalid(answer.get("message").and_then(JsonValue::as_str).unwrap_or_default().to_owned())),
             Some(_) => Err(Failure::Environment),
             None => answer.get("ok").cloned().ok_or_else(|| Failure::Host(bad_answer(method))),
         }
@@ -219,6 +237,19 @@ impl ImageResizer for ExtImageCodec {
             })),
             Err(ReadResizeError::Invalid) => Err(ImageResizeError::Invalid),
             Err(ReadResizeError::Host(error)) => Err(ImageResizeError::Host(error)),
+        }
+    }
+}
+
+/// The composer's resize: the same resizeImageBuffer, under the provider's image profile, and
+/// the decoder's own sentence when it rejects the bytes.
+#[async_trait::async_trait]
+impl ProfiledImageResizer for ExtImageCodec {
+    async fn resize_profiled(&self, thread: &ThreadId, bytes: &[u8], ext: &str, profile: ImageProfile) -> Result<Option<ResizedImage>, ProfiledResizeError> {
+        match self.resize_with(thread, bytes, ext, Some(profile)).await {
+            Ok(resized) => Ok(resized.map(|r| ResizedImage { data_base64: r.data_base64, mime: r.mime, original_w: r.original_w, original_h: r.original_h, display_w: r.display_w, display_h: r.display_h })),
+            Err(Failure::Invalid(message)) => Err(ProfiledResizeError::Invalid(message)),
+            Err(other) => Err(ProfiledResizeError::Host(host_error(other))),
         }
     }
 }

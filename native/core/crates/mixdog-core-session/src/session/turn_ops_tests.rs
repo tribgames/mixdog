@@ -544,7 +544,12 @@ async fn a_manual_compaction_commit_writes_the_header_it_carries_without_countin
     set.insert("compaction".into(), json!({ "compactCount": 7, "lastStage": "manual" }));
     set.insert("lastContextTokens".into(), json!(0));
     let carried = HeaderChange { set, unset: Vec::new() };
-    let applied = directory.commit_compaction(&handle.id, snapshot, compaction("sum1"), Some(carried)).await.expect("answered");
+    // The commit computes the header from the thread's header and the rows appended since the snapshot (none here).
+    let header: super::turn_ops::CompactionHeader = Box::new(move |_, appended| {
+        assert!(appended.is_empty());
+        carried
+    });
+    let applied = directory.commit_compaction(&handle.id, snapshot, compaction("sum1"), Some(header)).await.expect("answered");
     assert_eq!(applied, super::turn_ops::CompactionCommit::Applied);
     eventually(|| (handle.live_header().header().get("compaction")?.get("compactCount") == Some(&json!(7))).then_some(())).await;
     let header = handle.live_header().header();

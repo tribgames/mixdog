@@ -30,6 +30,7 @@ use mixdog_core_api::ids::SubscriptionId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::thread::Decision;
+use mixdog_core_base::support::on_lane;
 use mixdog_rt::LaneToken;
 use mixdog_tools::policy::SessionSurface;
 use serde_json::Value;
@@ -63,6 +64,10 @@ pub struct SessionHandle {
     /// order (`agent-room-delivery.mjs` `serialized`): each reads the conversation, then
     /// writes it.
     pub(crate) reactions: Arc<mixdog_rt::SerialChain>,
+    /// Sends reach the actor in the order they arrive, though one first claims its staged
+    /// originals (session-turns.mjs keeps the claim synchronous so a later send cannot
+    /// overtake an earlier one).
+    pub(crate) submits: Arc<mixdog_rt::SerialChain>,
 }
 
 fn window_of(window: &ResumeWindow) -> Window {
@@ -144,7 +149,8 @@ impl SessionHandle {
         })
     }
 
-    async fn to_actor(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+    /// Puts the request in the actor's inbox; the receiver answers once the actor has.
+    async fn enqueue(&self, req: CoreRequest) -> Result<oneshot::Receiver<Result<Reply, CoreError>>, CoreError> {
         let (tx, rx) = oneshot::channel();
         let connection = matches!(req.ctx.caller, Caller::Connection(_));
         let msg = Inbox::Request { req, tx };
@@ -158,7 +164,29 @@ impl SessionHandle {
         } else {
             self.inbox.send(msg).await.map_err(|_| self.closing())?;
         }
-        rx.await.map_err(|_| self.closing())?
+        Ok(rx)
+    }
+
+    async fn to_actor(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        self.enqueue(req).await?.await.map_err(|_| self.closing())?
+    }
+
+    /// `turn/start` (`session-turns.mjs` `submitAdmitted`): the originals a composer staged for
+    /// the message's images are claimed first, so staging limits can no longer take them; one
+    /// that is gone (or cannot be claimed in time) is dropped from the message, leaving the
+    /// resized copy. The claim and the enqueue are not interleaved with another send's.
+    async fn turn_start(&self, mut req: CoreRequest) -> Result<Reply, CoreError> {
+        let in_order = self.submits.acquire().await;
+        let named = super::staged_originals::named_originals(&req.params);
+        if !named.is_empty() {
+            let originals = self.deps.staged_originals.clone();
+            // A claim that cannot run claims nothing, as a throw inside `claimStagedOriginals` does.
+            let claimed = on_lane(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
+            super::staged_originals::drop_lost_originals(&mut req.params, &claimed);
+        }
+        let answer = self.enqueue(req).await?;
+        drop(in_order);
+        answer.await.map_err(|_| self.closing())?
     }
 
     fn resume(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
@@ -452,6 +480,7 @@ impl ThreadHandle for SessionHandle {
             "thread/resume" => self.resume(&req),
             "thread/read" => self.read(&req).await,
             "thread/fork" => self.fork(req).await,
+            "turn/start" => self.turn_start(req).await,
             "thread/delete" => self.delete(&req).await,
             "thread/revertTurnReview" => self.revert_turn_review(&req, false).await,
             "thread/revertTurnReviewFile" => self.revert_turn_review(&req, true).await,

@@ -104,7 +104,7 @@
       "command": "node benchmarks/rust-core/recorders/record-compaction-plan.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "compaction-plan/MANIFEST.json",
-      "manifestSha256": "8c96f7f068408b780de5bdb051bd7ddba4f399d7e964faf32eb62dd184602137",
+      "manifestSha256": "4c3caef522e841c548c4c62a0493101d6a0910aba9e2c092bc02bad261a1e6fd",
       "recorder": "benchmarks/rust-core/recorders/record-compaction-plan.mjs",
       "set": "compaction-plan",
       "totalBytes": 108250
@@ -203,7 +203,7 @@
       "command": "node benchmarks/rust-core/recorders/record-event-pipeline.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "event-pipeline/MANIFEST.json",
-      "manifestSha256": "d1ca61a38fa30f4157f25cba9455aea47be2786f9280ea334323f4555281a59a",
+      "manifestSha256": "0d5cc29507f01d2f47ee5109dfc8000f9c8d9449d3b8c86ac3472de9c1ca4d87",
       "recorder": "benchmarks/rust-core/recorders/record-event-pipeline.mjs",
       "set": "event-pipeline",
       "totalBytes": 54823
@@ -252,6 +252,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-heartbeat.mjs",
       "set": "heartbeat",
       "totalBytes": 30423
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-home-agent.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "home-agent/MANIFEST.json",
+      "manifestSha256": "7f954f6540af4e7ee25ad398047a51dd7a62fd4d056f904c7b99059261f580d0",
+      "recorder": "benchmarks/rust-core/recorders/record-home-agent.mjs",
+      "set": "home-agent",
+      "totalBytes": 5661
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-home-delivery.mjs --tree <tree>",
@@ -752,10 +761,10 @@
       "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-turn-ops.mjs --tree <tree>)",
       "fileCount": 4,
       "manifest": "turn-ops/MANIFEST.json",
-      "manifestSha256": "16b78c0362bbea965fa0263cac30ae7170cc5e509f685f5a9a9cb89ada66bcdc",
+      "manifestSha256": "419905f36b5b5735306ef28a96eb4c997ea1c0a24e2c976968f7787bf86bf338",
       "recorder": "benchmarks/rust-core/recorders/record-turn-ops.mjs",
       "set": "turn-ops",
-      "totalBytes": 373483
+      "totalBytes": 459952
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-turn-review.mjs --tree <tree>",
@@ -779,7 +788,7 @@
       "command": "node benchmarks/rust-core/recorders/record-workflow-config.mjs --tree <tree>",
       "fileCount": 3,
       "manifest": "workflow-config/MANIFEST.json",
-      "manifestSha256": "3d0e86164d95f8d0650cca4ef86c12bad6077188597d8506408c82c68cbdfdf1",
+      "manifestSha256": "4572a2572f53bf872c213c5bbf1b94d4663b73af3263ab05492aaaa23637d0df",
       "recorder": "benchmarks/rust-core/recorders/record-workflow-config.mjs",
       "set": "workflow-config",
       "totalBytes": 82053

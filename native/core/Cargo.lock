@@ -4321,6 +4321,7 @@ version = "1.4.5"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "base64 0.22.1",
  "bytes",
  "futures",
  "mixdog-agent",

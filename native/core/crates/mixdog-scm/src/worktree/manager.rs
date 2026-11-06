@@ -732,12 +732,13 @@ impl Worktrees {
         if !dirty.is_empty() {
             return Err(errors::dirty_files(record.id.clone(), dirty));
         }
-        if self.checkout_unmerged_count(record, cancel).await? > 0 {
-            return Err(errors::unmerged(
-                Some(record.id.clone()),
-                None,
+        let unmerged = self.checkout_unmerged_count(record, cancel).await?;
+        if unmerged > 0 {
+            return Err(errors::unmerged_commits(
+                record.id.clone(),
                 record.branch.clone(),
                 record.merge_target.clone(),
+                unmerged,
             ));
         }
         Ok(())

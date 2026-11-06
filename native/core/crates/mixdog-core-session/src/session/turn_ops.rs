@@ -11,6 +11,12 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
 
+/// The header a compaction commit writes with it (`compactionRecord` and what follows): computed on
+/// the actor from the thread's header as it stands and the rows a finished turn appended since the
+/// snapshot (`appendedSinceSnapshot`), written in the record that counts the compaction, so it
+/// states the new `compaction.compactCount` itself.
+pub type CompactionHeader = Box<dyn FnOnce(&mixdog_store::schema::record::Header, &[(mixdog_core_api::ids::ItemId, Value)]) -> mixdog_store::schema::record::HeaderChange + Send>;
+
 /// What committing a manual compaction's result came to (`commitSessionCompaction`).
 #[derive(Debug, PartialEq, Eq)]
 pub enum CompactionCommit {
@@ -25,14 +31,13 @@ pub enum CompactionCommit {
 impl super::SessionDirectory {
     /// Commits `compaction`, planned on the model context whose item ids are `snapshot`, to
     /// `thread`. Opens the thread as `loadSession` does. `header` is what the commit sets in the
-    /// thread's header with the compaction, in the one record that counts it (so it states the
-    /// new `compaction.compactCount` itself); `None` counts one more.
+    /// thread's header with the compaction; `None` counts one more `compactCount`.
     pub async fn commit_compaction(
         &self,
         thread: &ThreadId,
         snapshot: Vec<mixdog_core_api::ids::ItemId>,
         compaction: super::run::Compaction,
-        header: Option<mixdog_store::schema::record::HeaderChange>,
+        header: Option<CompactionHeader>,
     ) -> Result<CompactionCommit, CoreError> {
         let ctx = mixdog_core_api::call::CallContext::internal("compaction");
         let handle = self.open_handle(thread, &ctx).await?;

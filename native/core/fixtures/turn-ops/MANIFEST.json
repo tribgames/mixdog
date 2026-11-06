@@ -3,14 +3,14 @@
   "fileCount": 4,
   "files": [
     {
-      "bytes": 1085,
+      "bytes": 10810,
       "path": "agent-control.json",
-      "sha256": "c14b6f34fc1d744d385419494901c3d0901a3ee309a6f1f115f50d635f25ff4c"
+      "sha256": "a0fbb2777d7ee3fb171c9b18000d9929cb8c370f6f494368869b1d943608c11b"
     },
     {
-      "bytes": 314870,
+      "bytes": 375501,
       "path": "composer-image.json",
-      "sha256": "e18998f7866c020be4e97abff69fa74d3a1d1214f95694dcdf80626b4b09ce46"
+      "sha256": "a74e5bc0fa8c7d43fccda9b7065f880a56c34dc3f0a820488dc81aa62f395df4"
     },
     {
       "bytes": 42087,
@@ -18,28 +18,28 @@
       "sha256": "e8c112d35da65f33b66348f6ed5519ba35f32c56e2151f72c1280653c5c01f98"
     },
     {
-      "bytes": 15441,
+      "bytes": 31554,
       "path": "staged-originals.json",
-      "sha256": "3d6a1af3e96be1ee2d4906fa53e28e20f62c45598df84966d01213e69817a225"
+      "sha256": "488770cf5f027f1a8feffcf33b814dcca891e1e586195d8465e8781419656b75"
     }
   ],
   "product": {
-    "appsSha256": "04b921c4ae348576f68a0a015207ce668e374e6d3cae8c8fdeff8ff229de0afa",
-    "commit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
+    "appsSha256": "aea90486849b02f92891b7def4ed21ffafa4d67ead160c9aa5b8b157e284f2af",
+    "commit": "433c7dfbb0d6763b0200667fabbf7f76e3f4abc7",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9241,
     "refComparison": {
-      "closestCommit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
+      "closestCommit": "433c7dfbb0d6763b0200667fabbf7f76e3f4abc7",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
     },
-    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "srcSha256": "0b9580cca2e51de41503da0fe8b30237f981f0c584bdc7511bc05a7a45b7ed84",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-ops.mjs",
   "set": "turn-ops",
-  "totalBytes": 373483
+  "totalBytes": 459952
 }

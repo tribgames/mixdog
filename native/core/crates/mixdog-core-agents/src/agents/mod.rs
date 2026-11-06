@@ -15,6 +15,7 @@ mod edit;
 mod files;
 mod lead;
 mod lead_service;
+pub mod home_agent;
 mod home_api;
 mod permissions;
 mod pool_list;

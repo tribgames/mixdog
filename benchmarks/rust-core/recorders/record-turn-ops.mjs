@@ -26,12 +26,15 @@ process.env.MIXDOG_DATA_DIR = join(scratch, 'data');
 const { createSecretRequests } = await importFrom(tree, 'apps/desktop/src/main/secret-requests.ts');
 const { requiredString } = await importFrom(tree, 'apps/desktop/src/main/ipc-validation.ts');
 const { SECRET_SAVE_SUFFIX, SECRET_USERNAME_SUFFIX } = await importFrom(tree, 'apps/desktop/src/shared/secret-slots.ts');
-const { stageOriginalAttachment } = await importFrom(tree, 'src/runtime/attachments/staged-originals.mjs');
+const { stageOriginalAttachment, claimStagedOriginals, pruneStagedOriginals, startStagedOriginalsPrune, _deadlinePruneForTest, STAGED_ORIGINALS_TTL_MS } = await importFrom(tree, 'src/runtime/attachments/staged-originals.mjs');
 const { attachmentFilePath, storeAttachmentBuffer } = await importFrom(tree, 'src/runtime/attachments/store.mjs');
 const { imageMetadataText, imageProfileForProvider, resizeImageBuffer } = await importFrom(tree, 'src/runtime/shared/read-image-resize.mjs');
 const { imageAttachmentFromBuffer } = await importFrom(tree, 'src/tui/paste-attachments.mjs');
 const { createSessionMediaApi } = await importFrom(tree, 'src/tui/session/session-api/media.mjs');
 const { createAgentOps } = await importFrom(tree, 'src/session-runtime/turn/agent-ops.mjs');
+const { createAgentExecute } = await importFrom(tree, 'src/session-runtime/services/agent-tool/execute.mjs');
+const { createCloseFlow } = await importFrom(tree, 'src/session-runtime/services/agent-tool/close-flow.mjs');
+const { callerSessionForContext, terminalPidForContext } = await importFrom(tree, 'src/session-runtime/services/agent-tool/helpers.mjs');
 
 const outDir = join(FIXTURES_ROOT, 'turn-ops');
 const sha = (data) => createHash('sha256').update(data).digest('hex');
@@ -117,6 +120,12 @@ async function scenario(name, steps) {
     if (step.op === 'stage') {
       const options = { now: step.now, ...(step.maxBytes ? { maxBytes: step.maxBytes } : {}), ...(step.ttlMs !== undefined ? { ttlMs: step.ttlMs } : {}) };
       entry.result = await attempt(async () => (await stageOriginalAttachment(step.empty ? Buffer.alloc(0) : bytesOf(step.text), options)).attachmentRef);
+    } else if (step.op === 'claim') {
+      const refs = step.refs.map((r) => (r.text !== undefined ? sha(bytesOf(r.text)) : r.raw));
+      entry.refs = refs;
+      entry.result = { ok: [...claimStagedOriginals(refs)].sort() };
+    } else if (step.op === 'prune') {
+      entry.result = await attempt(async () => (await pruneStagedOriginals({ now: step.now, ttlMs: step.ttlMs })).map((e) => e.ref));
     } else if (step.op === 'plantIndex') {
       mkdirSync(root, { recursive: true });
       writeFileSync(join(root, 'staged-originals.json'), step.text);
@@ -181,6 +190,81 @@ await scenario('an entry without a time never expires', [
   { op: 'stage', text: 'later', now: 1e12, ttlMs: 1 },
 ]);
 
+await scenario('a claim takes the stored originals out of the staged set', [
+  { op: 'stage', text: 'one', now: 1 },
+  { op: 'stage', text: 'two', now: 2 },
+  { op: 'claim', refs: [{ text: 'one' }, { text: 'one' }, { text: 'never-staged' }, { raw: 'nothex' }, { raw: '' }] },
+  { op: 'stage', text: 'three', now: 3, maxBytes: 8 },
+]);
+await scenario('a claim of a ref whose blob is gone claims nothing', [
+  { op: 'stage', text: 'vanishing', now: 1 },
+  { op: 'dropBlob', text: 'vanishing' },
+  { op: 'claim', refs: [{ text: 'vanishing' }] },
+]);
+await scenario('a claim of bytes stored for a message leaves the index as it was', [
+  { op: 'plantBlob', text: 'message-bytes' },
+  { op: 'claim', refs: [{ text: 'message-bytes' }] },
+]);
+await scenario('a claim with no valid ref touches nothing', [
+  { op: 'stage', text: 'kept', now: 1 },
+  { op: 'claim', refs: [{ raw: 'x' }] },
+  { op: 'claim', refs: [] },
+]);
+await scenario('a prune expires, drops entries without a blob and rewrites the index', [
+  { op: 'stage', text: 'old', now: 0 },
+  { op: 'stage', text: 'fresh', now: 150 },
+  { op: 'stage', text: 'gone', now: 160 },
+  { op: 'dropBlob', text: 'gone' },
+  { op: 'prune', now: 200, ttlMs: 100 },
+  { op: 'prune', now: 200, ttlMs: 100 },
+]);
+
+// ---- deadline prune (mocked clock and timers) ---------------------------------------------------
+const deadline = [];
+{
+  const { mock } = await import('node:test');
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+  const delays = [];
+  const mockedSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...rest) => {
+    delays.push(ms);
+    return mockedSetTimeout(fn, ms, ...rest);
+  };
+  const dir = join(scratch, 'deadline');
+  process.env.MIXDOG_DATA_DIR = dir;
+  const root = join(dir, 'prompt-attachments');
+  const index = () => (existsSync(join(root, 'staged-originals.json')) ? JSON.parse(readFileSync(join(root, 'staged-originals.json'), 'utf8')).map((e) => e.ref) : null);
+  const record = (step, extra = {}) => deadline.push({ step, armed: delays.length ? delays[delays.length - 1] : null, timers: delays.length, index: index(), ...extra });
+  const settle = async (until) => {
+    for (let i = 0; i < 2000 && !until(); i += 1) await new Promise((resolve) => setImmediate(resolve));
+  };
+  await stageOriginalAttachment(bytesOf('early'), { now: 0 });
+  record({ op: 'stage', text: 'early', now: 0 });
+  startStagedOriginalsPrune();
+  await settle(() => delays.length > 0);
+  record({ op: 'start' });
+  mock.timers.tick(1000);
+  await stageOriginalAttachment(bytesOf('later'), { now: 1000 });
+  record({ op: 'tick', ms: 1000 }, { stagedAt: 1000 });
+  claimStagedOriginals([ref('early')]);
+  record({ op: 'claim', refs: ['early'] });
+  await stageOriginalAttachment(bytesOf('last'), { now: 2000 });
+  record({ op: 'stage', text: 'last', now: 2000 });
+  for (let n = 0; n < 2; n += 1) {
+    const wait = delays[delays.length - 1];
+    const before = delays.length;
+    mock.timers.tick(wait - 1);
+    await new Promise((resolve) => setImmediate(resolve));
+    record({ op: 'tick', ms: wait - 1 });
+    mock.timers.tick(1);
+    await _deadlinePruneForTest();
+    await settle(() => true);
+    record({ op: 'tick', ms: 1 }, { rearmed: delays.length > before });
+  }
+  globalThis.setTimeout = mockedSetTimeout;
+  mock.timers.reset();
+}
+
 // ---- composer image -----------------------------------------------------------------------------
 const providers = ['', 'anthropic', 'openai', 'OpenAI', ' openai ', 'openai-codex', 'openai_x', 'xai', 'grok-3', 'deepseek', 'opencode-go', 'mixdog-local', 'mixdog-local-gguf', 'openaix', 'google', 'xaix', 'deepseek-', null];
 const profileCases = providers.map((provider) => ({ provider, profile: imageProfileForProvider(provider) }));
@@ -233,6 +317,28 @@ await resizeCase('a payload over the limit is refused', 'anthropic', { data: 'A'
 await resizeCase('a payload that decodes to nothing is refused', 'anthropic', { data: '!!!!' }, null, '');
 state.provider = '';
 
+// `Buffer.from(text, 'base64')` as the payload decode: code units are read by their low byte.
+const base64Cases = [];
+{
+  const pieces = ['A', 'Q', 'Z', 'a', 'z', '0', '9', '+', '/', '-', '_', '=', '==', ' ', '\n', 'Ł', 'ā', '\u013d', '\u4e2d', '😀', 'é', 'QUJD', 'QQ==', '!'];
+  let seed = 12345;
+  const next = (n) => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed % n;
+  };
+  const texts = ['', 'ŁŁŁŁ', 'Ł', 'QUJDRA==', 'QUJDRA', 'QUJD=RA', 'QQ=', 'Q', 'QUJDR', '😀QUJD', 'QUJD😀QUJD', '中中中中', '\u013dQUJD', { unit: 'AAAA', times: 1500, suffix: '' }, { unit: 'AAAA', times: 1500, suffix: '=' }, { unit: 'Ł', times: 5000, suffix: '=' }, { unit: 'A', times: 4095, suffix: '' }, { unit: 'A', times: 4097, suffix: '' }];
+  for (let i = 0; i < 400; i += 1) {
+    let text = '';
+    for (let n = next(24); n > 0; n -= 1) text += pieces[next(pieces.length)];
+    texts.push(text);
+  }
+  for (const text of texts) {
+    const real = typeof text === 'string' ? text : text.unit.repeat(text.times) + text.suffix;
+    const bytes = Buffer.from(real, 'base64');
+    base64Cases.push({ text, length: bytes.length, sha256: sha(bytes) });
+  }
+}
+
 const stageCases = [];
 for (const [name, input] of [
   ['bytes are staged', { data: Buffer.from('picked file').toString('base64') }],
@@ -246,32 +352,117 @@ for (const [name, input] of [
 }
 
 // ---- agent control ------------------------------------------------------------------------------
+// `agentControl` hands the REAL agent executor (agent-tool/execute.mjs + close-flow.mjs) the context
+// of the session; only what the executor reaches (registry, views, session manager) is a world that
+// keeps state, so a close is seen by the next list. Requests carry `type`, as the dispatcher reads it.
 const controlCases = [];
-for (const [name, session, cwd] of [
-  ['a session with a host pid', { id: 's1', clientHostPid: 4321 }, 'C:\\work\\app'],
-  ['a session without a host pid', { id: 's2' }, '/work/app'],
-  ['a zero host pid reads as none', { id: 's3', clientHostPid: 0 }, '/w'],
-]) {
+const pidOf = (value) => (value === process.pid ? 'process.pid' : value);
+const controlScenarios = [
+  { name: 'a list shows the roster and the tag filter narrows it', session: { id: 's1', clientHostPid: 4321 }, cwd: 'C:\\work\\app', workers: ['alpha', 'beta'], steps: [{ type: 'list' }, { type: 'list', tag: 'al' }, { type: 'status' }] },
+  { name: 'a close is seen by the next list', session: { id: 's2' }, cwd: '/work/app', workers: ['alpha', 'beta'], steps: [{ type: 'close', tag: 'alpha' }, { type: 'list' }, { type: 'close', tag: 'alpha' }, { type: 'cancel', sessionId: 'sess_beta' }, { type: 'list' }] },
+  { name: 'a request the executor refuses is its answer', session: { id: 's3', clientHostPid: 0 }, cwd: '/w', workers: ['alpha'], steps: [{ type: 'frobnicate' }, { type: 'close' }, { type: 'close', tag: 'ghost' }, { type: 'list' }] },
+];
+for (const scenario of controlScenarios) {
+  const trace = [];
+  const log = (...entry) => trace.push(JSON.parse(JSON.stringify(entry, (_k, v) => pidOf(v))));
+  const workers = scenario.workers.map((tag) => ({ tag, sessionId: `sess_${tag}`, agent: 'worker', cwd: scenario.cwd }));
+  const tags = new Map(workers.map((w) => [w.tag, w.sessionId]));
+  const tagAgents = new Map(workers.map((w) => [w.tag, 'worker']));
+  const live = (id) => {
+    const w = workers.find((x) => x.sessionId === id);
+    return w ? { id: w.sessionId, agent: w.agent, cwd: w.cwd, parentSessionId: scenario.session.id } : null;
+  };
+  const scopeKey = (ctx) => ({ s: callerSessionForContext(ctx), p: pidOf(terminalPidForContext(ctx)) });
+  const dropWorker = (id) => {
+    const at = workers.findIndex((w) => w.sessionId === id);
+    if (at >= 0) workers.splice(at, 1);
+  };
+  const mgr = {
+    rehydrateAgentSessions: async () => log('rehydrate'),
+    closeSession: async (id, reason, opts) => (log('closeSession', id, reason, opts), true),
+    descendantSessionIds: () => [],
+  };
+  const registry = {
+    resolveTombstoneOwners: () => log('resolveTombstoneOwners'),
+    refreshTagsFromSessions: ({ scanSessions, context }) => log('refreshTags', scanSessions, scopeKey(context)),
+    wantsSessionScan: (args = {}) => args.recover === true || args.scanSessions === true || args.scan_sessions === true,
+    resolveTag: (tag, context, opts = {}) => {
+      log('resolveTag', tag, scopeKey(context), { scan: opts.scanSessions === true, traces: opts.excludeTerminalTraces === true });
+      return tags.get(tag) || (live(tag) ? tag : null);
+    },
+    getLiveSession: live,
+    tags,
+    tagAgents,
+    tagForSession: (id) => [...tags.entries()].find(([, sid]) => sid === id)?.[0] ?? null,
+    unbindTag: (tag) => (log('unbindTag', tag), tags.delete(tag), tagAgents.delete(tag)),
+    forgetTerminalSession: (tag, sessionId) => {
+      log('forgetTerminalSession', tag, sessionId);
+      tags.delete(tag);
+      tagAgents.delete(tag);
+      dropWorker(sessionId);
+    },
+    removeWorkerRow: (row) => (log('removeWorkerRow', row.sessionId), dropWorker(row.sessionId)),
+    markReleased: (ids) => log('markReleased', ids),
+    readWorkerRows: () => workers.map((w) => ({ ...w, parentSessionId: scenario.session.id })),
+    readAllTagTombstones: () => [],
+    tagTombstoneForTag: () => null,
+    consumeTagTombstone: () => {},
+    lastTagSession: () => null,
+    resumableTagSession: async () => null,
+  };
+  const views = {
+    getJobOrWorker: () => {
+      throw new Error('no job in the world');
+    },
+    renderJob: (job) => job,
+    list: () => workers.map((w) => ({ tag: w.tag, status: 'idle', active: false })),
+    listJobs: () => [],
+  };
+  const execute = createAgentExecute({
+    mgr,
+    defaultCwd: scenario.cwd,
+    awaitKeychainPrewarm: async () => {},
+    registry,
+    views,
+    spawnFlow: {},
+    sendFlow: {},
+    closeFlow: createCloseFlow({ mgr, registry, views }),
+    terminalTrace: { hasTerminalTrace: () => false, reapTerminalTraceForTag: () => {} },
+    listProviderModels: null,
+  });
   let context;
   const ops = createAgentOps({
-    getSession: () => session,
-    getCurrentCwd: () => cwd,
+    getSession: () => scenario.session,
+    getCurrentCwd: () => scenario.cwd,
     notifyFnForSession: () => undefined,
     agentTool: {
       execute: (args, ctx) => {
         context = ctx;
-        return 'ran';
+        log('execute', args);
+        return execute(args, ctx);
       },
     },
   });
-  const result = ops.agentControl({ action: 'list' });
-  controlCases.push({ name, session, cwd, args: { action: 'list' }, result, context: { callerCwd: context.callerCwd, invocationSource: context.invocationSource, callerSessionId: context.callerSessionId, clientHostPid: context.clientHostPid === process.pid ? 'process.pid' : context.clientHostPid } });
+  const steps = [];
+  for (const args of scenario.steps) {
+    const before = trace.length;
+    const result = await ops.agentControl(args);
+    steps.push({ args, result, trace: trace.slice(before) });
+  }
+  controlCases.push({
+    name: scenario.name,
+    session: scenario.session,
+    cwd: scenario.cwd,
+    workers: scenario.workers,
+    context: { callerCwd: context.callerCwd, invocationSource: context.invocationSource, callerSessionId: context.callerSessionId, clientHostPid: pidOf(context.clientHostPid) },
+    steps,
+  });
 }
 
 const stage = stageSet(outDir);
 writeJson(join(stage, 'secret-slots.json'), { cases: secretCases, requiredIds, suffixes: { username: SECRET_USERNAME_SUFFIX, save: SECRET_SAVE_SUFFIX } });
-writeJson(join(stage, 'staged-originals.json'), stagedScenarios);
-writeJson(join(stage, 'composer-image.json'), { profiles: profileCases, metadata: metadataCases, resize: resizeCases, stage: stageCases });
+writeJson(join(stage, 'staged-originals.json'), { scenarios: stagedScenarios, deadline, ttlMs: STAGED_ORIGINALS_TTL_MS });
+writeJson(join(stage, 'composer-image.json'), { profiles: profileCases, metadata: metadataCases, resize: resizeCases, stage: stageCases, base64: base64Cases });
 writeJson(join(stage, 'agent-control.json'), controlCases);
 commitStage(stage, outDir);
 writeSetManifest(outDir, {

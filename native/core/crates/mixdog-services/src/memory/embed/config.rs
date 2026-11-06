@@ -90,6 +90,18 @@ pub fn known_dims(model_id: &str) -> Option<usize> {
     profile(model_id).map(|p| p.dims)
 }
 
+/// The `metaKey` Node's memory start stores as `embedding.current_model`
+/// (`index.mjs` `_initStore`): vectors made under another identity are dropped.
+/// `provider` is the main config's `embedding.provider`, null when unset.
+pub fn identity(provider: Option<&str>, model_id: &str, dtype: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "provider": provider,
+        "model": model_id,
+        "dtype": normalize_dtype(model_id, dtype),
+        "format": "mixdog-embedding-v3",
+    })
+}
+
 /// The requested dtype when the model supports it, else the model's default.
 pub fn normalize_dtype(model_id: &str, dtype: Option<&str>) -> String {
     let profile = profile(model_id);

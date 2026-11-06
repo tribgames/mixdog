@@ -51,6 +51,7 @@ mod frames;
 mod handle;
 mod message_reactions;
 mod model_switch;
+pub mod home_threads;
 pub mod room_log;
 mod route_exclusions;
 pub mod route_session;
@@ -93,6 +94,13 @@ pub mod inheritance;
 pub mod turn_ops;
 #[cfg(test)]
 mod turn_ops_tests;
+pub mod composer_image;
+pub mod staged_originals;
+pub mod turn_actions;
+#[cfg(test)]
+mod turn_actions_tests;
+#[cfg(test)]
+mod agent_control_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
@@ -186,6 +194,9 @@ pub struct SessionDeps {
     pub user_cwd: UserCwd,
     /// The prompt-attachment store user text reads offloaded parts from.
     pub attachments: user_facts::AttachmentStore,
+    /// The originals a composer staged ahead of a message: a turn submission claims the ones it
+    /// names (`claimStagedOriginals`), and `thread/stageAttachmentOriginal` stages into it.
+    pub staged_originals: Arc<staged_originals::StagedOriginals>,
     pub feeds: Arc<dyn FeedFactory>,
     pub server_requests: Arc<dyn ServerRequestSink>,
     pub approval_ids: Arc<dyn ApprovalIds>,

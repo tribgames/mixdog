@@ -4,6 +4,7 @@
 //! home and agent memory are serialized per agent (`mixdog_rt::KeyedChains`), so different agents
 //! never wait on each other.
 
+pub mod calls;
 pub mod config;
 pub mod exchange;
 pub mod home;

@@ -1,0 +1,181 @@
+{
+  "note": "what the real 1.4.5 readHomeAgent answers over definition files; `greeted` is the recorded home-thread evidence the Rust side is given",
+  "worlds": [
+    {
+      "answers": {
+        "": "unknown",
+        ".hidden": "unknown",
+        "ghost": "unknown",
+        "lead": "unknown",
+        "mixy": "unknown",
+        "moved": "bot",
+        "odd": "unknown",
+        "plain": "none",
+        "reviewer": "none",
+        "store-a": "bot",
+        "unmarked": "none"
+      },
+      "data": {
+        "agents/odd/AGENT.md": "---\nkind: robot\n---\nDo the work.\n",
+        "agents/plain/AGENT.md": "---\nkind: agent\n---\nDo the work.\n",
+        "agents/unmarked/AGENT.md": "Do the work.\n",
+        "bots/migration.json": "{\"version\":1,\"bots\":[\"moved\"]}",
+        "bots/mixy/AGENT.md": "Do the work.\n",
+        "bots/store-a/AGENT.md": "---\nkind: bot\n---\nDo the work.\n"
+      },
+      "greeted": {
+        "": false,
+        ".hidden": false,
+        "ghost": false,
+        "lead": false,
+        "mixy": false,
+        "moved": false,
+        "odd": false,
+        "plain": false,
+        "reviewer": false,
+        "store-a": false,
+        "unmarked": false
+      },
+      "name": "bot store",
+      "shipped": {
+        "agents/reviewer/AGENT.md": "---\nkind: agent\n---\nDo the work.\n"
+      },
+      "threads": {}
+    },
+    {
+      "answers": {
+        "ghost": "unknown",
+        "lead": "unknown",
+        "maintainer": "unknown",
+        "other": "unknown",
+        "quoted": "bot",
+        "robo": "bot",
+        "ship-agent": "none",
+        "ship-bot": "bot",
+        "ship-plain": "none",
+        "ship-plain-user": "none",
+        "wf": "none",
+        "worker": "unknown"
+      },
+      "data": {
+        "agents/lead/AGENT.md": "---\nkind: bot\n---\nDo the work.\n",
+        "agents/other/AGENT.md": "---\nkind: helper\n---\nDo the work.\n",
+        "agents/quoted/AGENT.md": "---\nkind: \"bot\"\n---\nDo the work.\n",
+        "agents/robo/AGENT.md": "---\nkind:  BOT \n---\nDo the work.\n",
+        "agents/ship-plain-user/AGENT.md": "---\nkind: agent\n---\nDo the work.\n",
+        "agents/wf/AGENT.md": "---\nkind: Agent\n---\nDo the work.\n",
+        "agents/worker/AGENT.md": "---\nkind: bot\n---\nDo the work.\n"
+      },
+      "greeted": {
+        "ghost": false,
+        "lead": false,
+        "maintainer": false,
+        "other": false,
+        "quoted": false,
+        "robo": false,
+        "ship-agent": false,
+        "ship-bot": false,
+        "ship-plain": false,
+        "ship-plain-user": false,
+        "wf": false,
+        "worker": false
+      },
+      "name": "kinds without a bot store",
+      "shipped": {
+        "agents/ship-agent/AGENT.md": "---\nkind: agent\n---\nDo the work.\n",
+        "agents/ship-bot/AGENT.md": "---\nkind: bot\n---\nDo the work.\n",
+        "agents/ship-plain/AGENT.md": "Do the work.\n",
+        "agents/worker/AGENT.md": "---\nkind: agent\n---\nDo the work.\n"
+      },
+      "threads": {}
+    },
+    {
+      "answers": {
+        "bare-avatar": "unknown",
+        "both": "none",
+        "dialog": "bot",
+        "ghost": "unknown",
+        "greeted": "bot",
+        "silent": "unknown"
+      },
+      "data": {
+        "agents/bare-avatar/AGENT.md": "Do the work.\n",
+        "agents/bare-avatar/agent.json": "{\"avatar\":{\"emoji\":\"x\"}}",
+        "agents/both/AGENT.md": "Do the work.\n",
+        "agents/dialog/AGENT.md": "You are a helper.\n\n- Help the user in a natural, friendly conversation, in the language they write in.\n- Ask a short question when a request is unclear, and say plainly when something is outside what you do.\n- Keep replies as short or as detailed as the moment needs.\n",
+        "agents/dialog/agent.json": "{\"avatar\":{\"emoji\":\"x\"}}",
+        "agents/greeted/AGENT.md": "Do the work.\n",
+        "agents/silent/AGENT.md": "Do the work.\n"
+      },
+      "greeted": {
+        "bare-avatar": false,
+        "both": false,
+        "dialog": false,
+        "ghost": false,
+        "greeted": true,
+        "silent": false
+      },
+      "name": "unmarked copies decide by evidence",
+      "shipped": {
+        "agents/both/AGENT.md": "Do the work.\n"
+      },
+      "threads": {
+        "greeted": [
+          {
+            "content": "[mixdog-runtime] The user just created you as a helper.",
+            "role": "user"
+          }
+        ]
+      }
+    },
+    {
+      "answers": {
+        "ghost": "unknown",
+        "greeted": "none",
+        "silent": "none"
+      },
+      "data": {
+        "agents/greeted/AGENT.md": "Do the work.\n",
+        "agents/silent/AGENT.md": "Do the work.\n",
+        "bots/migration.json": "{\"version\":1,\"bots\":[\"moved\"]}"
+      },
+      "greeted": {
+        "ghost": false,
+        "greeted": true,
+        "silent": false
+      },
+      "name": "unmarked copies once the bot store is active",
+      "shipped": {},
+      "threads": {
+        "greeted": [
+          {
+            "content": "[mixdog-runtime] The user just created you as a helper.",
+            "role": "user"
+          }
+        ]
+      }
+    },
+    {
+      "answers": {
+        "dir-shipped": "unknown",
+        "dir-user": "unknown",
+        "fine": "none"
+      },
+      "data": {
+        "agents/dir-user/AGENT.md/keep": "x",
+        "agents/fine/AGENT.md": "---\nkind: agent\n---\nDo the work.\n"
+      },
+      "greeted": {
+        "dir-shipped": false,
+        "dir-user": false,
+        "fine": false
+      },
+      "name": "copies that cannot be read",
+      "shipped": {
+        "agents/dir-shipped/AGENT.md/keep": "x",
+        "agents/fine/AGENT.md": "Do the work.\n"
+      },
+      "threads": {}
+    }
+  ]
+}

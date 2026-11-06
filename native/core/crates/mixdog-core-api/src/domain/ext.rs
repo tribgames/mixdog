@@ -140,6 +140,35 @@ pub enum ImageResizeError {
 pub trait ImageResizer: Send + Sync {
     async fn resize(&self, thread: &ThreadId, bytes: &[u8], ext: &str) -> Result<Option<ResizedImage>, ImageResizeError>;
 }
+/// The image profile of a provider (`imageProfileForProvider`): the edge and patch limits
+/// `resizeImageBuffer` fits an image into.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageProfile {
+    Anthropic,
+    OpenAi,
+}
+
+/// Why the composer's resize gave no image other than there being no `sharp`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ProfiledResizeError {
+    /// The decoder rejected the bytes: Node's `invalid or corrupt image data: ...` sentence.
+    Invalid(String),
+    Host(ExtError),
+}
+
+/// The composer's image resize (`resizeImageBuffer(bytes, ext, { profile })` from
+/// `imageAttachmentFromBuffer`). `Ok(None)` is Node's `null`: no resizer.
+#[async_trait::async_trait]
+pub trait ProfiledImageResizer: Send + Sync {
+    async fn resize_profiled(
+        &self,
+        thread: &ThreadId,
+        bytes: &[u8],
+        ext: &str,
+        profile: ImageProfile,
+    ) -> Result<Option<ResizedImage>, ProfiledResizeError>;
+}
+
 /// What Node's PDF intake made of the bytes.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PdfIntake {

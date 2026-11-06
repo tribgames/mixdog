@@ -50,7 +50,7 @@ pub struct LiveContextWorld {
 
 /// The rows of the transcript signature: each message's own stored row (`message_of` keeps it), as
 /// the session's messages carry them in Node.
-struct StoredBodies;
+pub(super) struct StoredBodies;
 
 impl MessageRows for StoredBodies {
     fn row(&self, message: &mixdog_agent::message::AgentMessage) -> Value {
@@ -100,7 +100,7 @@ fn message_tool_references(row: &Value, provider: &str) -> Vec<String> {
 /// ones only while listed), then, for a native-deferred Anthropic-family session, the catalog tools
 /// the session discovered (`deferredDiscoveredTools`, tool references in the transcript, and the
 /// one anchor that keeps tool-search mode in the cached prefix), each marked `defer_loading`.
-fn request_definitions(header: &serde_json::Map<String, Value>, docs: &[Value], rows: &[Value], provider: &str) -> Vec<ToolDefinition> {
+pub(super) fn request_definitions(header: &serde_json::Map<String, Value>, docs: &[Value], rows: &[Value], provider: &str) -> Vec<ToolDefinition> {
     let mut names = HashSet::new();
     let mut out: Vec<ToolDefinition> = docs
         .iter()
