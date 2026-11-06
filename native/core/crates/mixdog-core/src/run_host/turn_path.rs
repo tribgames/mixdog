@@ -109,6 +109,8 @@ pub struct TurnPathParts {
     pub compaction: CompactionServices,
     /// The route hop, built over the directory and the path's registry.
     pub hops: Box<dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory>,
+    /// The runtime's shell control: the progress watchdog's stop reaps a turn's shells through it.
+    pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -135,7 +137,7 @@ impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
             tokens, clock, paths, provider_builder, accounting, effort_judge, side, next, files, processes, policy, connectors, resolver, run_stamps, agents, allow_all, hub, blobs, tool_pool, mcp,
-            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compaction, hops,
+            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compaction, hops, shells,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         let registry = Arc::new(ProviderRegistry::new(provider_builder).with_accounting(accounting));
@@ -172,6 +174,7 @@ impl TurnPath {
             },
             probes: Arc::new(StartupProbes::new(io, processes)),
             observed: Arc::new(StartupObservations::new(clock)),
+            shells,
         };
         let compactors = Arc::new(SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(compaction)), host.clock.clone()));
         let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });

@@ -31,7 +31,7 @@ impl ExcludedTool {
     }
 
     /// `unavailableText`: what a call to the tool is answered with.
-    fn unavailable_text(&self) -> String {
+    pub fn unavailable_text(&self) -> String {
         format!(
             "tool \"{}\" is unavailable with the current model: the provider rejected its input schema at {} ({}), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.",
             self.name,
@@ -127,7 +127,7 @@ fn js_text(value: Option<&Value>) -> String {
 }
 
 /// `routeSchemaFamily`: the schema rule of the wire a session's requests use.
-fn route_schema_family(header: &Header) -> &'static str {
+pub fn route_schema_family(header: &Header) -> &'static str {
     let provider = js_text(header.get("provider")).to_lowercase();
     let model = js_text(header.get("model")).to_lowercase();
     let wire = header.get("wireRoute").and_then(|route| route.get("wire")).and_then(Value::as_str);

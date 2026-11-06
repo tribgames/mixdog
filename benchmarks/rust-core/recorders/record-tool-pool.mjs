@@ -11,12 +11,18 @@
 //   dispatch.json — `call_tool` projection outcomes (session/loop/tool-call-resolution.mjs).
 //
 //   node benchmarks/rust-core/recorders/record-tool-pool.mjs --tree <dir with node_modules>
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
+// Every user directory points into a fresh temp dir before any Mixdog module is imported: import-time
+// sweeps and backups would otherwise act on the real ones.
 const home = mkdtempSync(join(tmpdir(), 'tool-pool-'));
-process.env.MIXDOG_HOME = home;
+for (const name of ['MIXDOG_HOME', 'MIXDOG_DATA_DIR', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
+  process.env[name] = join(home, name.toLowerCase());
+  mkdirSync(process.env[name], { recursive: true });
+}
 
 const { FIXTURES_ROOT, commitStage, stageSet, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
@@ -241,6 +247,145 @@ writeJson(join(stage, 'dispatch.json'), {
 });
 console.log(`dispatch: ${projections.length} projections, ${asks.length} asks`);
 
+// --- explore-route.json --------------------------------------------------------------------------
+// The route the `explore` tool runs on: `resolveMaintenanceRoute({ agent: 'explore-agent', config,
+// includeDefault: false })` (runtime/explore/tool.mjs) over agent configs.
+const { resolveMaintenanceRoute } = await U('runtime/agent/orchestrator/agent-runtime/maintenance-route.mjs');
+const full = { provider: 'openai-oauth', model: 'gpt-5' };
+const EXPLORE_CONFIGS = [
+  ['no agents', {}],
+  ['a complete route', { agents: { explore: full } }],
+  ['a route with effort, fast and parameters', { agents: { explore: { ...full, effort: ' high ', fast: true, modelParameters: { temperature: 0 } } } }],
+  ['a blank effort and a fast that is not true', { agents: { explore: { ...full, effort: '  ', fast: 'yes' } } }],
+  ['a padded provider and model', { agents: { explore: { provider: '  p  ', model: ' m ' } } }],
+  ['a route without a model', { agents: { explore: { provider: 'openai-oauth' } } }],
+  ['a route without a provider', { agents: { explore: { model: 'gpt-5' } } }],
+  ['a disabled explore with a route', { agents: { explore: full }, disabledAgents: ['explore'] }],
+  ['the default model is not a fallback', { default: full }],
+  ['a preset name', { agents: { explore: 'preset-name' } }],
+  ['an array', { agents: { explore: [full] } }],
+  ['a falsy route', { agents: { explore: 0 } }],
+];
+const exploreRoutes = EXPLORE_CONFIGS.map(([name, config]) => {
+  const route = resolveMaintenanceRoute({ agent: 'explore-agent', config, includeDefault: false });
+  return { name, config, route: route === undefined ? null : route };
+});
+writeJson(join(stage, 'explore-route.json'), { routes: exploreRoutes });
+console.log(`explore-route: ${exploreRoutes.length} configs`);
+// --- catalog.json --------------------------------------------------------------------------------
+// The session catalog behind `load_tool` / `call_tool` (runtime-core/tool-bridge.mjs
+// `describeBridgeTools` and `resolveBridgeTarget`): what is available, blocked or missing, the
+// keyword matches, the MCP instructions a page carries, and how a call_tool name resolves.
+const bridge = await U('runtime/agent/orchestrator/runtime-core/tool-bridge.mjs');
+const catalog = await U('runtime/agent/orchestrator/runtime-core/tool-catalog.mjs');
+const tdoc = (name, description, extra = {}) => ({ name, description, inputSchema: { type: 'object', properties: {} }, ...extra });
+const catalogSession = (extra = {}) => ({
+  tools: [
+    tdoc('read', 'Read a file', { annotations: { readOnlyHint: true } }),
+    tdoc('edit', 'Edit a file'),
+    tdoc('load_tool', 'Describe tools'),
+    tdoc('call_tool', 'Run a tool'),
+  ],
+  deferredToolCatalog: [
+    tdoc('mcp__mail__send', 'Send a mail message', { annotations: { destructiveHint: true } }),
+    tdoc('mcp__mail__list', 'List mail folders', { annotations: { readOnlyHint: true } }),
+    tdoc('mcp__cal__add', 'Add a calendar event'),
+    tdoc('web_fetch', 'Fetch a web page', { annotations: { readOnlyHint: true } }),
+    tdoc('web_search', 'Search the web', { annotations: { readOnlyHint: true } }),
+    tdoc('shell', 'Run a command'),
+    tdoc('hidden_tool', 'Denied here'),
+  ],
+  deferredMcpToolNames: ['mcp__mail__send', 'mcp__mail__list'],
+  disallowedTools: ['hidden_tool'],
+  mcpServerInstructions: { mail: 'Use <b>mail</b> only when asked.' },
+  toolExposureMode: 'bridge-v1',
+  ...extra,
+});
+const CATALOG_SESSIONS = [
+  ['an open session', catalogSession(), 'full'],
+  ['a read-only session', catalogSession({ deferredSurfaceMode: 'readonly' }), 'readonly'],
+  ['an eager tool the route cannot send', catalogSession({ provider: 'openai-oauth', model: 'gpt-5', tools: [...catalogSession().tools, tdoc('broken', 'Has a string schema root', { inputSchema: { type: 'string' } })] }), 'full'],
+  ['a session told this very text', catalogSession({ mcpInstructionsAnnounced: ['mail'], mcpInstructionHashes: { mail: createHash('sha256').update('Use bmail/b only when asked.').digest('hex').slice(0, 16) } }), 'full'],
+  ['a session that was told the mail instructions', catalogSession({ mcpInstructionsAnnounced: ['mail'], mcpInstructionHashes: { mail: null } }), 'full'],
+];
+const DESCRIBE_NAMES = [
+  ['read'], ['mcp__mail__send'], ['MCP__MAIL__SEND'], ['filesystem'], ['mcp__mail'], ['send'], ['nope'],
+  ['broken'], ['hidden_tool'], ['mcp__cal__add'], ['shell'], ['web'], ['read', 'mcp__mail__list', 'nope'],
+];
+const RESOLVE_NAMES = ['broken', 'read', 'READ', 'mcp__mail__send', 'MCP__MAIL__SEND', 'mcp__cal__add', 'nope', 'hidden_tool', 'shell', 'web_fetch'];
+const catalogCases = CATALOG_SESSIONS.map(([name, session, mode]) => ({
+  name,
+  session,
+  describe: DESCRIBE_NAMES.map((names) => {
+    // The real load_tool path: it also tells the session which MCP servers' text it sent.
+    const out = catalog.renderToolSearch({ names }, structuredClone(session), mode);
+    return { names, result: out };
+  }),
+  resolve: RESOLVE_NAMES.map((n) => {
+    const out = bridge.resolveBridgeTarget(structuredClone(session), n);
+    return { name: n, result: out.error ? { error: out.error } : { name: out.name } };
+  }),
+}));
+// One session across several pages: load_tool tells it each server's text once (renderToolSearch
+// records `mcpInstructionsAnnounced` / `mcpInstructionHashes` on the live session), and again
+// when the text changed.
+const sequenceSession = catalogSession();
+const sequenceStart = structuredClone(sequenceSession);
+const sequenceSteps = [
+  { names: ['mcp__mail__send'] },
+  { names: ['mcp__mail__send'] },
+  { names: ['mcp__mail__list'] },
+  { names: ['read'] },
+  { names: ['mcp__cal__add'] },
+  { names: ['mcp__mail__send'], change: { mcpServerInstructions: { mail: 'Changed text.' } } },
+  { names: ['mcp__mail__send'] },
+].map((step) => {
+  if (step.change) Object.assign(sequenceSession, step.change);
+  const result = catalog.renderToolSearch({ names: step.names }, sequenceSession, 'full');
+  return {
+    ...step,
+    result,
+    announced: structuredClone(sequenceSession.mcpInstructionsAnnounced ?? null),
+    hashes: structuredClone(sequenceSession.mcpInstructionHashes ?? null),
+  };
+});
+writeJson(join(stage, 'catalog.json'), { cases: catalogCases, sequence: { session: sequenceStart, steps: sequenceSteps } });
+console.log(`catalog: ${catalogCases.length} sessions`);
+// --- route-schema.json ---------------------------------------------------------------------------
+// Why a tool is left out of every request on a session's route (provider-tool-exclusions.mjs
+// `routeToolExclusionReason`): the schema rule of the route's wire family, run on the tool before
+// it was ever sent. Recorded for every family; the Rust side ports the OpenAI family.
+const exclusions = await U('runtime/agent/orchestrator/session/loop/provider-tool-exclusions.mjs');
+const ROUTE_SESSIONS = [
+  ['openai-oauth', { provider: 'openai-oauth', model: 'gpt-5' }],
+  ['openai', { provider: 'openai', model: 'gpt-5' }],
+  ['a compatible chat route', { provider: 'openrouter', model: 'vendor/model' }],
+  ['a messages wire on a compatible route', { provider: 'openrouter', model: 'vendor/model', wireRoute: { wire: 'messages' } }],
+  ['anthropic', { provider: 'anthropic', model: 'claude-sonnet-4' }],
+  ['gemini', { provider: 'gemini', model: 'gemini-2.5-pro' }],
+  ['antigravity claude', { provider: 'antigravity-oauth', model: 'claude-opus-4' }],
+];
+const object = (properties) => ({ type: 'object', properties });
+const ROUTE_TOOLS = [
+  { name: 'plain', inputSchema: object({ path: { type: 'string' } }) },
+  { name: 'no_schema', inputSchema: null },
+  { name: 'string_root', inputSchema: { type: 'string' } },
+  { name: 'array_root', inputSchema: { type: 'array', items: { type: 'string' } } },
+  { name: 'unknown_type', inputSchema: object({ a: { type: 'bogus' } }) },
+  { name: 'bad_ref', inputSchema: object({ a: { $ref: '#/definitions/missing' } }) },
+  { name: 'draft07', inputSchema: { $schema: 'http://json-schema.org/draft-07/schema#', type: 'object', definitions: { n: { type: 'number', minimum: 0, exclusiveMinimum: true } }, properties: { n: { $ref: '#/definitions/n' } } } },
+  { name: 'root_combinator', inputSchema: { anyOf: [object({ a: { type: 'string' } }), object({ b: { type: 'string' } })] } },
+  { name: 'no_type', inputSchema: { properties: { a: { type: 'string' } } } },
+  { name: 'freeform', inputSchema: { type: 'string' }, freeform: { type: 'grammar', syntax: 'lark', definition: 'start: /.+/' } },
+  { name: 'not_an_object_schema', inputSchema: 'oops' },
+];
+const routeSchema = ROUTE_SESSIONS.map(([name, session]) => ({
+  name,
+  session,
+  tools: ROUTE_TOOLS.map((tool) => ({ name: tool.name, reason: exclusions.routeToolExclusionReason(structuredClone(session), structuredClone(tool)) })),
+}));
+writeJson(join(stage, 'route-schema.json'), { tools: ROUTE_TOOLS, sessions: routeSchema });
+console.log(`route-schema: ${routeSchema.length} sessions x ${ROUTE_TOOLS.length} tools`);
 commitStage(stage, OUT);
 writeSetManifest(OUT, {
   set: 'tool-pool',

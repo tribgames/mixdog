@@ -42,6 +42,7 @@ pub struct HostSavedLogins {
 fn failure(error: HostCommandError) -> String {
     match error {
         HostCommandError::NoHost => BROWSER_UNAVAILABLE.to_owned(),
+        HostCommandError::Cancelled => "saved login request cancelled".to_owned(),
         HostCommandError::Rpc { message, .. } if mixdog_js::js_trim(&message).is_empty() => "saved login request failed".to_owned(),
         HostCommandError::Rpc { message, .. } => message,
     }
@@ -51,7 +52,7 @@ impl HostSavedLogins {
     /// Asks the desktop to admit this fill; it answers whether Auto login is on (an off setting admits
     /// nothing, and every later lookup is refused).
     pub async fn admit(host: Arc<dyn HostCommands>, thread: ThreadId, turn: u64) -> Result<Self, String> {
-        let reply = host.browser(&thread, "saved_login_admit", json!({ "turn_id": turn })).await.map_err(failure)?;
+        let reply = host.browser(&thread, "saved_login_admit", json!({ "turn_id": turn }), &mixdog_rt::CancellationToken::new()).await.map_err(failure)?;
         let enabled = reply.get("enabled") == Some(&Value::Bool(true));
         Ok(Self { host, thread, turn, enabled: AtomicBool::new(enabled) })
     }
@@ -59,7 +60,7 @@ impl HostSavedLogins {
     /// The fill's turn settled: the desktop ends its admission (and those of older turns of the session).
     pub async fn release(&self) {
         // Nothing to undo when the desktop is gone: its admissions went with it.
-        let _ = self.host.browser(&self.thread, "saved_login_release", json!({ "turn_id": self.turn })).await;
+        let _ = self.host.browser(&self.thread, "saved_login_release", json!({ "turn_id": self.turn }), &mixdog_rt::CancellationToken::new()).await;
     }
 }
 
@@ -98,7 +99,7 @@ impl SavedLoginWorker for HostSavedLoginWorker {
         if let Some(before_send) = before_send {
             before_send()?;
         }
-        self.host.browser(&self.thread, action, input).await.map_err(failure)
+        self.host.browser(&self.thread, action, input, &mixdog_rt::CancellationToken::new()).await.map_err(failure)
     }
 }
 
@@ -140,7 +141,7 @@ impl SavedLogins for HostSavedLogins {
 impl SavedLoginVault for HostSavedLogins {
     async fn value(&self, url: &str, account: &str, field: SavedLoginField) -> Result<SavedLoginValue, String> {
         let input = json!({ "turn_id": self.turn, "origin": url, "account": account, "field": field.as_str() });
-        let mut reply = self.host.browser(&self.thread, "saved_login_value", input).await.map_err(failure)?;
+        let mut reply = self.host.browser(&self.thread, "saved_login_value", input, &mixdog_rt::CancellationToken::new()).await.map_err(failure)?;
         let malformed = || "saved login answer is malformed".to_owned();
         // Auto login read at the desktop, with each answer.
         self.enabled.store(reply.get("enabled") == Some(&Value::Bool(true)), Ordering::SeqCst);
@@ -197,7 +198,7 @@ mod tests {
 
     #[async_trait]
     impl HostCommands for Desktop {
-        async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
+        async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
             assert_eq!(thread.as_str(), SESSION);
             self.calls.lock().unwrap().push((action.to_owned(), input));
             if let Some(error) = &self.refuse {
@@ -212,7 +213,7 @@ mod tests {
                 _ => json!({ "enabled": on, "value": PASSWORD, "label": "j•••e@example.com", "origin": "https://login.example.com" }),
             })
         }
-        async fn visualize(&self, _: &ThreadId, _: &str, _: &str, _: JsonValue) -> Result<JsonValue, HostCommandError> {
+        async fn visualize(&self, _: &ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
             unreachable!("a saved login asks the browser host only")
         }
     }
@@ -302,10 +303,10 @@ mod tests {
         struct Odd;
         #[async_trait]
         impl HostCommands for Odd {
-            async fn browser(&self, _: &ThreadId, action: &str, _: JsonValue) -> Result<JsonValue, HostCommandError> {
+            async fn browser(&self, _: &ThreadId, action: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
                 Ok(if action == "saved_login_admit" { json!({ "enabled": true }) } else { json!({ "enabled": true, "value": "v" }) })
             }
-            async fn visualize(&self, _: &ThreadId, _: &str, _: &str, _: JsonValue) -> Result<JsonValue, HostCommandError> {
+            async fn visualize(&self, _: &ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
                 unreachable!()
             }
         }

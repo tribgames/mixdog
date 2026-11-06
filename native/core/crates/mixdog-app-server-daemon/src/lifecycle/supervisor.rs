@@ -11,6 +11,9 @@ use std::time::Duration;
 
 /// What each release step may take. A step that is still running at its budget is abandoned:
 /// the supervisor records its name, withdraws discovery and exits without it.
+///
+/// The values are chosen, not taken from the spec (lifecycle-remote.md §5.3 gives no limits) or
+/// from Node (decisions.md, "Release budgets").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReleaseBudgets {
     /// The session actors' `Clean` barriers; the longest because they are durable writes.
@@ -43,6 +46,19 @@ pub enum StepEnd {
     Panicked,
     /// The step was still running at its budget and has been abandoned on its thread.
     OverBudget,
+}
+
+/// [`supervise`] for an async step, awaited from the runtime: the step runs to completion on its
+/// own thread through the runtime handle, and the wait for it is a blocking-pool task.
+pub async fn supervise_async(
+    name: &'static str,
+    budget: Duration,
+    step: impl std::future::Future<Output = ()> + Send + 'static,
+) -> StepEnd {
+    let runtime = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || supervise(name, budget, move || runtime.block_on(step)))
+        .await
+        .unwrap_or(StepEnd::Panicked)
 }
 
 /// Runs `work` on a fresh `mixdog-release-<name>` thread and waits at most `budget` for it.

@@ -226,9 +226,18 @@ impl ConfigRunSeams {
     }
 }
 
+#[async_trait::async_trait]
 impl ConfigSeams for ConfigRunSeams {
     fn hidden_agent(&self, agent: Option<&str>) -> bool {
         self.agents.hidden_agent(agent)
+    }
+
+    fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {
+        mixdog_core_config::config::hidden_agents::hidden_agent_stall_cap_idle_seconds(agent?)
+    }
+
+    async fn first_response_timeout_ms(&self, agent: &str) -> Option<i64> {
+        self.agents.first_response_timeout_ms(agent).await.ok().flatten()
     }
 
     fn run_settings(&self, _thread: &ThreadId, header: &Header) -> RunSettings {

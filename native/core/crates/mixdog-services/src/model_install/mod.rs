@@ -14,7 +14,7 @@ use mixdog_rt::{CpuBulk, LaneToken};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
-pub use download::{DownloadError, Spec, download_to_file, sha256_file};
+pub use download::{DownloadError, Spec, download_once, download_to_file, sha256_file};
 
 /// Bytes received so far of one file.
 #[derive(Debug, Clone, PartialEq, Eq)]

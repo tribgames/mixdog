@@ -13,7 +13,9 @@ use serde_json::Value;
 
 use crate::orch::util::JsStr;
 
+use super::host::HostCommandError;
 use super::host::HostCommands;
+use super::host::command_cancelled;
 use super::host::command_error;
 use super::pending::PendingWaits;
 use crate::orch::util::cancelled;
@@ -233,13 +235,9 @@ impl Tool for VisualizeTool {
             input.insert("openRequestId".to_owned(), Value::String(request_id));
         }
         let cwd = ctx.cwd.as_path().to_string_lossy().into_owned();
-        let answer = tokio::select! {
-            biased;
-            _ = ctx.cancel.cancelled() => return Err(cancelled()),
-            r = self.host.visualize(&ctx.thread_id, &cwd, &action, Value::Object(input)) => r,
-        };
-        let mut value = match answer {
+        let mut value = match self.host.visualize(&ctx.thread_id, &cwd, &action, Value::Object(input), &ctx.cancel).await {
             Ok(value) => value,
+            Err(HostCommandError::Cancelled) => return Err(command_cancelled("visualize", false)),
             Err(error) => return Err(command_error(UNAVAILABLE, error)),
         };
         if let Some(mut watch) = watch {
@@ -293,11 +291,11 @@ mod tests {
 
     #[async_trait]
     impl HostCommands for Pane {
-        async fn browser(&self, _: &ThreadId, _: &str, _: JsonValue) -> Result<JsonValue, super::super::host::HostCommandError> {
+        async fn browser(&self, _: &ThreadId, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, super::super::host::HostCommandError> {
             unreachable!()
         }
 
-        async fn visualize(&self, thread: &ThreadId, _: &str, _: &str, input: JsonValue) -> Result<JsonValue, super::super::host::HostCommandError> {
+        async fn visualize(&self, thread: &ThreadId, _: &str, _: &str, input: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, super::super::host::HostCommandError> {
             if let Some(page) = self.report {
                 self.waits.new_tab_created(thread.as_str(), input["openRequestId"].as_str().unwrap(), page);
             }

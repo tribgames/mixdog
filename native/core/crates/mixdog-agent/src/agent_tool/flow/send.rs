@@ -3,7 +3,7 @@
 //! background send job that runs one follow-up turn. The worker row follows the turn itself
 //! ([`super::worker_turns`]).
 //!
-//! Not ported: the stopped-by-watchdog branch of `runSend` (see [`super::turn`]).
+//! The stopped-by-watchdog branch of `runSend` is in [`super::turn`].
 
 use std::sync::Arc;
 

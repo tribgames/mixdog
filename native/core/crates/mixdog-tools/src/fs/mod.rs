@@ -27,9 +27,21 @@ pub use edit::EditTool;
 pub use list::ListTool;
 pub use patch::ApplyPatchTool;
 pub use read::ReadTool;
+pub use read_state::FileVersion;
 pub use read_state::Persistence;
 pub use read_state::ReadState;
+pub use read_state::SnapshotMeta;
 pub use read_state::SnapshotPersist;
+
+/// `err.message` of a failed atomic write of `target` (the step that failed, as Node words it).
+pub fn write_failure_message(error: &mixdog_core_api::domain::fs::FsError, target: &std::path::Path) -> String {
+    os_error::write_message(error, target)
+}
+
+/// The key a path has in the [`ReadState`] (the file tools' own key).
+pub fn read_state_key(path: &std::path::Path) -> String {
+    common::fwd(path)
+}
 pub use search::FindTool;
 pub use search::GlobTool;
 pub use search::GrepTool;

@@ -521,6 +521,7 @@ async fn worker_turn_rows_equal_nodes() {
                         turn_id: op["turn"].as_str().unwrap().to_owned(),
                         done: op["status"] == "done",
                         result: op.get("result").map(turn_result),
+                        stalled: false,
                     });
                 }
                 "forget" => {

@@ -355,6 +355,33 @@ impl Folders {
         self.kind_of(lane, id, explicit_kind(frontmatter.get("kind")), &manifest_of(&dir), &body)
     }
 
+    /// `readAgentFirstResponseTimeoutMs`: the front matter's `firstResponseTimeoutMs` (a
+    /// non-negative number, floored; 0 turns the first-response deadline off) from the first
+    /// definition, in precedence order, that sets one. A deleted agent has none.
+    pub(super) fn first_response_timeout_ms(&self, lane: &Lane, id: &str) -> Option<i64> {
+        let id = mixdog_js::js_trim(id);
+        if id.is_empty() || self.user_dir(lane, id).join(DELETED_MARKER).exists() {
+            return None;
+        }
+        let flat = |dir: PathBuf| PathBuf::from(format!("{}.md", dir.display()));
+        let files = if is_store_bot(lane, &self.data, id) {
+            vec![self.user_dir(lane, id).join("AGENT.md")]
+        } else {
+            let user = self.data.join("agents").join(id);
+            let shipped = self.shipped_dir(id);
+            vec![user.join("AGENT.md"), flat(user), shipped.join("AGENT.md"), flat(shipped)]
+        };
+        files.into_iter().filter(|file| file.exists()).find_map(|file| {
+            let (frontmatter, _) = read_document(&read_text_safe(&file));
+            let raw = match frontmatter.get("firstResponseTimeoutMs") {
+                None | Some(Value::Null) => String::new(),
+                Some(value) => mixdog_js::js_trim(&mixdog_js::value_to_string(value)).to_owned(),
+            };
+            let ms = mixdog_js::string_to_number(&raw);
+            (!raw.is_empty() && ms.is_finite() && ms >= 0.0).then(|| ms.floor() as i64)
+        })
+    }
+
     /// `agentDefinitionKind` for a user copy: the kind, and whether it waits for the home
     /// thread's greeting evidence.
     fn kind_of(&self, lane: &Lane, id: &str, explicit: Option<String>, manifest: &Map<String, Value>, body: &str) -> (Option<String>, bool) {

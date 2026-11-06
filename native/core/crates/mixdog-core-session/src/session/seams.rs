@@ -471,6 +471,9 @@ pub struct RunStart {
     /// deferred tool delta, before the todo start reminder); the actor acknowledges it when the
     /// turn is accepted.
     pub goal_reminder: Option<super::goal_reminder::GoalReminder>,
+    /// No person is attached to the turn: a worker's turn, a routine fire (schedule, webhook,
+    /// room) or an automatic Goal turn. The progress watchdog stops only such a turn.
+    pub unattended: bool,
     pub thread: ThreadId,
     pub turn: TurnId,
     pub input: TurnInput,

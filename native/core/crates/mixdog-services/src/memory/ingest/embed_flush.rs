@@ -20,6 +20,10 @@ use crate::memory::pg::db::Db;
 use crate::memory::recall::hybrid::embedding_to_sql;
 use crate::tool_state::onnx_runtime_supported;
 
+mod root;
+
+pub use root::{FlushFailure, ROOT_EMBED_SWEEP_META_KEY, ROOT_SWEEP_BATCH, RootFlush, SweepStep, root_embed_text, start_root_embed_sweep};
+
 const BATCH_SIZE: usize = 32;
 const DEFAULT_MAX_CHARS: usize = 8000;
 const DEFAULT_CACHE_MAX_ROWS: i64 = 10_000;
@@ -91,6 +95,8 @@ pub struct RawEmbedFlush {
     provider: Option<Arc<EmbeddingProvider>>,
     cache_ready: AtomicBool,
     pruned_at: Mutex<Option<Instant>>,
+    /// The root flush running now, if any: `_flushInFlight`.
+    roots_in_flight: Mutex<Option<root::Flight>>,
 }
 
 pub struct FlushOutcome {
@@ -100,7 +106,7 @@ pub struct FlushOutcome {
 
 impl RawEmbedFlush {
     pub fn new(db: Db, provider: Option<Arc<EmbeddingProvider>>) -> Self {
-        Self { db, provider, cache_ready: AtomicBool::new(false), pruned_at: Mutex::new(None) }
+        Self { db, provider, cache_ready: AtomicBool::new(false), pruned_at: Mutex::new(None), roots_in_flight: Mutex::new(None) }
     }
 
     /// Embeds up to `limit` unembedded raw rows; `ids` restricts the claim to

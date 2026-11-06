@@ -14,6 +14,7 @@ pub mod resume;
 pub mod scope;
 pub mod stamp;
 pub mod views;
+pub mod watchdog;
 
 pub use dispatch::AgentDeps;
 pub use dispatch::AgentRuntime;

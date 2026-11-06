@@ -249,6 +249,9 @@ pub trait RuntimeRelease: Send + Sync {
 pub struct SessionTurns {
     directory: Arc<SessionDirectory>,
     release: Arc<dyn RuntimeRelease>,
+    /// The background shells a stalled turn's stop ended (`takeStoppedShellJobs`); without it a
+    /// handoff names none.
+    shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
 }
 
 /// `assistantMessageText(content)`: a string, else the `text`/`output_text` parts joined by a
@@ -294,7 +297,14 @@ fn provider_replay_text(replay: Option<&Value>) -> String {
 
 impl SessionTurns {
     pub fn new(directory: Arc<SessionDirectory>, release: Arc<dyn RuntimeRelease>) -> Self {
-        Self { directory, release }
+        Self { directory, release, shells: None }
+    }
+
+    /// The shell control the progress watchdog's stop reaps through (the one runtime the turns'
+    /// shells run in).
+    pub fn with_shells(mut self, shells: Arc<mixdog_tools::exec::ShellControl>) -> Self {
+        self.shells = Some(shells);
+        self
     }
 
     /// `session.messages`: the model rows since the thread's last compaction.
@@ -312,6 +322,12 @@ impl SessionTurns {
 
 #[async_trait]
 impl TurnSessions for SessionTurns {
+    fn take_stopped_shell_jobs(&self, session_id: &str) -> mixdog_agent::agent_tool::flow::seams::StoppedShellJobs {
+        let Some(shells) = &self.shells else { return Default::default() };
+        let (stopped, stopping) = shells.take_reaped(&ThreadId::from(clean_str(session_id).as_str()));
+        mixdog_agent::agent_tool::flow::seams::StoppedShellJobs { stopped, stopping }
+    }
+
     async fn message_count(&self, session_id: &str) -> usize {
         self.messages(session_id).await.len()
     }

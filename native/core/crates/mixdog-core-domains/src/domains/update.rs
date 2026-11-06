@@ -566,10 +566,11 @@ impl UpdateService {
             || async {
                 match self
                     .host
-                    .request(
+                    .request_scoped(
                         HostCapability::Updater,
                         Method("host/update/command"),
                         json!({ "action": action }),
+                        &req.ctx.cancel,
                     )
                     .await
                 {

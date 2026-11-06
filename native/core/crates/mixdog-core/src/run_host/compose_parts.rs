@@ -316,6 +316,8 @@ pub struct Owed {
     pub directory: Arc<LateDirectory>,
     /// The pool the `early` rows were built into; `Skill`, `todo` and `load_tool` included.
     pub tool_pool: Vec<Arc<dyn Tool>>,
+    /// The shell control over the runtime `early.work` runs in (`TurnPathParts.shells`).
+    pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
 }
 
 /// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
@@ -358,6 +360,7 @@ pub fn turn_path_parts(process: &ProcessServices, early: EarlyRows, ready: Ready
         deps: owed.deps,
         compaction: owed.compaction,
         hops,
+        shells: owed.shells,
     }
 }
 

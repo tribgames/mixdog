@@ -52,7 +52,7 @@ const DEFAULT_LEAD_TOOLS: [&str; 19] = [
 /// Tools a read-only session may call by name, whatever their annotations.
 const READONLY_TOOL_NAMES: [&str; 10] = ["read", "list", "grep", "find", "glob", "code_graph", "web_search", "web_fetch", "recall", "Skill"];
 
-const SELECT_ALIASES: [(&str, &[&str]); 10] = [
+pub(super) const SELECT_ALIASES: [(&str, &[&str]); 10] = [
     ("filesystem", &["read", "list", "grep", "find", "glob"]),
     ("websearch", &["web_search", "web_fetch"]),
     ("web", &["web_fetch", "web_search"]),
@@ -152,7 +152,7 @@ pub fn sorted_names_by_measured_usage(mut names: Vec<String>) -> Vec<String> {
     names
 }
 
-fn sorted_catalog_by_measured_usage(mut catalog: Vec<Value>) -> Vec<Value> {
+pub(super) fn sorted_catalog_by_measured_usage(mut catalog: Vec<Value>) -> Vec<Value> {
     catalog.sort_by(|a, b| {
         let (a, b) = (tool_name(a), tool_name(b));
         route_rank(&a).cmp(&route_rank(&b)).then_with(|| measured_usage(&b).cmp(&measured_usage(&a)))
@@ -231,7 +231,7 @@ pub(super) fn permitted_by_session_policy(session: &Value, name: &str) -> bool {
 }
 
 /// `filterDisallowedTools`: old session catalogs must not resurrect the separate staging schema.
-fn filter_disallowed_tools(tools: &[Value], disallowed: &[String]) -> Vec<Value> {
+pub(super) fn filter_disallowed_tools(tools: &[Value], disallowed: &[String]) -> Vec<Value> {
     let deny: HashSet<&str> = std::iter::once("git_stage").chain(disallowed.iter().map(String::as_str)).filter(|s| !s.is_empty()).collect();
     tools.iter().filter(|t| !deny.contains(tool_name(t).as_str())).cloned().collect()
 }
@@ -252,12 +252,12 @@ fn readonly_tool_spec(session: &Value) -> bool {
     }
 }
 
-fn bridge_readonly_session(session: &Value) -> bool {
+pub(super) fn bridge_readonly_session(session: &Value) -> bool {
     session.get("deferredSurfaceMode").and_then(Value::as_str) == Some("readonly") || readonly_tool_spec(session)
 }
 
 /// `isReadonlySelectable`.
-fn readonly_selectable(tool: &Value) -> bool {
+pub(super) fn readonly_selectable(tool: &Value) -> bool {
     if READONLY_TOOL_NAMES.contains(&tool_name(tool).as_str()) {
         return true;
     }

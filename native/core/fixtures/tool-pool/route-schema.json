@@ -1,0 +1,499 @@
+{
+  "sessions": [
+    {
+      "name": "openai-oauth",
+      "session": {
+        "model": "gpt-5",
+        "provider": "openai-oauth"
+      },
+      "tools": [
+        {
+          "name": "plain",
+          "reason": null
+        },
+        {
+          "name": "no_schema",
+          "reason": null
+        },
+        {
+          "name": "string_root",
+          "reason": "tool \"string_root\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "array_root",
+          "reason": "tool \"array_root\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "unknown_type",
+          "reason": "tool \"unknown_type\" is unavailable with the current model: the provider rejected its input schema at /properties/a/type (not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "bad_ref",
+          "reason": "tool \"bad_ref\" is unavailable with the current model: the provider rejected its input schema at /properties/a/$ref (unresolvable $ref \"#/$defs/missing\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "draft07",
+          "reason": null
+        },
+        {
+          "name": "root_combinator",
+          "reason": null
+        },
+        {
+          "name": "no_type",
+          "reason": null
+        },
+        {
+          "name": "freeform",
+          "reason": null
+        },
+        {
+          "name": "not_an_object_schema",
+          "reason": "tool \"not_an_object_schema\" is unavailable with the current model: the provider rejected its input schema at / (the input schema must be a JSON object schema), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        }
+      ]
+    },
+    {
+      "name": "openai",
+      "session": {
+        "model": "gpt-5",
+        "provider": "openai"
+      },
+      "tools": [
+        {
+          "name": "plain",
+          "reason": null
+        },
+        {
+          "name": "no_schema",
+          "reason": null
+        },
+        {
+          "name": "string_root",
+          "reason": "tool \"string_root\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "array_root",
+          "reason": "tool \"array_root\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "unknown_type",
+          "reason": "tool \"unknown_type\" is unavailable with the current model: the provider rejected its input schema at /properties/a/type (not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "bad_ref",
+          "reason": "tool \"bad_ref\" is unavailable with the current model: the provider rejected its input schema at /properties/a/$ref (unresolvable $ref \"#/$defs/missing\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "draft07",
+          "reason": null
+        },
+        {
+          "name": "root_combinator",
+          "reason": null
+        },
+        {
+          "name": "no_type",
+          "reason": null
+        },
+        {
+          "name": "freeform",
+          "reason": null
+        },
+        {
+          "name": "not_an_object_schema",
+          "reason": "tool \"not_an_object_schema\" is unavailable with the current model: the provider rejected its input schema at / (the input schema must be a JSON object schema), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        }
+      ]
+    },
+    {
+      "name": "a compatible chat route",
+      "session": {
+        "model": "vendor/model",
+        "provider": "openrouter"
+      },
+      "tools": [
+        {
+          "name": "plain",
+          "reason": null
+        },
+        {
+          "name": "no_schema",
+          "reason": null
+        },
+        {
+          "name": "string_root",
+          "reason": "tool \"string_root\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "array_root",
+          "reason": "tool \"array_root\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "unknown_type",
+          "reason": "tool \"unknown_type\" is unavailable with the current model: the provider rejected its input schema at /properties/a/type (not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "bad_ref",
+          "reason": "tool \"bad_ref\" is unavailable with the current model: the provider rejected its input schema at /properties/a/$ref (unresolvable $ref \"#/$defs/missing\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "draft07",
+          "reason": null
+        },
+        {
+          "name": "root_combinator",
+          "reason": null
+        },
+        {
+          "name": "no_type",
+          "reason": null
+        },
+        {
+          "name": "freeform",
+          "reason": "tool \"freeform\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "not_an_object_schema",
+          "reason": "tool \"not_an_object_schema\" is unavailable with the current model: the provider rejected its input schema at / (the input schema must be a JSON object schema), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        }
+      ]
+    },
+    {
+      "name": "a messages wire on a compatible route",
+      "session": {
+        "model": "vendor/model",
+        "provider": "openrouter",
+        "wireRoute": {
+          "wire": "messages"
+        }
+      },
+      "tools": [
+        {
+          "name": "plain",
+          "reason": null
+        },
+        {
+          "name": "no_schema",
+          "reason": null
+        },
+        {
+          "name": "string_root",
+          "reason": "tool \"string_root\" is unavailable with the current model: the provider rejected its input schema at /type (Anthropic input_schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "array_root",
+          "reason": "tool \"array_root\" is unavailable with the current model: the provider rejected its input schema at /type (Anthropic input_schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "unknown_type",
+          "reason": "tool \"unknown_type\" is unavailable with the current model: the provider rejected its input schema at /properties/a/type (not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "bad_ref",
+          "reason": "tool \"bad_ref\" is unavailable with the current model: the provider rejected its input schema at /properties/a/$ref (unresolvable $ref \"#/$defs/missing\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "draft07",
+          "reason": null
+        },
+        {
+          "name": "root_combinator",
+          "reason": null
+        },
+        {
+          "name": "no_type",
+          "reason": null
+        },
+        {
+          "name": "freeform",
+          "reason": "tool \"freeform\" is unavailable with the current model: the provider rejected its input schema at /type (Anthropic input_schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "not_an_object_schema",
+          "reason": null
+        }
+      ]
+    },
+    {
+      "name": "anthropic",
+      "session": {
+        "model": "claude-sonnet-4",
+        "provider": "anthropic"
+      },
+      "tools": [
+        {
+          "name": "plain",
+          "reason": null
+        },
+        {
+          "name": "no_schema",
+          "reason": null
+        },
+        {
+          "name": "string_root",
+          "reason": "tool \"string_root\" is unavailable with the current model: the provider rejected its input schema at /type (Anthropic input_schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "array_root",
+          "reason": "tool \"array_root\" is unavailable with the current model: the provider rejected its input schema at /type (Anthropic input_schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "unknown_type",
+          "reason": "tool \"unknown_type\" is unavailable with the current model: the provider rejected its input schema at /properties/a/type (not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "bad_ref",
+          "reason": "tool \"bad_ref\" is unavailable with the current model: the provider rejected its input schema at /properties/a/$ref (unresolvable $ref \"#/$defs/missing\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "draft07",
+          "reason": null
+        },
+        {
+          "name": "root_combinator",
+          "reason": null
+        },
+        {
+          "name": "no_type",
+          "reason": null
+        },
+        {
+          "name": "freeform",
+          "reason": "tool \"freeform\" is unavailable with the current model: the provider rejected its input schema at /type (Anthropic input_schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "not_an_object_schema",
+          "reason": null
+        }
+      ]
+    },
+    {
+      "name": "gemini",
+      "session": {
+        "model": "gemini-2.5-pro",
+        "provider": "gemini"
+      },
+      "tools": [
+        {
+          "name": "plain",
+          "reason": null
+        },
+        {
+          "name": "no_schema",
+          "reason": "tool \"no_schema\" is unavailable with the current model: the provider rejected its input schema at / (a Gemini Schema must be an object), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "string_root",
+          "reason": "tool \"string_root\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "array_root",
+          "reason": "tool \"array_root\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "unknown_type",
+          "reason": "tool \"unknown_type\" is unavailable with the current model: the provider rejected its input schema at /properties/a/type (not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "bad_ref",
+          "reason": "tool \"bad_ref\" is unavailable with the current model: the provider rejected its input schema at /properties/a/$ref (unresolvable $ref \"#/$defs/missing\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "draft07",
+          "reason": null
+        },
+        {
+          "name": "root_combinator",
+          "reason": null
+        },
+        {
+          "name": "no_type",
+          "reason": null
+        },
+        {
+          "name": "freeform",
+          "reason": "tool \"freeform\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "not_an_object_schema",
+          "reason": "tool \"not_an_object_schema\" is unavailable with the current model: the provider rejected its input schema at / (a Gemini Schema must be an object), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        }
+      ]
+    },
+    {
+      "name": "antigravity claude",
+      "session": {
+        "model": "claude-opus-4",
+        "provider": "antigravity-oauth"
+      },
+      "tools": [
+        {
+          "name": "plain",
+          "reason": null
+        },
+        {
+          "name": "no_schema",
+          "reason": "tool \"no_schema\" is unavailable with the current model: the provider rejected its input schema at / (the input schema must be a JSON object schema), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "string_root",
+          "reason": "tool \"string_root\" is unavailable with the current model: the provider rejected its input schema at /type (Anthropic input_schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "array_root",
+          "reason": "tool \"array_root\" is unavailable with the current model: the provider rejected its input schema at /type (Anthropic input_schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "unknown_type",
+          "reason": "tool \"unknown_type\" is unavailable with the current model: the provider rejected its input schema at /properties/a/type (not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "bad_ref",
+          "reason": "tool \"bad_ref\" is unavailable with the current model: the provider rejected its input schema at /properties/a/$ref (unresolvable $ref \"#/definitions/missing\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "draft07",
+          "reason": null
+        },
+        {
+          "name": "root_combinator",
+          "reason": "tool \"root_combinator\" is unavailable with the current model: the provider rejected its input schema at /type (Anthropic input_schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "no_type",
+          "reason": null
+        },
+        {
+          "name": "freeform",
+          "reason": "tool \"freeform\" is unavailable with the current model: the provider rejected its input schema at /type (Anthropic input_schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        },
+        {
+          "name": "not_an_object_schema",
+          "reason": "tool \"not_an_object_schema\" is unavailable with the current model: the provider rejected its input schema at / (the input schema must be a JSON object schema), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "plain"
+    },
+    {
+      "inputSchema": null,
+      "name": "no_schema"
+    },
+    {
+      "inputSchema": {
+        "type": "string"
+      },
+      "name": "string_root"
+    },
+    {
+      "inputSchema": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "name": "array_root"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "a": {
+            "type": "bogus"
+          }
+        },
+        "type": "object"
+      },
+      "name": "unknown_type"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "a": {
+            "$ref": "#/definitions/missing"
+          }
+        },
+        "type": "object"
+      },
+      "name": "bad_ref"
+    },
+    {
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "definitions": {
+          "n": {
+            "exclusiveMinimum": true,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "properties": {
+          "n": {
+            "$ref": "#/definitions/n"
+          }
+        },
+        "type": "object"
+      },
+      "name": "draft07"
+    },
+    {
+      "inputSchema": {
+        "anyOf": [
+          {
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "properties": {
+              "b": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "name": "root_combinator"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "a": {
+            "type": "string"
+          }
+        }
+      },
+      "name": "no_type"
+    },
+    {
+      "freeform": {
+        "definition": "start: /.+/",
+        "syntax": "lark",
+        "type": "grammar"
+      },
+      "inputSchema": {
+        "type": "string"
+      },
+      "name": "freeform"
+    },
+    {
+      "inputSchema": "oops",
+      "name": "not_an_object_schema"
+    }
+  ]
+}

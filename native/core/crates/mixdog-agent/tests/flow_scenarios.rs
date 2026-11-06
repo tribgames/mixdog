@@ -132,6 +132,10 @@ struct Shared {
     holds: Mutex<HashMap<usize, Arc<tokio::sync::Notify>>>,
     hold_create: Vec<usize>,
     hold_ask: Vec<usize>,
+    /// The session's model rows: the earlier user row, then each say step's assistant row.
+    messages: Mutex<Vec<Option<String>>>,
+    /// The shells Node's reap left for the handoff (host.stoppedShellJobs), read once.
+    stopped: Mutex<Option<StoppedShellJobs>>,
 }
 
 impl Shared {
@@ -145,10 +149,18 @@ struct Sess(Arc<Shared>);
 #[async_trait]
 impl TurnSessions for Sess {
     async fn message_count(&self, _: &str) -> usize {
-        0
+        lock(&self.0.messages).len()
     }
-    async fn assistant_texts(&self, _: &str, _: usize) -> Vec<AssistantText> {
-        Vec::new()
+    async fn assistant_texts(&self, _: &str, start: usize) -> Vec<AssistantText> {
+        lock(&self.0.messages)
+            .iter()
+            .skip(start)
+            .filter_map(|row| row.clone())
+            .map(|content| AssistantText { content, replay: String::new() })
+            .collect()
+    }
+    fn take_stopped_shell_jobs(&self, _: &str) -> StoppedShellJobs {
+        lock(&self.0.stopped).take().unwrap_or_default()
     }
     fn not_done_report(&self, _: &str) -> String {
         String::new()
@@ -182,6 +194,15 @@ impl Sess {
                 return Ok(turn_result(result));
             } else if let Some(error) = step.get("throw") {
                 return Err(TurnError::new(s(error, "message")));
+            } else if let Some(text) = step.get("say").and_then(Value::as_str) {
+                lock(&self.0.messages).push(Some(text.to_owned()));
+            } else if let Some(message) = step.get("stall").and_then(Value::as_str) {
+                // A stop by the progress watchdog: its sentence, and the handoff the abort carried, if any.
+                return Err(TurnError {
+                    message: message.to_owned(),
+                    partial_handoff: step.get("partialHandoff").and_then(Value::as_str).map(str::to_owned),
+                    ..TurnError::default()
+                });
             }
         }
         Ok(turn_result(&json!({ "content": "" })))
@@ -555,10 +576,26 @@ impl SendWorld for SendHost {
     }
 }
 
+/// presentErrorText(error, { surface: 'agent' }), which the board applies to a job's failure.
+struct Presented;
+impl mixdog_agent::agent_tool::error_text::ErrorText for Presented {
+    fn present(&self, message: &str) -> String {
+        use mixdog_ai::service::error_text::{ErrorView, PresentOptions, present_error_text};
+        present_error_text(&ErrorView::message(message), &PresentOptions { surface: "agent".into(), ..PresentOptions::default() })
+    }
+}
+
 struct Rig {
     shared: Arc<Shared>,
     spawn: Arc<SpawnFlowImpl>,
     send: Arc<SendFlowImpl>,
+}
+
+fn stopped_shells(host: Option<&Value>) -> Option<StoppedShellJobs> {
+    let names = |key: &str| -> Vec<String> {
+        host.and_then(|h| h.pointer(&format!("/stoppedShellJobs/{key}"))).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
+    };
+    host.and_then(|h| h.get("stoppedShellJobs")).map(|_| StoppedShellJobs { stopped: names("stopped"), stopping: names("stopping") })
 }
 
 fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
@@ -588,6 +625,8 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         holds: Mutex::default(),
         hold_create: numbers(&scenario["holdCreate"]),
         hold_ask: numbers(&scenario["holdAsk"]),
+        messages: Mutex::new(vec![None]),
+        stopped: Mutex::new(stopped_shells(host)),
     };
     // The notifier needs the state (its notices); give it its own handle to the same lists.
     let notices = shared.notices.clone();
@@ -595,6 +634,7 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
     shared.board = JobBoard::new(clock.clone(), Some(delivered), None);
     let shared = Arc::new(shared);
     let board = shared.board.clone();
+    board.set_error_text(Arc::new(Presented));
 
     let sessions: Arc<dyn TurnSessions> = Arc::new(Sess(shared.clone()));
     let turns: Arc<dyn TurnOwner> = Arc::new(TurnsOwner(shared.clone()));

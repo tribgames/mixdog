@@ -4,22 +4,35 @@
 //! directory, else initialises it when empty and starts one. The core is the
 //! only process of its data dir, so there is no secondary-attach protocol.
 
+//!
+//! Every child (`initdb`, `pg_ctl start|status|reload|stop`) runs under the one process manager
+//! through [`Processes`], with Node's limits (`runtime/memory/lib/pg/process.mjs`): `status` 3 s,
+//! `reload` 5 s, `stop` its `-t` seconds plus one; `initdb` has none, as in Node, and is ended by
+//! the caller's cancel; `pg_ctl start` is not waited for (the readiness poll, 30 s, is its bound).
+
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::Duration;
 
-use mixdog_rt::DurabilityIo;
+use mixdog_rt::{DurabilityIo, TaskClass};
 use tokio::net::TcpStream;
-use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
 
 use crate::memory::error::{MemoryError, Result};
 use crate::model_install::fsio;
+use crate::tidy::process::{ProcessResult, Processes, RunOptions};
 
 /// First port tried for a product postmaster, and how many ports above it are scanned.
 pub const DEFAULT_PORT: u16 = 55432;
 const PORT_SPAN: u16 = 200;
 const START_DEADLINE: Duration = Duration::from_secs(30);
 const READY_POLL: Duration = Duration::from_millis(100);
+/// `pg_ctl status` (`timeoutMs: 3_000`).
+const STATUS_LIMIT: Duration = Duration::from_secs(3);
+/// `pg_ctl reload` (`timeoutMs: 5_000`).
+const RELOAD_LIMIT: Duration = Duration::from_secs(5);
+/// How long a start that lost a race waits for the winner's postmaster (`existingWaitMs`).
+const EXISTING_WAIT: Duration = Duration::from_secs(15);
 
 /// A bundled PostgreSQL runtime directory.
 #[derive(Debug, Clone)]
@@ -37,35 +50,69 @@ impl PgRuntime {
         self.dir.join("bin").join(file)
     }
 
-    fn command(&self, name: &str) -> Command {
-        let mut command = Command::new(self.bin(name));
-        let lib = self.dir.join("lib");
+    /// The environment a child runs in (`libEnv`): this process's, with the runtime's libraries
+    /// reachable.
+    fn env(&self) -> HashMap<String, String> {
+        let mut env: HashMap<String, String> = std::env::vars().collect();
+        let lib = self.dir.join("lib").to_string_lossy().into_owned();
         if cfg!(target_os = "linux") {
-            command.env("LD_LIBRARY_PATH", lib);
+            env.insert("LD_LIBRARY_PATH".to_owned(), lib);
         } else if cfg!(target_os = "macos") {
-            command.env("DYLD_LIBRARY_PATH", lib);
+            env.insert("DYLD_LIBRARY_PATH".to_owned(), lib);
         } else {
             // Windows keeps the DLLs beside the executables.
-            let mut path = std::ffi::OsString::from(self.dir.join("bin"));
-            path.push(";");
-            path.push(std::env::var_os("PATH").unwrap_or_default());
-            command.env("PATH", path);
+            let key = env.keys().find(|key| key.eq_ignore_ascii_case("PATH")).cloned().unwrap_or_else(|| "PATH".to_owned());
+            let path = format!("{};{}", self.dir.join("bin").display(), env.get(&key).map_or("", String::as_str));
+            env.insert(key, path);
         }
-        command.stdin(Stdio::null());
-        #[cfg(windows)]
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        command
+        env
+    }
+
+    /// One child to its end under `limit` (zero: none) and `cancel`; `Err` is the failure text.
+    async fn run(&self, processes: &Processes, name: &str, args: &[String], limit: Duration, cancel: Option<&CancellationToken>) -> Result<ProcessResult> {
+        let env = self.env();
+        let bin = self.bin(name);
+        let options = RunOptions { env: Some(&env), timeout: limit, cancel, ..RunOptions::new(&self.dir) };
+        let done = processes.run(&bin.to_string_lossy(), args, options).await;
+        if done.code == 0 && !done.timed_out && done.error.is_empty() {
+            return Ok(done);
+        }
+        let text = [done.stderr.as_str(), done.stdout.as_str(), done.error.as_str()]
+            .into_iter()
+            .map(str::trim)
+            .find(|text| !text.is_empty())
+            .map_or_else(|| format!("status {}", done.code), str::to_owned);
+        Err(MemoryError::Runtime(format!("{name} failed: {text}")))
+    }
+
+    /// `pg_ctl status -D`: whether a server runs on the data directory (exit 0), within 3 s.
+    pub async fn status(&self, processes: &Processes, data_dir: &Path) -> Result<bool> {
+        let args = ["status".to_owned(), "-D".to_owned(), data_dir.to_string_lossy().into_owned()];
+        match self.run(processes, "pg_ctl", &args, STATUS_LIMIT, None).await {
+            Ok(_) => Ok(true),
+            // pg_ctl answers 3 for "no server running".
+            Err(error) if error.message().contains("no server running") => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// `pg_ctl reload -D`: the running server re-reads its configuration, within 5 s.
+    pub async fn reload(&self, processes: &Processes, data_dir: &Path) -> Result<()> {
+        let args = ["reload".to_owned(), "-D".to_owned(), data_dir.to_string_lossy().into_owned()];
+        self.run(processes, "pg_ctl", &args, RELOAD_LIMIT, None).await.map(drop)
     }
 }
 
 /// A running postmaster serving one data directory.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PgCluster {
     runtime: PgRuntime,
     data_dir: PathBuf,
     port: u16,
     /// The lane the data directory's files are read and written on.
     lane: DurabilityIo,
+    /// The process manager the cluster's children run under.
+    processes: Processes,
 }
 
 /// Settings every cluster created here starts with. A single-user local
@@ -114,19 +161,6 @@ async fn free_port(preferred: u16) -> Result<u16> {
     Err(MemoryError::Runtime(format!("no free port in {preferred}-{last}")))
 }
 
-async fn run(mut command: Command, what: &str) -> Result<std::process::Output> {
-    let output = command.output().await?;
-    if output.status.success() {
-        return Ok(output);
-    }
-    let text = [&output.stderr, &output.stdout]
-        .iter()
-        .map(|bytes| String::from_utf8_lossy(bytes).trim().to_owned())
-        .find(|text| !text.is_empty())
-        .unwrap_or_else(|| format!("status {}", output.status));
-    Err(MemoryError::Runtime(format!("{what} failed: {text}")))
-}
-
 /// `initdb -L` input directory. On Windows initdb embeds its share path in
 /// bootstrap SQL as system-code-page bytes, which a UTF-8 cluster rejects when
 /// the path is not ASCII; such a share directory is reached through an ASCII
@@ -136,7 +170,7 @@ struct ShareDir {
 }
 
 impl ShareDir {
-    async fn prepare(lane: DurabilityIo, runtime: &PgRuntime) -> Result<Self> {
+    async fn prepare(lane: DurabilityIo, processes: &Processes, runtime: &PgRuntime) -> Result<Self> {
         let share = runtime.dir.join("share");
         if !cfg!(windows) || share.to_string_lossy().is_ascii() {
             return Ok(Self { link: None });
@@ -145,9 +179,16 @@ impl ShareDir {
             .join(format!("mixdog-initdb-{}", uuid::Uuid::new_v4().simple()));
         fsio::create_dir_all(lane, &root).await?;
         let link = root.join("share");
-        let mut mklink = Command::new("cmd");
-        mklink.arg("/C").arg("mklink").arg("/J").arg(&link).arg(&share);
-        run(mklink, "mklink").await?;
+        // Node makes the junction synchronously (`symlinkSync`); a child here gets `status`'s
+        // short limit.
+        let args = ["/C".to_owned(), "mklink".to_owned(), "/J".to_owned(), link.to_string_lossy().into_owned(), share.to_string_lossy().into_owned()];
+        let env = runtime.env();
+        let options = RunOptions { env: Some(&env), timeout: STATUS_LIMIT, ..RunOptions::new(&root) };
+        let made = processes.run("cmd", &args, options).await;
+        if made.code != 0 || made.timed_out {
+            let text = [made.stderr.trim(), made.stdout.trim(), made.error.as_str()].into_iter().find(|t| !t.is_empty()).unwrap_or("no output").to_owned();
+            return Err(MemoryError::Runtime(format!("mklink failed: {text}")));
+        }
         Ok(Self { link: Some(link) })
     }
 
@@ -166,41 +207,85 @@ impl ShareDir {
     }
 }
 
+impl std::fmt::Debug for PgCluster {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PgCluster").field("data_dir", &self.data_dir).field("port", &self.port).finish_non_exhaustive()
+    }
+}
+
+/// `pg_ctl start`'s outcome while it is being waited for: it is not waited for to exit (Node
+/// spawns it and polls readiness), so this only reports an exit that came before readiness.
+type StartRun = tokio::task::JoinHandle<Result<ProcessResult>>;
+
 impl PgCluster {
-    /// Attach to the cluster that serves `data_dir`, or initialise and start it.
-    pub async fn ensure(runtime: PgRuntime, data_dir: impl Into<PathBuf>, preferred_port: u16, lane: DurabilityIo) -> Result<Self> {
+    /// Attach to the cluster that serves `data_dir`, or initialise and start it. `cancel` ends an
+    /// `initdb` in progress (it has no time limit, as in Node).
+    pub async fn ensure(
+        runtime: PgRuntime,
+        data_dir: impl Into<PathBuf>,
+        preferred_port: u16,
+        lane: DurabilityIo,
+        processes: Processes,
+        cancel: &CancellationToken,
+    ) -> Result<Self> {
         let data_dir = data_dir.into();
         fsio::create_dir_all(lane, &data_dir).await?;
         if let Some(port) = read_postmaster_port(lane, &data_dir).await
             && accepts_connections(port).await {
-                return Ok(Self { runtime, data_dir, port, lane });
+                return Ok(Self { runtime, data_dir, port, lane, processes });
             }
         if !fsio::exists(lane, &data_dir.join("PG_VERSION")).await? {
-            Self::init(lane, &runtime, &data_dir).await?;
+            Self::init(lane, &processes, &runtime, &data_dir, cancel).await?;
         }
         let port = free_port(preferred_port).await?;
         let log = data_dir.join("pg.log");
-        let mut start = runtime.command("pg_ctl");
-        start
-            .arg("start")
-            .arg("-D")
-            .arg(&data_dir)
-            .arg("-l")
-            .arg(&log)
-            .arg("-o")
-            .arg(format!("-p {port} -h 127.0.0.1"));
-        // pg_ctl returns once the postmaster is spawned; readiness is probed here.
-        // The postmaster inherits pg_ctl's stdio, so captured pipes would never
-        // reach EOF; its output goes to the log file instead.
-        start.stdout(Stdio::null()).stderr(Stdio::null());
-        if !start.status().await?.success() {
-            let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
-            return Err(MemoryError::Runtime(format!("pg_ctl start failed: {}", log_text.trim())));
-        }
+        let args: Vec<String> = [
+            "start".to_owned(),
+            "-D".to_owned(),
+            data_dir.to_string_lossy().into_owned(),
+            "-l".to_owned(),
+            log.to_string_lossy().into_owned(),
+            "-o".to_owned(),
+            format!("-p {port} -h 127.0.0.1"),
+        ]
+        .into();
+        // Not waited for, as in Node: `pg_ctl start` is spawned and readiness is polled; the
+        // postmaster outlives it. An exit before readiness is a start failure.
+        let mut started: Option<StartRun> = Some({
+            let (runtime, processes) = (runtime.clone(), processes.clone());
+            mixdog_rt::spawn("services.memory.pg-start", TaskClass::Work, async move {
+                runtime.run(&processes, "pg_ctl", &args, Duration::ZERO, None).await
+            })
+        });
         let deadline = tokio::time::Instant::now() + START_DEADLINE;
+        let mut early: Option<MemoryError> = None;
         loop {
             if accepts_connections(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
-                return Ok(Self { runtime, data_dir, port, lane });
+                return Ok(Self { runtime, data_dir, port, lane, processes });
+            }
+            if started.as_ref().is_some_and(tokio::task::JoinHandle::is_finished)
+                && let Some(done) = started.take()
+            {
+                match done.await {
+                    Ok(Err(error)) => early = Some(error),
+                    Ok(Ok(_)) => {}
+                    Err(error) => early = Some(MemoryError::Runtime(format!("pg_ctl start: {error}"))),
+                }
+            }
+            if let Some(error) = &early {
+                // A start that lost a race to another postmaster on this data dir attaches to it.
+                if error.message().contains("another server might be running")
+                    && let Some(winner) = Self::await_race_winner(&runtime, &processes, lane, &data_dir).await
+                {
+                    return Ok(Self { runtime, data_dir, port: winner, lane, processes });
+                }
+                let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
+                let detail = [error.message(), if log_text.trim().is_empty() { String::new() } else { format!("postgres log:\n{}", log_text.trim()) }]
+                    .into_iter()
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                return Err(MemoryError::Runtime(format!("pg_ctl start failed: {detail}")));
             }
             if tokio::time::Instant::now() >= deadline {
                 let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
@@ -210,15 +295,37 @@ impl PgCluster {
         }
     }
 
-    async fn init(lane: DurabilityIo, runtime: &PgRuntime, data_dir: &Path) -> Result<()> {
-        let share = ShareDir::prepare(lane, runtime).await?;
-        let mut initdb = runtime.command("initdb");
-        initdb.arg("-D").arg(data_dir);
-        if let Some(path) = share.path() {
-            initdb.arg("-L").arg(path);
+    /// `attachRaceWinner`: probes `pg_ctl status` (3 s), then waits up to 15 s for the winner's
+    /// postmaster to accept connections; its port when it does.
+    async fn await_race_winner(runtime: &PgRuntime, processes: &Processes, lane: DurabilityIo, data_dir: &Path) -> Option<u16> {
+        match runtime.status(processes, data_dir).await {
+            Ok(running) => tracing::info!(running, "[pg-process] pg_ctl status after a lost start race"),
+            Err(error) => tracing::info!(error = %error.message(), "[pg-process] pg_ctl status after a lost start race"),
         }
-        initdb.args(["--auth-local=trust", "--no-locale", "-E", "UTF8", "-U", "postgres"]);
-        let result = run(initdb, "initdb").await;
+        let deadline = tokio::time::Instant::now() + EXISTING_WAIT;
+        loop {
+            if let Some(port) = read_postmaster_port(lane, data_dir).await
+                && accepts_connections(port).await
+            {
+                tracing::info!(port, "[pg-process] attaching to race winner");
+                return Some(port);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(READY_POLL).await;
+        }
+    }
+
+    async fn init(lane: DurabilityIo, processes: &Processes, runtime: &PgRuntime, data_dir: &Path, cancel: &CancellationToken) -> Result<()> {
+        let share = ShareDir::prepare(lane, processes, runtime).await?;
+        let mut args = vec!["-D".to_owned(), data_dir.to_string_lossy().into_owned()];
+        if let Some(path) = share.path() {
+            args.extend(["-L".to_owned(), path.to_string_lossy().into_owned()]);
+        }
+        args.extend(["--auth-local=trust", "--no-locale", "-E", "UTF8", "-U", "postgres"].map(str::to_owned));
+        // No time limit, as in Node (`runChild` without `timeoutMs`); the cancel ends it.
+        let result = runtime.run(processes, "initdb", &args, Duration::ZERO, Some(cancel)).await;
         share.release(lane).await;
         result?;
         let conf = data_dir.join("postgresql.conf");
@@ -236,12 +343,17 @@ impl PgCluster {
         &self.data_dir
     }
 
-    /// Bounded fast shutdown: open transactions roll back, clients disconnect.
+    /// `stopPg`: bounded fast shutdown, open transactions roll back and clients disconnect.
+    /// `pg_ctl -t` is `timeout` in whole seconds (rounded up, at least one); the child is
+    /// ended one second after that.
     pub async fn stop(&self, timeout: Duration) -> Result<()> {
-        let seconds = timeout.as_secs().max(1);
-        let mut stop = self.runtime.command("pg_ctl");
-        stop.args(["stop", "-m", "fast", "-w", "-t"]).arg(seconds.to_string()).arg("-D").arg(&self.data_dir);
-        match run(stop, "pg_ctl stop").await {
+        let seconds = timeout.as_millis().div_ceil(1000).max(1) as u64;
+        let args: Vec<String> = ["stop", "-m", "fast", "-w", "-t"]
+            .into_iter()
+            .map(str::to_owned)
+            .chain([seconds.to_string(), "-D".to_owned(), self.data_dir.to_string_lossy().into_owned()])
+            .collect();
+        match self.runtime.run(&self.processes, "pg_ctl", &args, Duration::from_secs(seconds + 1), None).await {
             Ok(_) => Ok(()),
             // No postmaster.pid means nothing was running.
             Err(_) if read_postmaster_port(self.lane, &self.data_dir).await.is_none() => Ok(()),

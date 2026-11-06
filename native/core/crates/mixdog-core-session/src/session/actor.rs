@@ -1576,6 +1576,23 @@ impl SessionActor {
 
     fn on_ctl(&mut self, ctl: Ctl) {
         match ctl {
+            Ctl::Approval { turn, ask, reply } => {
+                if !self.active(&turn) {
+                    let _ = reply.send(ApprovalResolution::Cancelled {
+                        at: self.deps.clock.now_ms(),
+                    });
+                    return;
+                }
+                // A session with no approval surface asks nobody (Node's headless runtime has
+                // no `toolApprovalHook`).
+                if super::session_options::approval_implicit(&self.acked.header) {
+                    let _ = reply.send(ApprovalResolution::Unavailable {
+                        at: self.deps.clock.now_ms(),
+                    });
+                    return;
+                }
+                self.request_approval(turn, ask, reply);
+            }
             Ctl::Abort { turn } => {
                 if self.run.as_ref().is_some_and(|run| run.turn == turn) {
                     let now = self.deps.clock.now_ms();
@@ -1702,6 +1719,7 @@ impl SessionActor {
                 RunOutcome::Completed(result) => Some((**result).clone()),
                 _ => None,
             },
+            stalled: matches!(&outcome, RunOutcome::Failed(error) if mixdog_agent::agent_tool::watchdog::is_watchdog_abort(&error.message)),
         };
         // A worker's turn hears the final result first (`onTerminalResult`), then its outcome.
         // The outcome follows once the turn settled, as `askSession` returns after `runTurn`.
@@ -2219,23 +2237,6 @@ impl SessionActor {
                     ),
                 });
                 self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
-            }
-            ProducerMsg::Approval { turn, ask, reply } => {
-                if !self.active(&turn) {
-                    let _ = reply.send(ApprovalResolution::Cancelled {
-                        at: self.deps.clock.now_ms(),
-                    });
-                    return;
-                }
-                // A session with no approval surface asks nobody (Node's headless runtime has
-                // no `toolApprovalHook`).
-                if super::session_options::approval_implicit(&self.acked.header) {
-                    let _ = reply.send(ApprovalResolution::Unavailable {
-                        at: self.deps.clock.now_ms(),
-                    });
-                    return;
-                }
-                self.request_approval(turn, ask, reply);
             }
             ProducerMsg::TakeSteers { turn, request, reply } => {
                 self.take_steers(turn, request, reply, std::collections::HashMap::new());
@@ -3364,6 +3365,7 @@ impl SessionActor {
             }
             None => agent,
         };
+        let unattended = agent.is_some() || super::goal_lane::automatic(&input_body);
         self.run = Some(RunSlot {
             turn: turn.clone(),
             input_item: input_iid.clone(),
@@ -3404,6 +3406,7 @@ impl SessionActor {
             tx: self.ch.prod_tx.clone(),
             input: input_rx,
             cancel: token.clone(),
+            ctl: self.cell.ctl_tx.clone(),
             provider: self
                 .acked
                 .header
@@ -3417,6 +3420,7 @@ impl SessionActor {
             agent_turn,
             skill_selection,
             goal_reminder,
+            unattended,
             thread: self.id.clone(),
             turn: turn.clone(),
             input,

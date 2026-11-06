@@ -32,4 +32,4 @@ url = { workspace = true }
 [dev-dependencies]
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "sync"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "sync", "test-util"] }

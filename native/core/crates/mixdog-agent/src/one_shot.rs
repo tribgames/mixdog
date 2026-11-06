@@ -76,7 +76,7 @@ pub(crate) fn isolated_env(host: &RunEnv) -> RunEnv {
 }
 
 /// The run environment of a call outside any run: only what the retry path needs.
-fn isolated(
+pub(crate) fn isolated(
     clock: Arc<dyn Clock>,
     jitter: Arc<dyn JitterSource>,
     waiter: Arc<dyn RetryWait>,

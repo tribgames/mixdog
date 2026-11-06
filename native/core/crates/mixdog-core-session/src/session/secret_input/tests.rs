@@ -128,12 +128,12 @@ impl Page {
 
 #[async_trait]
 impl HostCommands for Page {
-    async fn browser(&self, _: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
+    async fn browser(&self, _: &ThreadId, action: &str, input: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
         self.sent.lock().unwrap_or_else(PoisonError::into_inner).push((action.to_owned(), input));
         self.answer.clone()
     }
 
-    async fn visualize(&self, _: &ThreadId, _: &str, _: &str, _: JsonValue) -> Result<JsonValue, HostCommandError> {
+    async fn visualize(&self, _: &ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
         Err(HostCommandError::NoHost)
     }
 }
@@ -506,23 +506,23 @@ async fn a_request_is_bound_to_the_desktop_that_bound_its_page() {
     ] {
         slots.discard(ID);
         desk.reply("secret_bind", Ok(facts.clone()));
-        assert_eq!(host.browser(&thread, "secret_bind", bind.clone()).await.unwrap(), facts);
+        assert_eq!(host.browser(&thread, "secret_bind", bind.clone(), &mixdog_rt::CancellationToken::new()).await.unwrap(), facts);
         assert_eq!(slots.browser_binding(ID), bound.then(|| BrowserBinding { session: "S1".into(), claim: claim() }), "{facts}");
     }
     desk.reply("secret_bind", Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() })));
-    assert_eq!(host.browser(&thread, "secret_bind", bind).await, Err(HostCommandError::NoHost));
+    assert_eq!(host.browser(&thread, "secret_bind", bind, &mixdog_rt::CancellationToken::new()).await, Err(HostCommandError::NoHost));
 
     // `secret_input` answers the outcome only; every other command goes to the host as it is.
     slots.discard(ID);
     desk.reply("secret_bind", Ok(json!({ "origin": "https://example.com", "form": "password" })));
-    host.browser(&thread, "secret_bind", json!({ "request_id": ID })).await.unwrap();
+    host.browser(&thread, "secret_bind", json!({ "request_id": ID }), &mixdog_rt::CancellationToken::new()).await.unwrap();
     assert!(slots.provide(ID, VALUE));
     desk.reply("secret_precheck", Ok(json!({ "text": "ready", "hostId": "host-A" })));
     desk.reply("secret_fill", Ok(json!({ "text": "entered" })));
-    let answered = host.browser(&thread, "secret_input", json!({ "request_id": ID })).await.unwrap();
+    let answered = host.browser(&thread, "secret_input", json!({ "request_id": ID }), &mixdog_rt::CancellationToken::new()).await.unwrap();
     assert_eq!(answered, json!({ "text": "entered" }));
     assert!(!answered.to_string().contains(VALUE));
-    let passed = host.browser(&thread, "page_url", json!({ "tab": "t1" })).await.unwrap();
+    let passed = host.browser(&thread, "page_url", json!({ "tab": "t1" }), &mixdog_rt::CancellationToken::new()).await.unwrap();
     assert_eq!(passed, json!({}));
     assert_eq!(inner.sent(), vec![("page_url".to_owned(), json!({ "tab": "t1" }))]);
 }

@@ -15,6 +15,7 @@ pub mod pg;
 pub mod project;
 pub mod query_terms;
 pub mod recall;
+pub mod reindex;
 pub mod reply;
 pub mod runtime;
 pub mod schema;

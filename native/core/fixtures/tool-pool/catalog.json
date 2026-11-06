@@ -1,0 +1,1664 @@
+{
+  "cases": [
+    {
+      "describe": [
+        {
+          "names": [
+            "read"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__mail__send"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "MCP__MAIL__SEND"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "filesystem"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__mail"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "send"
+          ],
+          "result": "{\"entries\":[],\"missing\":[],\"blocked\":[],\"matches\":[{\"keyword\":\"send\",\"tools\":[{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\"}]}],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "nope"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"nope\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "broken"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"broken\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "hidden_tool"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"hidden_tool\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__cal__add"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"mcp__cal__add\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "shell"
+          ],
+          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"15b6babee77e9b68\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run a command\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "web"
+          ],
+          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"f6aa2892f236bd82\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch a web page\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"609c23cee2540e3f\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "read",
+            "mcp__mail__list",
+            "nope"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        }
+      ],
+      "name": "an open session",
+      "resolve": [
+        {
+          "name": "broken",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"broken\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "read",
+          "result": {
+            "error": {
+              "code": "USE_DIRECT_TOOL",
+              "message": "\"read\" is directly available; call read directly instead of call_tool."
+            }
+          }
+        },
+        {
+          "name": "READ",
+          "result": {
+            "error": {
+              "code": "USE_DIRECT_TOOL",
+              "message": "\"read\" is directly available; call read directly instead of call_tool."
+            }
+          }
+        },
+        {
+          "name": "mcp__mail__send",
+          "result": {
+            "name": "mcp__mail__send"
+          }
+        },
+        {
+          "name": "MCP__MAIL__SEND",
+          "result": {
+            "name": "mcp__mail__send"
+          }
+        },
+        {
+          "name": "mcp__cal__add",
+          "result": {
+            "error": {
+              "code": "TOOL_UNAVAILABLE",
+              "message": "tool \"mcp__cal__add\" is unavailable in the current session catalog; no call was sent."
+            }
+          }
+        },
+        {
+          "name": "nope",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"nope\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "hidden_tool",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"hidden_tool\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "shell",
+          "result": {
+            "name": "shell"
+          }
+        },
+        {
+          "name": "web_fetch",
+          "result": {
+            "name": "web_fetch"
+          }
+        }
+      ],
+      "session": {
+        "deferredMcpToolNames": [
+          "mcp__mail__send",
+          "mcp__mail__list"
+        ],
+        "deferredToolCatalog": [
+          {
+            "annotations": {
+              "destructiveHint": true
+            },
+            "description": "Send a mail message",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__mail__send"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "List mail folders",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__mail__list"
+          },
+          {
+            "description": "Add a calendar event",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__cal__add"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Fetch a web page",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "web_fetch"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Search the web",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "web_search"
+          },
+          {
+            "description": "Run a command",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "shell"
+          },
+          {
+            "description": "Denied here",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "hidden_tool"
+          }
+        ],
+        "disallowedTools": [
+          "hidden_tool"
+        ],
+        "mcpServerInstructions": {
+          "mail": "Use <b>mail</b> only when asked."
+        },
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Read a file",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read"
+          },
+          {
+            "description": "Edit a file",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "edit"
+          },
+          {
+            "description": "Describe tools",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "load_tool"
+          },
+          {
+            "description": "Run a tool",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "call_tool"
+          }
+        ]
+      }
+    },
+    {
+      "describe": [
+        {
+          "names": [
+            "read"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__mail__send"
+          ],
+          "result": "{\"entries\":[],\"missing\":[],\"blocked\":[{\"name\":\"mcp__mail__send\",\"reason\":\"readonly mode\"}],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "MCP__MAIL__SEND"
+          ],
+          "result": "{\"entries\":[],\"missing\":[],\"blocked\":[{\"name\":\"mcp__mail__send\",\"reason\":\"readonly mode\"}],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "filesystem"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__mail"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[{\"name\":\"mcp__mail__send\",\"reason\":\"readonly mode\"}],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "send"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"send\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "nope"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"nope\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "broken"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"broken\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "hidden_tool"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"hidden_tool\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__cal__add"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"mcp__cal__add\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "shell"
+          ],
+          "result": "{\"entries\":[],\"missing\":[],\"blocked\":[{\"name\":\"shell\",\"reason\":\"readonly mode\"}],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "web"
+          ],
+          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"f6aa2892f236bd82\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch a web page\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"609c23cee2540e3f\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "read",
+            "mcp__mail__list",
+            "nope"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        }
+      ],
+      "name": "a read-only session",
+      "resolve": [
+        {
+          "name": "broken",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"broken\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "read",
+          "result": {
+            "error": {
+              "code": "USE_DIRECT_TOOL",
+              "message": "\"read\" is directly available; call read directly instead of call_tool."
+            }
+          }
+        },
+        {
+          "name": "READ",
+          "result": {
+            "error": {
+              "code": "USE_DIRECT_TOOL",
+              "message": "\"read\" is directly available; call read directly instead of call_tool."
+            }
+          }
+        },
+        {
+          "name": "mcp__mail__send",
+          "result": {
+            "name": "mcp__mail__send"
+          }
+        },
+        {
+          "name": "MCP__MAIL__SEND",
+          "result": {
+            "name": "mcp__mail__send"
+          }
+        },
+        {
+          "name": "mcp__cal__add",
+          "result": {
+            "error": {
+              "code": "TOOL_UNAVAILABLE",
+              "message": "tool \"mcp__cal__add\" is unavailable in the current session catalog; no call was sent."
+            }
+          }
+        },
+        {
+          "name": "nope",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"nope\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "hidden_tool",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"hidden_tool\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "shell",
+          "result": {
+            "name": "shell"
+          }
+        },
+        {
+          "name": "web_fetch",
+          "result": {
+            "name": "web_fetch"
+          }
+        }
+      ],
+      "session": {
+        "deferredMcpToolNames": [
+          "mcp__mail__send",
+          "mcp__mail__list"
+        ],
+        "deferredSurfaceMode": "readonly",
+        "deferredToolCatalog": [
+          {
+            "annotations": {
+              "destructiveHint": true
+            },
+            "description": "Send a mail message",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__mail__send"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "List mail folders",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__mail__list"
+          },
+          {
+            "description": "Add a calendar event",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__cal__add"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Fetch a web page",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "web_fetch"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Search the web",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "web_search"
+          },
+          {
+            "description": "Run a command",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "shell"
+          },
+          {
+            "description": "Denied here",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "hidden_tool"
+          }
+        ],
+        "disallowedTools": [
+          "hidden_tool"
+        ],
+        "mcpServerInstructions": {
+          "mail": "Use <b>mail</b> only when asked."
+        },
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Read a file",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read"
+          },
+          {
+            "description": "Edit a file",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "edit"
+          },
+          {
+            "description": "Describe tools",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "load_tool"
+          },
+          {
+            "description": "Run a tool",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "call_tool"
+          }
+        ]
+      }
+    },
+    {
+      "describe": [
+        {
+          "names": [
+            "read"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__mail__send"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "MCP__MAIL__SEND"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "filesystem"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__mail"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "send"
+          ],
+          "result": "{\"entries\":[],\"missing\":[],\"blocked\":[],\"matches\":[{\"keyword\":\"send\",\"tools\":[{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\"}]}],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "nope"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"nope\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "broken"
+          ],
+          "result": "{\"entries\":[],\"missing\":[],\"blocked\":[{\"name\":\"broken\",\"reason\":\"tool \\\"broken\\\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \\\"object\\\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it.\"}],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "hidden_tool"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"hidden_tool\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__cal__add"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"mcp__cal__add\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "shell"
+          ],
+          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"15b6babee77e9b68\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run a command\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "web"
+          ],
+          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"f6aa2892f236bd82\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch a web page\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"609c23cee2540e3f\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "read",
+            "mcp__mail__list",
+            "nope"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        }
+      ],
+      "name": "an eager tool the route cannot send",
+      "resolve": [
+        {
+          "name": "broken",
+          "result": {
+            "error": {
+              "code": "TOOL_EXCLUDED",
+              "message": "tool \"broken\" is unavailable with the current model: the provider rejected its input schema at /type (the input schema root must have type \"object\"), so it was left out of the request; no call was sent. Use another tool, or ask the user to fix the tool's schema or disable it."
+            }
+          }
+        },
+        {
+          "name": "read",
+          "result": {
+            "error": {
+              "code": "USE_DIRECT_TOOL",
+              "message": "\"read\" is directly available; call read directly instead of call_tool."
+            }
+          }
+        },
+        {
+          "name": "READ",
+          "result": {
+            "error": {
+              "code": "USE_DIRECT_TOOL",
+              "message": "\"read\" is directly available; call read directly instead of call_tool."
+            }
+          }
+        },
+        {
+          "name": "mcp__mail__send",
+          "result": {
+            "name": "mcp__mail__send"
+          }
+        },
+        {
+          "name": "MCP__MAIL__SEND",
+          "result": {
+            "name": "mcp__mail__send"
+          }
+        },
+        {
+          "name": "mcp__cal__add",
+          "result": {
+            "error": {
+              "code": "TOOL_UNAVAILABLE",
+              "message": "tool \"mcp__cal__add\" is unavailable in the current session catalog; no call was sent."
+            }
+          }
+        },
+        {
+          "name": "nope",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"nope\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "hidden_tool",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"hidden_tool\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "shell",
+          "result": {
+            "name": "shell"
+          }
+        },
+        {
+          "name": "web_fetch",
+          "result": {
+            "name": "web_fetch"
+          }
+        }
+      ],
+      "session": {
+        "deferredMcpToolNames": [
+          "mcp__mail__send",
+          "mcp__mail__list"
+        ],
+        "deferredToolCatalog": [
+          {
+            "annotations": {
+              "destructiveHint": true
+            },
+            "description": "Send a mail message",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__mail__send"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "List mail folders",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__mail__list"
+          },
+          {
+            "description": "Add a calendar event",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__cal__add"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Fetch a web page",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "web_fetch"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Search the web",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "web_search"
+          },
+          {
+            "description": "Run a command",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "shell"
+          },
+          {
+            "description": "Denied here",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "hidden_tool"
+          }
+        ],
+        "disallowedTools": [
+          "hidden_tool"
+        ],
+        "mcpServerInstructions": {
+          "mail": "Use <b>mail</b> only when asked."
+        },
+        "model": "gpt-5",
+        "provider": "openai-oauth",
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Read a file",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read"
+          },
+          {
+            "description": "Edit a file",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "edit"
+          },
+          {
+            "description": "Describe tools",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "load_tool"
+          },
+          {
+            "description": "Run a tool",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "call_tool"
+          },
+          {
+            "description": "Has a string schema root",
+            "inputSchema": {
+              "type": "string"
+            },
+            "name": "broken"
+          }
+        ]
+      }
+    },
+    {
+      "describe": [
+        {
+          "names": [
+            "read"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__mail__send"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "MCP__MAIL__SEND"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "filesystem"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__mail"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "send"
+          ],
+          "result": "{\"entries\":[],\"missing\":[],\"blocked\":[],\"matches\":[{\"keyword\":\"send\",\"tools\":[{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\"}]}],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "nope"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"nope\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "broken"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"broken\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "hidden_tool"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"hidden_tool\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__cal__add"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"mcp__cal__add\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "shell"
+          ],
+          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"15b6babee77e9b68\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run a command\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "web"
+          ],
+          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"f6aa2892f236bd82\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch a web page\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"609c23cee2540e3f\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "read",
+            "mcp__mail__list",
+            "nope"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        }
+      ],
+      "name": "a session told this very text",
+      "resolve": [
+        {
+          "name": "broken",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"broken\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "read",
+          "result": {
+            "error": {
+              "code": "USE_DIRECT_TOOL",
+              "message": "\"read\" is directly available; call read directly instead of call_tool."
+            }
+          }
+        },
+        {
+          "name": "READ",
+          "result": {
+            "error": {
+              "code": "USE_DIRECT_TOOL",
+              "message": "\"read\" is directly available; call read directly instead of call_tool."
+            }
+          }
+        },
+        {
+          "name": "mcp__mail__send",
+          "result": {
+            "name": "mcp__mail__send"
+          }
+        },
+        {
+          "name": "MCP__MAIL__SEND",
+          "result": {
+            "name": "mcp__mail__send"
+          }
+        },
+        {
+          "name": "mcp__cal__add",
+          "result": {
+            "error": {
+              "code": "TOOL_UNAVAILABLE",
+              "message": "tool \"mcp__cal__add\" is unavailable in the current session catalog; no call was sent."
+            }
+          }
+        },
+        {
+          "name": "nope",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"nope\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "hidden_tool",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"hidden_tool\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "shell",
+          "result": {
+            "name": "shell"
+          }
+        },
+        {
+          "name": "web_fetch",
+          "result": {
+            "name": "web_fetch"
+          }
+        }
+      ],
+      "session": {
+        "deferredMcpToolNames": [
+          "mcp__mail__send",
+          "mcp__mail__list"
+        ],
+        "deferredToolCatalog": [
+          {
+            "annotations": {
+              "destructiveHint": true
+            },
+            "description": "Send a mail message",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__mail__send"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "List mail folders",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__mail__list"
+          },
+          {
+            "description": "Add a calendar event",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__cal__add"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Fetch a web page",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "web_fetch"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Search the web",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "web_search"
+          },
+          {
+            "description": "Run a command",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "shell"
+          },
+          {
+            "description": "Denied here",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "hidden_tool"
+          }
+        ],
+        "disallowedTools": [
+          "hidden_tool"
+        ],
+        "mcpInstructionHashes": {
+          "mail": "50bba382f91d1657"
+        },
+        "mcpInstructionsAnnounced": [
+          "mail"
+        ],
+        "mcpServerInstructions": {
+          "mail": "Use <b>mail</b> only when asked."
+        },
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Read a file",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read"
+          },
+          {
+            "description": "Edit a file",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "edit"
+          },
+          {
+            "description": "Describe tools",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "load_tool"
+          },
+          {
+            "description": "Run a tool",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "call_tool"
+          }
+        ]
+      }
+    },
+    {
+      "describe": [
+        {
+          "names": [
+            "read"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__mail__send"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "MCP__MAIL__SEND"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "filesystem"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__mail"
+          ],
+          "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "send"
+          ],
+          "result": "{\"entries\":[],\"missing\":[],\"blocked\":[],\"matches\":[{\"keyword\":\"send\",\"tools\":[{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\"}]}],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "nope"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"nope\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "broken"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"broken\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "hidden_tool"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"hidden_tool\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "mcp__cal__add"
+          ],
+          "result": "{\"entries\":[],\"missing\":[\"mcp__cal__add\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "shell"
+          ],
+          "result": "{\"entries\":[{\"name\":\"shell\",\"schemaRevision\":\"15b6babee77e9b68\",\"complete\":true,\"document\":{\"name\":\"shell\",\"description\":\"Run a command\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "web"
+          ],
+          "result": "{\"entries\":[{\"name\":\"web_fetch\",\"schemaRevision\":\"f6aa2892f236bd82\",\"complete\":true,\"document\":{\"name\":\"web_fetch\",\"description\":\"Fetch a web page\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"web_search\",\"schemaRevision\":\"609c23cee2540e3f\",\"complete\":true,\"document\":{\"name\":\"web_search\",\"description\":\"Search the web\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        },
+        {
+          "names": [
+            "read",
+            "mcp__mail__list",
+            "nope"
+          ],
+          "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}},{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[\"nope\"],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+        }
+      ],
+      "name": "a session that was told the mail instructions",
+      "resolve": [
+        {
+          "name": "broken",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"broken\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "read",
+          "result": {
+            "error": {
+              "code": "USE_DIRECT_TOOL",
+              "message": "\"read\" is directly available; call read directly instead of call_tool."
+            }
+          }
+        },
+        {
+          "name": "READ",
+          "result": {
+            "error": {
+              "code": "USE_DIRECT_TOOL",
+              "message": "\"read\" is directly available; call read directly instead of call_tool."
+            }
+          }
+        },
+        {
+          "name": "mcp__mail__send",
+          "result": {
+            "name": "mcp__mail__send"
+          }
+        },
+        {
+          "name": "MCP__MAIL__SEND",
+          "result": {
+            "name": "mcp__mail__send"
+          }
+        },
+        {
+          "name": "mcp__cal__add",
+          "result": {
+            "error": {
+              "code": "TOOL_UNAVAILABLE",
+              "message": "tool \"mcp__cal__add\" is unavailable in the current session catalog; no call was sent."
+            }
+          }
+        },
+        {
+          "name": "nope",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"nope\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "hidden_tool",
+          "result": {
+            "error": {
+              "code": "TOOL_NOT_FOUND",
+              "message": "no tool named \"hidden_tool\" is available in this session; find tools with load_tool {names: keyword}."
+            }
+          }
+        },
+        {
+          "name": "shell",
+          "result": {
+            "name": "shell"
+          }
+        },
+        {
+          "name": "web_fetch",
+          "result": {
+            "name": "web_fetch"
+          }
+        }
+      ],
+      "session": {
+        "deferredMcpToolNames": [
+          "mcp__mail__send",
+          "mcp__mail__list"
+        ],
+        "deferredToolCatalog": [
+          {
+            "annotations": {
+              "destructiveHint": true
+            },
+            "description": "Send a mail message",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__mail__send"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "List mail folders",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__mail__list"
+          },
+          {
+            "description": "Add a calendar event",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "mcp__cal__add"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Fetch a web page",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "web_fetch"
+          },
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Search the web",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "web_search"
+          },
+          {
+            "description": "Run a command",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "shell"
+          },
+          {
+            "description": "Denied here",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "hidden_tool"
+          }
+        ],
+        "disallowedTools": [
+          "hidden_tool"
+        ],
+        "mcpInstructionHashes": {
+          "mail": null
+        },
+        "mcpInstructionsAnnounced": [
+          "mail"
+        ],
+        "mcpServerInstructions": {
+          "mail": "Use <b>mail</b> only when asked."
+        },
+        "toolExposureMode": "bridge-v1",
+        "tools": [
+          {
+            "annotations": {
+              "readOnlyHint": true
+            },
+            "description": "Read a file",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "read"
+          },
+          {
+            "description": "Edit a file",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "edit"
+          },
+          {
+            "description": "Describe tools",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "load_tool"
+          },
+          {
+            "description": "Run a tool",
+            "inputSchema": {
+              "properties": {},
+              "type": "object"
+            },
+            "name": "call_tool"
+          }
+        ]
+      }
+    }
+  ],
+  "sequence": {
+    "session": {
+      "deferredMcpToolNames": [
+        "mcp__mail__send",
+        "mcp__mail__list"
+      ],
+      "deferredToolCatalog": [
+        {
+          "annotations": {
+            "destructiveHint": true
+          },
+          "description": "Send a mail message",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "mcp__mail__send"
+        },
+        {
+          "annotations": {
+            "readOnlyHint": true
+          },
+          "description": "List mail folders",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "mcp__mail__list"
+        },
+        {
+          "description": "Add a calendar event",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "mcp__cal__add"
+        },
+        {
+          "annotations": {
+            "readOnlyHint": true
+          },
+          "description": "Fetch a web page",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "web_fetch"
+        },
+        {
+          "annotations": {
+            "readOnlyHint": true
+          },
+          "description": "Search the web",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "web_search"
+        },
+        {
+          "description": "Run a command",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "shell"
+        },
+        {
+          "description": "Denied here",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "hidden_tool"
+        }
+      ],
+      "disallowedTools": [
+        "hidden_tool"
+      ],
+      "mcpServerInstructions": {
+        "mail": "Use <b>mail</b> only when asked."
+      },
+      "toolExposureMode": "bridge-v1",
+      "tools": [
+        {
+          "annotations": {
+            "readOnlyHint": true
+          },
+          "description": "Read a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "read"
+        },
+        {
+          "description": "Edit a file",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "edit"
+        },
+        {
+          "description": "Describe tools",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "load_tool"
+        },
+        {
+          "description": "Run a tool",
+          "inputSchema": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "call_tool"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "announced": [
+          "mail"
+        ],
+        "hashes": {
+          "mail": "50bba382f91d1657"
+        },
+        "names": [
+          "mcp__mail__send"
+        ],
+        "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nUse bmail/b only when asked.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+      },
+      {
+        "announced": [
+          "mail"
+        ],
+        "hashes": {
+          "mail": "50bba382f91d1657"
+        },
+        "names": [
+          "mcp__mail__send"
+        ],
+        "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+      },
+      {
+        "announced": [
+          "mail"
+        ],
+        "hashes": {
+          "mail": "50bba382f91d1657"
+        },
+        "names": [
+          "mcp__mail__list"
+        ],
+        "result": "{\"entries\":[{\"name\":\"mcp__mail__list\",\"schemaRevision\":\"8f23b811bec1c24f\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__list\",\"description\":\"List mail folders\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+      },
+      {
+        "announced": [
+          "mail"
+        ],
+        "hashes": {
+          "mail": "50bba382f91d1657"
+        },
+        "names": [
+          "read"
+        ],
+        "result": "{\"entries\":[{\"name\":\"read\",\"schemaRevision\":\"114a6b294deab482\",\"complete\":true,\"document\":{\"name\":\"read\",\"description\":\"Read a file\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"readOnlyHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+      },
+      {
+        "announced": [
+          "mail"
+        ],
+        "hashes": {
+          "mail": "50bba382f91d1657"
+        },
+        "names": [
+          "mcp__cal__add"
+        ],
+        "result": "{\"entries\":[],\"missing\":[\"mcp__cal__add\"],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+      },
+      {
+        "announced": [
+          "mail"
+        ],
+        "change": {
+          "mcpServerInstructions": {
+            "mail": "Changed text."
+          }
+        },
+        "hashes": {
+          "mail": "9ec6828e7ecc35d3"
+        },
+        "names": [
+          "mcp__mail__send"
+        ],
+        "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"mcpInstructions\":\"## mail\\nChanged text.\",\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+      },
+      {
+        "announced": [
+          "mail"
+        ],
+        "hashes": {
+          "mail": "9ec6828e7ecc35d3"
+        },
+        "names": [
+          "mcp__mail__send"
+        ],
+        "result": "{\"entries\":[{\"name\":\"mcp__mail__send\",\"schemaRevision\":\"4b9a173093ce43d0\",\"complete\":true,\"document\":{\"name\":\"mcp__mail__send\",\"description\":\"Send a mail message\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}},\"annotations\":{\"destructiveHint\":true}}}],\"missing\":[],\"blocked\":[],\"note\":\"Run a deferred tool with call_tool {name, arguments}; call directly defined tools directly. When continueWith is set, call load_tool again with exactly those arguments for the rest.\",\"continueWith\":null}"
+      }
+    ]
+  }
+}

@@ -103,9 +103,9 @@
       "sha256": "aa000941a85ba2d4c750bfe0a823fa9f002bd00272cbd829cd317b1c9883f668"
     },
     {
-      "bytes": 170855,
+      "bytes": 236488,
       "path": "flows/spawn.json",
-      "sha256": "2747713e13e06867c99c9a78e18d4fc2dd94632b29e07fd87af3f4ce3ba87661"
+      "sha256": "6966a1311f174b4dc96debd8e521813c42a984b0761aac4492876d14f6f2382c"
     },
     {
       "bytes": 1549,
@@ -228,9 +228,9 @@
       "sha256": "214bea77e0251d1b08cc441ac5b0bc361e22760ae4bb26b7d43f33571ce3d262"
     },
     {
-      "bytes": 47380,
+      "bytes": 53896,
       "path": "record-flows.mjs",
-      "sha256": "35ccd4b7bab9e97c7819129134b717b43720afc14763878281e7541b8aec2495"
+      "sha256": "ade9033f43a22515d1367e8aa22c09a9935e9ac2770503ed166de9b22ef86379"
     },
     {
       "bytes": 25624,
@@ -374,22 +374,22 @@
     }
   ],
   "product": {
-    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
     "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 43481,
+    "files": 9248,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 1,
+      "closestCommit": "54123fa320be64c7742dc5ab14b5a223a855c6c9",
+      "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 34407
+      "filesDifferingFromCommit": 9248
     },
-    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 1957497
+  "totalBytes": 2029646
 }

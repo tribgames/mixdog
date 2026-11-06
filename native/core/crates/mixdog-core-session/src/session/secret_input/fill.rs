@@ -333,18 +333,18 @@ fn request_id_of(input: &JsonValue) -> &str {
 
 #[async_trait]
 impl HostCommands for SecretHostCommands {
-    async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
+    async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
         match action {
             "secret_input" => {
                 let outcome = self.fill.fill_browser(thread, request_id_of(&input)).await;
                 Ok(json!({ "text": outcome.text() }))
             }
             "secret_bind" => self.fill.bind_through(thread, input).await,
-            _ => self.inner.browser(thread, action, input).await,
+            _ => self.inner.browser(thread, action, input, cancel).await,
         }
     }
 
-    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
-        self.inner.visualize(thread, cwd, action, input).await
+    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+        self.inner.visualize(thread, cwd, action, input, cancel).await
     }
 }

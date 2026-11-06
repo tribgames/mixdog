@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use mixdog_rt::DurabilityIo;
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 use crate::lane::io_on_lane;
 
@@ -22,10 +23,11 @@ pub struct FileChange {
 
 #[async_trait]
 pub trait WriteHost: Send + Sync {
-    /// Durable replace of `path` with `content`.
-    async fn atomic_write(&self, path: &Path, content: &[u8], session_id: Option<&str>) -> Result<(), String>;
+    /// Durable replace of `path` with `content`. A cancelled `cancel` refuses the write before it
+    /// starts (`atomicWrite`: `if (resolvedSignal?.aborted) throw abortReasonOf(..)`).
+    async fn atomic_write(&self, path: &Path, content: &[u8], session_id: Option<&str>, cancel: Option<&CancellationToken>) -> Result<(), String>;
     /// Best-effort invalidation of caches that may hold the old bytes.
-    fn note_written(&self, paths: &[PathBuf], session_id: Option<&str>);
+    async fn note_written(&self, paths: &[PathBuf], session_id: Option<&str>);
     /// Records the changes as the session's own file changes (counted and undoable).
     async fn record_changes(&self, cwd: &Path, session_id: &str, changes: Vec<FileChange>);
 }
@@ -115,7 +117,7 @@ fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
 
 /// Applies structural byte-range fixes, grouped per file. `matches_by_file` maps a repo-relative
 /// path to its matches; only matches carrying a `fix` participate.
-pub async fn apply_structural_fixes(lane: DurabilityIo, host: &dyn WriteHost, cwd: &Path, matches_by_file: &[(String, Vec<Value>)], session_id: Option<&str>) -> StructuralResult {
+pub async fn apply_structural_fixes(lane: DurabilityIo, host: &dyn WriteHost, cwd: &Path, matches_by_file: &[(String, Vec<Value>)], session_id: Option<&str>, cancel: Option<&CancellationToken>) -> StructuralResult {
     let (mut applied, mut rejected, mut written) = (Vec::new(), Vec::new(), Vec::new());
     for (file, matches) in matches_by_file {
         let fixes: Vec<Value> = matches
@@ -156,8 +158,8 @@ pub async fn apply_structural_fixes(lane: DurabilityIo, host: &dyn WriteHost, cw
             .await
             .map_err(|e| e.to_string())?;
             let next = apply_replacements(&current, &plan.replacements)?;
-            host.atomic_write(&full, &next, session_id).await?;
-            host.note_written(std::slice::from_ref(&full), session_id);
+            host.atomic_write(&full, &next, session_id, cancel).await?;
+            host.note_written(std::slice::from_ref(&full), session_id).await;
             Ok::<_, String>((current, next))
         }
         .await;
@@ -190,12 +192,15 @@ pub(crate) mod tests {
 
     #[async_trait]
     impl WriteHost for Recording {
-        async fn atomic_write(&self, path: &Path, content: &[u8], _: Option<&str>) -> Result<(), String> {
+        async fn atomic_write(&self, path: &Path, content: &[u8], _: Option<&str>, cancel: Option<&CancellationToken>) -> Result<(), String> {
+            if cancel.is_some_and(CancellationToken::is_cancelled) {
+                return Err("atomicWrite aborted".to_owned());
+            }
             std::fs::write(path, content).map_err(|e| e.to_string())?;
             self.writes.lock().unwrap().push((path.to_owned(), content.to_vec()));
             Ok(())
         }
-        fn note_written(&self, paths: &[PathBuf], _: Option<&str>) {
+        async fn note_written(&self, paths: &[PathBuf], _: Option<&str>) {
             self.noted.lock().unwrap().extend(paths.iter().cloned());
         }
         async fn record_changes(&self, _: &Path, _: &str, changes: Vec<FileChange>) {
@@ -250,7 +255,7 @@ pub(crate) mod tests {
             ("none.ts".to_owned(), vec![json!({"ruleId": "r"})]),
         ];
         let lane = mixdog_rt::testing::tokens().durability_io;
-        let out = apply_structural_fixes(lane, &host, dir.path(), &matches, Some("s1")).await;
+        let out = apply_structural_fixes(lane, &host, dir.path(), &matches, Some("s1"), None).await;
         assert_eq!(std::fs::read_to_string(dir.path().join("ok.ts")).unwrap(), "let a = 1;");
         assert_eq!(out.applied, vec![json!({"file": "ok.ts", "fixes": 1})]);
         assert_eq!(out.rejected.len(), 2);
@@ -261,7 +266,25 @@ pub(crate) mod tests {
             assert_eq!((recorded.len(), recorded[0].before.clone(), recorded[0].after.clone()), (1, b"var a = 1;".to_vec(), b"let a = 1;".to_vec()));
         }
         assert_eq!(host.noted.lock().unwrap().len(), 1);
-        let none = apply_structural_fixes(lane, &Recording::default(), dir.path(), &[], None).await;
+        let none = apply_structural_fixes(lane, &Recording::default(), dir.path(), &[], None, None).await;
         assert!(none.applied.is_empty());
+    }
+
+    /// A session aborted before the write refuses it: the file is left as it was and the
+    /// rejection carries the write's own text.
+    #[tokio::test]
+    async fn an_aborted_session_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("ok.ts"), "var a = 1;").unwrap();
+        let host = Recording::default();
+        let matches = vec![("ok.ts".to_owned(), vec![json!({"ruleId": "var", "fix": fix(0, 3, "let", "")})])];
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let out = apply_structural_fixes(lane, &host, dir.path(), &matches, Some("s1"), Some(&cancel)).await;
+        assert_eq!(std::fs::read_to_string(dir.path().join("ok.ts")).unwrap(), "var a = 1;");
+        assert!(out.applied.is_empty());
+        assert_eq!(out.rejected, vec![json!({"file": "ok.ts", "reason": "atomicWrite aborted"})]);
+        assert!(host.recorded.lock().unwrap().is_empty());
     }
 }

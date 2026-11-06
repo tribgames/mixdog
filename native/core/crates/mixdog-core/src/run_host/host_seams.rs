@@ -26,9 +26,18 @@ use mixdog_core_run::ports::todo_view::TodoViews;
 
 /// What the turn reads of the configuration and the agent store. Owner: WP-CONFIG; nothing in the
 /// tree implements it yet.
+#[async_trait::async_trait]
 pub trait ConfigSeams: Send + Sync + 'static {
     /// `getHiddenAgent(agent)`: `agent` is a row of `src/defaults/agents.json`.
     fn hidden_agent(&self, agent: Option<&str>) -> bool;
+    /// `getHiddenAgent(agent).stallCap.idleSeconds`.
+    fn stall_cap_idle_seconds(&self, _agent: Option<&str>) -> Option<i64> {
+        None
+    }
+    /// `readAgentFirstResponseTimeoutMs(agent)`.
+    async fn first_response_timeout_ms(&self, _agent: &str) -> Option<i64> {
+        None
+    }
     /// The route's, settings' and agent's `RunConfig` fields; every field's Node origin is in
     /// `compose-seams.md` "RunSettings: origins".
     fn run_settings(&self, thread: &ThreadId, header: &Header) -> RunSettings;
@@ -95,6 +104,14 @@ impl SessionSeams for HostSeams {
 
     fn hidden_agent(&self, agent: Option<&str>) -> bool {
         self.parts.config.hidden_agent(agent)
+    }
+
+    fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {
+        self.parts.config.stall_cap_idle_seconds(agent)
+    }
+
+    async fn first_response_timeout_ms(&self, agent: &str) -> Option<i64> {
+        self.parts.config.first_response_timeout_ms(agent).await
     }
 
     fn todo_view(&self, thread: &ThreadId, header: &Header) -> Arc<dyn TodoView> {

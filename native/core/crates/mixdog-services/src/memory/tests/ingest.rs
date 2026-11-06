@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use crate::memory::embed::engine::EmbedConfig;
 use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::ingest::SessionIngest;
+use crate::memory::ingest::embed_flush::RawEmbedFlush;
 use crate::memory::pg::db::{Db, Schema};
 use crate::memory::schema::ensure_memory_schema;
 use crate::memory::tests::support::TestPg;
@@ -72,7 +73,7 @@ async fn ingest_session_matches_the_recorded_node_runs() {
     ensure_memory_schema(&db, 384, &json!({ "model": "Xenova/multilingual-e5-small" })).await.expect("schema");
     let provider = provider();
     provider.warmup().await.expect("model loads").expect("model installed");
-    let ingest = SessionIngest::new(db.clone(), Some(provider), None, Arc::new(move || now), mixdog_rt::testing::tokens().durability_io);
+    let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), Some(provider))), None, Arc::new(move || now), mixdog_rt::testing::tokens().durability_io);
 
     let mut failures = Vec::new();
     for case in golden["cases"].as_array().expect("cases") {

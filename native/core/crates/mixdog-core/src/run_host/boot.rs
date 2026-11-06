@@ -48,6 +48,8 @@ pub struct HostParts {
     pub settings: SettingsSources,
     pub probes: Arc<StartupProbes>,
     pub observed: Arc<StartupObservations>,
+    /// The runtime's shell control, which the progress watchdog's stop reaps the turn's shells through.
+    pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
 }
 
 /// The session directory over `deps`, whose `runs` is the real run factory.
@@ -55,7 +57,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
     let mut bound = None;
     let registry = host.registry.clone();
     let directory = Arc::new_cyclic(|directory: &Weak<SessionDirectory>| {
-        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, effort_judge, side, next, seams, settings, probes, observed } = host;
+        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, effort_judge, side, next, seams, settings, probes, observed, shells } = host;
         let services = HostServices {
             registry,
             clock,
@@ -75,6 +77,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
             settings,
             probes,
             observed,
+            shells,
         };
         let parts = Arc::new(HostRunParts::new(services));
         next.bind(directory.clone(), parts.clone());

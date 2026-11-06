@@ -73,11 +73,12 @@ impl ExportRenderer for HostExportRenderer {
             return Err(WsError::new(Reason::Io, "This visualize tab is closed."));
         };
         let sent = json!({ "sessionId": session_id, "cwd": cwd, "action": "export", "input": input });
-        let request = self.host.request(HostCapability::Visualize, Method(HOST_VISUALIZE_COMMAND), sent);
-        let result = tokio::select! {
-            () = cancel.cancelled() => return Err(WsError::new(Reason::Cancelled, "The export was cancelled.")),
-            result = request => result.map_err(unavailable)?,
-        };
+        let answer = self.host.request_scoped(HostCapability::Visualize, Method(HOST_VISUALIZE_COMMAND), sent, cancel).await;
+        // A cancel wins over whatever the abandoned request answers.
+        if cancel.is_cancelled() {
+            return Err(WsError::new(Reason::Cancelled, "The export was cancelled."));
+        }
+        let result = answer.map_err(unavailable)?;
         match result.get("path").and_then(Value::as_str) {
             Some(path) if !path.is_empty() => Ok(RenderedExport { path: PathBuf::from(path) }),
             _ => Err(WsError::new(Reason::Io, "The export did not produce a file.")),

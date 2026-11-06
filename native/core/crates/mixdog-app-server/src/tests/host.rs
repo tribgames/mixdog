@@ -418,6 +418,7 @@ async fn a_host_request_the_claimant_never_answers_ends_at_its_capability_deadli
     let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await });
     host.frames(1).await;
     assert!(!call.is_finished(), "still inside its deadline");
-    tokio::time::advance(HostCapability::SystemProxy.deadline() + std::time::Duration::from_secs(1)).await;
+    let limit = HostCapability::SystemProxy.deadline().expect("Node bounds the system proxy read");
+    tokio::time::advance(limit + std::time::Duration::from_secs(1)).await;
     assert_eq!(call.await.unwrap(), Err(unavailable("timedOut")));
 }

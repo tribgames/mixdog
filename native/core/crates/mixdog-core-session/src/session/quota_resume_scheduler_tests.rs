@@ -431,6 +431,67 @@ async fn a_hung_host_call_fails_its_entry_and_the_pass_goes_on() {
     assert_eq!(store.list().iter().map(|e| e.session_id.as_str()).collect::<Vec<_>>(), ["s1"], "the hung entry waits, deferred");
 }
 
+/// A host that keeps the contract `runtime.fireQuotaResume({ generation })` has: a generation
+/// takes effect once, whoever asks again is answered `Stale`. The first fire never answers.
+struct OnceHost {
+    effective: Mutex<Vec<(String, u64)>>,
+    asked: Mutex<Vec<(String, u64)>>,
+}
+
+#[async_trait]
+impl ResumeHost for OnceHost {
+    async fn materialize(&self, _session_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+    async fn route(&self, _session_id: &str) -> SessionRoute {
+        SessionRoute { provider: "openai-oauth".to_owned(), model: "gpt-x".to_owned() }
+    }
+    async fn usable(&self, _provider: &str, _model: &str) -> Result<bool, UsageError> {
+        Ok(true)
+    }
+    async fn fire(&self, session_id: &str, generation: u64) -> Result<FireOutcome, String> {
+        let key = (session_id.to_owned(), generation);
+        self.asked.lock().unwrap().push(key.clone());
+        if self.effective.lock().unwrap().contains(&key) {
+            return Ok(FireOutcome::Stale);
+        }
+        self.effective.lock().unwrap().push(key);
+        if self.asked.lock().unwrap().len() == 1 {
+            std::future::pending().await
+        }
+        Ok(FireOutcome::Fired)
+    }
+}
+
+#[tokio::test]
+async fn a_fire_abandoned_at_stop_is_asked_again_under_the_same_generation_and_takes_effect_once() {
+    let now = golden()["now"].as_f64().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = open_store(dir.path()).await;
+    schedule(&store, "s1", now).await;
+    let host = Arc::new(OnceHost { effective: Mutex::default(), asked: Mutex::default() });
+    let clock = Arc::new(ManualClock::new(now));
+    let first = scheduler_over(&store, host.clone(), &clock, &Arc::default());
+    first.start();
+    wait_until("the timer is set", || clock.armed() == Some(0)).await;
+    clock.advance(0.0);
+    wait_until("the fire is in flight", || host.asked.lock().unwrap().len() == 1).await;
+    first.stop().await;
+    assert_eq!(store.list().len(), 1, "the abandoned fire's entry stays queued");
+    // Nothing of the stopped scheduler fires again.
+    assert_eq!(first.tick().await, None);
+    assert_eq!(host.asked.lock().unwrap().len(), 1);
+
+    // A restart over the same queue asks again with the generation it kept.
+    let second = scheduler_over(&store, host.clone(), &clock, &Arc::default());
+    second.tick().await;
+    let asked = host.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 2);
+    assert_eq!(asked[0], asked[1], "the same session and generation");
+    assert_eq!(host.effective.lock().unwrap().len(), 1, "it took effect once");
+    assert!(store.list().is_empty(), "the Stale answer settles the entry");
+}
+
 #[tokio::test]
 async fn stop_releases_a_fire_in_flight_and_starts_no_further_entry() {
     let now = golden()["now"].as_f64().unwrap();

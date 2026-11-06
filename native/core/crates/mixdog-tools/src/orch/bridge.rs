@@ -102,6 +102,7 @@ pub enum CallResolution {
 
 /// The session's tool catalog: the eager surface plus the deferred catalog, within the
 /// session's own allow/deny policy (a tool the policy excludes is unknown here).
+#[async_trait]
 pub trait CatalogView: Send + Sync {
     /// Every available tool, eager first, in the catalog's stable order.
     fn available(&self, thread: &ThreadId) -> Vec<ToolDoc>;
@@ -112,8 +113,13 @@ pub trait CatalogView: Send + Sync {
     fn alias_members(&self, key: &str) -> Vec<String>;
     /// The tools `mcp__<server>` stands for.
     fn mcp_server_members(&self, thread: &ThreadId, requested: &str) -> Vec<String>;
-    /// MCP instruction text for the given tools, counted inside the page budget.
-    fn instructions_for(&self, names: &[String]) -> String;
+    /// MCP instruction text for the given tools, counted inside the page budget: the text of each
+    /// server the session was not told yet (`pendingMcpInstructions`).
+    fn instructions_for(&self, thread: &ThreadId, names: &[String]) -> String;
+    /// Records that the session was told the MCP instructions of the servers of `names`
+    /// (`announceMcpServers`), so the next page does not repeat them. Called with the entries of
+    /// a page that carried instruction text.
+    async fn announce(&self, thread: &ThreadId, names: &[String]);
     fn resolve_call(&self, thread: &ThreadId, name: &str) -> CallResolution;
 }
 
@@ -253,6 +259,18 @@ struct Doc {
 fn fits(page: &Page<'_>) -> bool {
     let text = serde_json::to_string(page).expect("page serializes");
     text.len() <= DESCRIBE_MAX_BYTES && estimate_tokens(&text) <= DESCRIBE_MAX_TOKENS
+}
+
+/// `load_tool` as the session runs it: the page, and when the page carried MCP instruction text,
+/// the record that the session was told it (only the servers of the entries that made the page).
+pub async fn load(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> Result<String, ToolError> {
+    let page = describe(catalog, thread, args)?;
+    let parsed: Value = serde_json::from_str(&page).expect("a described page is JSON");
+    if parsed.get("mcpInstructions").and_then(Value::as_str).is_some_and(|text| !text.is_empty()) {
+        let names: Vec<String> = parsed["entries"].as_array().into_iter().flatten().filter_map(|e| e["name"].as_str()).map(|n| n.js_trim().to_owned()).filter(|n| !n.is_empty()).collect();
+        catalog.announce(thread, &names).await;
+    }
+    Ok(page)
 }
 
 /// `load_tool`: describes tools by exact name (or keyword), paging long definitions.
@@ -398,7 +416,7 @@ pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> R
 
     let instructions_of = |entries: &[Entry]| -> String {
         let names: Vec<String> = entries.iter().map(|e| match e { Entry::Whole { name, .. } | Entry::Chunk { name, .. } => name.clone() }).collect();
-        catalog.instructions_for(&names)
+        catalog.instructions_for(thread, &names)
     };
     let reserve = ContinueWith { names: encode_continuation(&vec![available.len(); docs.len()], &"f".repeat(16), 99_999_999) };
     let build = |entries: &[Entry], missing: &[String], blocked: &[Blocked], matches: &[Match], omitted: &[String], instructions: &str, cont: Option<&ContinueWith>| {
@@ -503,7 +521,7 @@ impl Tool for LoadTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        text(describe(self.catalog.as_ref(), &ctx.thread_id, &args)?)
+        text(load(self.catalog.as_ref(), &ctx.thread_id, &args).await?)
     }
 }
 
@@ -572,7 +590,9 @@ mod tests {
 
     struct Catalog(Vec<ToolDoc>);
 
+    #[async_trait]
     impl CatalogView for Catalog {
+        async fn announce(&self, _: &ThreadId, _: &[String]) {}
         fn available(&self, _: &ThreadId) -> Vec<ToolDoc> {
             self.0.clone()
         }
@@ -588,7 +608,7 @@ mod tests {
         fn mcp_server_members(&self, _: &ThreadId, _: &str) -> Vec<String> {
             Vec::new()
         }
-        fn instructions_for(&self, _: &[String]) -> String {
+        fn instructions_for(&self, _: &ThreadId, _: &[String]) -> String {
             String::new()
         }
         fn resolve_call(&self, _: &ThreadId, _: &str) -> CallResolution {

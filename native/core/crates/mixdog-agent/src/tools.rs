@@ -56,7 +56,6 @@ use crate::env::RunEvent;
 use crate::env::Stage;
 use crate::env::ToolGate;
 use crate::env::TurnGuards;
-use crate::env::or_cancelled;
 use crate::limits;
 use crate::message::AgentMessage;
 use crate::message::Source;
@@ -495,7 +494,7 @@ pub(crate) async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed 
     if executed.failed
         && let Some(hooks) = &env.hooks
     {
-        or_cancelled(
+        hooked(
             &env.cancel,
             hooks.after_failure(
                 &GateCall::new(call.name.clone(), call.arguments.clone()),
@@ -628,14 +627,21 @@ pub async fn run_nested(
     let mut args = target.args.clone();
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
     let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone() };
-    let outcome = match Scope::new().cancel(&nested.cancel).deadline(nested.deadline).run(tool.call(&nested, args)).await {
+    let timeout = ctx.deadline.map(|d| d.saturating_duration_since(Instant::now()));
+    let mut running = Box::pin(tool.call(&nested, args));
+    let waited = Scope::new()
+        .cancel(&ctx.cancel)
+        .deadline(nested.deadline)
+        .run_with_grace(&mut running, TOOL_GRACE, || nested.cancel.cancel())
+        .await;
+    let outcome = match waited {
         Scoped::Done(outcome) => outcome,
-        ended => Err(ended_error(&spec.name, &ended)),
+        ended => Err(ended_error(&spec.name, &ended, timeout)),
     };
     match outcome {
         Ok(mut output) => {
             if let (Some(hooks), Content::Text(visible)) = (&pipeline.hooks, render_output(output.parts.clone()))
-                && let Some(Some(updated)) = or_cancelled(&ctx.cancel, hooks.after_tool(&hook_call, &visible)).await
+                && let Some(Some(updated)) = hooked(&ctx.cancel, hooks.after_tool(&hook_call, &visible)).await
             {
                 output.parts = vec![ToolPart::Text(updated)];
             }
@@ -643,20 +649,34 @@ pub async fn run_nested(
         }
         Err(error) => {
             if let Some(hooks) = &pipeline.hooks {
-                or_cancelled(&ctx.cancel, hooks.after_failure(&hook_call, &error.message_for_model)).await;
+                hooked(&ctx.cancel, hooks.after_failure(&hook_call, &error.message_for_model)).await;
             }
             Err(error)
         }
     }
 }
 
-/// The failure of a call the dispatcher stopped waiting for: its run was cancelled, or the
-/// tool's deadline passed while the tool was still running (a tool is never trusted for liveness).
-fn ended_error<T>(name: &str, ended: &Scoped<T>) -> ToolError {
-    match ended {
-        Scoped::DeadlineExceeded => ToolError::new(
+/// How long an ended call keeps to hand back its partial output after its own signal fired
+/// (Node `READ_ONLY_IO_PARTIAL_GRACE_MS`, `tool-exec/read-only-deadline.mjs`).
+const TOOL_GRACE: Duration = Duration::from_millis(1_500);
+
+/// A hook runs even once the run is cancelled, as in Node (best effort): a PostToolUseFailure
+/// hook is how an aborted call is reported. A hook still running `TOOL_GRACE` after the cancel is dropped.
+async fn hooked<T>(cancel: &CancellationToken, hook: impl Future<Output = T>) -> Option<T> {
+    let mut hook = Box::pin(hook);
+    Scope::new().cancel(cancel).run_with_grace(&mut hook, TOOL_GRACE, || {}).await.done()
+}
+
+/// The failure of a call that gave nothing back after the dispatcher ended the wait: its run was
+/// cancelled, or the tool's deadline passed (Node `runReadOnlyIoWithDeadline`'s timeout text).
+fn ended_error<T>(name: &str, ended: &Scoped<T>, timeout: Option<Duration>) -> ToolError {
+    match (ended, timeout) {
+        (Scoped::DeadlineExceeded, timeout) => ToolError::new(
             ToolErrorCode::DeadlineExceeded { partial: false },
-            format!("Error: read-only I/O tool \"{name}\" timed out; narrow the scope and retry"),
+            format!(
+                "Error: read-only I/O tool \"{name}\" timed out after {}ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.",
+                timeout.map_or(0, |t| t.as_millis())
+            ),
         ),
         _ => ToolError::new(ToolErrorCode::Cancelled, "Error: tool call cancelled"),
     }
@@ -694,6 +714,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         return Executed::error(&call.id, crate::text::unknown_tool_message(&target.name, &names));
     };
     let spec = tool.spec();
+    let timeout = env.tool_env.deadline_of.as_ref().and_then(|f| f(spec));
     let ctx = ToolContext {
         call_id: ToolCallId::from(call.id.as_str()),
         thread_id: env.tool_env.thread_id.clone(),
@@ -703,12 +724,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         surface: env.tool_env.surface,
         // Tool tokens are children of the run's token.
         cancel: env.cancel.child_token(),
-        deadline: env
-            .tool_env
-            .deadline_of
-            .as_ref()
-            .and_then(|f| f(spec))
-            .map(|d| Instant::now() + d),
+        deadline: timeout.map(|d| Instant::now() + d),
         progress: Arc::clone(&env.tool_env.progress),
         io: env.tool_env.io,
         approvals: Arc::clone(&env.tool_env.approvals),
@@ -722,12 +738,19 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     let mut args = target.args;
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
     let target_args_for_hook = args.clone();
-    let (cancel, deadline) = (ctx.cancel.clone(), ctx.deadline);
-    let handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move {
+    let (tool_cancel, deadline) = (ctx.cancel.clone(), ctx.deadline);
+    let mut handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move {
         tool.call(&ctx, args).await
     });
     let _abort = AbortOnDrop(handle.abort_handle());
-    let outcome: ToolOutcome = match Scope::new().cancel(&cancel).deadline(deadline).run(handle).await {
+    // Node: the run's abort (or the tool's deadline) fires the tool's own signal first; the
+    // tool then has `TOOL_GRACE` to hand back what it collected, and only after that is it dropped.
+    let waited = Scope::new()
+        .cancel(&env.cancel)
+        .deadline(deadline)
+        .run_with_grace(&mut handle, TOOL_GRACE, || tool_cancel.cancel())
+        .await;
+    let outcome: ToolOutcome = match waited {
         Scoped::Done(Ok(outcome)) => outcome,
         Scoped::Done(Err(_)) => Err(ToolError::new(
             ToolErrorCode::Internal {
@@ -735,7 +758,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
             },
             "tool task failed",
         )),
-        ended => Err(ended_error(&name, &ended)),
+        ended => Err(ended_error(&name, &ended, timeout)),
     };
     match outcome {
         Ok(mut output) => {
@@ -745,7 +768,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
             // PostToolUse may override the model-visible text, never the
             // follow-up message channel.
             if let (Some(hooks), Content::Text(visible)) = (&env.hooks, &content)
-                && let Some(Some(updated)) = or_cancelled(
+                && let Some(Some(updated)) = hooked(
                     &env.cancel,
                     hooks.after_tool(
                         &GateCall {
@@ -895,8 +918,10 @@ mod tests {
 
     use super::*;
 
-    /// Ignores its token and never answers; signals when it starts and when it is dropped.
+    /// Never answers on its own; signals when it starts and when it is dropped. With `honours`
+    /// it returns partial output once its token fires, otherwise it ignores the token.
     struct Stuck {
+        honours: bool,
         spec: ToolSpec,
         started: Arc<tokio::sync::Notify>,
         dropped: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
@@ -916,20 +941,26 @@ mod tests {
         fn spec(&self) -> &ToolSpec {
             &self.spec
         }
-        async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        async fn call(&self, ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
             let _guard = OnDrop(self.dropped.lock().unwrap().take());
             self.started.notify_one();
+            if self.honours {
+                ctx.cancel.cancelled().await;
+                return Ok(ToolOutput { parts: vec![ToolPart::Text("partial".into())], ..ToolOutput::default() });
+            }
             std::future::pending().await
         }
     }
 
     fn stuck_env(
         deadline: Option<Duration>,
+        honours: bool,
     ) -> (Arc<CallEnv>, Arc<tokio::sync::Notify>, tokio::sync::oneshot::Receiver<()>) {
         use mixdog_core_api::domain::mock::{MockApprovalGate, MockFileService, MockProcessManager, MockProgress};
         let started = Arc::new(tokio::sync::Notify::new());
         let (tx, dropped) = tokio::sync::oneshot::channel();
         let tool = Arc::new(Stuck {
+            honours,
             spec: ToolSpec {
                 name: "stuck".into(),
                 aliases: Vec::new(),
@@ -975,9 +1006,9 @@ mod tests {
         ToolCall { id: "c1".into(), name: "stuck".into(), arguments: serde_json::json!({}), native_type: None }
     }
 
-    #[tokio::test]
-    async fn a_cancelled_run_releases_a_tool_that_ignores_its_token() {
-        let (env, started, dropped) = stuck_env(None);
+    #[tokio::test(start_paused = true)]
+    async fn a_cancelled_run_releases_a_tool_that_ignores_its_token_after_the_grace() {
+        let (env, started, dropped) = stuck_env(None, false);
         let cancel = env.cancel.clone();
         let call = tokio::spawn(execute_call(stuck_call(), env));
         started.notified().await;
@@ -988,14 +1019,26 @@ mod tests {
         dropped.await.expect("the tool task was aborted, not left running");
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
+    async fn a_tool_that_answers_its_signal_inside_the_grace_keeps_its_partial_output() {
+        let (env, started, _dropped) = stuck_env(None, true);
+        let cancel = env.cancel.clone();
+        let call = tokio::spawn(execute_call(stuck_call(), env));
+        started.notified().await;
+        cancel.cancel();
+        let executed = call.await.unwrap();
+        assert!(!executed.failed);
+        assert_eq!(executed.message.text(), "partial");
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn a_tool_that_outlives_its_deadline_is_released_and_aborted() {
-        let (env, _started, dropped) = stuck_env(Some(Duration::ZERO));
+        let (env, _started, dropped) = stuck_env(Some(Duration::ZERO), false);
         let executed = execute_call(stuck_call(), env).await;
         assert!(executed.failed);
         assert_eq!(
             executed.message.text(),
-            "Error: read-only I/O tool \"stuck\" timed out; narrow the scope and retry"
+            "Error: read-only I/O tool \"stuck\" timed out after 0ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry."
         );
         // The task may not have started before the deadline fired; either way it ends.
         let _ = dropped.await;

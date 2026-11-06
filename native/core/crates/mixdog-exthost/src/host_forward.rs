@@ -17,8 +17,9 @@ pub(crate) async fn forward(
     domain: &'static str,
     method: &'static str,
     params: Value,
+    cancel: &mixdog_rt::CancellationToken,
 ) -> Result<Value, CoreError> {
-    match channel.request(capability, Method(method), params).await {
+    match channel.request_scoped(capability, Method(method), params, cancel).await {
         Ok(value) => Ok(value),
         // No claimant, or it closed first: the channel's own `capabilityUnavailable`.
         Err(HostError::Core(error)) => Err(error),

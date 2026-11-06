@@ -164,6 +164,7 @@ pub use self::store::StoreCodec;
 pub use self::store::StoreThreads;
 pub use self::route_exclusions::ExcludedTool;
 pub use self::route_exclusions::SessionToolExclusions;
+pub use self::route_exclusions::route_schema_family;
 pub use self::surface::HeaderToolSurfaces;
 pub use self::surface::NoRouteExclusions;
 pub use self::surface::RouteExclusions;

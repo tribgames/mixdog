@@ -963,6 +963,9 @@ pub struct ExecRuntime {
     pub(crate) snapshots: super::snapshot::Snapshots,
     jobs: Mutex<HashMap<String, Arc<Job>>>,
     cycles: OnceLock<Arc<dyn OwnerCycles>>,
+    /// Owner thread -> the shells a timeout reap stopped, until the owner's handoff reports them
+    /// or its next turn starts (`stoppedJobs`, `turn-reap.mjs`).
+    reaped: Mutex<HashMap<String, Vec<String>>>,
 }
 
 /// The owner's user cycle (`currentUserCycle`): how many genuine prompts the session has seen.
@@ -980,7 +983,25 @@ impl ExecConfig {
 
 impl ExecRuntime {
     pub fn new(config: ExecConfig) -> Arc<Self> {
-        Arc::new(Self { config, jobs: Mutex::new(HashMap::new()), snapshots: super::snapshot::Snapshots::default(), cycles: OnceLock::new() })
+        Arc::new(Self {
+            config,
+            jobs: Mutex::new(HashMap::new()),
+            snapshots: super::snapshot::Snapshots::default(),
+            cycles: OnceLock::new(),
+            reaped: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// Remembers the shells a timeout reap of `owner` stopped.
+    pub(crate) fn note_reaped(&self, owner: &ThreadId, ids: Vec<String>) {
+        if !ids.is_empty() {
+            lock(&self.reaped).entry(owner.as_str().to_owned()).or_default().extend(ids);
+        }
+    }
+
+    /// Hands out and forgets the shells a reap of `owner` stopped.
+    pub(crate) fn take_reaped(&self, owner: &ThreadId) -> Vec<String> {
+        lock(&self.reaped).remove(owner.as_str()).unwrap_or_default()
     }
 
     /// Where a job moved to the background reads its owner's user cycle. Set once, before jobs

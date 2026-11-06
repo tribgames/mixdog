@@ -10,6 +10,7 @@ mod embeddings;
 mod ingest;
 mod jobs;
 mod recall;
+mod reindex;
 mod sensitive;
 mod service;
 mod session_search;

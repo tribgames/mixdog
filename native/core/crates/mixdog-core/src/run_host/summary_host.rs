@@ -95,7 +95,7 @@ struct ProcessSummaryHost {
 }
 
 /// `String(value || '').trim()`.
-fn trimmed(value: Option<&Value>) -> String {
+pub(crate) fn trimmed(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null | Value::Bool(false)) => String::new(),
         Some(Value::String(text)) => mixdog_js::js_trim(text).to_owned(),
