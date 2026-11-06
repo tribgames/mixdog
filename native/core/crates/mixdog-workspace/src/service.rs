@@ -85,41 +85,82 @@ impl ChangeSink for Router {
     }
 }
 
-struct LspFeeds {
+/// One project's feed `lsp:<root>`: its sections' revisions and the read model a late subscriber's
+/// snapshot carries (`{section: {key: {revision, value}}}`).
+struct LspProject {
+    publisher: Publisher,
+    revisions: HashMap<(&'static str, String), u64>,
+    state: Value,
+}
+
+pub(crate) struct LspFeeds {
     feeds: Arc<dyn ScopedFeeds>,
-    by_project: Mutex<HashMap<String, Arc<Publisher>>>,
-    revisions: Mutex<HashMap<(String, String), u64>>,
+    by_project: Mutex<HashMap<String, LspProject>>,
+}
+
+/// Node's `statusKey` (`renderer/editor-language-store.ts:135`) without the project, which the feed
+/// already names: the language, and the file too when the server answered for one document.
+fn lsp_status_key(event: &Value) -> String {
+    let language = event["languageId"].as_str().unwrap_or_default();
+    match event["relPath"].as_str().filter(|r| !r.is_empty()) {
+        Some(rel) => format!("{language}\0{}", rel.replace('\\', "/").to_lowercase()),
+        None => language.to_owned(),
+    }
 }
 
 impl LspFeeds {
-    fn publish(&self, project: &str, section: &str, key: &str, method: &str, value: Value) {
-        let publisher = self
-            .by_project
-            .lock()
-            .expect("lsp feeds")
-            .entry(project.to_owned())
-            .or_insert_with(|| Arc::new(Publisher::create(self.feeds.as_ref(), &format!("lsp:{project}"), json!({}))))
-            .clone();
-        let revision = {
-            let mut revisions = self.revisions.lock().expect("lsp revisions");
-            let r = revisions.entry((section.to_owned(), key.to_owned())).or_insert(0);
-            *r += 1;
-            *r
-        };
-        publisher.publish(method, json!({ "section": section, "key": key, "revision": revision, "value": value }), None);
+    pub(crate) fn new(feeds: Arc<dyn ScopedFeeds>) -> Self {
+        Self { feeds, by_project: Mutex::default() }
+    }
+
+    /// The project's feed, as `lsp/subscribe` attaches to it (created on first use).
+    pub(crate) fn source(&self, project: &str) -> Arc<dyn mixdog_core_api::feed::FeedSource> {
+        self.with(project, |p| p.publisher.source())
+    }
+
+    fn with<R>(&self, project: &str, f: impl FnOnce(&mut LspProject) -> R) -> R {
+        let mut projects = self.by_project.lock().expect("lsp feeds");
+        let entry = projects.entry(project.to_owned()).or_insert_with(|| LspProject {
+            publisher: Publisher::create(self.feeds.as_ref(), &format!("lsp:{project}"), json!({})),
+            revisions: HashMap::new(),
+            state: json!({}),
+        });
+        f(entry)
+    }
+
+    /// Publishes one section update and folds it into the read model. An empty diagnostics list
+    /// is still published (it is what clears the document on the client) but leaves the model.
+    fn publish(&self, project: &str, section: &'static str, key: String, method: &str, value: Value, clears: bool) {
+        self.with(project, |p| {
+            let revision = p.revisions.entry((section, key.clone())).or_insert(0);
+            *revision += 1;
+            let revision = *revision;
+            let rows = p.state[section].as_object().cloned().unwrap_or_default();
+            let mut rows = rows;
+            if clears {
+                rows.remove(&key);
+            } else {
+                rows.insert(key.clone(), json!({ "revision": revision, "value": value.clone() }));
+            }
+            p.state[section] = Value::Object(rows);
+            let state = p.state.clone();
+            p.publisher.publish(method, json!({ "section": section, "key": key, "revision": revision, "value": value }), Some(state));
+        });
     }
 }
 
 impl LspSink for LspFeeds {
     fn status(&self, event: Value) {
         let project = event["projectPath"].as_str().unwrap_or_default().to_owned();
-        self.publish(&project, "lspStatus", &project, "lsp/status/updated", event);
+        let key = lsp_status_key(&event);
+        self.publish(&project, "lspStatus", key, "lsp/status/updated", event, false);
     }
 
     fn diagnostics(&self, event: Value) {
         let project = event["projectPath"].as_str().unwrap_or_default().to_owned();
         let uri = event["uri"].as_str().unwrap_or_default().to_owned();
-        self.publish(&project, "lspDiagnostics", &uri, "lsp/diagnostics/updated", event);
+        let clears = event["diagnostics"].as_array().is_none_or(Vec::is_empty);
+        self.publish(&project, "lspDiagnostics", uri, "lsp/diagnostics/updated", event, clears);
     }
 }
 
@@ -156,6 +197,7 @@ pub struct WorkspaceService {
     search: Arc<SearchSessions>,
     search_owner: Mutex<HashMap<String, String>>,
     lsp: Arc<LspManager>,
+    lsp_feeds: Arc<LspFeeds>,
     backups: Arc<crate::editorcfg::Backups>,
     user_data: PathBuf,
     tracked: Arc<dyn crate::zip::TrackedFiles>,
@@ -193,7 +235,7 @@ impl WorkspaceService {
         let watcher = Arc::new(FolderWatcher::new(router.clone())?);
         let search = SearchSessions::new(deps.lanes, deps.feeds.clone(), watcher.clone());
         let _ = router.search.set(Arc::downgrade(&search));
-        let lsp_feeds = Arc::new(LspFeeds { feeds: deps.feeds.clone(), by_project: Mutex::default(), revisions: Mutex::default() });
+        let lsp_feeds = Arc::new(LspFeeds::new(deps.feeds.clone()));
         let service = Arc::new(Self {
             me: OnceLock::new(),
             feeds: deps.feeds.clone(),
@@ -207,7 +249,8 @@ impl WorkspaceService {
             watches: Mutex::default(),
             search,
             search_owner: Mutex::default(),
-            lsp: LspManager::new(deps.processes.clone(), lsp_feeds, deps.lanes.maintenance),
+            lsp: LspManager::new(deps.processes.clone(), lsp_feeds.clone(), deps.lanes.maintenance),
+            lsp_feeds,
             tracked: deps.tracked,
             backups: Arc::new(crate::editorcfg::Backups::new(&deps.user_data_dir)),
             user_data: deps.user_data_dir,
@@ -666,7 +709,16 @@ impl WorkspaceService {
                 let user_data = self.user_data.clone();
                 let path = run_fallible(self.lanes.durability, &cancel, move || crate::editorcfg::task_workspace(&user_data)).await?;
                 value(json!({ "path": path.to_string_lossy() }))
-            }            "lsp/document" => {
+            }
+            "lsp/subscribe" => {
+                // The feed is named by the project string `lsp/document` was given, which is what the
+                // events carry as `projectPath`.
+                let feed = self.lsp_feeds.source(s(params, "root")?);
+                Ok(Reply::Subscribe(Subscribe { result: json!({}), feed, window: Window::Fixed, resume_from: None }))
+            }
+            // The subscription itself is the server's; the feed outlives it (servers keep running).
+            "lsp/unsubscribe" => value(json!({})),
+            "lsp/document" => {
                 let project = s(params, "root")?;
                 let root = self.catalog.resolve(project).await?;
                 let document = DocumentInput::from_value(params.get("document").unwrap_or(&Value::Null))?;
@@ -853,6 +905,8 @@ impl DomainService for WorkspaceService {
             "transfer/abort",
             "transfer/trash/info",
             "transfer/trash/entry",
+            "lsp/subscribe",
+            "lsp/unsubscribe",
             "lsp/document",
             "lsp/request",
         ]

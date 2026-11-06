@@ -73,10 +73,12 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Pushed to the owner when a detached job finishes. Awaited in the completing job's task, so a
-/// slow consumer pushes back on the job instead of queueing behind it.
+/// slow consumer pushes back on the job instead of queueing behind it. `surface` is the
+/// completion's execution surface (`"shell"`, `"agent"`), given by the caller as today's
+/// `markCompletionEntry` meta `execution_surface`.
 #[async_trait::async_trait]
 pub trait TaskNotifier: Send + Sync {
-    async fn finished(&self, owner: &ThreadId, task_id: &str, status: &str, notification: String);
+    async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String);
 }
 
 /// Decides, per call, whether an elevated launch (the exec policy's `Ask`) is approved. The
@@ -1056,7 +1058,7 @@ impl ExecRuntime {
         let _ = self.config.tasks.finish(&job.id, TaskOutcome { status, exit_code: None });
         if let Some(notifier) = &self.config.notifier {
             let word = if cancelled { "cancelled" } else { "completed" };
-            notifier.finished(&job.owner, &job.id, word, job.survivors_notification(word)).await;
+            notifier.finished(&job.owner, "shell", &job.id, word, job.survivors_notification(word)).await;
         }
         job.settled.send_replace(true);
     }
@@ -1126,7 +1128,7 @@ async fn collect(
         job.state().completion_output = Some(output.clone());
         if let Some(notifier) = &runtime.config.notifier {
             let status = job.status();
-            notifier.finished(&job.owner, &job.id, status.as_str(), job.notification(&output)).await;
+            notifier.finished(&job.owner, "shell", &job.id, status.as_str(), job.notification(&output)).await;
         }
     }
     job.settled.send_replace(true);

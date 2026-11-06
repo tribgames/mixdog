@@ -520,9 +520,15 @@ fn sequence(bodies: &'static [&'static str]) -> (String, Arc<AtomicUsize>) {
 async fn the_auto_update_switch_answers_what_the_node_api_answered() {
     let golden = golden();
     let local = golden["local"].as_str().unwrap().to_owned();
-    let rig = rig("http://127.0.0.1:9/unused".into(), Installer::new(Ok(None)), &local).await;
+    // The golden's settings carry the check state of a registry that answered 0.0.1 before the
+    // first step (`getUpdateSettings` reads the remembered check, it never checks itself).
+    let (url, _) = registry(200, r#"{"version":"0.0.1"}"#);
+    let rig = rig(url, Installer::new(Ok(None)), &local).await;
     let now = now_ms();
-    let mut op = 0;
+    call(&rig, "update/checkForUpdate", json!({ "options": { "force": true } }), Some(1))
+        .await
+        .unwrap();
+    let mut op = 1;
     for step in golden["autoSwitch"].as_array().unwrap() {
         let name = step["name"].as_str().unwrap();
         op += 1;
@@ -550,9 +556,12 @@ async fn the_auto_update_switch_answers_what_the_node_api_answered() {
         let stored: Value =
             serde_json::from_slice(&std::fs::read(rig.dir.path().join("mixdog-config.json")).unwrap())
                 .unwrap();
+        // The golden records the adopted config; the file holds it as `storedAgentForm`
+        // writes it (orchestrator/config.mjs), the default `auto: true` dropped.
+        let kept = step["stored"].get("update").filter(|u| u["auto"] != json!(true));
         assert_eq!(
             stored["agent"].get("update"),
-            step["stored"].get("update"),
+            kept,
             "stored switch after {name}"
         );
     }

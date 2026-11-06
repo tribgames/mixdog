@@ -7,6 +7,9 @@ use serde_json::Value;
 
 use crate::error::ScmFailure;
 
+/// Repository size that asks for confirmation by default: 2 GiB (`settings.mjs:32`).
+pub const DEFAULT_SIZE_WARN_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeSettings {
@@ -35,7 +38,7 @@ impl Default for WorktreeSettings {
         Self {
             new_task_default: "branch".into(),
             branch_prefix: String::new(),
-            size_warn_bytes: 2 * 1024 * 1024 * 1024,
+            size_warn_bytes: DEFAULT_SIZE_WARN_BYTES,
             auto_cleanup: true,
             max_worktrees: 15,
             unused_days: 30,

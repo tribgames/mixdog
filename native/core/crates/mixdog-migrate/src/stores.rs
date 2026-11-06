@@ -95,7 +95,6 @@ const STORES: &[Store] = &[
 
 /// Retired by exact name under `<D>` (derived, caches, bookkeeping; SM §11.2).
 const RETIRED_FILES: &[&str] = &[
-    "agent-workers-released.json",
     "agent-worker-header-cache.json",
     "bridge-workers.json",
     "session-summaries.json",

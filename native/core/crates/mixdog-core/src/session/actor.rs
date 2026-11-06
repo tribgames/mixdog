@@ -148,6 +148,7 @@ fn item_completed(thread: &ThreadId, row: &ItemRecord, item: &ThreadItem) -> Not
 pub(crate) enum Inbox {
     /// `TaskNotifier`: a detached job of this thread finished.
     TaskNotification {
+        surface: String,
         task_id: String,
         status: String,
         text: String,
@@ -1468,11 +1469,12 @@ impl SessionActor {
     fn on_inbox(&mut self, msg: Inbox) {
         match msg {
             Inbox::TaskNotification {
+                surface,
                 task_id,
                 status,
                 text,
                 live,
-            } => self.task_notification(task_id, status, text, live),
+            } => self.task_notification(&surface, task_id, status, text, live),
             Inbox::ForkPlan { tx } => {
                 let plan = text(&self.log_id, "logId").map(|log_id| {
                     (
@@ -1836,9 +1838,9 @@ impl SessionActor {
     /// its next model-call boundary ([`RunPort::take_steers`]). An idle thread is woken: the
     /// completion starts a turn (`createCompletionWakeScheduler`, `notification-bus.mjs:80-96`),
     /// unless the thread was opened only for it (Node wakes only the live session).
-    fn task_notification(&mut self, task_id: String, status: String, text: String, live: bool) {
+    fn task_notification(&mut self, surface: &str, task_id: String, status: String, text: String, live: bool) {
         let Some((qid, entry)) =
-            completions::entry(&task_id, &status, &text, self.deps.clock.now_ms())
+            completions::entry(surface, &task_id, &status, &text, self.deps.clock.now_ms())
         else {
             return;
         };

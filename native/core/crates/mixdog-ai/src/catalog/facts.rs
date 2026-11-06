@@ -436,6 +436,25 @@ pub(super) mod tests {
         assert_eq!(s.cached_windows("openai-oauth", "gpt-5.5").unwrap().max_context_window, 1_000_000.0);
     }
 
+    /// A row's own listed prices are the row's: the picker's meta for a known
+    /// model carries the catalog's rate (`enrichModels`), and the ledger prices
+    /// from the same lookup (`getModelMetadataSync`), which reads no listed price.
+    #[tokio::test]
+    async fn a_listed_price_never_moves_the_ledgers_cost() {
+        let usage: crate::catalog::UsageArgs = serde_json::from_value(json!({
+            "provider": "openai", "model": "gpt-5.5", "inputTokens": 1_000_000, "outputTokens": 0
+        }))
+        .unwrap();
+        let plain = Arc::new(golden_service(Vec::new()).await).pricing().unwrap().price_usage(&usage);
+        let mut row = fast("openai", "gpt-5.5", Capability::Yes);
+        row.rates.input = Some(99.0);
+        let s = Arc::new(golden_service(vec![row]).await);
+        assert_eq!(s.model_meta("openai", "gpt-5.5")["inputCostPerM"], 1.25);
+        let priced = s.pricing().unwrap().price_usage(&usage);
+        assert_eq!(priced.cost_usd, plain.cost_usd);
+        assert_eq!(priced.cost_usd, Some(1.25));
+    }
+
     /// Every (provider, model) of the Node golden: `catalog_knows`
     /// (`set-route.mjs:57`'s `getModelMetadataSync` truthiness),
     /// `fastCapableFor` and `ultrafastCapableFor`.

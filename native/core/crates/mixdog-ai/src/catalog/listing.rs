@@ -120,6 +120,11 @@ fn row_of(provider: &str, record: &ModelRecord) -> Value {
     if let Some(v) = record.max_output_tokens {
         row.insert("outputTokens".into(), json!(v));
     }
+    for (key, value) in prices(record) {
+        if let Some(v) = value.filter(|v| v.is_finite()) {
+            row.insert(key.into(), json!(v));
+        }
+    }
     if let Some(v) = record.supports_images {
         row.insert("supportsVision".into(), json!(v));
     }
@@ -144,6 +149,19 @@ fn row_of(provider: &str, record: &ModelRecord) -> Value {
     Value::Object(row)
 }
 
+fn prices(record: &ModelRecord) -> [(&'static str, Option<f64>); 4] {
+    [
+        ("inputCostPerM", record.input_cost_per_m),
+        ("outputCostPerM", record.output_cost_per_m),
+        ("cacheReadCostPerM", record.cache_read_cost_per_m),
+        ("cacheWriteCostPerM", record.cache_write_cost_per_m),
+    ]
+}
+
+fn finite(value: Option<&Value>) -> Option<f64> {
+    value.and_then(Value::as_f64).filter(|v| v.is_finite())
+}
+
 fn positive(value: Option<&Value>) -> Option<u64> {
     value.and_then(Value::as_f64).filter(|n| *n > 0.0).map(|n| n as u64)
 }
@@ -159,6 +177,12 @@ pub fn enrich_listed(lookup: &Lookup<'_>, provider: &str, rows: Vec<ModelRecord>
             }
             record.context_window = positive(out.get("contextWindow"));
             record.max_output_tokens = positive(out.get("outputTokens"));
+            // `enrichModels` writes the lookup's prices over the row's, so a
+            // known model drops a listed price the catalog does not state.
+            record.input_cost_per_m = finite(out.get("inputCostPerM"));
+            record.output_cost_per_m = finite(out.get("outputCostPerM"));
+            record.cache_read_cost_per_m = finite(out.get("cacheReadCostPerM"));
+            record.cache_write_cost_per_m = finite(out.get("cacheWriteCostPerM"));
             if record.supports_images.is_none() {
                 record.supports_images = out.get("supportsVision").and_then(Value::as_bool);
             }
@@ -219,6 +243,10 @@ mod tests {
         record.context_window = input.get("contextWindow").and_then(Value::as_u64);
         record.max_context_window = input.get("maxContextWindow").and_then(Value::as_u64);
         record.max_output_tokens = input.get("outputTokens").and_then(Value::as_u64);
+        record.input_cost_per_m = finite(input.get("inputCostPerM"));
+        record.output_cost_per_m = finite(input.get("outputCostPerM"));
+        record.cache_read_cost_per_m = finite(input.get("cacheReadCostPerM"));
+        record.cache_write_cost_per_m = finite(input.get("cacheWriteCostPerM"));
         record.supports_images = input.get("supportsVision").and_then(Value::as_bool);
         record.supports_reasoning = input.get("supportsReasoning").and_then(Value::as_bool);
         record.reasoning_levels = input
@@ -254,7 +282,25 @@ mod tests {
             // A model the catalog does not know comes back untouched: no ladder.
             assert_eq!(json!(got.picker.reasoning_options), out.get("reasoningOptions").cloned().unwrap_or(json!([])), "reasoningOptions {what}");
             assert_eq!(got.mode.as_deref(), out.get("mode").and_then(Value::as_str), "mode {what}");
+            let got_prices = [got.input_cost_per_m, got.output_cost_per_m, got.cache_read_cost_per_m, got.cache_write_cost_per_m];
+            let node_prices = ["inputCostPerM", "outputCostPerM", "cacheReadCostPerM", "cacheWriteCostPerM"].map(|key| finite(out.get(key)));
+            assert_eq!(got_prices, node_prices, "prices {what}");
         }
+    }
+
+    #[test]
+    fn a_listed_price_survives_a_model_the_catalog_does_not_know() {
+        let litellm = project_litellm(&json(LITELLM));
+        let models_dev = project_models_dev(&json(MODELS_DEV));
+        let rosters = rosters();
+        let lookup = Lookup { litellm: &litellm, models_dev: &models_dev, rosters: &rosters };
+        let mut row = ModelRecord::new("go-only-model");
+        row.input_cost_per_m = Some(0.4);
+        row.output_cost_per_m = Some(1.6);
+        row.cache_read_cost_per_m = Some(f64::NAN);
+        let got = enrich_listed(&lookup, "opencode-go-oauth", vec![row]).remove(0);
+        assert_eq!((got.input_cost_per_m, got.output_cost_per_m), (Some(0.4), Some(1.6)));
+        assert_eq!(got.cache_read_cost_per_m, None, "a price that is not finite is left out");
     }
 
     #[test]

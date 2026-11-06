@@ -11,7 +11,7 @@ use std::time::Duration;
 use mixdog_agent::step_effort::StepInput;
 use tokio_util::sync::CancellationToken;
 
-use super::tests::{Route, Server, big, config, embed_config, embed_config_with, lane, manifest, real_ort};
+use super::tests::{Route, Server, big, config, embed_config_with, lane, manifest, real_ort};
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::install::{self, Manifest};
 use crate::effort_judge::judge::JudgeOptions;
@@ -183,7 +183,7 @@ async fn prewarm_skips_while_installing_when_not_installed_and_after_a_load_fail
     let release = files.manifest(&server, "r1");
     let empty = tempfile::tempdir().expect("dir");
     let model = judge(empty.path(), &release, &tick, true);
-    assert!(!model.prewarm());
+    assert!(!model.prewarm().await);
 
     // An install in flight: judgments answer at once, a second install is refused.
     let stalled = Server::start(vec![("/model.onnx", Route::Stall), ("/tokenizer.json", Route::Body(files.tokenizer.clone()))]).await;
@@ -196,7 +196,7 @@ async fn prewarm_skips_while_installing_when_not_installed_and_after_a_load_fail
         async move { model.install(&release, None, &cancel).await }
     });
     until(&tick, || installing.is_installing()).await;
-    assert!(!installing.prewarm());
+    assert!(!installing.prewarm().await);
     assert!(matches!(installing.probs(step()).await, Err(JudgeError::Installing)));
     assert!(matches!(installing.install(&stalled_release, None, &CancellationToken::new()).await, Err(InstallError::Busy)));
     cancel.cancel();
@@ -207,9 +207,9 @@ async fn prewarm_skips_while_installing_when_not_installed_and_after_a_load_fail
     let loadable = tempfile::tempdir().expect("dir");
     let broken = judge(loadable.path(), &release, &tick, false);
     broken.install(&release, None, &CancellationToken::new()).await.expect("installs");
-    assert!(broken.prewarm(), "the load starts in the background");
+    assert!(broken.prewarm().await, "the load starts in the background");
     until(&tick, || !broken.last_error().is_empty()).await;
-    assert!(!broken.prewarm(), "a remembered failure is not retried");
+    assert!(!broken.prewarm().await, "a remembered failure is not retried");
     assert!(!broken.status().ready);
 }
 
@@ -222,12 +222,12 @@ async fn prewarm_loads_the_real_model_ahead_of_the_first_step_and_shutdown_unloa
     let tick = StateTick::default();
     let model = judge_over(&dir, &files.manifest(&server, "r1"), &tick, true, real_ort());
 
-    assert!(model.prewarm());
+    assert!(model.prewarm().await);
     until(&tick, || model.is_ready()).await;
-    assert!(model.prewarm(), "loaded");
+    assert!(model.prewarm().await, "loaded");
     model.shutdown().await;
     assert!(!model.is_ready());
-    assert!(model.prewarm(), "a shut-down model loads again");
+    assert!(model.prewarm().await, "a shut-down model loads again");
     until(&tick, || model.is_ready()).await;
     assert_eq!(server.hits("/model.onnx"), 0);
 }
@@ -291,7 +291,7 @@ async fn a_secondary_process_never_fetches_or_loads() {
     assert_eq!(reply, WarmupReply::Skipped("secondary mode"));
     assert_eq!(reply.to_json(), serde_json::json!({ "ok": true, "skipped": "secondary mode" }));
     assert_eq!(fetches(&server), 0);
-    assert!(!embedder.is_installed() && !embedder.is_ready());
+    assert!(!embedder.is_installed().await.expect("reads") && !embedder.is_ready());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -307,7 +307,7 @@ async fn without_eager_warmup_only_the_explicit_install_route_loads_the_model() 
     runtime.prewarm_recall();
     settle().await;
     assert_eq!(fetches(&server), 0, "MIXDOG_EMBED_WARMUP=0 gates the eager paths");
-    assert!(!embedder.is_installed());
+    assert!(!embedder.is_installed().await.expect("reads"));
 
     let reply = runtime.embedding_warmup(&CancellationToken::new()).await.expect("installs and loads");
     assert_eq!(reply, WarmupReply::Ready(true));

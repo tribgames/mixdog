@@ -60,6 +60,7 @@ const FINISHED_CAPACITY: usize = 1024;
 #[derive(Debug)]
 pub struct Finished {
     pub owner: ThreadId,
+    pub surface: String,
     pub task_id: String,
     pub status: String,
     pub notification: String,
@@ -70,11 +71,12 @@ struct ChannelNotifier(mpsc::Sender<Finished>);
 
 #[async_trait::async_trait]
 impl TaskNotifier for ChannelNotifier {
-    async fn finished(&self, owner: &ThreadId, task_id: &str, status: &str, notification: String) {
+    async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
         let _ = self
             .0
             .send(Finished {
                 owner: owner.clone(),
+                surface: surface.to_owned(),
                 task_id: task_id.to_owned(),
                 status: status.to_owned(),
                 notification,

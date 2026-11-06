@@ -8,6 +8,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+indexmap = { workspace = true, features = ["serde"] }
 mixdog-js = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-ledger = { workspace = true }

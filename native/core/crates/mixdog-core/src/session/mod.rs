@@ -21,6 +21,7 @@
 
 mod actor;
 mod agent_host;
+pub mod agent_registry;
 mod completions;
 mod control;
 mod directory;

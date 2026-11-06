@@ -23,13 +23,14 @@ use async_trait::async_trait;
 use mixdog_agent::step_effort::{StepEffortJudge, StepInput, StepResult};
 use mixdog_rt::{CpuBulk, TaskClass};
 use serde_json::{Value, json};
+#[allow(clippy::disallowed_types, reason = "the turn lock is held across the awaited judgment on purpose: judgments run one at a time")]
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::install::{self, Manifest};
 use crate::effort_judge::ladder::StepLadder;
-use crate::effort_judge::model::{JudgeModel, ModelConfig, available};
+use crate::effort_judge::model::{JudgeModel, ModelConfig, available, available_on};
 use crate::model_install::{InstallError, ProgressSink, run_on_lane};
 use crate::tool_state::{JudgeStatus, StateTick, onnx_runtime_supported};
 
@@ -54,6 +55,7 @@ pub struct EffortJudgeModel {
     progress: Option<ProgressSink>,
     /// One judgment at a time: waiting happens here, not on a lane thread. The
     /// loaded model (or its remembered load failure) lives under the same lock.
+    #[allow(clippy::disallowed_types, reason = "held across the awaited judgment on purpose: judgments run one at a time")]
     turn: Mutex<Loaded>,
     /// An install or repair is replacing the files: judgments answer at once.
     installing: AtomicBool,
@@ -77,12 +79,14 @@ impl EffortJudgeModel {
             Some(manifest) => manifest,
             None => Manifest::bundled()?,
         };
+        #[allow(clippy::disallowed_types, reason = "builds the turn lock")]
+        let turn = Mutex::new(None);
         Ok(Arc::new(Self {
             config,
             lane,
             manifest,
             progress: options.progress,
-            turn: Mutex::new(None),
+            turn,
             installing: AtomicBool::new(false),
             ready: AtomicBool::new(false),
             last_error: std::sync::Mutex::new(String::new()),
@@ -126,6 +130,7 @@ impl EffortJudgeModel {
 
     /// `effortJudgeInfo()`: what the settings card shows. The installed model
     /// names its backbone in `calibration.json`; older packs predate the field.
+    #[allow(clippy::disallowed_methods, reason = "a lane-job body: the host's info reader runs `status` as a read-lane job")]
     pub fn info(&self) -> Value {
         let model_bytes = std::fs::metadata(self.config.dir.join("model.onnx")).map_or(0, |m| m.len());
         let backbone = std::fs::read(self.config.dir.join("calibration.json"))
@@ -166,7 +171,7 @@ impl EffortJudgeModel {
     /// A lane refusal is transient and not remembered either; a load failure is.
     async fn ensure_loaded(&self, state: &mut Loaded) -> Result<Arc<JudgeModel>, JudgeError> {
         if state.is_none() {
-            if !available(&self.config) {
+            if !available_on(self.lane, &self.config).await.map_err(|e| JudgeError::Worker(e.to_string()))? {
                 return Err(JudgeError::NotInstalled(self.config.dir.display().to_string()));
             }
             let config = self.config.clone();
@@ -198,7 +203,7 @@ impl EffortJudgeModel {
         if self.is_installing() {
             return Err(JudgeError::Installing);
         }
-        let model = match self.ensure_loaded(&mut *state).await {
+        let model = match self.ensure_loaded(&mut state).await {
             Ok(model) => model,
             Err(error) => {
                 drop(state);
@@ -216,11 +221,25 @@ impl EffortJudgeModel {
         if self.refresh_checked.swap(true, Ordering::AcqRel) {
             return;
         }
-        if self.config.explicit || (available(&self.config) && install::install_current(&self.config.dir, &self.manifest)) {
+        if self.config.explicit {
             return;
         }
         let this = self.clone();
         mixdog_rt::spawn("services.effort-judge.refresh", TaskClass::Work, async move {
+            // Read on the lane, off the step's path.
+            let current = async {
+                Ok::<_, InstallError>(
+                    available_on(this.lane, &this.config).await? && install::install_current_on(this.lane, &this.config.dir, &this.manifest).await?,
+                )
+            };
+            match current.await {
+                Ok(true) => return,
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(%error, "effort judge: model state could not be read");
+                    return;
+                }
+            }
             if let Err(error) = this.install(&this.manifest, this.progress.as_ref(), &this.cancel).await {
                 tracing::warn!(%error, "effort judge: model update failed");
             }
@@ -251,8 +270,12 @@ impl EffortJudgeModel {
     /// Starts loading the model ahead of the first judged step. True when it is
     /// loaded or loading; false when it cannot be: unsupported platform, an
     /// install in progress, not installed, or a remembered load failure.
-    pub fn prewarm(self: &Arc<Self>) -> bool {
-        if !onnx_runtime_supported() || self.is_installing() || !available(&self.config) {
+    pub async fn prewarm(self: &Arc<Self>) -> bool {
+        if !onnx_runtime_supported() || self.is_installing() {
+            return false;
+        }
+        if !available_on(self.lane, &self.config).await.unwrap_or(false) {
+            // A lane that could not read it answers "not now"; the next prewarm asks again.
             return false;
         }
         match self.turn.try_lock() {
@@ -267,7 +290,7 @@ impl EffortJudgeModel {
                     mixdog_rt::spawn("services.effort-judge.prewarm", TaskClass::Work, async move {
                         let mut state = this.turn.lock().await;
                         if !this.is_installing() {
-                            let _ = this.ensure_loaded(&mut *state).await;
+                            let _ = this.ensure_loaded(&mut state).await;
                         }
                     });
                     true

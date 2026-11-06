@@ -18,6 +18,8 @@ const helpers = await importFrom(tree, `${rc}config-helpers.mjs`);
 const caps = await importFrom(tree, `${rc}model-capabilities.mjs`);
 const workflow = await importFrom(tree, `${rc}workflow.mjs`);
 const catalog = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/model-catalog.mjs');
+const cfgMod = await importFrom(tree, 'src/runtime/agent/orchestrator/config.mjs');
+const patchMod = await importFrom(tree, 'src/runtime/shared/config-patch.mjs');
 const { createModelRouteApi } = await importFrom(tree, 'src/session-runtime/model-route-api.mjs');
 const { createLeadRouteSync } = await importFrom(tree, 'src/session-runtime/config-lifecycle/lead-route-sync.mjs');
 
@@ -89,8 +91,9 @@ const cases = [];
 for (let i = 0; i < 260; i += 1) {
   const kind = pick(['setRoute', 'setRoute', 'setRoute', 'setFast', 'setEffort']);
   const config = randomConfig();
-  // The file may hold a Lead route this runtime has not read yet.
-  const fileOverride = chance(0.15) ? { ...config, default: 'workflow-lead', presets: [{ id: 'workflow-lead', name: 'WORKFLOW LEAD', type: 'agent', provider: 'anthropic', model: 'claude-opus-4-1' }] } : null;
+  // The file may hold a Lead route this runtime has not read yet; only a conditional fill
+  // re-reads the file before it writes (any other save applies to the document in memory).
+  let fileOverride = null;
   const emptyLive = chance(0.25);
   const live = emptyLive
     ? { provider: 'openai', model: '', preset: null, effort: null, fast: false, autoEffort: true, modelParameters: {} }
@@ -123,6 +126,9 @@ for (let i = 0; i < 260; i += 1) {
   } else {
     effortValue = pick(['low', 'HIGH', 'auto', '', 'bogus', 'medium']);
   }
+  if (options.onlyIfEmpty && chance(0.5)) {
+    fileOverride = { ...config, default: 'workflow-lead', presets: [{ id: 'workflow-lead', name: 'WORKFLOW LEAD', type: 'agent', provider: 'anthropic', model: 'claude-opus-4-1' }] };
+  }
   const fastTable = Object.fromEntries(KNOWN.map((p) => [p, Boolean(caps.fastCapableFor(p, meta, null, {}))]));
   const ultraTable = Object.fromEntries(KNOWN.map((p) => [p, Boolean(caps.ultrafastCapableFor(p, meta))]));
 
@@ -137,11 +143,15 @@ for (let i = 0; i < 260; i += 1) {
   });
   const resolveRouteFn = helpers.makeResolveRoute(helpers.makeResolveDefaultProvider((p) => KNOWN.includes(String(p || '').trim())));
   if (fileOverride) state.file = structuredClone(fileOverride);
+  // The save is the lifecycle's: the stored-form difference to the last saved config, applied to
+  // the file (a conditional Lead fill is skipped while the file holds a Lead route).
+  let baseline = structuredClone(config);
   const writeFile = (next, leadFill) => {
-    const guard = leadFill && state.file.default;
-    const merged = { ...next };
-    if (guard) { merged.default = state.file.default; merged.presets = state.file.presets; }
-    state.file = merged;
+    const changes = cfgMod.createConfigPatch(baseline, next).map((change) =>
+      leadFill && ['default', 'presets'].includes(change.path[0]) ? { ...change, unlessSet: ['default'] } : change
+    );
+    baseline = structuredClone(next);
+    state.file = patchMod.applyConfigPatch(state.file, changes);
   };
   const reloadFullConfig = () => {
     state.config = structuredClone(state.file);

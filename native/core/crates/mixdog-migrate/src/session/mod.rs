@@ -50,6 +50,9 @@ use source::is_session_id;
 
 pub const SESSIONS_DIR: &str = "sessions";
 const CHECKPOINT_DIR: &str = "turn-checkpoints";
+/// Shared files under `<D>` that session items read.
+const SHARED_FILES: [&str; 4] =
+    [source::LEGACY_SPOOL, source::AGENT_WORKERS, source::LEAD_WORKERS, source::AGENT_RELEASED];
 
 /// What a file directly under `sessions/` is to the migration.
 #[derive(Debug, PartialEq, Eq)]
@@ -207,24 +210,38 @@ impl ItemDriver for SessionDriver {
                 Some(Target::Session { id: id.clone() }),
             )?)?;
         }
-        // Shared files: pending spools and worker indexes.
+        // Shared files: pending spools, worker indexes and release markers; a file naming
+        // no session that migrates is retired.
         let mut shared: Vec<String> = durable::list_dir(&roots.data.join(source::SPOOL_DIR))?
             .into_iter()
             .filter(|(n, d)| !d && n.ends_with(".json"))
             .map(|(n, _)| format!("{}/{n}", source::SPOOL_DIR))
             .collect();
         shared.extend(
-            [source::LEGACY_SPOOL, source::AGENT_WORKERS, source::LEAD_WORKERS]
+            SHARED_FILES
                 .iter()
                 .filter(|n| durable::is_file(&roots.data.join(n)))
                 .map(|n| n.to_string()),
         );
+        // Read only when a tombstone without a `sessionId` needs its session found.
+        let mut candidates = None;
         for rel in shared {
             let file = sink.source(data, &rel, false)?;
             let bytes = durable::read(&roots.resolve(data, &rel)?)?;
             match source::shared_session_ids(&rel, &bytes) {
                 None => add(sink, plan::retain_key(data, &rel), ItemKind::Retired, Contract::Retain, vec![file.clone()])?,
-                Some(ids) => {
+                Some((mut ids, ownerless)) => {
+                    // One no session owns is dropped with the rows without a session.
+                    if !ownerless.is_empty() {
+                        if candidates.is_none() {
+                            candidates = Some(source::session_candidates(
+                                sessions.iter().map(|(id, sources)| (id.as_str(), sources.as_slice())),
+                                |f| durable::read(&roots.resolve(f.root, &f.path)?),
+                            )?);
+                        }
+                        let all = candidates.as_deref().unwrap_or_default();
+                        ids.extend(ownerless.iter().filter_map(|t| source::recover_owner(t, all)).map(|c| c.id().to_string()));
+                    }
                     let consumers: BTreeSet<String> =
                         ids.into_iter().filter(|id| sessions.contains_key(id)).collect();
                     if consumers.is_empty() {
@@ -247,7 +264,7 @@ impl ItemDriver for SessionDriver {
                     let rel = item.key.as_str().split_once("/data/").map_or("", |(_, r)| r);
                     rel.starts_with("sessions/")
                         || rel.starts_with("session-pending/")
-                        || [source::LEGACY_SPOOL, source::AGENT_WORKERS, source::LEAD_WORKERS].contains(&rel)
+                        || SHARED_FILES.contains(&rel)
                 }
                 _ => false,
             }

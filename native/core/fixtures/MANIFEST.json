@@ -5,10 +5,10 @@
       "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
       "fileCount": 59,
       "manifest": "agent/MANIFEST.json",
-      "manifestSha256": "bf63f87897de8be16d0a05c4679492faec24a5be24bfcb83878c18529f997b32",
+      "manifestSha256": "661039885df2e1da7f4fb110ccaa05a33c7b381f298e74590df85b777f47d0ea",
       "recorder": "native/core/fixtures/agent/record.mjs",
       "set": "agent",
-      "totalBytes": 598499
+      "totalBytes": 631892
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-ai-account.mjs --tree <tree>",
@@ -23,10 +23,10 @@
       "command": "node benchmarks/rust-core/recorders/record-route-service.mjs --tree <tree>",
       "fileCount": 4,
       "manifest": "ai-admin/MANIFEST.json",
-      "manifestSha256": "58ece52048754938042b74d759b43d65420f4213c21821ee0741ca2810907f66",
+      "manifestSha256": "df191c11c04d59401d284e458c345f7f360939ed0438d1b06eb912e2276551c2",
       "recorder": "benchmarks/rust-core/recorders/record-route-service.mjs",
       "set": "ai-admin",
-      "totalBytes": 13871054
+      "totalBytes": 13839321
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-automation-setup.mjs --tree <tree>",
@@ -120,12 +120,12 @@
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules>",
-      "fileCount": 77,
+      "fileCount": 78,
       "manifest": "providers/MANIFEST.json",
-      "manifestSha256": "4079d9cc9aef1becd9bac92acacffea9f5ce0a7c03b3a6360cf631f658122c17",
+      "manifestSha256": "323d3fef65f5471d849c54d74b9d180721e8766f6c2774536a1cea0fea6428dd",
       "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
       "set": "providers",
-      "totalBytes": 1913645
+      "totalBytes": 1933378
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-providers-ai-other.mjs --tree <tree>",

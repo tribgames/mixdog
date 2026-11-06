@@ -164,6 +164,8 @@ struct Shared {
 }
 
 enum Cmd {
+    /// The feed is unsubscribed: its fold lane ends once its queued items are done.
+    DropLane { feed: String },
     Rpc {
         method: String,
         params: Json,
@@ -897,6 +899,9 @@ impl Driver {
 
     async fn on_cmd(&mut self, cmd: Cmd) {
         match cmd {
+            Cmd::DropLane { feed } => {
+                self.lanes.remove(&Some(feed));
+            }
             Cmd::Rpc {
                 method,
                 params,
@@ -1416,6 +1421,9 @@ impl ProtocolClient for Client {
             s.recv.remove(thread_id.as_str());
             s.store.threads.remove(thread_id.as_str());
         }
+        let _ = self.inner.cmd.send(Cmd::DropLane {
+            feed: thread_id.as_str().to_string(),
+        });
         let params = to_json(&ThreadIdParams {
             thread_id: thread_id.clone(),
         });

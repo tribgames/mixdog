@@ -36,14 +36,64 @@ fn label(filename: Option<&str>, fallback: &str) -> String {
     filename.filter(|n| !n.is_empty()).unwrap_or(fallback).to_owned()
 }
 
-/// A file with no inline form on this wire: text-ish bytes read as text, any
-/// other payload named so the model can open it from disk.
-fn file_fallback_text(label: &str, bytes: Option<Vec<u8>>) -> String {
-    match bytes.and_then(|b| String::from_utf8(b).ok()) {
-        Some(text) => format!("--- {label} ---\n{text}"),
-        None => format!(
-            "[file not sent inline: {label} — this type has no inline form; open it from disk with read]"
-        ),
+/// `base64ByteLength`: the byte count of a base64 payload, without decoding it.
+fn base64_byte_length(data: &str) -> usize {
+    let padding = if data.ends_with("==") {
+        2
+    } else {
+        usize::from(data.ends_with('='))
+    };
+    (data.len() * 3 / 4).saturating_sub(padding)
+}
+
+/// The transport label of a file: trimmed, lower-cased, `application/pdf` when blank.
+fn file_mime(mime_type: &str) -> String {
+    let mime = mixdog_js::js_trim(mime_type).to_lowercase();
+    if mime.is_empty() { "application/pdf".to_owned() } else { mime }
+}
+
+/// `inlineFileKind(...) === 'pdf'`: the magic header outranks the label.
+fn is_pdf(mime: &str, data: &str) -> bool {
+    let base = mixdog_js::js_trim(mime.split(';').next().unwrap_or("")).to_lowercase();
+    if base == "application/pdf" {
+        return true;
+    }
+    data.get(..8)
+        .and_then(decode_base64)
+        .is_some_and(|head| head.starts_with(b"%PDF-"))
+}
+
+/// `inlineFileKind(...) === 'text'`: readable as plain text by its label.
+fn is_text_mime(mime: &str) -> bool {
+    const TEXTUAL: [&str; 6] = [
+        "application/json",
+        "application/xml",
+        "application/yaml",
+        "application/toml",
+        "application/x-ndjson",
+        "application/x-www-form-urlencoded",
+    ];
+    let base = mixdog_js::js_trim(mime.split(';').next().unwrap_or("")).to_lowercase();
+    base.starts_with("text/")
+        || base.starts_with("application/javascript")
+        || base.starts_with("application/ecmascript")
+        || base.ends_with("+json")
+        || base.ends_with("+xml")
+        || TEXTUAL.contains(&base.as_str())
+}
+
+/// A file with no inline form on this wire (`fileFallbackText`): a text-typed
+/// payload reads as text, any other is named so the model can open it from
+/// disk. Both carry `name (mime, N bytes)`.
+fn file_fallback_text(filename: Option<&str>, mime_type: &str, data: &str) -> String {
+    let mime = file_mime(mime_type);
+    let name = filename.filter(|n| !n.is_empty()).map(|n| format!("{n} ")).unwrap_or_default();
+    let label = format!("{name}({mime}, {} bytes)", base64_byte_length(data));
+    if is_text_mime(&mime) {
+        let bytes = decode_base64(data).unwrap_or_default();
+        format!("--- {label} ---\n{}", String::from_utf8_lossy(&bytes))
+    } else {
+        format!("[file not sent inline: {label} — this type has no inline form; open it from disk with read]")
     }
 }
 
@@ -79,10 +129,10 @@ fn lower_part(part: &ContentPart) -> Result<Option<JsonValue>, ProviderError> {
         } => {
             let name = label(filename.as_deref(), mime_type);
             match source {
-                BinarySource::Base64(_) if mime_type == "application/pdf" => {
+                BinarySource::Base64(data) if is_pdf(&file_mime(mime_type), data) => {
                     return Err(pdf_not_prepared(&name));
                 }
-                BinarySource::Base64(data) => Some(text_part(file_fallback_text(&name, decode_base64(data)))),
+                BinarySource::Base64(data) => Some(text_part(file_fallback_text(filename.as_deref(), mime_type, data))),
                 BinarySource::AttachmentRef(_) => {
                     Some(text_part(format!("[attachment unavailable: {name}]")))
                 }
@@ -91,10 +141,10 @@ fn lower_part(part: &ContentPart) -> Result<Option<JsonValue>, ProviderError> {
         ContentPart::Document { source, title } => match source {
             DocumentSource::Base64 { media_type, data } => {
                 let name = label(title.as_deref(), media_type);
-                if media_type == "application/pdf" {
+                if is_pdf(&file_mime(media_type), data) {
                     return Err(pdf_not_prepared(&name));
                 }
-                Some(text_part(file_fallback_text(&name, decode_base64(data))))
+                Some(text_part(file_fallback_text(title.as_deref(), media_type, data)))
             }
             DocumentSource::Text { media_type, data } => {
                 let name = label(title.as_deref(), media_type.as_deref().unwrap_or("text"));
@@ -153,7 +203,11 @@ fn split_tool_content(content: &Content) -> Result<(String, Vec<JsonValue>), Pro
         Content::Parts(parts) => {
             let lowered = lower_parts(parts)?;
             let media: Vec<JsonValue> = lowered.iter().filter(|p| is_media(p)).cloned().collect();
-            let text = joined_text(&lowered);
+            // A tool result's text is each part's own text: an image given by file id
+            // has none (the placeholder is for message content only).
+            let texted: Vec<ContentPart> =
+                parts.iter().filter(|p| !matches!(p, ContentPart::Image(ImageSource::FileId(_)))).cloned().collect();
+            let text = joined_text(&lower_parts(&texted)?);
             if media.is_empty() {
                 Ok((text, media))
             } else if text.is_empty() {
@@ -345,4 +399,83 @@ pub fn system_texts(dialect: &ChatDialect, messages: &[Message]) -> Result<Vec<S
         }
     }
     Ok(texts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::listing_row::testing::fixture;
+    use mixdog_core_api::domain::provider::ToolCall;
+
+    fn part(spec: &JsonValue) -> ContentPart {
+        let text = |key: &str| spec[key].as_str().unwrap().to_owned();
+        let b64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
+        let file = |filename: String, mime: &str, data: String| ContentPart::File {
+            source: BinarySource::Base64(data),
+            mime_type: mime.to_owned(),
+            filename: Some(filename),
+            text: None,
+        };
+        match spec["kind"].as_str().unwrap() {
+            "text" => ContentPart::Text(text("text")),
+            "image_url" => ContentPart::Image(ImageSource::Url(text("url"))),
+            "image_base64" => ContentPart::Image(ImageSource::Base64 { data: text("data"), mime_type: text("mime") }),
+            "image_file_id" => ContentPart::Image(ImageSource::FileId(text("id"))),
+            "file_text" => file(text("filename"), "text/plain", b64(spec["text"].as_str().unwrap().as_bytes())),
+            "file_binary" => file(text("filename"), "application/octet-stream", b64(&[0, 1, 2, 255])),
+            other => panic!("unknown part kind {other}"),
+        }
+    }
+
+    fn message(spec: &JsonValue) -> Message {
+        let role = match spec["role"].as_str().unwrap() {
+            "system" => Role::System,
+            "developer" => Role::Developer,
+            "user" => Role::User,
+            "assistant" => Role::Assistant,
+            _ => Role::Tool,
+        };
+        let parts = spec["parts"].as_array().unwrap().iter().map(part).collect();
+        let mut message = Message::new(role, Content::Parts(parts));
+        message.tool_call_id = spec["toolCallId"].as_str().map(str::to_owned);
+        message.tool_calls = spec["toolCalls"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|c| ToolCall {
+                id: c["id"].as_str().unwrap().to_owned(),
+                name: c["name"].as_str().unwrap().to_owned(),
+                arguments: c["arguments"].clone(),
+                native_type: None,
+            })
+            .collect();
+        message
+    }
+
+    /// Multipart content of every role lowers to Node's Chat Completions
+    /// messages: text joined by newlines outside user messages, media dropped
+    /// from system/assistant text, a tool result's media moved to a user
+    /// message, a non-text file named by `name (mime, N bytes)`.
+    #[test]
+    fn multipart_content_lowers_as_nodes_to_openai_messages() {
+        let golden = fixture("oracles/chat-parts-messages.json");
+        let profile = CompatProfile::deepseek();
+        let owner = ProviderId::from("deepseek");
+        let mut checked = 0;
+        for case in golden["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let messages: Vec<Message> = case["messages"].as_array().unwrap().iter().map(message).collect();
+            let got = lower_messages(&profile.chat, &owner, &messages).unwrap();
+            let mut node = case["node"].clone();
+            if name == "empty-text-part" {
+                // Node lowers an empty text part to its own JSON as text; a part with no text is dropped here.
+                let junk = json!({"type": "text", "text": "{\"type\":\"text\",\"text\":\"\"}"});
+                let parts = node[0]["content"].as_array_mut().unwrap();
+                assert_eq!(parts.remove(0), junk);
+            }
+            assert_eq!(JsonValue::Array(got), node, "{name}");
+            checked += 1;
+        }
+        assert_eq!(checked, 11);
+    }
 }

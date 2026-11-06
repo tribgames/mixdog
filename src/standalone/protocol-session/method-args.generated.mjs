@@ -46,7 +46,6 @@ export const METHOD_ARGS = Object.freeze({
   'agent/setAgentConnectors': { thread: true, args: ["agentId","connectors","options"] },
   'agent/setAgentConnectorToolPermission': { thread: true, args: ["agentId","connectorId","toolName","permission","options"] },
   'agent/setAgentPermission': { thread: true, args: ["agentId","action","mode","options"] },
-  'agent/setBotOrder': { thread: true, args: ["order"] },
   'agent/setLeadAppearance': { thread: true, args: ["avatar"] },
   'agent/setLeadCreated': { thread: true, args: ["created","description"] },
   'channel/deleteSchedule': { thread: true, args: ["name"] },

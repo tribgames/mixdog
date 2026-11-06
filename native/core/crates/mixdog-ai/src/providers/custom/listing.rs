@@ -116,9 +116,7 @@ fn effective_row(mut base: ModelRecord, over: Option<&Override>, discovered: boo
     let none = Override::default();
     let ov = over.unwrap_or(&none);
     let levels = ov.levels.clone().or_else(|| catalog_levels(&base));
-    // The catalog's own `reasoning_content` marker is not carried on a listed row,
-    // so replay is the override's word alone.
-    let replay = ov.replay.unwrap_or(false);
+    let replay = ov.replay.unwrap_or(base.reasoning_content_field.as_deref() == Some("reasoning_content"));
     let wire_values: BTreeMap<String, String> = ov
         .wire_values
         .iter()
@@ -148,6 +146,7 @@ fn effective_row(mut base: ModelRecord, over: Option<&Override>, discovered: boo
     base.reasoning_levels = levels.unwrap_or_default();
     base.picker.custom_reasoning =
         Some(CustomReasoning { wire_format: ov.wire_format.clone().unwrap_or_else(|| "standard".into()), wire_values, replay });
+    base.reasoning_content_field = replay.then(|| "reasoning_content".to_owned());
     base.raw = Some(json!({ "manual": ov.manual, "inherited": inherited }));
     base
 }
@@ -366,6 +365,7 @@ mod tests {
             "failed-with-manual" => (403, json!({ "error": { "message": "bad key fixture-custom-key" } })),
             "failed-with-nothing" => (500, json!({ "error": "boom" })),
             "anthropic" => (200, json!({ "data": golden["anthropicRoster"] })),
+            "catalog-replay" | "catalog-replay-overridden" => (200, json!({ "data": golden["catalogRoster"] })),
             "keyless" => (200, json!({ "data": golden["roster"].as_array().unwrap()[..3] })),
             _ => (200, json!({ "data": golden["roster"] })),
         }
@@ -401,7 +401,7 @@ mod tests {
                 Arc::new(StaticCredential((!keyless).then(|| (header.0.to_owned(), header.1)))),
                 keyless,
                 config,
-                ListingLookup::new(),
+                ListingLookup::with_models_dev(&json!({ "deepseek": { "models": golden["modelsDev"] } })),
             );
             let result = listing.list_models().await;
 
@@ -429,6 +429,7 @@ mod tests {
                 assert_eq!(row.max_output_tokens, node["outputTokens"].as_u64(), "{what} outputTokens");
                 assert_eq!(row.hidden, node["hidden"].as_bool().unwrap(), "{what} hidden");
                 assert_eq!(raw["manual"], node["manual"], "{what} manual");
+                assert_eq!(row.reasoning_content_field.as_deref(), node["reasoningContentField"].as_str(), "{what} reasoningContentField");
                 assert_eq!(raw["inherited"], node["inherited"], "{what} inherited");
                 assert_eq!(row.supports_images, node["supportsVision"].as_bool(), "{what} supportsVision");
                 assert_eq!(row.supports_reasoning, node["supportsReasoning"].as_bool(), "{what} supportsReasoning");

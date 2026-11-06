@@ -9,11 +9,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use mixdog_agent::step_effort::StepInput;
+use mixdog_rt::CpuBulk;
 use ort::session::Session;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 
 use crate::effort_judge::error::JudgeError;
+use crate::lane::on_lane;
+use crate::model_install::InstallError;
 use crate::effort_judge::input::step_judge_text;
 use crate::effort_judge::tokenizer::BpeTokenizer;
 use crate::memory::embed::engine::ort_environment;
@@ -41,6 +44,7 @@ impl ModelConfig {
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "a lane-job body, reached through `available`")]
 fn stamped(dir: &Path) -> bool {
     let Ok(bytes) = std::fs::read(dir.join("install.json")) else { return false };
     serde_json::from_slice::<serde_json::Value>(&bytes)
@@ -51,8 +55,17 @@ fn stamped(dir: &Path) -> bool {
 
 /// Whether the model is installed: both files hold data, and a release
 /// install is stamped.
+///
+/// Reads files: a lane-job body. Async callers use [`available_on`]; the host's info reader
+/// runs it as a read-lane job.
 pub fn available(config: &ModelConfig) -> bool {
     MODEL_FILES.iter().all(|file| holds_data(&config.dir.join(file))) && (config.explicit || stamped(&config.dir))
+}
+
+/// [`available`] as a job on `lane`.
+pub async fn available_on(lane: CpuBulk, config: &ModelConfig) -> Result<bool, InstallError> {
+    let config = config.clone();
+    on_lane(lane, move || available(&config)).await.map_err(InstallError::io)
 }
 
 struct Calibration {
@@ -61,6 +74,7 @@ struct Calibration {
     steps: bool,
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs inside the load job on the lane")]
 fn calibration(dir: &Path) -> Calibration {
     let raw: serde_json::Value =
         std::fs::read(dir.join("calibration.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
@@ -84,6 +98,7 @@ fn run_error(error: impl std::fmt::Display) -> JudgeError {
 impl JudgeModel {
     /// Loads the tokenizer and session, then runs one warm-up judgment: the
     /// first run allocates buffers and is several times slower than the rest.
+    #[allow(clippy::disallowed_methods, reason = "a lane-job body: `ensure_loaded` runs it on the lane")]
     pub fn load(config: &ModelConfig) -> Result<Self, JudgeError> {
         if !available(config) {
             return Err(JudgeError::NotInstalled(config.dir.display().to_string()));

@@ -4,8 +4,15 @@
 // local core as `modelProxy/cancel { runId }` for the run that request started, as Node's host aborts the running
 // call it keeps under the request id (model-proxy-host.ts `abortCancelled`).
 //
-// Shapes are the Rust ones (mixdog-app-protocol `v2/host.rs`, `v2/model_proxy.rs`) until the regenerated TS types
-// carry the run and cancel params.
+import type {
+  ModelProxyCancelParams,
+  ModelProxyEventParams,
+  ModelProxyExecuteParams,
+  ModelProxyResult,
+  ModelProxyRunCancelParams,
+  ModelProxyRunEventParams,
+  ModelProxyRunParams,
+} from '../../../../../packages/protocol/src/index.ts';
 import type { ConnectionClientEvent, ProtocolConnection } from './connection';
 
 const EXECUTE = 'model/proxy/execute';
@@ -17,12 +24,8 @@ const RUN_CANCEL = 'modelProxy/cancel';
 
 type RequestId = string | number;
 
-interface ExecuteParams {
-  call: unknown;
-}
-interface RunResult {
-  result: { result?: string; failure?: unknown } & Record<string, unknown>;
-}
+type ExecuteParams = ModelProxyExecuteParams;
+type RunResult = ModelProxyResult;
 
 /** Run ids are scoped by the local core's asking connection, which every server relay shares; a request id of a
  *  later server connection may repeat one of an earlier, so every run gets its own. */
@@ -45,7 +48,7 @@ export function relayModelProxy(
     const abandoned = [...runs.values()];
     runs.clear();
     requests.clear();
-    for (const runId of abandoned) local.notify(RUN_CANCEL, { runId });
+    for (const runId of abandoned) local.notify(RUN_CANCEL, { runId } satisfies ModelProxyRunCancelParams);
   };
 
   const stopServer = server.onEvent((event: ConnectionClientEvent) => {
@@ -57,10 +60,10 @@ export function relayModelProxy(
     } else if (event.type === 'notification') {
       const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
       if (method !== CANCEL) return;
-      const requestId = (params as { requestId?: RequestId } | undefined)?.requestId;
+      const requestId = (params as Partial<ModelProxyCancelParams> | undefined)?.requestId;
       const runId = requestId === undefined ? undefined : runs.get(JSON.stringify(requestId));
       // A call that is over, or never was, has nothing to stop.
-      if (runId !== undefined) local.notify(RUN_CANCEL, { runId });
+      if (runId !== undefined) local.notify(RUN_CANCEL, { runId } satisfies ModelProxyRunCancelParams);
     }
   });
 
@@ -68,9 +71,9 @@ export function relayModelProxy(
     if (event.type !== 'notification') return;
     const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
     if (method !== RUN_EVENT) return;
-    const { runId, event: runEvent } = params as { runId: string; event: unknown };
+    const { runId, event: runEvent } = params as ModelProxyRunEventParams;
     const requestId = requests.get(runId);
-    if (requestId !== undefined) server.notify(EVENT, { requestId, event: runEvent });
+    if (requestId !== undefined) server.notify(EVENT, { requestId, event: runEvent } satisfies ModelProxyEventParams);
   });
 
   function execute(id: RequestId, params: ExecuteParams): void {
@@ -81,7 +84,7 @@ export function relayModelProxy(
     // An abandoned run is no longer in `runs`: its answer is not sent.
     const live = (): boolean => runs.get(key) === runId;
     local
-      .call(RUN, { runId, call: params.call })
+      .call(RUN, { runId, call: params.call } satisfies ModelProxyRunParams)
       .then(
         (answer) => {
           if (!live()) return;
@@ -90,8 +93,8 @@ export function relayModelProxy(
           // answers a failed call with the error record (name, message, props) and no numeric code
           // (model-proxy-host.ts:896-910), so -32000 and the failure's message stand in.
           if (result.result === 'failed') {
-            const failure = result.failure as { message?: string } | undefined;
-            server.respond(id, { error: { code: -32000, message: failure?.message ?? 'The model call failed.', data: result.failure } });
+            const { failure } = result;
+            server.respond(id, { error: { code: -32000, message: failure.message, data: failure } });
           } else {
             server.respond(id, { result: answer });
           }

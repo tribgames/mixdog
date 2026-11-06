@@ -8,10 +8,12 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use mixdog_rt::DurabilityIo;
 use tokio::net::TcpStream;
 use tokio::process::Command;
 
 use crate::memory::error::{MemoryError, Result};
+use crate::model_install::fsio;
 
 /// First port tried for a product postmaster, and how many ports above it are scanned.
 pub const DEFAULT_PORT: u16 = 55432;
@@ -62,6 +64,8 @@ pub struct PgCluster {
     runtime: PgRuntime,
     data_dir: PathBuf,
     port: u16,
+    /// The lane the data directory's files are read and written on.
+    lane: DurabilityIo,
 }
 
 /// Settings every cluster created here starts with. A single-user local
@@ -91,8 +95,8 @@ maintenance_work_mem = 64MB
 ";
 
 /// The port line (fourth) of `postmaster.pid`, when a postmaster recorded one.
-fn read_postmaster_port(data_dir: &Path) -> Option<u16> {
-    let text = std::fs::read_to_string(data_dir.join("postmaster.pid")).ok()?;
+async fn read_postmaster_port(lane: DurabilityIo, data_dir: &Path) -> Option<u16> {
+    let text = fsio::read_to_string(lane, &data_dir.join("postmaster.pid")).await.ok()?;
     text.lines().nth(3)?.trim().parse().ok().filter(|port| *port > 0)
 }
 
@@ -132,14 +136,14 @@ struct ShareDir {
 }
 
 impl ShareDir {
-    async fn prepare(runtime: &PgRuntime) -> Result<Self> {
+    async fn prepare(lane: DurabilityIo, runtime: &PgRuntime) -> Result<Self> {
         let share = runtime.dir.join("share");
         if !cfg!(windows) || share.to_string_lossy().is_ascii() {
             return Ok(Self { link: None });
         }
         let root = PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default())
             .join(format!("mixdog-initdb-{}", uuid::Uuid::new_v4().simple()));
-        tokio::fs::create_dir_all(&root).await?;
+        fsio::create_dir_all(lane, &root).await?;
         let link = root.join("share");
         let mut mklink = Command::new("cmd");
         mklink.arg("/C").arg("mklink").arg("/J").arg(&link).arg(&share);
@@ -151,12 +155,12 @@ impl ShareDir {
         self.link.as_deref()
     }
 
-    async fn release(self) {
+    async fn release(self, lane: DurabilityIo) {
         if let Some(link) = self.link {
             // Both removals are non-recursive: the runtime share is never touched.
-            let _ = tokio::fs::remove_dir(&link).await;
+            let _ = fsio::remove_dir(lane, &link).await;
             if let Some(root) = link.parent() {
-                let _ = tokio::fs::remove_dir(root).await;
+                let _ = fsio::remove_dir(lane, root).await;
             }
         }
     }
@@ -164,15 +168,15 @@ impl ShareDir {
 
 impl PgCluster {
     /// Attach to the cluster that serves `data_dir`, or initialise and start it.
-    pub async fn ensure(runtime: PgRuntime, data_dir: impl Into<PathBuf>, preferred_port: u16) -> Result<Self> {
+    pub async fn ensure(runtime: PgRuntime, data_dir: impl Into<PathBuf>, preferred_port: u16, lane: DurabilityIo) -> Result<Self> {
         let data_dir = data_dir.into();
-        tokio::fs::create_dir_all(&data_dir).await?;
-        if let Some(port) = read_postmaster_port(&data_dir)
+        fsio::create_dir_all(lane, &data_dir).await?;
+        if let Some(port) = read_postmaster_port(lane, &data_dir).await
             && accepts_connections(port).await {
-                return Ok(Self { runtime, data_dir, port });
+                return Ok(Self { runtime, data_dir, port, lane });
             }
-        if !data_dir.join("PG_VERSION").exists() {
-            Self::init(&runtime, &data_dir).await?;
+        if !fsio::exists(lane, &data_dir.join("PG_VERSION")).await? {
+            Self::init(lane, &runtime, &data_dir).await?;
         }
         let port = free_port(preferred_port).await?;
         let log = data_dir.join("pg.log");
@@ -190,24 +194,24 @@ impl PgCluster {
         // reach EOF; its output goes to the log file instead.
         start.stdout(Stdio::null()).stderr(Stdio::null());
         if !start.status().await?.success() {
-            let log_text = tokio::fs::read_to_string(&log).await.unwrap_or_default();
+            let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
             return Err(MemoryError::Runtime(format!("pg_ctl start failed: {}", log_text.trim())));
         }
         let deadline = tokio::time::Instant::now() + START_DEADLINE;
         loop {
-            if accepts_connections(port).await && read_postmaster_port(&data_dir) == Some(port) {
-                return Ok(Self { runtime, data_dir, port });
+            if accepts_connections(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
+                return Ok(Self { runtime, data_dir, port, lane });
             }
             if tokio::time::Instant::now() >= deadline {
-                let log_text = tokio::fs::read_to_string(&log).await.unwrap_or_default();
+                let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
                 return Err(MemoryError::Runtime(format!("postgres did not become ready on port {port}: {}", log_text.trim())));
             }
             tokio::time::sleep(READY_POLL).await;
         }
     }
 
-    async fn init(runtime: &PgRuntime, data_dir: &Path) -> Result<()> {
-        let share = ShareDir::prepare(runtime).await?;
+    async fn init(lane: DurabilityIo, runtime: &PgRuntime, data_dir: &Path) -> Result<()> {
+        let share = ShareDir::prepare(lane, runtime).await?;
         let mut initdb = runtime.command("initdb");
         initdb.arg("-D").arg(data_dir);
         if let Some(path) = share.path() {
@@ -215,12 +219,12 @@ impl PgCluster {
         }
         initdb.args(["--auth-local=trust", "--no-locale", "-E", "UTF8", "-U", "postgres"]);
         let result = run(initdb, "initdb").await;
-        share.release().await;
+        share.release(lane).await;
         result?;
         let conf = data_dir.join("postgresql.conf");
-        let mut text = tokio::fs::read_to_string(&conf).await?;
+        let mut text = fsio::read_to_string(lane, &conf).await?;
         text.push_str(CLUSTER_CONF);
-        tokio::fs::write(&conf, text).await?;
+        fsio::write(lane, &conf, text.into_bytes()).await?;
         Ok(())
     }
 
@@ -240,7 +244,7 @@ impl PgCluster {
         match run(stop, "pg_ctl stop").await {
             Ok(_) => Ok(()),
             // No postmaster.pid means nothing was running.
-            Err(_) if read_postmaster_port(&self.data_dir).is_none() => Ok(()),
+            Err(_) if read_postmaster_port(self.lane, &self.data_dir).await.is_none() => Ok(()),
             Err(error) => Err(error),
         }
     }

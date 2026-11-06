@@ -11,9 +11,10 @@ use mixdog_rt::CpuBulk;
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
-use crate::effort_judge::model::{ModelConfig, available};
+use crate::effort_judge::model::{ModelConfig, available_on};
+use crate::lane::on_lane;
 use crate::model_install::{
-    InstallError, ProgressSink, Spec, download_to_file, sha256_file, write_file_atomic,
+    InstallError, ProgressSink, Spec, download_to_file, fsio, sha256_file, write_file_atomic,
 };
 
 const STAMP: &str = "install.json";
@@ -69,6 +70,7 @@ impl Manifest {
 
 /// The release named by the stamp; empty when it is missing or damaged, so a
 /// damaged stamp reads as not installed.
+#[allow(clippy::disallowed_methods, reason = "a lane-job body: async callers go through `install_current_on`, the host's info reader runs it as a read-lane job")]
 pub fn stamped_release(dir: &Path) -> String {
     std::fs::read(dir.join(STAMP))
         .ok()
@@ -87,6 +89,12 @@ pub fn install_current(dir: &Path, manifest: &Manifest) -> bool {
     stamped_release(dir) == manifest.release
 }
 
+/// [`install_current`] as a job on `lane`.
+pub async fn install_current_on(lane: CpuBulk, dir: &Path, manifest: &Manifest) -> Result<bool, InstallError> {
+    let (dir, release) = (dir.to_owned(), manifest.release.clone());
+    on_lane(lane, move || stamped_release(&dir) == release).await.map_err(InstallError::io)
+}
+
 /// Files in `dir` that are missing or differ from the manifest sha256. When any
 /// does, the stamp is removed so the folder reads as not installed and the next
 /// install fetches only those files (a crash can leave a stamped model with its
@@ -95,13 +103,14 @@ pub async fn invalidate_damaged(dir: &Path, manifest: &Manifest, lane: CpuBulk) 
     let mut bad = Vec::new();
     for (name, file) in manifest.files() {
         let target = dir.join(name);
-        let matches = target.exists() && sha256_file(lane, &target).await? == file.sha256.to_lowercase();
+        let matches = fsio::exists(lane, &target).await.map_err(InstallError::io)?
+            && sha256_file(lane, &target).await? == file.sha256.to_lowercase();
         if !matches {
             bad.push(name.clone());
         }
     }
     if !bad.is_empty() {
-        let _ = tokio::fs::remove_file(dir.join(STAMP)).await;
+        let _ = fsio::remove_file(lane, &dir.join(STAMP)).await;
     }
     Ok(bad)
 }
@@ -120,19 +129,19 @@ pub async fn install_model(
     progress: Option<&ProgressSink>,
     cancel: &CancellationToken,
 ) -> Result<(), InstallError> {
-    tokio::fs::create_dir_all(dir).await.map_err(InstallError::io)?;
+    fsio::create_dir_all(lane, dir).await.map_err(InstallError::io)?;
     let mut replaced = false;
     for (name, file) in manifest.files() {
         let target = dir.join(name);
         let expected = file.sha256.to_lowercase();
-        if target.exists() && sha256_file(lane, &target).await? == expected {
+        if fsio::exists(lane, &target).await.map_err(InstallError::io)? && sha256_file(lane, &target).await? == expected {
             continue;
         }
         let partial = partial_path(&target);
         let label = format!("effort judge {name}");
         let outcome = async {
             download_to_file(
-                &Spec { url: &file.url, dest: &partial, max_bytes: file.size, expected_bytes: file.size, label: &label },
+                &Spec { url: &file.url, dest: &partial, max_bytes: file.size, expected_bytes: file.size, label: &label, lane },
                 progress,
                 cancel,
             )
@@ -145,22 +154,22 @@ pub async fn install_model(
             // mix of releases: without a stamp it reads as not installed, so an
             // interrupted install is never loaded.
             if !replaced {
-                let _ = tokio::fs::remove_file(dir.join(STAMP)).await;
+                let _ = fsio::remove_file(lane, &dir.join(STAMP)).await;
             }
-            tokio::fs::rename(&partial, &target).await.map_err(InstallError::io)
+            fsio::rename(lane, &partial, &target).await.map_err(InstallError::io)
         }
         .await;
-        let _ = tokio::fs::remove_file(&partial).await;
+        let _ = fsio::remove_file(lane, &partial).await;
         outcome?;
         replaced = true;
     }
     if replaced {
         for name in DERIVED {
-            let _ = tokio::fs::remove_file(dir.join(name)).await;
+            let _ = fsio::remove_file(lane, &dir.join(name)).await;
         }
     }
     let stamp = serde_json::json!({ "release": manifest.release }).to_string();
-    write_file_atomic(&dir.join(STAMP), stamp.as_bytes()).await
+    write_file_atomic(lane, &dir.join(STAMP), stamp.as_bytes()).await
 }
 
 /// Installs or updates the model unless it is already the current release. An
@@ -172,8 +181,8 @@ pub async fn ensure_installed(
     progress: Option<&ProgressSink>,
     cancel: &CancellationToken,
 ) -> Result<(), InstallError> {
-    if config.explicit || (available(config) && install_current(&config.dir, manifest)) {
-        if !available(config) {
+    if config.explicit || (available_on(lane, config).await? && install_current_on(lane, &config.dir, manifest).await?) {
+        if !available_on(lane, config).await? {
             return Err(InstallError::NotInstalled(config.dir.display().to_string()));
         }
         return Ok(());

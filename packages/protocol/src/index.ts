@@ -2845,7 +2845,11 @@ name: string | null, contextWindow: number | null,
 /**
  * The largest window the listing states for the model.
  */
-maxContextWindow: number | null, maxOutputTokens: number | null, supportsReasoning: boolean | null, reasoningLevels: Array<string>, defaultReasoningLevel: string | null, supportsImages: boolean | null, hidden: boolean, raw: JsonValue | null, 
+maxContextWindow: number | null, maxOutputTokens: number | null, 
+/**
+ * The row's own prices, USD per million tokens; absent when not finite.
+ */
+inputCostPerM: number | null, outputCostPerM: number | null, cacheReadCostPerM: number | null, cacheWriteCostPerM: number | null, supportsReasoning: boolean | null, reasoningLevels: Array<string>, defaultReasoningLevel: string | null, supportsImages: boolean | null, hidden: boolean, raw: JsonValue | null, 
 /**
  * The kind of model the listing states (`chat`, `embedding`, ...).
  */

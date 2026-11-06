@@ -66,7 +66,7 @@ fn env() -> Env {
         tracked: Arc::new(GitCli),
         state: state.clone(),
         recovery_dir: base.join("recovery"),
-        user_data_dir: base.join("userdata"),
+        user_data_dir: base.join("userData"),
     })
     .unwrap();
     futures_block(service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None)).unwrap();
@@ -430,6 +430,167 @@ async fn recorded_transfer_reads_replay_through_the_transfer_methods() {
     assert_eq!(call(&env, "transfer/endRead", json!({ "transferId": id })).await.unwrap()["ended"], true);
     assert!(call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 0, "length": 8 })).await.is_err());
     assert_eq!(call(&env, "transfer/abort", json!({ "transferId": "nope" })).await.unwrap()["aborted"], entry("abort(unknown)")["result"]);
+}
+
+fn fill(value: &Value, work: &str) -> Value {
+    match value {
+        Value::String(s) => Value::String(s.replace("<WORK>", work)),
+        Value::Array(items) => Value::Array(items.iter().map(|v| fill(v, work)).collect()),
+        // `{"$repeat": [unit, count]}` stands for a string too long to keep in the corpus.
+        Value::Object(map) if map.contains_key("$repeat") => {
+            Value::String(map["$repeat"][0].as_str().unwrap().repeat(map["$repeat"][1].as_u64().unwrap() as usize))
+        }
+        Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), fill(v, work))).collect()),
+        other => other.clone(),
+    }
+}
+
+/// The corpus's scrubbing: the temp root becomes `<WORK>`, millisecond clocks 0, huge bodies their length.
+fn scrub(value: &Value, work: &str) -> Value {
+    match value {
+        Value::String(s) if s.encode_utf16().count() > 100_000 => Value::String(format!("<LEN:{}>", s.encode_utf16().count())),
+        Value::String(s) => Value::String(s.replace(work, "<WORK>")),
+        Value::Number(n) if n.as_u64().is_some_and(|n| (1_600_000_000_000..1_800_000_000_000).contains(&n)) => json!(0),
+        Value::Array(items) => Value::Array(items.iter().map(|v| scrub(v, work)).collect()),
+        Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), scrub(v, work))).collect()),
+        other => other.clone(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn recorded_editor_files_replay_identically() {
+    let fixture = corpus("editor-config");
+    let host = if cfg!(windows) { "win32" } else if cfg!(target_os = "macos") { "darwin" } else { "linux" };
+    if fixture["platform"] != host {
+        eprintln!("editor-config corpus was recorded on {}; its backup names follow that platform's case rule", fixture["platform"]);
+        return;
+    }
+    let env = env();
+    let work = env.root.parent().unwrap().to_path_buf();
+    let work_s = work.to_string_lossy().into_owned();
+    let backups = mixdog_workspace::editorcfg::Backups::new(&work.join("userData"));
+    let backup_files = || -> Vec<String> {
+        std::fs::read_dir(work.join("userData/editor-backups")).map(|d| d.map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default()
+    };
+    for (index, entry) in fixture["entries"].as_array().unwrap().iter().enumerate() {
+        let label = format!("#{index} {} {}", entry["method"], entry["input"]);
+        if entry["input"].get("note").is_some() {
+            // The file-count cap: 105 sources, newest last, mtimes one second apart.
+            let _ = std::fs::remove_dir_all(work.join("userData/editor-backups"));
+            let now = std::time::SystemTime::now();
+            for i in 0..105u64 {
+                let source = work.join(format!("cap/f{i}.txt")).to_string_lossy().into_owned();
+                call(&env, "projectFs/backup/write", json!({ "sourcePath": source, "content": format!("c{i}"), "expectedContent": "e" })).await.unwrap();
+                let file = std::fs::OpenOptions::new().write(true).open(backups.path_of(&source).unwrap()).unwrap();
+                file.set_modified(now - Duration::from_secs(105 - i)).unwrap();
+            }
+            assert_eq!(backup_files().len() as u64, entry["result"]["filesAfter"].as_u64().unwrap(), "{label}");
+            continue;
+        }
+        for step in entry["setup"].as_array().into_iter().flatten() {
+            if let Some(rel) = step["file"].as_str() {
+                tree(&work, &[(rel, step["text"].as_str().unwrap().as_bytes())]);
+            } else {
+                let source = work.join(step["backup"].as_str().unwrap()).to_string_lossy().into_owned();
+                let text = match step["raw"].as_str() {
+                    Some(raw) => raw.to_owned(),
+                    None => {
+                        let updated = mixdog_workspace::editorcfg::now_ms() - step["ageMs"].as_i64().unwrap();
+                        json!({ "content": step["content"], "expectedContent": step["expectedContent"], "updatedAt": updated }).to_string()
+                    }
+                };
+                std::fs::write(backups.path_of(&source).unwrap(), text).unwrap();
+            }
+        }
+        let input = fill(&entry["input"], &work_s);
+        let (method, params): (&'static str, Value) = match entry["method"].as_str().unwrap() {
+            "projectFs/workspaceFile/read" => ("projectFs/workspaceFile/read", json!({ "workspaceFile": input["workspaceFile"] })),
+            "projectFs/workspaceFile/write" => {
+                ("projectFs/workspaceFile/write", json!({ "workspaceFile": input["workspaceFile"], "folders": input["folders"] }))
+            }
+            "projectFs/readEditorSettings" => {
+                let root = input["root"].as_str().unwrap();
+                if !std::path::Path::new(root).exists() {
+                    // A folder that is not there cannot be a registered project: the boundary refuses it.
+                    let denied = call(&env, "projectFs/readEditorSettings", json!({ "root": root, "rel": input["rel"] })).await;
+                    assert!(matches!(denied, Err(CoreError::PermissionDenied { .. })), "{label}: {denied:?}");
+                    continue;
+                }
+                env.service.catalog().add(root, &CancellationToken::new(), None).await.unwrap();
+                ("projectFs/readEditorSettings", json!({ "root": root, "rel": input["rel"], "workspaceFile": input["workspaceFile"] }))
+            }
+            "projectFs/backup/read" => ("projectFs/backup/read", json!({ "sourcePath": input["sourcePath"] })),
+            "projectFs/backup/write" => (
+                "projectFs/backup/write",
+                json!({ "sourcePath": input["sourcePath"], "content": input["content"], "expectedContent": input["expectedContent"] }),
+            ),
+            "projectFs/backup/delete" => ("projectFs/backup/delete", json!({ "sourcePath": input["sourcePath"] })),
+            "project/taskWorkspace" => ("project/taskWorkspace", json!({})),
+            other => panic!("{label}: unmapped recorded method {other}"),
+        };
+        match (entry.get("error"), call(&env, method, params).await) {
+            (Some(error), Err(got)) => {
+                // Node's TypeErrors are this core's invalid params, with the text; its system errors only need to fail.
+                if error["name"] == "TypeError" {
+                    let CoreError::InvalidParams { expected, .. } = &got else { panic!("{label}: {got:?}") };
+                    assert_eq!(&**expected, error["message"].as_str().unwrap(), "{label}");
+                }
+            }
+            (None, Ok(value)) => {
+                if let Some(expected) = entry.get("result") {
+                    assert_eq!(&scrub(&value, &work_s), expected, "{label}");
+                }
+            }
+            (error, got) => panic!("{label}: recorded error {error:?}, got {got:?}"),
+        }
+        if let Some(expected) = entry.get("fileAfter") {
+            let mut file = input["workspaceFile"].as_str().unwrap().to_owned();
+            if !file.to_lowercase().ends_with(".code-workspace") {
+                file.push_str(".code-workspace");
+            }
+            let text = std::fs::read_to_string(&file).map(Value::String).unwrap_or(Value::Null);
+            assert_eq!(&text, expected, "{label}: file after");
+        }
+        if let Some(expected) = entry.get("files") {
+            assert_eq!(backup_files().len() as u64, expected.as_u64().unwrap(), "{label}: backup files");
+            let strays: Vec<String> = backup_files().into_iter().filter(|n| n.len() != 69 || !n.ends_with(".json")).collect();
+            assert_eq!(json!(strays), entry["fileNames"], "{label}: stray names");
+        }
+        if let Some(gone) = entry.get("fileGone") {
+            assert_eq!(!backups.path_of(input["sourcePath"].as_str().unwrap()).unwrap().exists(), gone.as_bool().unwrap(), "{label}");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribers() {
+    let env = env();
+    let root = env.root.to_string_lossy().into_owned();
+    let reply = env.service.call(request("lsp/subscribe", json!({ "root": root }))).await.unwrap();
+    let Reply::Subscribe(sub) = reply else { panic!("lsp/subscribe must subscribe") };
+    let conn = MockConnection::new(ConnectionId(1), env.limits);
+    let attached = subscribe(&sub.feed, SubscriptionId::from("s1"), sub.window, None, &conn).unwrap();
+    conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+    // No server on this machine's PATH answers `.xyz`: the manager publishes an `unsupported` status.
+    call(&env, "lsp/document", json!({ "root": root, "document": { "kind": "open", "languageId": "plaintext", "relPath": "A\\B.xyz", "content": "x", "version": 1 } })).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let frames: Vec<Value> = conn.drain_text().iter().filter_map(|f| serde_json::from_str(f).ok()).collect();
+    let status = frames.iter().find(|f| f["method"] == "lsp/status/updated").expect("a status frame");
+    let key = status["params"]["key"].as_str().unwrap();
+    // Node's `statusKey` without the project: the language, then `\0` and the lower-cased forward-slash path.
+    assert!(key == "plaintext" || key == "plaintext\0a/b.xyz", "{key:?}");
+    assert_eq!(status["params"]["section"], "lspStatus");
+    assert_eq!(status["params"]["value"]["projectPath"], root.as_str());
+    assert_eq!(status["params"]["revision"], 1);
+    // A subscriber that joins later sees the current rows in its snapshot.
+    let late = env.service.call(request("lsp/subscribe", json!({ "root": root }))).await.unwrap();
+    let Reply::Subscribe(late) = late else { panic!() };
+    let conn2 = MockConnection::new(ConnectionId(2), env.limits);
+    let attached = subscribe(&late.feed, SubscriptionId::from("s2"), late.window, None, &conn2).unwrap();
+    conn2.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let snapshot = conn2.drain_text().into_iter().find(|f| f.contains("feed/snapshot")).expect("a snapshot");
+    assert!(snapshot.contains("lspStatus") && snapshot.contains(key.replace('\0', "\\u0000").as_str()), "{snapshot}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

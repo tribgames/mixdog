@@ -1,0 +1,10 @@
+{
+  "input": {
+    "action": "wait",
+    "task_id": "JOB"
+  },
+  "isError": false,
+  "text": "background task\ntask_id: JOB\nsurface: shell\nstatus: completed\nexit_code: 0\nstarted: TS\nfinished: TS\nlogs: LOGS\n\n(no new output)",
+  "tool": "task",
+  "note": "normalized: JOB task id, TS timestamps, LOGS paths"
+}

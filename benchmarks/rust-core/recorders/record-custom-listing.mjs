@@ -7,7 +7,7 @@
 //   node benchmarks/rust-core/recorders/record-custom-listing.mjs [--tree <dir>]
 //
 // Output: native/core/fixtures/providers/oracles/custom-listing.json
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -26,6 +26,16 @@ const ROSTER = [
   { id: 'embed', type: 'embedding' },
   { id: 'plain' },
 ];
+const MODELS_DEV = {
+  'deepseek-reasoner-fixture': {
+    id: 'deepseek-reasoner-fixture',
+    name: 'DeepSeek Reasoner Fixture',
+    reasoning: true,
+    interleaved: { field: 'reasoning_content' },
+    limit: { context: 64000, output: 8000 },
+  },
+};
+const CATALOG_ROSTER = [{ id: 'deepseek-reasoner-fixture' }, { id: 'vendor/deepseek-reasoner-fixture' }, { id: 'plain' }];
 const ANTHROPIC_ROSTER = [
   { id: 'claude-x', display_name: 'Claude X', max_input_tokens: 200000, max_tokens: 64000 },
   { id: 'claude-y' },
@@ -61,6 +71,12 @@ export async function recordCustomListing(tree, outFile) {
     sent.push({ url, headers: Object.fromEntries(Object.entries(headers).filter(([k]) => ['authorization', 'x-api-key', 'anthropic-version', 'x-extra'].includes(k))) });
     return script();
   };
+  // models.dev warmed from a disk copy: a vendor row whose interleaved field the catalog
+  // lends a custom model of the same bare id as its default replay.
+  writeFileSync(
+    join(dataDir, 'modelsdev-catalog.json'),
+    `{"fetchedAt":${Date.now()},"data":${JSON.stringify({ deepseek: { models: MODELS_DEV } })}}\n`
+  );
   const custom = await importFrom(tree, `${P}/custom-provider.mjs`);
   const catalog = await importFrom(tree, 'src/runtime/shared/llm/model-catalog.mjs');
   await catalog.warmCatalogFromDisk();
@@ -83,6 +99,12 @@ export async function recordCustomListing(tree, outFile) {
   await run('plain-discovery', v2({}), () => json({ data: ROSTER }));
   await run('overrides', v2({ modelOverrides: OVERRIDES }), () => json({ data: ROSTER }));
   await run('new-models-hidden', v2({ discovery: { newModelsHidden: true }, modelOverrides: OVERRIDES }), () => json({ data: ROSTER }));
+  await run('catalog-replay', v2({}), () => json({ data: CATALOG_ROSTER }));
+  await run(
+    'catalog-replay-overridden',
+    v2({ modelOverrides: { 'deepseek-reasoner-fixture': { reasoning: { replay: false } }, 'vendor/deepseek-reasoner-fixture': { reasoning: { levels: ['low'] } } } }),
+    () => json({ data: CATALOG_ROSTER })
+  );
   await run('keyless', v2({ auth: 'none' }), () => json({ data: ROSTER.slice(0, 3) }));
   await run('failed-with-manual', v2({ modelOverrides: OVERRIDES }), () => json({ error: { message: 'bad key fixture-custom-key' } }, 403));
   await run('failed-with-nothing', v2({}), () => json({ error: 'boom' }, 500));
@@ -95,6 +117,8 @@ export async function recordCustomListing(tree, outFile) {
     recorder: 'benchmarks/rust-core/recorders/record-custom-listing.mjs',
     roster: ROSTER,
     anthropicRoster: ANTHROPIC_ROSTER,
+    catalogRoster: CATALOG_ROSTER,
+    modelsDev: MODELS_DEV,
     cases,
   });
 }

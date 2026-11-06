@@ -763,7 +763,9 @@ mod tests {
         assert!(record_transcript_boundary(&mut messages, "modelSwitches", boundary.clone(), same));
         assert!(record_transcript_boundary(&mut messages, "modelSwitches", boundary.clone(), same));
         assert_eq!(messages[2]["meta"]["modelSwitches"], json!([boundary]));
-        assert_eq!(model_switch_anchor_index(&[json!({"role": "user"}), json!({"role": "system"})]), None);
+        // Nothing but prompts: the last non-system message (`findLastIndex`), not none.
+        assert_eq!(model_switch_anchor_index(&[json!({"role": "user"}), json!({"role": "system"})]), Some(0));
+        assert_eq!(model_switch_anchor_index(&[json!({"role": "system"})]), None);
     }
 
     struct Chats;

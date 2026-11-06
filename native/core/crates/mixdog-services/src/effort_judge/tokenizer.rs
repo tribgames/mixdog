@@ -119,6 +119,7 @@ fn unsupported(what: &str) -> JudgeError {
 }
 
 impl BpeTokenizer {
+    #[allow(clippy::disallowed_methods, reason = "a lane-job body: the model load runs it on the lane")]
     pub fn load(path: &Path) -> Result<Self, JudgeError> {
         let bytes = std::fs::read(path).map_err(|e| JudgeError::Load(format!("tokenizer.json: {e}")))?;
         let file: File = serde_json::from_slice(&bytes).map_err(|e| JudgeError::Load(format!("tokenizer.json: {e}")))?;

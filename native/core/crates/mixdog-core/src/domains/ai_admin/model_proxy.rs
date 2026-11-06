@@ -615,6 +615,10 @@ pub fn model_out(m: &p::ModelRecord) -> w::ProxyModel {
         context_window: m.context_window,
         max_context_window: m.max_context_window,
         max_output_tokens: m.max_output_tokens,
+        input_cost_per_m: m.input_cost_per_m.filter(|v| v.is_finite()),
+        output_cost_per_m: m.output_cost_per_m.filter(|v| v.is_finite()),
+        cache_read_cost_per_m: m.cache_read_cost_per_m.filter(|v| v.is_finite()),
+        cache_write_cost_per_m: m.cache_write_cost_per_m.filter(|v| v.is_finite()),
         supports_reasoning: m.supports_reasoning,
         reasoning_levels: m.reasoning_levels.clone(),
         default_reasoning_level: m.default_reasoning_level.clone(),
@@ -645,6 +649,10 @@ pub fn catalog_model_out(m: &mixdog_ai::catalog::ModelRecord) -> w::ProxyModel {
         context_window: m.context_window,
         max_context_window: m.max_context_window,
         max_output_tokens: m.output_tokens,
+        input_cost_per_m: m.rates.input.filter(|v| v.is_finite()),
+        output_cost_per_m: m.rates.output.filter(|v| v.is_finite()),
+        cache_read_cost_per_m: m.rates.cache_read.filter(|v| v.is_finite()),
+        cache_write_cost_per_m: m.rates.cache_write.filter(|v| v.is_finite()),
         supports_reasoning: tri(m.reasoning),
         reasoning_levels: m.reasoning_efforts.clone(),
         default_reasoning_level: m.default_effort.clone(),
@@ -667,6 +675,10 @@ pub fn model_in(m: w::ProxyModel) -> p::ModelRecord {
     out.context_window = m.context_window;
     out.max_context_window = m.max_context_window;
     out.max_output_tokens = m.max_output_tokens;
+    out.input_cost_per_m = m.input_cost_per_m;
+    out.output_cost_per_m = m.output_cost_per_m;
+    out.cache_read_cost_per_m = m.cache_read_cost_per_m;
+    out.cache_write_cost_per_m = m.cache_write_cost_per_m;
     out.supports_reasoning = m.supports_reasoning;
     out.reasoning_levels = m.reasoning_levels;
     out.default_reasoning_level = m.default_reasoning_level;

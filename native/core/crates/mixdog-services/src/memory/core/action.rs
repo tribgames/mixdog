@@ -11,6 +11,8 @@ use serde_json::Value;
 
 use crate::memory::core::access::{MemoryCaller, Pool, valid_agent_id};
 use crate::memory::core::list::{self, ListOptions, ProjectScopeOf};
+use mixdog_rt::DurabilityIo;
+
 use crate::memory::core::store::{self, Edit, Require};
 use crate::memory::core::{index, snapshot};
 use crate::memory::error::{MemoryError, Result};
@@ -25,6 +27,8 @@ pub struct CoreContext<'a> {
     /// The calling session's working directory; the only fallback for project scope.
     pub session_cwd: Option<&'a Path>,
     pub snapshot_revision: &'a AtomicU64,
+    /// The lane project markers and the snapshot file are read and written on.
+    pub lane: DurabilityIo,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -65,9 +69,9 @@ async fn project_of(args: &Value, ctx: &CoreContext<'_>) -> Option<String> {
     let given = args.get("project_id");
     let text = given.and_then(Value::as_str).map(str::trim).unwrap_or_default();
     if given.is_none() || text.is_empty() {
-        return resolve_project_scope(args.get("cwd").and_then(Value::as_str), ctx.session_cwd).await;
+        return resolve_project_scope(ctx.lane, args.get("cwd").and_then(Value::as_str), ctx.session_cwd).await;
     }
-    (!(text.to_lowercase() == "common")).then(|| text.to_owned())
+    (text.to_lowercase() != "common").then(|| text.to_owned())
 }
 
 /// `agent_id` selects an agent's own pool: "self" is the caller's, another id
@@ -77,7 +81,7 @@ fn agent_of(args: &Value, caller: &MemoryCaller) -> Result<Option<String>> {
     if raw.is_empty() {
         return Ok(None);
     }
-    if (raw.to_lowercase() == "self") {
+    if raw.to_lowercase() == "self" {
         if caller.agent_id.is_empty() {
             return Err(MemoryError::rejected("this session has no agent memory"));
         }
@@ -92,10 +96,10 @@ async fn edit_target(args: &Value, project: Option<&str>, ctx: &CoreContext<'_>)
     if let Some(target) = args.get("target_project_id") {
         let value = if target.is_null() { String::new() } else { value_to_string(target) };
         let value = js_trim(&value);
-        return (!value.is_empty() && !(value.to_lowercase() == "common")).then(|| value.to_owned());
+        return (!value.is_empty() && value.to_lowercase() != "common").then(|| value.to_owned());
     }
     match args.get("target_cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty()) {
-        Some(cwd) => resolve_project_scope(Some(cwd), ctx.session_cwd).await,
+        Some(cwd) => resolve_project_scope(ctx.lane, Some(cwd), ctx.session_cwd).await,
         None => project.map(str::to_owned),
     }
 }
@@ -107,7 +111,7 @@ async fn describe(ctx: &CoreContext<'_>, entry: &store::CoreEntry) -> Result<Str
 }
 
 async fn refresh_snapshot(ctx: &CoreContext<'_>) -> Result<()> {
-    snapshot::refresh(ctx.db, ctx.data_dir, ctx.snapshot_revision).await?;
+    snapshot::refresh(ctx.lane, ctx.db, ctx.data_dir, ctx.snapshot_revision).await?;
     Ok(())
 }
 
@@ -231,7 +235,7 @@ async fn run_list(
         for path in paths.iter().filter_map(Value::as_str) {
             scopes.push(ProjectScopeOf {
                 path: path.to_owned(),
-                project_id: resolve_project_scope(Some(path), None).await,
+                project_id: resolve_project_scope(ctx.lane, Some(path), None).await,
             });
         }
         project_scopes = Some(scopes);

@@ -202,8 +202,9 @@ impl SessionDirectory {
 /// not loaded is opened for it.
 #[async_trait::async_trait]
 impl mixdog_tools::exec::TaskNotifier for SessionDirectory {
-    async fn finished(&self, owner: &ThreadId, task_id: &str, status: &str, notification: String) {
+    async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
         let msg = |live| Inbox::TaskNotification {
+            surface: surface.to_owned(),
             task_id: task_id.to_owned(),
             status: status.to_owned(),
             text: notification.clone(),

@@ -22,7 +22,10 @@ use crate::locks::path_key;
 use crate::repo::on_lane;
 use crate::worktree::manager::Worktrees;
 
-const MARGIN_MIN_BYTES: u64 = 64 * 1024 * 1024;
+/// The least free-space margin kept over the checkout (`disk.mjs:12` `MARGIN_MIN_BYTES`).
+pub const MARGIN_MIN_BYTES: u64 = 64 * 1024 * 1024;
+/// The margin is one tenth of the content (`disk.mjs:13` `MARGIN_RATIO = 0.1`).
+pub const MARGIN_RATIO_DIVISOR: u64 = 10;
 pub const FOLDER_SIZE_TTL: Duration = Duration::from_secs(5 * 60);
 const FOLDER_WALK_ENTRIES: usize = 250_000;
 
@@ -163,7 +166,7 @@ pub struct Tracked {
 /// Bytes needed for `content` of checkout and copies: the content plus a margin of 10%, at least
 /// 64 MiB.
 pub fn required_bytes(content: u64) -> u64 {
-    content + MARGIN_MIN_BYTES.max(content.div_ceil(10))
+    content + MARGIN_MIN_BYTES.max(content.div_ceil(MARGIN_RATIO_DIVISOR))
 }
 
 /// Sum of blob sizes in a `git ls-tree -r -l -z` listing; gitlinks flag submodules.
@@ -270,15 +273,6 @@ impl Worktrees {
     ) -> Result<(Tracked, u64), ScmFailure> {
         let tracked = self.tracked_checkout_bytes(cwd, commit, cancel).await?;
         let estimate = tracked.bytes + extra_bytes;
-        if size_warn_bytes > 0 && estimate >= size_warn_bytes && !confirm_large {
-            return Err(ScmFailure::coded(
-                crate::worktree::errors::WORKTREE_LARGE_REPO_CONFIRM,
-                mixdog_protocol::DomainErrorDetail::WorktreeLargeRepoConfirm {
-                    estimate_bytes: estimate,
-                    threshold_bytes: size_warn_bytes,
-                },
-            ));
-        }
         let needed = required_bytes(estimate);
         let target = root.to_path_buf();
         let free = on_lane(self.scm().lane, cancel, move || free_bytes_at(&target)).await?;
@@ -290,6 +284,16 @@ impl Worktrees {
                     free_bytes: Some(free),
                     path: root.to_string_lossy().into_owned(),
                     reason: None,
+                },
+            ));
+        }
+        // After the disk check, and strictly above the threshold (`manager.mjs:1466`).
+        if size_warn_bytes > 0 && estimate > size_warn_bytes && !confirm_large {
+            return Err(ScmFailure::coded(
+                crate::worktree::errors::WORKTREE_LARGE_REPO_CONFIRM,
+                mixdog_protocol::DomainErrorDetail::WorktreeLargeRepoConfirm {
+                    estimate_bytes: estimate,
+                    threshold_bytes: size_warn_bytes,
                 },
             ));
         }

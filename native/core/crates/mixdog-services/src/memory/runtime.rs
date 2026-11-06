@@ -88,7 +88,7 @@ impl MemoryRuntime {
 
     /// Installs the model when it is absent, then loads it.
     async fn install_and_load(&self, cancel: &CancellationToken) -> Result<bool, String> {
-        if !self.embedder.is_installed() {
+        if !self.embedder.is_installed().await.map_err(|e| e.to_string())? {
             self.embedder.install(self.progress.as_ref(), cancel).await.map_err(|e| e.to_string())?;
         }
         Ok(self.embedder.warmup().await?.is_some())

@@ -9,8 +9,10 @@
 //! `Unavailable`. The desktop-hosted features (browser, computer) and the desktop's own
 //! preparation of git and office go through [`SetupDesktop`].
 
+mod mcp;
 mod requests;
 
+pub use mcp::McpSetup;
 pub use requests::SetupRequests;
 pub use requests::SetupUiSurface;
 

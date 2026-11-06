@@ -1,0 +1,1487 @@
+{
+  "domain": "editor-config",
+  "entries": [
+    {
+      "fileAfter": "{\n  \"folders\": [\n    {\n      \"path\": \"a\"\n    },\n    {\n      \"path\": \"b\",\n      \"name\": \"B\"\n    },\n    {\n      \"path\": \"../other/c\"\n    },\n    {\n      \"path\": \"d\"\n    },\n    {\n      \"path\": \"D:\\\\mixdog-build\\\\tmp\\\\mixdog-editor-config-IcxOhH\\\\proj\"\n    }\n  ]\n}\n",
+      "input": {
+        "folders": [
+          {
+            "path": "<WORK>/proj/a"
+          },
+          {
+            "name": "B",
+            "path": "<WORK>/proj/b"
+          },
+          {
+            "path": "<WORK>/other/c"
+          },
+          {
+            "path": "<WORK>/PROJ/A"
+          },
+          {
+            "name": "",
+            "path": "<WORK>/proj/a/../d"
+          },
+          {
+            "path": "<WORK>/proj"
+          }
+        ],
+        "workspaceFile": "<WORK>/proj/team"
+      },
+      "method": "projectFs/workspaceFile/write",
+      "result": {
+        "folders": [
+          {
+            "path": "<WORK>\\proj\\a"
+          },
+          {
+            "name": "B",
+            "path": "<WORK>\\proj\\b"
+          },
+          {
+            "path": "<WORK>\\other\\c"
+          },
+          {
+            "name": "",
+            "path": "<WORK>\\proj\\d"
+          },
+          {
+            "path": "<WORK>\\proj"
+          }
+        ],
+        "kind": "workspace",
+        "name": "team",
+        "workspaceFile": "<WORK>\\proj\\team.code-workspace"
+      }
+    },
+    {
+      "input": {
+        "workspaceFile": "<WORK>/proj/team.code-workspace"
+      },
+      "method": "projectFs/workspaceFile/read",
+      "result": {
+        "folders": [
+          {
+            "path": "<WORK>\\proj\\a"
+          },
+          {
+            "name": "B",
+            "path": "<WORK>\\proj\\b"
+          },
+          {
+            "path": "<WORK>\\other\\c"
+          },
+          {
+            "path": "<WORK>\\proj\\d"
+          },
+          {
+            "path": "<WORK>\\proj"
+          }
+        ],
+        "kind": "workspace",
+        "name": "team",
+        "workspaceFile": "<WORK>\\proj\\team.code-workspace"
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Unexpected token '﻿', \"﻿{\n \n \"fol\"... is not valid JSON",
+        "name": "SyntaxError"
+      },
+      "input": {
+        "workspaceFile": "<WORK>/proj/commented.code-workspace"
+      },
+      "method": "projectFs/workspaceFile/read",
+      "setup": [
+        {
+          "file": "proj/commented.code-workspace",
+          "text": "﻿{\n // c\n \"folders\": [ {\"path\": \"sub\"}, {\"path\": \"../up\", \"name\": \"  Up  \"}, {\"path\": \"  \"}, {\"path\": 5}, 7, {\"path\": \"./sub\"}, {\"path\": \"x/\", \"name\": \"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\"}, ], /* tail */ \"settings\": {\"a\": 1},\n}\n"
+        }
+      ]
+    },
+    {
+      "input": {
+        "workspaceFile": "<WORK>/proj/commented2.code-workspace"
+      },
+      "method": "projectFs/workspaceFile/read",
+      "result": {
+        "folders": [
+          {
+            "path": "<WORK>\\proj\\sub"
+          },
+          {
+            "name": "Up",
+            "path": "<WORK>\\up"
+          },
+          {
+            "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "path": "<WORK>\\proj\\x"
+          }
+        ],
+        "kind": "workspace",
+        "name": "commented2",
+        "workspaceFile": "<WORK>\\proj\\commented2.code-workspace"
+      },
+      "setup": [
+        {
+          "file": "proj/commented2.code-workspace",
+          "text": "{\n // c\n \"folders\": [ {\"path\": \"sub\"}, {\"path\": \"../up\", \"name\": \"  Up  \"}, {\"path\": \"  \"}, {\"path\": 5}, 7, {\"path\": \"./sub\"}, {\"path\": \"x/\", \"name\": \"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\"}, ], /* tail */ \"settings\": {\"a\": 1},\n}\n"
+        }
+      ]
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Unexpected token '﻿', \"﻿{\n \n \"fol\"... is not valid JSON",
+        "name": "SyntaxError"
+      },
+      "input": {
+        "workspaceFile": "<WORK>/proj/sub/../commented.code-workspace"
+      },
+      "method": "projectFs/workspaceFile/read"
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Unexpected token '﻿', \"﻿{\n \n \"fol\"... is not valid JSON",
+        "name": "SyntaxError"
+      },
+      "fileAfter": "﻿{\n // c\n \"folders\": [ {\"path\": \"sub\"}, {\"path\": \"../up\", \"name\": \"  Up  \"}, {\"path\": \"  \"}, {\"path\": 5}, 7, {\"path\": \"./sub\"}, {\"path\": \"x/\", \"name\": \"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\"}, ], /* tail */ \"settings\": {\"a\": 1},\n}\n",
+      "input": {
+        "folders": [
+          {
+            "name": "S",
+            "path": "<WORK>/proj/sub"
+          },
+          {
+            "path": "<WORK>/proj"
+          }
+        ],
+        "workspaceFile": "<WORK>/proj/commented.code-workspace"
+      },
+      "method": "projectFs/workspaceFile/write"
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Workspace configuration must be an object.",
+        "name": "TypeError"
+      },
+      "input": {
+        "workspaceFile": "<WORK>/proj/array.code-workspace"
+      },
+      "method": "projectFs/workspaceFile/read",
+      "setup": [
+        {
+          "file": "proj/array.code-workspace",
+          "text": "[1]"
+        }
+      ]
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Unexpected end of JSON input",
+        "name": "SyntaxError"
+      },
+      "input": {
+        "workspaceFile": "<WORK>/proj/empty.code-workspace"
+      },
+      "method": "projectFs/workspaceFile/read",
+      "setup": [
+        {
+          "file": "proj/empty.code-workspace",
+          "text": "   "
+        }
+      ]
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Unexpected end of JSON input",
+        "name": "SyntaxError"
+      },
+      "fileAfter": "{ \"folders\": [",
+      "input": {
+        "folders": [
+          {
+            "path": "<WORK>/proj/a"
+          }
+        ],
+        "workspaceFile": "<WORK>/proj/broken.code-workspace"
+      },
+      "method": "projectFs/workspaceFile/write",
+      "setup": [
+        {
+          "file": "proj/broken.code-workspace",
+          "text": "{ \"folders\": ["
+        }
+      ]
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Workspace file must use the .code-workspace extension.",
+        "name": "TypeError"
+      },
+      "input": {
+        "workspaceFile": "<WORK>/proj/plain.json"
+      },
+      "method": "projectFs/workspaceFile/read"
+    },
+    {
+      "error": {
+        "code": "ENOENT",
+        "message": "ENOENT: no such file or directory, open '<WORK>\\proj\\missing.code-workspace'",
+        "name": "Error"
+      },
+      "input": {
+        "workspaceFile": "<WORK>/proj/missing.code-workspace"
+      },
+      "method": "projectFs/workspaceFile/read"
+    },
+    {
+      "fileAfter": "{\n  \"folders\": [\n    {\n      \"path\": \"z\"\n    }\n  ]\n}\n",
+      "input": {
+        "folders": [
+          {
+            "path": "<WORK>/proj/z"
+          }
+        ],
+        "workspaceFile": "<WORK>/proj/nul.code-workspace"
+      },
+      "method": "projectFs/workspaceFile/write",
+      "result": {
+        "folders": [
+          {
+            "path": "<WORK>\\proj\\z"
+          }
+        ],
+        "kind": "workspace",
+        "name": "nul",
+        "workspaceFile": "<WORK>\\proj\\nul.code-workspace"
+      },
+      "setup": [
+        {
+          "file": "proj/nul.code-workspace",
+          "text": "\u0000\u0000\u0000"
+        }
+      ]
+    },
+    {
+      "fileAfter": "{\n  \"folders\": []\n}\n",
+      "input": {
+        "folders": [],
+        "workspaceFile": "<WORK>/fresh/dir/ws.CODE-WORKSPACE"
+      },
+      "method": "projectFs/workspaceFile/write",
+      "result": {
+        "folders": [],
+        "kind": "workspace",
+        "name": "ws",
+        "workspaceFile": "<WORK>\\fresh\\dir\\ws.CODE-WORKSPACE"
+      }
+    },
+    {
+      "fileAfter": "{\n  \"folders\": [\n    {\n      \"path\": \"many/f0\"\n    },\n    {\n      \"path\": \"many/f1\"\n    },\n    {\n      \"path\": \"many/f2\"\n    },\n    {\n      \"path\": \"many/f3\"\n    },\n    {\n      \"path\": \"many/f4\"\n    },\n    {\n      \"path\": \"many/f5\"\n    },\n    {\n      \"path\": \"many/f6\"\n    },\n    {\n      \"path\": \"many/f7\"\n    },\n    {\n      \"path\": \"many/f8\"\n    },\n    {\n      \"path\": \"many/f9\"\n    },\n    {\n      \"path\": \"many/f10\"\n    },\n    {\n      \"path\": \"many/f11\"\n    },\n    {\n      \"path\": \"many/f12\"\n    },\n    {\n      \"path\": \"many/f13\"\n    },\n    {\n      \"path\": \"many/f14\"\n    },\n    {\n      \"path\": \"many/f15\"\n    },\n    {\n      \"path\": \"many/f16\"\n    },\n    {\n      \"path\": \"many/f17\"\n    },\n    {\n      \"path\": \"many/f18\"\n    },\n    {\n      \"path\": \"many/f19\"\n    },\n    {\n      \"path\": \"many/f20\"\n    },\n    {\n      \"path\": \"many/f21\"\n    },\n    {\n      \"path\": \"many/f22\"\n    },\n    {\n      \"path\": \"many/f23\"\n    },\n    {\n      \"path\": \"many/f24\"\n    },\n    {\n      \"path\": \"many/f25\"\n    },\n    {\n      \"path\": \"many/f26\"\n    },\n    {\n      \"path\": \"many/f27\"\n    },\n    {\n      \"path\": \"many/f28\"\n    },\n    {\n      \"path\": \"many/f29\"\n    },\n    {\n      \"path\": \"many/f30\"\n    },\n    {\n      \"path\": \"many/f31\"\n    },\n    {\n      \"path\": \"many/f32\"\n    },\n    {\n      \"path\": \"many/f33\"\n    },\n    {\n      \"path\": \"many/f34\"\n    },\n    {\n      \"path\": \"many/f35\"\n    },\n    {\n      \"path\": \"many/f36\"\n    },\n    {\n      \"path\": \"many/f37\"\n    },\n    {\n      \"path\": \"many/f38\"\n    },\n    {\n      \"path\": \"many/f39\"\n    },\n    {\n      \"path\": \"many/f40\"\n    },\n    {\n      \"path\": \"many/f41\"\n    },\n    {\n      \"path\": \"many/f42\"\n    },\n    {\n      \"path\": \"many/f43\"\n    },\n    {\n      \"path\": \"many/f44\"\n    },\n    {\n      \"path\": \"many/f45\"\n    },\n    {\n      \"path\": \"many/f46\"\n    },\n    {\n      \"path\": \"many/f47\"\n    },\n    {\n      \"path\": \"many/f48\"\n    },\n    {\n      \"path\": \"many/f49\"\n    },\n    {\n      \"path\": \"many/f50\"\n    },\n    {\n      \"path\": \"many/f51\"\n    },\n    {\n      \"path\": \"many/f52\"\n    },\n    {\n      \"path\": \"many/f53\"\n    },\n    {\n      \"path\": \"many/f54\"\n    },\n    {\n      \"path\": \"many/f55\"\n    },\n    {\n      \"path\": \"many/f56\"\n    },\n    {\n      \"path\": \"many/f57\"\n    },\n    {\n      \"path\": \"many/f58\"\n    },\n    {\n      \"path\": \"many/f59\"\n    },\n    {\n      \"path\": \"many/f60\"\n    },\n    {\n      \"path\": \"many/f61\"\n    },\n    {\n      \"path\": \"many/f62\"\n    },\n    {\n      \"path\": \"many/f63\"\n    }\n  ]\n}\n",
+      "input": {
+        "folders": [
+          {
+            "path": "<WORK>/many/f0"
+          },
+          {
+            "path": "<WORK>/many/f1"
+          },
+          {
+            "path": "<WORK>/many/f2"
+          },
+          {
+            "path": "<WORK>/many/f3"
+          },
+          {
+            "path": "<WORK>/many/f4"
+          },
+          {
+            "path": "<WORK>/many/f5"
+          },
+          {
+            "path": "<WORK>/many/f6"
+          },
+          {
+            "path": "<WORK>/many/f7"
+          },
+          {
+            "path": "<WORK>/many/f8"
+          },
+          {
+            "path": "<WORK>/many/f9"
+          },
+          {
+            "path": "<WORK>/many/f10"
+          },
+          {
+            "path": "<WORK>/many/f11"
+          },
+          {
+            "path": "<WORK>/many/f12"
+          },
+          {
+            "path": "<WORK>/many/f13"
+          },
+          {
+            "path": "<WORK>/many/f14"
+          },
+          {
+            "path": "<WORK>/many/f15"
+          },
+          {
+            "path": "<WORK>/many/f16"
+          },
+          {
+            "path": "<WORK>/many/f17"
+          },
+          {
+            "path": "<WORK>/many/f18"
+          },
+          {
+            "path": "<WORK>/many/f19"
+          },
+          {
+            "path": "<WORK>/many/f20"
+          },
+          {
+            "path": "<WORK>/many/f21"
+          },
+          {
+            "path": "<WORK>/many/f22"
+          },
+          {
+            "path": "<WORK>/many/f23"
+          },
+          {
+            "path": "<WORK>/many/f24"
+          },
+          {
+            "path": "<WORK>/many/f25"
+          },
+          {
+            "path": "<WORK>/many/f26"
+          },
+          {
+            "path": "<WORK>/many/f27"
+          },
+          {
+            "path": "<WORK>/many/f28"
+          },
+          {
+            "path": "<WORK>/many/f29"
+          },
+          {
+            "path": "<WORK>/many/f30"
+          },
+          {
+            "path": "<WORK>/many/f31"
+          },
+          {
+            "path": "<WORK>/many/f32"
+          },
+          {
+            "path": "<WORK>/many/f33"
+          },
+          {
+            "path": "<WORK>/many/f34"
+          },
+          {
+            "path": "<WORK>/many/f35"
+          },
+          {
+            "path": "<WORK>/many/f36"
+          },
+          {
+            "path": "<WORK>/many/f37"
+          },
+          {
+            "path": "<WORK>/many/f38"
+          },
+          {
+            "path": "<WORK>/many/f39"
+          },
+          {
+            "path": "<WORK>/many/f40"
+          },
+          {
+            "path": "<WORK>/many/f41"
+          },
+          {
+            "path": "<WORK>/many/f42"
+          },
+          {
+            "path": "<WORK>/many/f43"
+          },
+          {
+            "path": "<WORK>/many/f44"
+          },
+          {
+            "path": "<WORK>/many/f45"
+          },
+          {
+            "path": "<WORK>/many/f46"
+          },
+          {
+            "path": "<WORK>/many/f47"
+          },
+          {
+            "path": "<WORK>/many/f48"
+          },
+          {
+            "path": "<WORK>/many/f49"
+          },
+          {
+            "path": "<WORK>/many/f50"
+          },
+          {
+            "path": "<WORK>/many/f51"
+          },
+          {
+            "path": "<WORK>/many/f52"
+          },
+          {
+            "path": "<WORK>/many/f53"
+          },
+          {
+            "path": "<WORK>/many/f54"
+          },
+          {
+            "path": "<WORK>/many/f55"
+          },
+          {
+            "path": "<WORK>/many/f56"
+          },
+          {
+            "path": "<WORK>/many/f57"
+          },
+          {
+            "path": "<WORK>/many/f58"
+          },
+          {
+            "path": "<WORK>/many/f59"
+          },
+          {
+            "path": "<WORK>/many/f60"
+          },
+          {
+            "path": "<WORK>/many/f61"
+          },
+          {
+            "path": "<WORK>/many/f62"
+          },
+          {
+            "path": "<WORK>/many/f63"
+          },
+          {
+            "path": "<WORK>/many/f64"
+          },
+          {
+            "path": "<WORK>/many/f65"
+          },
+          {
+            "path": "<WORK>/many/f66"
+          },
+          {
+            "path": "<WORK>/many/f67"
+          },
+          {
+            "path": "<WORK>/many/f68"
+          },
+          {
+            "path": "<WORK>/many/f69"
+          }
+        ],
+        "workspaceFile": "<WORK>/many"
+      },
+      "method": "projectFs/workspaceFile/write",
+      "result": {
+        "folders": [
+          {
+            "path": "<WORK>\\many\\f0"
+          },
+          {
+            "path": "<WORK>\\many\\f1"
+          },
+          {
+            "path": "<WORK>\\many\\f2"
+          },
+          {
+            "path": "<WORK>\\many\\f3"
+          },
+          {
+            "path": "<WORK>\\many\\f4"
+          },
+          {
+            "path": "<WORK>\\many\\f5"
+          },
+          {
+            "path": "<WORK>\\many\\f6"
+          },
+          {
+            "path": "<WORK>\\many\\f7"
+          },
+          {
+            "path": "<WORK>\\many\\f8"
+          },
+          {
+            "path": "<WORK>\\many\\f9"
+          },
+          {
+            "path": "<WORK>\\many\\f10"
+          },
+          {
+            "path": "<WORK>\\many\\f11"
+          },
+          {
+            "path": "<WORK>\\many\\f12"
+          },
+          {
+            "path": "<WORK>\\many\\f13"
+          },
+          {
+            "path": "<WORK>\\many\\f14"
+          },
+          {
+            "path": "<WORK>\\many\\f15"
+          },
+          {
+            "path": "<WORK>\\many\\f16"
+          },
+          {
+            "path": "<WORK>\\many\\f17"
+          },
+          {
+            "path": "<WORK>\\many\\f18"
+          },
+          {
+            "path": "<WORK>\\many\\f19"
+          },
+          {
+            "path": "<WORK>\\many\\f20"
+          },
+          {
+            "path": "<WORK>\\many\\f21"
+          },
+          {
+            "path": "<WORK>\\many\\f22"
+          },
+          {
+            "path": "<WORK>\\many\\f23"
+          },
+          {
+            "path": "<WORK>\\many\\f24"
+          },
+          {
+            "path": "<WORK>\\many\\f25"
+          },
+          {
+            "path": "<WORK>\\many\\f26"
+          },
+          {
+            "path": "<WORK>\\many\\f27"
+          },
+          {
+            "path": "<WORK>\\many\\f28"
+          },
+          {
+            "path": "<WORK>\\many\\f29"
+          },
+          {
+            "path": "<WORK>\\many\\f30"
+          },
+          {
+            "path": "<WORK>\\many\\f31"
+          },
+          {
+            "path": "<WORK>\\many\\f32"
+          },
+          {
+            "path": "<WORK>\\many\\f33"
+          },
+          {
+            "path": "<WORK>\\many\\f34"
+          },
+          {
+            "path": "<WORK>\\many\\f35"
+          },
+          {
+            "path": "<WORK>\\many\\f36"
+          },
+          {
+            "path": "<WORK>\\many\\f37"
+          },
+          {
+            "path": "<WORK>\\many\\f38"
+          },
+          {
+            "path": "<WORK>\\many\\f39"
+          },
+          {
+            "path": "<WORK>\\many\\f40"
+          },
+          {
+            "path": "<WORK>\\many\\f41"
+          },
+          {
+            "path": "<WORK>\\many\\f42"
+          },
+          {
+            "path": "<WORK>\\many\\f43"
+          },
+          {
+            "path": "<WORK>\\many\\f44"
+          },
+          {
+            "path": "<WORK>\\many\\f45"
+          },
+          {
+            "path": "<WORK>\\many\\f46"
+          },
+          {
+            "path": "<WORK>\\many\\f47"
+          },
+          {
+            "path": "<WORK>\\many\\f48"
+          },
+          {
+            "path": "<WORK>\\many\\f49"
+          },
+          {
+            "path": "<WORK>\\many\\f50"
+          },
+          {
+            "path": "<WORK>\\many\\f51"
+          },
+          {
+            "path": "<WORK>\\many\\f52"
+          },
+          {
+            "path": "<WORK>\\many\\f53"
+          },
+          {
+            "path": "<WORK>\\many\\f54"
+          },
+          {
+            "path": "<WORK>\\many\\f55"
+          },
+          {
+            "path": "<WORK>\\many\\f56"
+          },
+          {
+            "path": "<WORK>\\many\\f57"
+          },
+          {
+            "path": "<WORK>\\many\\f58"
+          },
+          {
+            "path": "<WORK>\\many\\f59"
+          },
+          {
+            "path": "<WORK>\\many\\f60"
+          },
+          {
+            "path": "<WORK>\\many\\f61"
+          },
+          {
+            "path": "<WORK>\\many\\f62"
+          },
+          {
+            "path": "<WORK>\\many\\f63"
+          }
+        ],
+        "kind": "workspace",
+        "name": "many",
+        "workspaceFile": "<WORK>\\many.code-workspace"
+      }
+    },
+    {
+      "input": {
+        "rel": "a.ts",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": false,
+        "detectIndentation": true,
+        "fontFamily": "\"JetBrains Mono Variable\", \"Cascadia Code\", Consolas, monospace",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": false,
+        "formatOnType": false,
+        "inlayHintsEnabled": "on",
+        "insertSpaces": true,
+        "lineHeight": 21,
+        "markdownDefaultView": "preview",
+        "minimapEnabled": true,
+        "renderWhitespace": "selection",
+        "stickyScrollEnabled": true,
+        "tabSize": 4,
+        "wordWrap": "off",
+        "wordWrapColumn": 80
+      }
+    },
+    {
+      "input": {
+        "rel": "a.ts",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": true,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      },
+      "setup": [
+        {
+          "file": "userData/User/settings.json",
+          "text": "{\n  // user scope\n  \"editor.fontSize\": 18, \"editor.wordWrap\": \"on\", \"editor.tabSize\": \"8\", \"editor.renderWhitespace\": \"all\",\n  \"editor.fontFamily\": \"  Fira Code  \", \"mixdog.markdown.defaultView\": \"rich\",\n  \"[typescript][javascript]\": { \"editor.tabSize\": 2, \"editor.formatOnSave\": true },\n  \"[markdown]\": { \"editor.wordWrap\": \"bounded\", \"editor.minimap.enabled\": false },\n  \"editor\": { \"lineHeight\": 30, \"guides\": { \"bracketPairs\": \"active\" }, \"inlayHints\": { \"enabled\": \"onUnlessPressed\" } },\n}"
+        },
+        {
+          "file": "wsconf/w.code-workspace",
+          "text": "{ \"folders\": [], \"settings\": { \"editor.fontSize\": 20, \"[python]\": { \"editor.insertSpaces\": false }, \"editor.tabSize\": 99 } }"
+        },
+        {
+          "file": "folderA/.vscode/settings.json",
+          "text": "{ \"editor.fontSize\": 5, \"editor.lineHeight\": 99.5, \"editor.formatOnType\": \"yes\", \"editor.stickyScroll.enabled\": false, \"editor.inlayHints.enabled\": false, \"editor.wordWrapColumn\": 120.6 }"
+        }
+      ]
+    },
+    {
+      "input": {
+        "rel": "b.md",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": false,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": false,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "bounded",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": "src/c.py",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": false,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": false,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": "Dockerfile",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": false,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": "x.unknownext",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": false,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": "docs/README.MD",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": false,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": false,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "bounded",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": "a.test.tsx",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": true,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": "conf.jsonc",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": false,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": ".gitignore",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": false,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": "Makefile",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": false,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": "weird.d.ts",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/w.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": true,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 4,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": "a.ts",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": true,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 2,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      }
+    },
+    {
+      "input": {
+        "rel": "a.ts",
+        "root": "<WORK>/folderMissing",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 18,
+        "formatOnPaste": false,
+        "formatOnSave": true,
+        "formatOnType": false,
+        "inlayHintsEnabled": "onUnlessPressed",
+        "insertSpaces": true,
+        "lineHeight": 30,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": true,
+        "tabSize": 2,
+        "wordWrap": "on",
+        "wordWrapColumn": 80
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Unexpected end of JSON input",
+        "name": "SyntaxError"
+      },
+      "input": {
+        "rel": "a.ts",
+        "root": "<WORK>/folderBad",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/readEditorSettings",
+      "setup": [
+        {
+          "file": "folderBad/.vscode/settings.json",
+          "text": "{ \"editor.fontSize\": "
+        }
+      ]
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Expected property name or '}' in JSON at position 2 (line 1 column 3)",
+        "name": "SyntaxError"
+      },
+      "input": {
+        "rel": "a.ts",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/bad.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "setup": [
+        {
+          "file": "wsconf/bad.code-workspace",
+          "text": "{ nope"
+        }
+      ]
+    },
+    {
+      "input": {
+        "rel": "a.ts",
+        "root": "<WORK>/folderA",
+        "userData": "<WORK>/userData",
+        "workspaceFile": "<WORK>/wsconf/arr.code-workspace"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": true,
+        "formatOnType": false,
+        "inlayHintsEnabled": "off",
+        "insertSpaces": true,
+        "lineHeight": 99.5,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": false,
+        "tabSize": 2,
+        "wordWrap": "on",
+        "wordWrapColumn": 121
+      },
+      "setup": [
+        {
+          "file": "wsconf/arr.code-workspace",
+          "text": "{ \"settings\": [1] }"
+        }
+      ]
+    },
+    {
+      "input": {
+        "rel": "a.ts",
+        "root": "<WORK>/folderNul",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "Fira Code",
+        "fontSize": 18,
+        "formatOnPaste": false,
+        "formatOnSave": true,
+        "formatOnType": false,
+        "inlayHintsEnabled": "onUnlessPressed",
+        "insertSpaces": true,
+        "lineHeight": 30,
+        "markdownDefaultView": "rich",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": true,
+        "tabSize": 2,
+        "wordWrap": "on",
+        "wordWrapColumn": 80
+      },
+      "setup": [
+        {
+          "file": "folderNul/.vscode/settings.json",
+          "text": "\u0000\u0000"
+        }
+      ]
+    },
+    {
+      "input": {
+        "rel": "a.ts",
+        "root": "<WORK>/folderLong",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/readEditorSettings",
+      "result": {
+        "bracketPairColorization": true,
+        "bracketPairGuides": "active",
+        "detectIndentation": true,
+        "fontFamily": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "fontSize": 14,
+        "formatOnPaste": false,
+        "formatOnSave": true,
+        "formatOnType": false,
+        "inlayHintsEnabled": "onUnlessPressed",
+        "insertSpaces": true,
+        "lineHeight": 8,
+        "markdownDefaultView": "preview",
+        "minimapEnabled": true,
+        "renderWhitespace": "all",
+        "stickyScrollEnabled": true,
+        "tabSize": 4,
+        "wordWrap": "on",
+        "wordWrapColumn": 80
+      },
+      "setup": [
+        {
+          "file": "folderLong/.vscode/settings.json",
+          "text": "{\"editor.fontFamily\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"editor.fontSize\":100.1,\"editor.lineHeight\":8,\"editor.tabSize\":16.4,\"editor.insertSpaces\":\"no\",\"mixdog.markdown.defaultView\":\"bogus\"}"
+        }
+      ]
+    },
+    {
+      "input": {
+        "sourcePath": "<WORK>/p/file.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/read",
+      "result": null
+    },
+    {
+      "fileNames": [],
+      "files": 1,
+      "input": {
+        "content": "mine",
+        "expectedContent": "disk",
+        "sourcePath": "<WORK>/p/file.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/write",
+      "result": {
+        "content": "mine",
+        "expectedContent": "disk",
+        "updatedAt": 0
+      }
+    },
+    {
+      "input": {
+        "sourcePath": "<WORK>/p/file.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/read",
+      "result": {
+        "content": "mine",
+        "expectedContent": "disk",
+        "updatedAt": 0
+      }
+    },
+    {
+      "input": {
+        "sourcePath": "<WORK>/P/FILE.TXT",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/read",
+      "result": {
+        "content": "mine",
+        "expectedContent": "disk",
+        "updatedAt": 0
+      }
+    },
+    {
+      "input": {
+        "sourcePath": "<WORK>/p/../p/file.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/read",
+      "result": {
+        "content": "mine",
+        "expectedContent": "disk",
+        "updatedAt": 0
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Editor backup content is invalid.",
+        "name": "TypeError"
+      },
+      "fileNames": [],
+      "files": 1,
+      "input": {
+        "content": {
+          "$repeat": [
+            "x",
+            4194305
+          ]
+        },
+        "expectedContent": "",
+        "sourcePath": "<WORK>/p/file.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/write"
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Editor backup path is invalid.",
+        "name": "TypeError"
+      },
+      "fileNames": [],
+      "files": 1,
+      "input": {
+        "content": "a",
+        "expectedContent": "b",
+        "sourcePath": "relative/file.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/write"
+    },
+    {
+      "error": {
+        "code": null,
+        "message": "Editor backup path is invalid.",
+        "name": "TypeError"
+      },
+      "input": {
+        "sourcePath": "relative/file.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/read"
+    },
+    {
+      "fileNames": [],
+      "files": 2,
+      "input": {
+        "content": {
+          "$repeat": [
+            "😀",
+            2097152
+          ]
+        },
+        "expectedContent": "",
+        "sourcePath": "<WORK>/p/uni.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/write",
+      "result": {
+        "content": "<LEN:4194304>",
+        "expectedContent": "",
+        "updatedAt": 0
+      }
+    },
+    {
+      "fileGone": true,
+      "input": {
+        "sourcePath": "<WORK>/p/bad.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/read",
+      "result": null,
+      "setup": [
+        {
+          "backup": "p/bad.txt",
+          "raw": "{ not json"
+        }
+      ]
+    },
+    {
+      "input": {
+        "sourcePath": "<WORK>/p/old.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/read",
+      "result": null,
+      "setup": [
+        {
+          "ageMs": 2678400000,
+          "backup": "p/old.txt",
+          "content": "c",
+          "expectedContent": "e"
+        }
+      ]
+    },
+    {
+      "input": {
+        "sourcePath": "<WORK>/p/shape.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/read",
+      "result": null,
+      "setup": [
+        {
+          "ageMs": 0,
+          "backup": "p/shape.txt",
+          "content": 5,
+          "expectedContent": "e"
+        }
+      ]
+    },
+    {
+      "fileNames": [],
+      "files": 1,
+      "input": {
+        "sourcePath": "<WORK>/p/file.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/delete"
+    },
+    {
+      "fileNames": [],
+      "files": 1,
+      "input": {
+        "sourcePath": "<WORK>/p/file.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/delete"
+    },
+    {
+      "input": {
+        "sourcePath": "<WORK>/p/file.txt",
+        "userData": "<WORK>/userData"
+      },
+      "method": "projectFs/backup/read",
+      "result": null
+    },
+    {
+      "input": {
+        "note": "105 distinct sources, newest last, mtimes 1 s apart"
+      },
+      "method": "projectFs/backup/write",
+      "result": {
+        "filesAfter": 101
+      }
+    },
+    {
+      "input": {
+        "userData": "<WORK>/userData"
+      },
+      "method": "project/taskWorkspace",
+      "result": {
+        "path": "<WORK>\\userData\\workspace\\unclassified"
+      }
+    }
+  ],
+  "platform": "win32",
+  "recorder": "record-editor-config.mjs"
+}

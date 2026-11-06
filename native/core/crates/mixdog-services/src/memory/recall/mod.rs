@@ -70,6 +70,8 @@ pub struct RecallDeps {
     pub embedder: Option<Arc<dyn QueryEmbedder>>,
     /// Working directory of the calling session, for project classification.
     pub session_cwd: Option<PathBuf>,
+    /// The lane project marker files are read on.
+    pub lane: mixdog_rt::DurabilityIo,
     /// Token estimate used to judge whether a summary is shorter than its source.
     pub estimate_tokens: Arc<dyn Fn(&str) -> u64 + Send + Sync>,
     pub trace: Option<TraceSink>,
@@ -320,7 +322,7 @@ impl Recall {
             return Ok(RecallOutcome::ok(text));
         }
         let cwd = args.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty());
-        let resolved = resolve_project_scope(cwd, self.deps.session_cwd.as_deref()).await;
+        let resolved = resolve_project_scope(self.deps.lane, cwd, self.deps.session_cwd.as_deref()).await;
         if let Some(ids) = args.raw.get("ids").filter(|v| v.as_array().is_some_and(|a| !a.is_empty())) {
             let ids = id_values(ids);
             let text = search_by_ids(db, &clock, args, &ids, resolved.as_deref()).await?;

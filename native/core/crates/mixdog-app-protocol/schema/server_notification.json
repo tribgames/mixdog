@@ -2464,14 +2464,14 @@
           "type": "string"
         },
         {
-          "description": "Language-server status; key = root (scoped feed `lsp:<root>`).",
+          "description": "Language-server status (scoped feed `lsp:<root>`); key = `<languageId>`, or `<languageId>\\0<relPath>` for a status the server answered for one file (Node's `statusKey` in `editor-language-store.ts`). The value is Node's `DesktopLspStatusEvent`.",
           "enum": [
             "lspStatus"
           ],
           "type": "string"
         },
         {
-          "description": "Diagnostics; key = document uri (scoped feed `lsp:<root>`).",
+          "description": "Diagnostics (scoped feed `lsp:<root>`); key = document uri. The value is Node's `DesktopLspDiagnosticEvent`; an empty `diagnostics` list clears the document.",
           "enum": [
             "lspDiagnostics"
           ],

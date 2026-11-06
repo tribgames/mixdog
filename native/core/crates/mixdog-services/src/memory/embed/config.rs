@@ -24,7 +24,7 @@ pub enum InputType {
 impl InputType {
     /// Anything but `query` is a document.
     pub fn parse(value: Option<&str>) -> Self {
-        if value.is_some_and(|v| (js_trim(v).to_lowercase() == "query")) { Self::Query } else { Self::Document }
+        if value.is_some_and(|v| js_trim(v).to_lowercase() == "query") { Self::Query } else { Self::Document }
     }
 }
 

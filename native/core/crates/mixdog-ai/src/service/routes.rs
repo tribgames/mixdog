@@ -421,7 +421,9 @@ fn resolve_candidate(
     let tool_type = Some(clean(route.get("toolType"))).filter(|t| !t.is_empty());
     if is_default_web_search_route(route) {
         let main = main.filter(|m| !m.provider.is_empty() && !m.model.is_empty())?;
-        let catalog = main.catalog_row.clone().or_else(|| catalog_row_for(&main.provider, &main.model));
+        // The global catalog is always consulted (`catalogRowFor(id, provider)`), after the
+        // Main row: a row that declares nothing leaves the catalog the word.
+        let catalog = catalog_row_for(&main.provider, &main.model);
         if !web_search_capable_for(&main.provider, &main.model, main.catalog_row.as_ref(), catalog.as_ref()) {
             return None;
         }

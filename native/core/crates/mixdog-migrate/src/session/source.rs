@@ -6,6 +6,15 @@
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 
+use indexmap::IndexMap;
+use mixdog_js::js_object_keys;
+use mixdog_js::js_trim;
+use mixdog_js::string_to_number;
+use mixdog_js::time::date_parse;
+use mixdog_js::to_number;
+use mixdog_protocol::message_class::js::or_str;
+use mixdog_protocol::message_class::js::string as js_string;
+use mixdog_store::schema::migration::ItemKind;
 use mixdog_store::schema::migration::ManifestItem;
 use mixdog_store::schema::migration::QuarantineCode;
 use mixdog_store::schema::migration::SourceFile;
@@ -58,22 +67,7 @@ pub const SPOOL_DIR: &str = "session-pending";
 pub const LEGACY_SPOOL: &str = "session-pending-messages.json";
 pub const AGENT_WORKERS: &str = "agent-workers.json";
 pub const LEAD_WORKERS: &str = "lead-workers.json";
-
-/// Worker-row fields carried as the `worker` header map (SM §11.4.6).
-const WORKER_FIELDS: &[&str] = &[
-    "tag",
-    "task_id",
-    "stage",
-    "status",
-    "error",
-    "failureReason",
-    "finishedAt",
-    "released",
-    "reapAt",
-    "restartNotified",
-    "turnStartedAt",
-    "runtimePid",
-];
+pub const AGENT_RELEASED: &str = "agent-workers-released.json";
 
 pub fn is_session_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
@@ -816,13 +810,48 @@ struct Spool<'a> {
 struct Workers<'a> {
     #[serde(borrow, default)]
     workers: HashMap<String, &'a RawValue>,
+    #[serde(borrow, default)]
+    tombstones: Option<&'a RawValue>,
 }
 
-/// Session ids a shared file names (`sessions` keys of a spool; `sessionId` of worker
-/// rows). `None` when the file does not parse.
-pub fn shared_session_ids(name: &str, bytes: &[u8]) -> Option<Vec<String>> {
+#[derive(Deserialize)]
+struct Released<'a> {
+    #[serde(borrow, default)]
+    released: Option<&'a RawValue>,
+}
+
+/// An index's `workers` or `tombstones`: a list as is, or an object's values in
+/// `Object.values` order (integer-like keys first); anything else has none (`workerRows`,
+/// `store-agent-worker-rows.mjs`; `normalizeTagTombstones`, `worker-rows.mjs:73`).
+fn index_rows(raw: Option<&RawValue>) -> serde_json::Result<Vec<&RawValue>> {
+    match raw.map(|r| r.get().trim_start()) {
+        Some(text) if text.starts_with('[') => serde_json::from_str(text),
+        Some(text) if text.starts_with('{') => {
+            let rows: IndexMap<String, &RawValue> = serde_json::from_str(text)?;
+            let keys: Map<String, Value> = rows.keys().map(|k| (k.clone(), Value::Null)).collect();
+            Ok(js_object_keys(&keys).into_iter().map(|k| rows[k.as_str()]).collect())
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
+/// Session id → release marker; anything but an object has none (`parseReleased`).
+fn released_entries(raw: Option<&RawValue>) -> serde_json::Result<HashMap<String, &RawValue>> {
+    match raw.map(|r| r.get().trim_start()) {
+        Some(text) if text.starts_with('{') => serde_json::from_str(text),
+        _ => Ok(HashMap::new()),
+    }
+}
+
+/// What a shared file names: the session ids (`sessions` keys of a spool; `sessionId` of
+/// worker rows and tombstones; keys of the release markers) and the tombstones without a
+/// `sessionId`, whose session `recover_owner` finds. `None` when the file does not parse.
+pub fn shared_session_ids(name: &str, bytes: &[u8]) -> Option<(Vec<String>, Vec<Value>)> {
     let text = std::str::from_utf8(bytes).ok()?;
-    if name.ends_with(AGENT_WORKERS) || name.ends_with(LEAD_WORKERS) {
+    if name.ends_with(AGENT_RELEASED) {
+        let doc: Released<'_> = serde_json::from_str(text).ok()?;
+        Some((released_entries(doc.released).ok()?.into_keys().collect(), Vec::new()))
+    } else if name.ends_with(AGENT_WORKERS) || name.ends_with(LEAD_WORKERS) {
         let workers: Workers<'_> = serde_json::from_str(text).ok()?;
         let mut ids = Vec::new();
         for raw in workers.workers.values() {
@@ -830,12 +859,136 @@ pub fn shared_session_ids(name: &str, bytes: &[u8]) -> Option<Vec<String>> {
             if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
                 ids.push(id.to_string());
             }
+            // The parent link matches the cleaned id (`parent_link`).
+            let linked = clean(row.get("sessionId"));
+            if row.get("sessionId").and_then(Value::as_str) != Some(linked.as_str()) {
+                ids.push(linked);
+            }
         }
-        Some(ids)
+        let mut ownerless = Vec::new();
+        for raw in index_rows(workers.tombstones).ok()? {
+            let row = json::parse_source(raw.get().as_bytes()).ok()?.value;
+            match clean_nullish(row.get("sessionId")) {
+                id if !id.is_empty() => ids.push(id),
+                _ if row.is_object() => ownerless.push(row),
+                _ => {}
+            }
+        }
+        Some((ids, ownerless))
     } else {
         let spool: Spool<'_> = serde_json::from_str(text).ok()?;
-        Some(spool.sessions.into_keys().collect())
+        Some((spool.sessions.into_keys().collect(), Vec::new()))
     }
+}
+
+// ── Tag tombstones (`worker-rows.mjs`, `agent-reap-state.mjs`) ───────────────
+
+/// The agent tool's `clean`: `String(value ?? '').trim()`.
+fn clean_nullish(value: Option<&Value>) -> String {
+    js_trim(&js_string(value)).to_string()
+}
+
+/// `positiveInt`: `Math.floor(Number(value))` when at least 1.
+fn positive_int(value: Option<&Value>) -> Option<f64> {
+    let n = value.map_or(f64::NAN, to_number).floor();
+    (n.is_finite() && n >= 1.0).then_some(n)
+}
+
+/// `stampMs`: a positive number as is, a positive numeric text that does not start like an
+/// ISO date, else `Date.parse` of the text when positive; 0 otherwise.
+fn stamp_ms(value: Option<&Value>) -> f64 {
+    let positive = |n: f64| if n.is_finite() && n > 0.0 { n } else { 0.0 };
+    if let Some(Value::Number(n)) = value {
+        return positive(n.as_f64().unwrap_or(f64::NAN));
+    }
+    let text = clean_nullish(value);
+    if text.is_empty() {
+        return 0.0;
+    }
+    let iso = text.len() > 4 && text.as_bytes()[..4].iter().all(u8::is_ascii_digit) && text.as_bytes()[4] == b'-';
+    let numeric = positive(string_to_number(&text));
+    if numeric > 0.0 && !iso {
+        return numeric;
+    }
+    positive(date_parse(&text))
+}
+
+/// A session as `recoverTagTombstoneOwner` lists it: its catalog summary row
+/// (`store-summary-index.mjs:252-278`) built from its header.
+pub struct Candidate {
+    id: String,
+    tag: String,
+    pid: Option<f64>,
+    parent: String,
+    owner: String,
+    created: f64,
+}
+
+impl Candidate {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn of(id: &str, header: &Header) -> Self {
+        let field = |key: &str| header.get(key).filter(|v| json::js_truthy(Some(v)));
+        let created = header.get("createdAt").map_or(f64::NAN, to_number);
+        Candidate {
+            id: id.to_string(),
+            tag: clean_nullish(field("agentTag")),
+            pid: positive_int(header.get("clientHostPid")),
+            parent: clean_nullish(field("parentSessionId").or(field("ownerSessionId"))),
+            owner: clean_nullish(field("ownerSessionId").or(field("parentSessionId"))),
+            created: if created.is_finite() && created > 0.0 { created } else { 0.0 },
+        }
+    }
+}
+
+/// Every migrating session as a `Candidate`; one whose header does not read is none.
+pub fn session_candidates<'a>(
+    sessions: impl IntoIterator<Item = (&'a str, &'a [SourceFile])>,
+    mut read: impl FnMut(&SourceFile) -> crate::error::Result<Vec<u8>>,
+) -> crate::error::Result<Vec<Candidate>> {
+    let mut out = Vec::new();
+    for (id, sources) in sessions {
+        let mut bytes = |suffix: &str| {
+            let rel = format!("sessions/{id}{suffix}");
+            sources.iter().find(|s| s.path == rel).map(&mut read).transpose()
+        };
+        let json = bytes(JSON_SUFFIX)?;
+        let log = bytes(LOG_SUFFIX)?;
+        if let Ok((header, _)) = header_and_messages(id, json.as_deref(), log.as_deref(), &mut 0) {
+            out.push(Candidate::of(id, &header));
+        }
+    }
+    Ok(out)
+}
+
+/// The session `recoverTagTombstoneOwner` (`worker-rows.mjs:47-71`) gives a tombstone
+/// without a `sessionId`, read as `normalizeTagTombstones` (`:73-101`) reads it (a tag, a
+/// parsed `reapedAt` clamped to now; no TTL here, readers apply it): when the tombstone
+/// names no owner, the one session under its tag and terminal, with an owner, created by
+/// its reap. `None` when that is not exactly one.
+pub fn recover_owner<'a>(row: &Value, candidates: &'a [Candidate]) -> Option<&'a Candidate> {
+    let row = row.as_object()?;
+    let tag = clean_nullish(row.get("tag"));
+    let reaped = date_parse(&clean_nullish(row.get("reapedAt")));
+    let owned = !clean_nullish(row.get("parentSessionId")).is_empty() || !clean_nullish(row.get("ownerSessionId")).is_empty();
+    if tag.is_empty() || !(reaped.is_finite() && reaped > 0.0) || owned {
+        return None;
+    }
+    let reaped = reaped.min(now_ms());
+    let pid = positive_int(row.get("clientHostPid"))?;
+    let mut found = candidates.iter().filter(|c| {
+        c.tag == tag && c.pid == Some(pid) && !c.parent.is_empty() && c.created > 0.0 && c.created <= reaped
+    });
+    let one = found.next()?;
+    found.next().is_none().then_some(one)
+}
+
+fn now_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_millis() as f64)
 }
 
 /// This session's pending entries, `(qid, entry minus id)`, in `enqueuedAt` order
@@ -871,35 +1024,163 @@ fn queue(cx: &ItemContext<'_>, id: &str, shared: &[&SourceFile], replaced: &mut 
     Ok(entries.into_iter().map(|(_, _, qid, e)| (qid, e)).collect())
 }
 
-/// The `worker` header map of this session (agent index wins over lead; SM §11.4.6).
-fn worker(cx: &ItemContext<'_>, id: &str, shared: &[&SourceFile], replaced: &mut u64) -> R<Option<Header>> {
+/// The `worker` header map of this session (SM §11.4.6): its worker row (agent index wins
+/// over lead), the reaper's tombstone of it and its owner's release marker, all verbatim
+/// (readers apply Node's TTL).
+fn worker(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile], replaced: &mut u64) -> R<Option<Header>> {
+    let bad = |name: &str, e: &dyn std::fmt::Display| Fail::Quarantine(QuarantineCode::ParseError, format!("{name}: {e}"));
+    let read = |name: &str| -> R<Option<String>> {
+        let Some(file) = shared.iter().find(|f| f.path == name) else { return Ok(None) };
+        String::from_utf8(cx.read_source(file)?).map(Some).map_err(|e| bad(name, &e))
+    };
+    let own = [Candidate::of(id, header)];
+    let mut all: Option<Vec<Candidate>> = None;
+    let mut row = None;
+    // Of two tombstones of this session the newer `reapedAt` stays.
+    let mut tombstone: Option<(f64, Value)> = None;
     for name in [AGENT_WORKERS, LEAD_WORKERS] {
-        let Some(file) = shared.iter().find(|f| f.path == name) else { continue };
-        let bytes = cx.read_source(file)?;
-        let text = std::str::from_utf8(&bytes).map_err(|e| Fail::Quarantine(QuarantineCode::ParseError, e.to_string()))?;
-        let workers: Workers<'_> = serde_json::from_str(text)
-            .map_err(|e| Fail::Quarantine(QuarantineCode::ParseError, format!("{name}: {e}")))?;
-        let mut keys: Vec<&String> = workers.workers.keys().collect();
-        keys.sort();
-        for key in keys {
+        let Some(text) = read(name)? else { continue };
+        let workers: Workers<'_> = serde_json::from_str(&text).map_err(|e| bad(name, &e))?;
+        if row.is_none() {
+            let mut keys: Vec<&String> = workers.workers.keys().collect();
+            keys.sort();
+            for key in keys {
+                let mut count = 0;
+                let found = parse(workers.workers[key].get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
+                if found.get("sessionId").and_then(Value::as_str) == Some(id) {
+                    *replaced += count;
+                    row = Some(found);
+                    break;
+                }
+            }
+        }
+        for raw in index_rows(workers.tombstones).map_err(|e| bad(name, &e))? {
             let mut count = 0;
-            let row = parse(workers.workers[key].get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
-            if row.get("sessionId").and_then(Value::as_str) != Some(id) {
+            let mut entry = parse(raw.get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
+            let sid = clean_nullish(entry.get("sessionId"));
+            if sid.is_empty() {
+                // Only when this session could own it are the others read.
+                if recover_owner(&entry, &own).is_none() {
+                    continue;
+                }
+                if all.is_none() {
+                    let sessions = cx.manifest.items.iter().filter(|i| i.kind == ItemKind::Session);
+                    all = Some(session_candidates(
+                        sessions.filter_map(|i| Some((i.key.as_str().strip_prefix("session/")?, i.sources.as_slice()))),
+                        |file| cx.read_source(file),
+                    )?);
+                }
+                let Some(owner) = recover_owner(&entry, all.as_deref().unwrap_or_default()) else { continue };
+                if owner.id != id {
+                    continue;
+                }
+                let map = entry.as_object_mut().expect("recover_owner takes objects only");
+                map.insert("parentSessionId".into(), Value::String(owner.parent.clone()));
+                map.insert("ownerSessionId".into(), Value::String(owner.owner.clone()));
+            } else if sid != id {
                 continue;
             }
             *replaced += count;
-            let mut map = Map::new();
-            for field in WORKER_FIELDS {
-                if let Some(v) = row.get(*field) {
-                    map.insert((*field).to_string(), v.clone());
-                }
+            let at = stamp_ms(entry.get("reapedAt"));
+            if tombstone.as_ref().is_none_or(|(kept, _)| at > *kept) {
+                tombstone = Some((at, entry));
             }
-            let mut set = Map::new();
-            set.insert("worker".into(), Value::Object(map));
-            return Ok(Some(set));
         }
     }
-    Ok(None)
+    let tombstone = tombstone.map(|(_, entry)| entry);
+    let mut released = None;
+    if let Some(text) = read(AGENT_RELEASED)? {
+        let doc: Released<'_> = serde_json::from_str(&text).map_err(|e| bad(AGENT_RELEASED, &e))?;
+        if let Some(raw) = released_entries(doc.released).map_err(|e| bad(AGENT_RELEASED, &e))?.get(id) {
+            released = Some(parse(raw.get().as_bytes(), QuarantineCode::ParseError, AGENT_RELEASED, replaced)?);
+        }
+    }
+    if row.is_none() && tombstone.is_none() && released.is_none() {
+        return Ok(None);
+    }
+    let mut set = Map::new();
+    set.insert("worker".into(), Value::Object(worker_map(row, tombstone, released)));
+    Ok(Some(set))
+}
+
+/// The `worker` map from a session's row (every field as stored, the store's worker index
+/// keys on its owner and `clientHostPid`), its tombstone (`tombstone`, without the
+/// `sessionId` the header implies) and its release marker (`releasedAt`).
+fn worker_map(row: Option<Value>, tombstone: Option<Value>, released: Option<Value>) -> Map<String, Value> {
+    let mut map = match row {
+        Some(Value::Object(row)) => row,
+        _ => Map::new(),
+    };
+    // Readers derive it from `releasedAt`.
+    map.shift_remove("released");
+    if let Some(Value::Object(mut tombstone)) = tombstone {
+        tombstone.shift_remove("sessionId");
+        map.insert("tombstone".into(), Value::Object(tombstone));
+    }
+    if let Some(at) = released {
+        map.insert("releasedAt".into(), at);
+    }
+    map
+}
+
+/// `cleanValue`: `String(value || '').trim()`.
+fn clean(value: Option<&Value>) -> String {
+    js_trim(&or_str(value, "")).to_string()
+}
+
+#[derive(Deserialize)]
+struct Index<'a> {
+    #[serde(borrow, default)]
+    workers: Option<&'a RawValue>,
+}
+
+/// The parent link a session without one gets from `agent-workers.json`, as Node's agent
+/// listing fills it (`daemon-stored-session-views.mjs:93-97`): of `workerLinks`
+/// (`store-agent-worker-rows.mjs:286-302`), the last naming this session sets
+/// `parentSessionId` and `ownerSessionId`.
+fn parent_link(
+    cx: &ItemContext<'_>,
+    id: &str,
+    header: &Header,
+    shared: &[&SourceFile],
+    replaced: &mut u64,
+) -> R<Option<Header>> {
+    if json::js_truthy(header.get("parentSessionId")) {
+        return Ok(None);
+    }
+    let Some(file) = shared.iter().find(|f| f.path == AGENT_WORKERS) else { return Ok(None) };
+    let bad = |e: &dyn std::fmt::Display| Fail::Quarantine(QuarantineCode::ParseError, format!("{AGENT_WORKERS}: {e}"));
+    let text = String::from_utf8(cx.read_source(file)?).map_err(|e| bad(&e))?;
+    let index: Index<'_> = serde_json::from_str(&text).map_err(|e| bad(&e))?;
+    let mut link = None;
+    for raw in index_rows(index.workers).map_err(|e| bad(&e))? {
+        if !raw.get().trim_start().starts_with('{') {
+            continue;
+        }
+        let mut count = 0;
+        let row = parse(raw.get().as_bytes(), QuarantineCode::ParseError, AGENT_WORKERS, &mut count)?;
+        if clean(row.get("sessionId")) != id {
+            continue;
+        }
+        let parent = clean(row.get("parentSessionId"));
+        let owner_field = if json::js_truthy(row.get("ownerSessionId")) { "ownerSessionId" } else { "parentSessionId" };
+        let owner = clean(row.get(owner_field));
+        if parent.is_empty() && owner.is_empty() {
+            continue;
+        }
+        let (parent, owner) = match (parent.is_empty(), owner.is_empty()) {
+            (true, _) => (owner.clone(), owner),
+            (_, true) => (parent.clone(), parent),
+            _ => (parent, owner),
+        };
+        link = Some((parent, owner, count));
+    }
+    let Some((parent, owner, count)) = link else { return Ok(None) };
+    *replaced += count;
+    let mut set = Map::new();
+    set.insert("parentSessionId".into(), Value::String(parent));
+    set.insert("ownerSessionId".into(), Value::String(owner));
+    Ok(Some(set))
 }
 
 // ── The item ─────────────────────────────────────────────────────────────────
@@ -926,6 +1207,23 @@ fn message_rows(iids: Vec<String>, messages: Vec<Value>, turn: Option<&str>) -> 
         .collect()
 }
 
+/// Header and messages of a session: its log's when the log wins over its json (`log_wins`).
+fn header_and_messages(id: &str, json: Option<&[u8]>, log: Option<&[u8]>, replaced: &mut u64) -> R<(Header, Vec<Value>)> {
+    match log {
+        Some(log) => {
+            let mut log_replaced = 0;
+            let fold = fold_log(id, log, &mut log_replaced)?;
+            if log_wins(fold.legacy.as_ref(), json) {
+                *replaced += log_replaced;
+                Ok((fold.header, fold.messages))
+            } else {
+                read_json(id, json.unwrap_or_default(), replaced)
+            }
+        }
+        None => read_json(id, json.unwrap_or_default(), replaced),
+    }
+}
+
 /// Reads every source of `session/<id>` into the model the frames are written from.
 pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str) -> R<SessionModel> {
     let mut replaced = 0u64;
@@ -942,19 +1240,7 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str) -> R<SessionMod
     let ckpt_header = read(format!("turn-checkpoints/{id}.json"))?;
     let ckpt_journal = read(format!("turn-checkpoints/{id}.jsonl"))?;
 
-    let (header, messages) = match &log_bytes {
-        Some(log) => {
-            let mut log_replaced = 0;
-            let fold = fold_log(id, log, &mut log_replaced)?;
-            if log_wins(fold.legacy.as_ref(), json_bytes.as_deref()) {
-                replaced += log_replaced;
-                (fold.header, fold.messages)
-            } else {
-                read_json(id, json_bytes.as_deref().unwrap_or_default(), &mut replaced)?
-            }
-        }
-        None => read_json(id, json_bytes.as_deref().unwrap_or_default(), &mut replaced)?,
-    };
+    let (header, messages) = header_and_messages(id, json_bytes.as_deref(), log_bytes.as_deref(), &mut replaced)?;
 
     let (archive_rows, superseded) =
         archive_rows(id, &header, archive.as_deref(), pending.as_deref(), &mut replaced)?;
@@ -970,7 +1256,8 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str) -> R<SessionMod
 
     let shared = cx.shared_for(&format!("session/{id}"));
     let queue = queue(cx, id, &shared, &mut replaced)?;
-    let metas = worker(cx, id, &shared, &mut replaced)?.into_iter().collect();
+    let mut metas: Vec<Header> = worker(cx, id, &header, &shared, &mut replaced)?.into_iter().collect();
+    metas.extend(parent_link(cx, id, &header, &shared, &mut replaced)?);
     let mut messages = message_rows(iids, messages, None);
     let mut checkpoint_rows = message_rows(turn_iids, turn_messages, rid.as_deref());
     super::restore::convert(

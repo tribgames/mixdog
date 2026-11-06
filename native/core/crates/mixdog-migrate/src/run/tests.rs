@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use mixdog_store::schema::migration::ItemKind;
 use mixdog_store::schema::record::Record;
 use mixdog_store::schema::sql::INDEX_DDL;
 use mixdog_store::schema::sql::session_id_key;
@@ -164,7 +165,12 @@ fn fixture(root: &Path) -> MigrationRoots {
     write(
         &data,
         "agent-workers.json",
-        br#"{"version":2,"workers":{"sess_b":{"sessionId":"sess_b","tag":"t","status":"idle","messages":[]}}}"#,
+        br#"{"version":2,"workers":{"sess_b":{"sessionId":"sess_b","ownerSessionId":" sess_a ","tag":"t","status":"idle","messages":[]}},"tombstones":{"session:p\u0000t":{"tag":"t","sessionId":"sess_b","parentSessionId":"p","reapedAt":"2026-01-01T00:00:00.000Z"},"session:p\u0000g":{"tag":"g","sessionId":"sess_gone","reapedAt":"2026-01-01T00:00:00.000Z"}}}"#,
+    );
+    write(
+        &data,
+        "agent-workers-released.json",
+        br#"{"version":1,"released":{"sess_a":"2026-01-02T00:00:00.000Z","sess_gone":"2026-01-02T00:00:00.000Z"}}"#,
     );
     write(&data, "goals/sess_a.json", br#"{"sessionId":"sess_a"}"#);
     write(&data, "goals/sess_gone.json", br#"{"sessionId":"sess_gone"}"#);
@@ -238,6 +244,7 @@ fn fixture_migrates_every_kind() {
         "sessions/sess_b.log.jsonl",
         "session-pending/sess_a.json",
         "agent-workers.json",
+        "agent-workers-released.json",
         "turn-checkpoints/sess_zzz.jsonl",
         "client-versions.json",
         "usage-rollup.local.json",
@@ -267,9 +274,19 @@ fn fixture_migrates_every_kind() {
     };
     let b = crate::session::target::read_session(&cx, &roots.data.join("sessions/sess_b")).unwrap();
     assert_eq!(b.header["title"], "new");
-    assert_eq!(b.header["worker"], json!({"tag":"t","status":"idle"}));
+    // Its tombstone and sess_a's release marker join the `worker` map; sess_gone's do not
+    // migrate.
+    assert_eq!(
+        b.header["worker"],
+        json!({"sessionId":"sess_b","ownerSessionId":" sess_a ","tag":"t","status":"idle","messages":[],
+            "tombstone":{"tag":"t","parentSessionId":"p","reapedAt":"2026-01-01T00:00:00.000Z"}})
+    );
+    // Its header had no parent: the row's owner, cleaned, fills both links.
+    assert_eq!(b.header["parentSessionId"], "sess_a");
+    assert_eq!(b.header["ownerSessionId"], "sess_a");
     assert_eq!(b.rows.len(), 2);
     let a = crate::session::target::read_session(&cx, &roots.data.join("sessions/sess_a")).unwrap();
+    assert_eq!(a.header["worker"], json!({"releasedAt":"2026-01-02T00:00:00.000Z"}));
     let queue: Vec<&str> = a.queue.iter().map(|q| q.0.as_str()).collect();
     assert_eq!(queue, ["q1", "q2"]);
     // 2 segment rows + 1 pending row + 4 messages + 2 recovered checkpoint rows.
@@ -277,6 +294,94 @@ fn fixture_migrates_every_kind() {
     assert_eq!(a.runs[0].0, "ckpt:t1");
     assert!(a.rows[3].body["content"] == "hi \u{fffd} there");
     // A second run finds the completion marker.
+    assert_eq!(migrator(&roots, None).run().unwrap(), complete);
+}
+
+/// Marker files naming no session that migrates are retired, journaled and removed: a
+/// release marker of a session that is gone, and a tombstone without a `sessionId` whose
+/// owner no session is.
+#[test]
+fn markers_of_sessions_that_do_not_migrate_are_retired() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    write(
+        &roots.data,
+        "agent-workers-released.json",
+        br#"{"version":1,"released":{"sess_gone":"2026-01-02T00:00:00.000Z"}}"#,
+    );
+    write(
+        &roots.data,
+        "agent-workers.json",
+        br#"{"version":2,"workers":{},"tombstones":[{"tag":"x","clientHostPid":7,"reapedAt":"2026-01-01T00:00:00.000Z"}]}"#,
+    );
+    let complete = migrator(&roots, None).run().unwrap();
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots));
+    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let records = journal_records(&roots);
+    for file in ["agent-workers-released.json", "agent-workers.json"] {
+        let key = format!("retire/data/{file}");
+        let item = manifest.items.iter().find(|i| i.key.as_str() == key).expect(&key);
+        assert_eq!(item.contract, Contract::Retire);
+        assert!(records.iter().any(|r| matches!(r, JournalRecord::Disposed(KeyEntry { key: k }) if k.as_str() == key)));
+        assert!(!roots.data.join(file).exists());
+    }
+}
+
+/// A tombstone without a `sessionId` goes to the one session Node's
+/// `recoverTagTombstoneOwner` finds for it, with that session's owner; one with no such
+/// session, or two, is dropped. Of two tombstones of one session the newer stays, and the
+/// row's `released` goes (readers derive it from `releasedAt`).
+#[test]
+fn tombstones_reach_their_one_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let session = |id: &str, fields: &str| {
+        write(&roots.data, &format!("sessions/{id}.json"), format!(r#"{{"id":"{id}",{fields},"messages":[]}}"#).as_bytes());
+    };
+    session("sess_d", r#""agentTag":"w","clientHostPid":42,"parentSessionId":"sess_a","createdAt":1000"#);
+    session("sess_e", r#""agentTag":"v","clientHostPid":42,"ownerSessionId":"sess_a","createdAt":1000"#);
+    session("sess_f", r#""agentTag":"v","clientHostPid":42.5,"parentSessionId":"sess_a","createdAt":"2000""#);
+    write(
+        &roots.data,
+        "agent-workers.json",
+        br#"{"version":2,"workers":{"sess_b":{"sessionId":"sess_b","tag":"t","released":true}},"tombstones":[
+            {"tag":"w","clientHostPid":"42","reapedAt":"1970-01-01T00:00:05.000Z"},
+            {"tag":"v","clientHostPid":42,"reapedAt":"1970-01-01T00:00:05.000Z"},
+            {"tag":"w","clientHostPid":42,"reapedAt":"1970-01-01T00:00:00.500Z"},
+            {"tag":"w","clientHostPid":42,"parentSessionId":"p","reapedAt":"1970-01-01T00:00:05.000Z"},
+            {"tag":"t","sessionId":" sess_b ","reapedAt":"2026-01-01T00:00:00.000Z"},
+            {"tag":"t2","sessionId":"sess_b","reapedAt":"2026-01-03T00:00:00.000Z"},
+            {"tag":"t3","sessionId":"sess_b","reapedAt":"2026-01-02T00:00:00.000Z"}]}"#,
+    );
+    let complete = migrator(&roots, None).run().unwrap();
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots));
+    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let cx = ItemContext {
+        roots: &roots,
+        manifest: &manifest,
+        manifest_sha256: &complete.manifest_sha256,
+        fault: None,
+        blobs: &blobs,
+        states: &states,
+    };
+    let worker = |id: &str| {
+        let folded = crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap();
+        folded.header.get("worker").cloned()
+    };
+    assert_eq!(
+        worker("sess_d"),
+        Some(json!({"tombstone":{"tag":"w","clientHostPid":"42","reapedAt":"1970-01-01T00:00:05.000Z",
+            "parentSessionId":"sess_a","ownerSessionId":"sess_a"}}))
+    );
+    assert_eq!(worker("sess_e"), None);
+    assert_eq!(worker("sess_f"), None);
+    assert_eq!(
+        worker("sess_b"),
+        Some(json!({"sessionId":"sess_b","tag":"t","tombstone":{"tag":"t2","reapedAt":"2026-01-03T00:00:00.000Z"}}))
+    );
+    assert!(!roots.data.join("agent-workers.json").exists());
     assert_eq!(migrator(&roots, None).run().unwrap(), complete);
 }
 
@@ -457,6 +562,109 @@ fn gate(scenario: &str, data_rel: &str, expected_retained: u64) {
 #[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn gate_v145() {
     gate("v145", "v145", 1);
+}
+
+/// The v145 reaper tombstone and release marker of each migrated session land in its
+/// `worker` map verbatim (`tombstone` without its `sessionId`, `releasedAt`), with every
+/// field of its worker row but `released`; a second run under the same journal changes
+/// nothing.
+#[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
+fn v145_worker_markers_move_into_the_worker_map() {
+    let source = corpus().join("v145");
+    let read = |rel: &str| serde_json::from_slice::<Value>(&std::fs::read(source.join(rel)).unwrap()).unwrap();
+    let index = read("agent-workers.json");
+    let released = read("agent-workers-released.json");
+    let lead = read("lead-workers.json");
+    let (_dir, roots, complete) = migrate_corpus("v145", |_| {});
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{complete:?}");
+    let disk: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let cx = ItemContext {
+        roots: &roots,
+        manifest: &disk,
+        manifest_sha256: &complete.manifest_sha256,
+        fault: None,
+        blobs: &blobs,
+        states: &states,
+    };
+    let mut tombstoned = 0;
+    let mut marked = 0;
+    let mut rows = 0;
+    for item in disk.items.iter().filter(|i| i.kind == ItemKind::Session) {
+        let id = item.key.as_str().strip_prefix("session/").unwrap();
+        // Each corpus tombstone names a distinct session.
+        let tombstone = index["tombstones"].as_object().unwrap().values().find(|t| t["sessionId"] == id).map(|t| {
+            let mut t = t.as_object().unwrap().clone();
+            t.shift_remove("sessionId");
+            Value::Object(t)
+        });
+        let marker = released["released"].get(id);
+        let folded = crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap();
+        let worker = folded.header.get("worker");
+        let field = |k: &str| worker.and_then(|w| w.get(k));
+        tombstoned += usize::from(tombstone.is_some());
+        assert_eq!(field("tombstone"), tombstone.as_ref(), "{id}");
+        marked += usize::from(marker.is_some());
+        assert_eq!(field("releasedAt"), marker, "{id}");
+        // Every field of its worker row (agent index first) as the row has it, but `released`.
+        let row = [&index, &lead]
+            .into_iter()
+            .find_map(|doc| doc["workers"].as_object()?.values().find(|r| r["sessionId"] == id));
+        if let Some(row) = row {
+            rows += 1;
+            for (k, v) in row.as_object().unwrap() {
+                let expected = (k != "released").then_some(v);
+                assert_eq!(field(k), expected, "{id}.{k}");
+            }
+        }
+    }
+    // The corpus holds 3 tombstoned and 9 released sessions with a session file, and
+    // `rows` sessions with a worker row.
+    assert_eq!((tombstoned, marked), (3, 9));
+    assert!(rows > 0);
+    for gone in ["agent-workers.json", "agent-workers-released.json"] {
+        assert!(!roots.data.join(gone).exists(), "{gone}");
+    }
+    let again = Migrator::new(roots.clone(), drivers(), MigrateOptions::default()).run().unwrap();
+    assert_eq!(again, complete);
+}
+
+/// A v145 agent session whose header lost its parent gets the link from its worker row
+/// (Node's agent listing); the others keep theirs (`gate_v145` checks their headers).
+#[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
+fn v145_legacy_agent_sessions_get_their_parent_link() {
+    const ID: &str = "sess_daemon_1793820141688_38d110060e784a52aa9c2668671040df";
+    let index: Value =
+        serde_json::from_slice(&std::fs::read(corpus().join("v145/agent-workers.json")).unwrap()).unwrap();
+    let row = index["workers"].as_object().unwrap().values().find(|r| r["sessionId"] == ID).unwrap().clone();
+    let (_dir, roots, complete) = migrate_corpus("v145", |data| {
+        let path = data.join(format!("sessions/{ID}.json"));
+        let mut text = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
+        for key in ["parentSessionId", "ownerSessionId"] {
+            let from = format!("\"{key}\":{}", row[key]);
+            assert_eq!(text.matches(&from).count(), 1, "{from}");
+            text = text.replace(&from, &format!("\"{key}\":null"));
+        }
+        std::fs::write(&path, text).unwrap();
+    });
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{complete:?}");
+    let disk: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let cx = ItemContext {
+        roots: &roots,
+        manifest: &disk,
+        manifest_sha256: &complete.manifest_sha256,
+        fault: None,
+        blobs: &blobs,
+        states: &states,
+    };
+    let folded = crate::session::target::read_session(&cx, &roots.data.join("sessions").join(ID)).unwrap();
+    assert_eq!(folded.header["parentSessionId"], row["parentSessionId"]);
+    assert_eq!(folded.header["ownerSessionId"], row["ownerSessionId"]);
 }
 
 #[test]

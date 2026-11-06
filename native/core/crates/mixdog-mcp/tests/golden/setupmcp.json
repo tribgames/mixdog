@@ -1,0 +1,3106 @@
+{
+ "fixtures": {
+  "STATUS": {
+   "connectedCount": "2",
+   "servers": [
+    {
+     "name": "plain",
+     "enabled": true,
+     "connected": true,
+     "transport": "stdio",
+     "toolCount": 3,
+     "source": "config",
+     "error": null,
+     "scope": [
+      "/p"
+     ]
+    },
+    {
+     "name": "off",
+     "enabled": false,
+     "type": "http",
+     "toolCount": "5",
+     "error": "boom",
+     "scope": "x",
+     "warnings": [],
+     "extra": "dropped"
+    },
+    {
+     "name": "plugin-a-s",
+     "owner": {
+      "kind": "plugin",
+      "id": "a",
+      "key": "s"
+     },
+     "disabledReason": "plugin off",
+     "source": "plugin",
+     "warnings": [
+      "w1"
+     ]
+    },
+    {
+     "name": "plugin-b-s",
+     "owner": {
+      "kind": "plugin",
+      "id": "b",
+      "key": "t"
+     },
+     "connected": true
+    },
+    {
+     "name": "owned",
+     "owner": {
+      "kind": "user",
+      "id": "z"
+     }
+    },
+    {
+     "name": "notion",
+     "connector": "notion",
+     "connected": true,
+     "accounts": [
+      {
+       "name": "notion",
+       "email": "a@b.co",
+       "authRequired": true,
+       "error": "x"
+      },
+      {
+       "name": "notion-2"
+      },
+      {
+       "name": "n3",
+       "email": null,
+       "error": ""
+      }
+     ]
+    },
+    {
+     "name": "gmail",
+     "connector": "gmail",
+     "connected": false,
+     "accounts": []
+    }
+   ],
+   "warnings": [
+    {
+     "message": "w"
+    }
+   ],
+   "declarationErrors": [
+    {
+     "message": "d"
+    }
+   ]
+  },
+  "CONFIGS": {
+   "plain": {
+    "name": "plain",
+    "source": "config",
+    "enabled": true,
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [
+      "a",
+      "b"
+     ],
+     "env": {
+      "K": "v"
+     },
+     "cwd": "/w",
+     "env_vars": [
+      "A"
+     ]
+    }
+   },
+   "web": {
+    "name": "web",
+    "source": "config",
+    "enabled": false,
+    "config": {
+     "type": "http",
+     "url": "https://u:p@web.example:8443/mcp?token=1",
+     "headers": {
+      "X": "1"
+     },
+     "bearer_token_env_var": "TOK",
+     "env_http_headers": {
+      "H": "E"
+     }
+    }
+   },
+   "badurl": {
+    "name": "badurl",
+    "source": "config",
+    "config": {
+     "url": "not a url",
+     "args": "x"
+    }
+   },
+   "plugin": {
+    "name": "ps",
+    "source": "plugin",
+    "owner": {
+     "kind": "plugin",
+     "id": "p1",
+     "key": "k"
+    },
+    "enabled": true,
+    "config": {
+     "command": "x"
+    }
+   },
+   "bare": {
+    "name": "bare",
+    "source": "config"
+   }
+  },
+  "PLUGINS": {
+   "plugins": [
+    {
+     "id": "p1",
+     "name": "alpha"
+    },
+    {
+     "id": "p2",
+     "name": "beta"
+    },
+    {
+     "id": "p3",
+     "name": "gamma"
+    }
+   ]
+  }
+ },
+ "cases": [
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "srv",
+     "command": "node"
+    }
+   },
+   "result": {
+    "name": "srv!",
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "addMcpServer",
+     {
+      "name": "srv",
+      "command": "node"
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "srv",
+     "command": "node",
+     "args": [
+      "a"
+     ],
+     "env": {
+      "K": "ENV_K"
+     }
+    }
+   },
+   "result": {
+    "name": "srv!",
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "addMcpServer",
+     {
+      "name": "srv",
+      "command": "node",
+      "args": [
+       "a"
+      ],
+      "env": {
+       "K": "ENV_K"
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "web",
+     "url": "https://web.example/mcp"
+    }
+   },
+   "result": {
+    "name": "web!",
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "addMcpServer",
+     {
+      "name": "web",
+      "url": "https://web.example/mcp"
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "nameless",
+     "command": "x"
+    }
+   },
+   "result": {
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "addMcpServer",
+     {
+      "name": "nameless",
+      "command": "x"
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "noroute"
+    }
+   },
+   "result": null,
+   "error": "server.command or server.url is required",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "command": "x"
+    }
+   },
+   "result": null,
+   "error": "server.name is required",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "srv",
+     "command": "node",
+     "env": {
+      "API_KEY": "secret"
+     }
+    }
+   },
+   "result": null,
+   "error": "setup: env.API_KEY must use an environment-variable reference, not a credential value",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "srv",
+     "command": "node",
+     "env": {
+      "API_KEY": null
+     }
+    }
+   },
+   "result": {
+    "name": "srv!",
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "addMcpServer",
+     {
+      "name": "srv",
+      "command": "node",
+      "env": {
+       "API_KEY": null
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "srv",
+     "command": "node",
+     "headers": {
+      "Authorization": "Bearer x"
+     }
+    }
+   },
+   "result": null,
+   "error": "setup: headers.Authorization must use an environment-variable reference, not a credential value",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "srv",
+     "command": "node",
+     "headers": {
+      "X-Cookie": "c"
+     }
+    }
+   },
+   "result": null,
+   "error": "setup: headers.X-Cookie must use an environment-variable reference, not a credential value",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "srv",
+     "command": "node",
+     "headers": {
+      "Accept": "json"
+     }
+    }
+   },
+   "result": {
+    "name": "srv!",
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "addMcpServer",
+     {
+      "name": "srv",
+      "command": "node",
+      "headers": {
+       "Accept": "json"
+      }
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "w",
+     "url": "ftp://x.example/"
+    }
+   },
+   "result": null,
+   "error": "MCP URL must use HTTP(S) or WS(S)",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "w",
+     "url": "not a url"
+    }
+   },
+   "result": null,
+   "error": "Invalid URL",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "w",
+     "url": "https://u:p@x.example/"
+    }
+   },
+   "result": null,
+   "error": "MCP URL credentials are not accepted; use environment-variable references",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "w",
+     "url": "https://x.example/?api_key=1"
+    }
+   },
+   "result": null,
+   "error": "MCP URL credentials are not accepted; use environment-variable references",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "w",
+     "url": "https://x.example/?q=1&Auth=2"
+    }
+   },
+   "result": null,
+   "error": "MCP URL credentials are not accepted; use environment-variable references",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "w",
+     "url": "wss://x.example/ws"
+    }
+   },
+   "result": {
+    "name": "w!",
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "addMcpServer",
+     {
+      "name": "w",
+      "url": "wss://x.example/ws"
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "w",
+     "url": "https://x.example/",
+     "command": "x"
+    }
+   },
+   "result": null,
+   "error": "MCP input must select command or url, not both",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "w",
+     "type": "stdio",
+     "url": "https://x.example/"
+    }
+   },
+   "result": null,
+   "error": "stdio requires command, not url",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "w",
+     "type": "http",
+     "command": "x"
+    }
+   },
+   "result": null,
+   "error": "network MCP transports require url, not command",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_mcp_server",
+    "server": {
+     "name": "w",
+     "type": "stdio",
+     "command": "x"
+    }
+   },
+   "result": {
+    "name": "w!",
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "addMcpServer",
+     {
+      "name": "w",
+      "type": "stdio",
+      "command": "x"
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "save_mcp_server",
+    "server": {
+     "name": "plain",
+     "args": [
+      "b"
+     ]
+    }
+   },
+   "result": {
+    "name": "plain",
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "saveMcpServer",
+     {
+      "name": "plain",
+      "args": [
+       "b"
+      ]
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "save_mcp_server",
+    "server": {
+     "originalName": "plain",
+     "name": "renamed"
+    }
+   },
+   "result": {
+    "name": "plain",
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "saveMcpServer",
+     {
+      "originalName": "plain",
+      "name": "renamed"
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "save_mcp_server",
+    "server": {
+     "originalName": " plain "
+    }
+   },
+   "result": {
+    "name": " plain ",
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "saveMcpServer",
+     {
+      "originalName": " plain "
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "save_mcp_server",
+    "server": {
+     "name": "empty"
+    }
+   },
+   "result": {
+    "name": "empty",
+    "mcp": {
+     "connectedCount": 0,
+     "servers": []
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "saveMcpServer",
+     {
+      "name": "empty"
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "save_mcp_server",
+    "server": {}
+   },
+   "result": null,
+   "error": "server.name or server.originalName is required",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "save_mcp_server",
+    "server": {
+     "originalName": "  ",
+     "name": "  "
+    }
+   },
+   "result": null,
+   "error": "server.name or server.originalName is required",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "remove_mcp_server",
+    "name": " plain "
+   },
+   "result": {
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "removeMcpServer",
+     "plain"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "remove_mcp_server",
+    "name": ""
+   },
+   "result": null,
+   "error": "name is required",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "set_mcp_enabled",
+    "name": "plain",
+    "enabled": false
+   },
+   "result": {
+    "mcp": {
+     "connectedCount": 0,
+     "servers": []
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "setMcpServerEnabled",
+     "plain",
+     false
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "set_mcp_enabled",
+    "name": "plain",
+    "enabled": true
+   },
+   "result": {
+    "mcp": {
+     "connectedCount": 0,
+     "servers": []
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "setMcpServerEnabled",
+     "plain",
+     true
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "reconnect_mcp"
+   },
+   "result": {
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "reconnectMcp",
+     null
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "reconnect_mcp",
+    "name": " plain "
+   },
+   "result": {
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "reconnectMcp",
+     "plain"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "reconnect_mcp",
+    "name": "  "
+   },
+   "result": {
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "reconnectMcp",
+     null
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "get_mcp_server",
+    "name": "plain"
+   },
+   "result": {
+    "name": "plain",
+    "source": "config",
+    "enabled": true,
+    "type": "stdio",
+    "cwd": "/w",
+    "endpointOrigin": null,
+    "argumentCount": 2,
+    "environmentNames": [
+     "K"
+    ],
+    "headerNames": [],
+    "env_vars": [
+     "A"
+    ],
+    "hiddenFields": [
+     "command",
+     "args",
+     "env"
+    ],
+    "note": "Raw connection values may contain credentials and are not returned. Omitted fields are preserved when editing."
+   },
+   "error": null,
+   "calls": [
+    [
+     "getMcpServerConfig",
+     "plain"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "get_mcp_server",
+    "name": "web"
+   },
+   "result": {
+    "name": "web",
+    "source": "config",
+    "enabled": false,
+    "type": "http",
+    "cwd": "",
+    "endpointOrigin": "https://web.example:8443",
+    "argumentCount": 0,
+    "environmentNames": [],
+    "headerNames": [
+     "X"
+    ],
+    "bearer_token_env_var": "TOK",
+    "env_http_headers": {
+     "H": "E"
+    },
+    "hiddenFields": [
+     "url",
+     "headers"
+    ],
+    "note": "Raw connection values may contain credentials and are not returned. Omitted fields are preserved when editing."
+   },
+   "error": null,
+   "calls": [
+    [
+     "getMcpServerConfig",
+     "web"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "get_mcp_server",
+    "name": "badurl"
+   },
+   "result": {
+    "name": "badurl",
+    "source": "config",
+    "enabled": true,
+    "type": "stdio",
+    "cwd": "",
+    "endpointOrigin": null,
+    "argumentCount": 0,
+    "environmentNames": [],
+    "headerNames": [],
+    "hiddenFields": [
+     "args",
+     "url"
+    ],
+    "note": "Raw connection values may contain credentials and are not returned. Omitted fields are preserved when editing."
+   },
+   "error": null,
+   "calls": [
+    [
+     "getMcpServerConfig",
+     "badurl"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "get_mcp_server",
+    "name": "plugin"
+   },
+   "result": {
+    "name": "ps",
+    "source": "plugin",
+    "plugin": "p1",
+    "pluginServer": "k",
+    "readOnly": true,
+    "enabled": true,
+    "type": "stdio",
+    "cwd": "",
+    "endpointOrigin": null,
+    "argumentCount": 0,
+    "environmentNames": [],
+    "headerNames": [],
+    "hiddenFields": [
+     "command"
+    ],
+    "note": "Raw connection values may contain credentials and are not returned. Omitted fields are preserved when editing."
+   },
+   "error": null,
+   "calls": [
+    [
+     "getMcpServerConfig",
+     "plugin"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "get_mcp_server",
+    "name": "bare"
+   },
+   "result": {
+    "name": "bare",
+    "source": "config",
+    "enabled": true,
+    "type": "stdio",
+    "cwd": "",
+    "endpointOrigin": null,
+    "argumentCount": 0,
+    "environmentNames": [],
+    "headerNames": [],
+    "hiddenFields": [],
+    "note": "Raw connection values may contain credentials and are not returned. Omitted fields are preserved when editing."
+   },
+   "error": null,
+   "calls": [
+    [
+     "getMcpServerConfig",
+     "bare"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "get_mcp_server",
+    "name": "ghost"
+   },
+   "result": null,
+   "error": "MCP server not configured: ghost",
+   "calls": [
+    [
+     "getMcpServerConfig",
+     "ghost"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "set_disabled_skills",
+    "skills": []
+   },
+   "result": {
+    "disabled": []
+   },
+   "error": null,
+   "calls": [
+    [
+     "setDisabledSkills",
+     []
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "set_extension_scope",
+    "kind": "plugins",
+    "name": "alpha",
+    "projects": []
+   },
+   "result": {
+    "plugins": [
+     {
+      "id": "p1",
+      "name": "alpha"
+     },
+     {
+      "id": "p2",
+      "name": "beta"
+     },
+     {
+      "id": "p3",
+      "name": "gamma"
+     }
+    ]
+   },
+   "error": null,
+   "calls": [
+    [
+     "setExtensionScope",
+     "plugins",
+     "alpha",
+     []
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "set_extension_scope",
+    "kind": "skills",
+    "name": "deploy",
+    "projects": [
+     "/a"
+    ]
+   },
+   "result": {
+    "skills": []
+   },
+   "error": null,
+   "calls": [
+    [
+     "setExtensionScope",
+     "skills",
+     "deploy",
+     [
+      "/a"
+     ]
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "set_extension_scope",
+    "kind": "skills",
+    "name": "null",
+    "projects": []
+   },
+   "result": {},
+   "error": null,
+   "calls": [
+    [
+     "setExtensionScope",
+     "skills",
+     "null",
+     []
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "set_extension_scope",
+    "kind": "mcp",
+    "name": " ",
+    "projects": []
+   },
+   "result": null,
+   "error": "name is required",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "add_plugin",
+    "source": " ./plug "
+   },
+   "result": {
+    "plugin": {
+     "id": "x",
+     "source": "./plug"
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "addPlugin",
+     "./plug"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "add_plugin",
+    "source": "none"
+   },
+   "result": {
+    "plugin": null
+   },
+   "error": null,
+   "calls": [
+    [
+     "addPlugin",
+     "none"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "add_plugin",
+    "source": ""
+   },
+   "result": null,
+   "error": "source is required",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "update_plugin",
+    "name": "alpha"
+   },
+   "result": {
+    "plugin": {
+     "id": "alpha",
+     "updated": true
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "updatePlugin",
+     "alpha"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "update_plugin",
+    "name": "none"
+   },
+   "result": {
+    "plugin": null
+   },
+   "error": null,
+   "calls": [
+    [
+     "updatePlugin",
+     "none"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "set_plugin_enabled",
+    "name": "alpha",
+    "enabled": false
+   },
+   "result": {
+    "plugin": {
+     "id": "alpha",
+     "enabled": false
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "setPluginEnabled",
+     "alpha",
+     false
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "remove_plugin",
+    "name": " alpha "
+   },
+   "result": {
+    "plugin": null
+   },
+   "error": null,
+   "calls": [
+    [
+     "removePlugin",
+     "alpha"
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "remove_plugin",
+    "name": ""
+   },
+   "result": null,
+   "error": "name is required",
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "connect_connector",
+    "connector": "notion"
+   },
+   "result": {
+    "connector": "notion",
+    "name": "Notion",
+    "backend": "oauth",
+    "server": "notion",
+    "connected": true,
+    "note": "Notion is already connected."
+   },
+   "error": null,
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "connect_connector",
+    "connector": "stripe"
+   },
+   "result": {
+    "connector": "stripe",
+    "name": "Stripe",
+    "backend": "apiKey",
+    "connected": false,
+    "note": "A connect card for Stripe is shown in this conversation; the user presses it (Desktop: Extensions → 커넥터). Check status mcp afterwards."
+   },
+   "error": null,
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "connect_connector",
+    "connector": "google-drive"
+   },
+   "result": {
+    "connector": "google-drive",
+    "name": "Google Drive",
+    "backend": "oauth",
+    "connected": false,
+    "note": "A connect card for Google Drive is shown in this conversation; the user presses it (Desktop: Extensions → 커넥터). Check status mcp afterwards."
+   },
+   "error": null,
+   "calls": []
+  },
+  {
+   "args": {
+    "action": "enable_plugin_mcp",
+    "name": "alpha"
+   },
+   "result": {
+    "serverName": "s1",
+    "serverNames": [
+     "s1",
+     "s2"
+    ],
+    "mcp": {
+     "connectedCount": 2,
+     "servers": [
+      {
+       "name": "plain",
+       "enabled": true,
+       "connected": true,
+       "transport": "stdio",
+       "toolCount": 3,
+       "source": "config",
+       "error": null,
+       "scope": [
+        "/p"
+       ]
+      },
+      {
+       "name": "off",
+       "enabled": false,
+       "connected": false,
+       "transport": "http",
+       "toolCount": 5,
+       "source": "",
+       "error": "boom",
+       "scope": null
+      },
+      {
+       "name": "plugin-a-s",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "plugin",
+       "plugin": "a",
+       "pluginServer": "s",
+       "disabledReason": "plugin off",
+       "error": null,
+       "warnings": [
+        "w1"
+       ],
+       "scope": null
+      },
+      {
+       "name": "plugin-b-s",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "plugin": "b",
+       "pluginServer": "t",
+       "disabledReason": null,
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "owned",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null
+      },
+      {
+       "name": "notion",
+       "enabled": true,
+       "connected": true,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "notion",
+       "accounts": [
+        {
+         "name": "notion",
+         "email": "a@b.co",
+         "authRequired": true,
+         "error": "x"
+        },
+        {
+         "name": "notion-2",
+         "email": ""
+        },
+        {
+         "name": "n3",
+         "email": ""
+        }
+       ]
+      },
+      {
+       "name": "gmail",
+       "enabled": true,
+       "connected": false,
+       "transport": "",
+       "toolCount": 0,
+       "source": "",
+       "error": null,
+       "scope": null,
+       "connector": "gmail",
+       "accounts": []
+      }
+     ],
+     "warnings": [
+      {
+       "message": "w"
+      }
+     ],
+     "declarationErrors": [
+      {
+       "message": "d"
+      }
+     ]
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "enablePluginMcp",
+     {
+      "id": "p1",
+      "name": "alpha"
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "enable_plugin_mcp",
+    "name": "p2"
+   },
+   "result": {
+    "serverName": "s9",
+    "mcp": {
+     "connectedCount": 0,
+     "servers": []
+    }
+   },
+   "error": null,
+   "calls": [
+    [
+     "enablePluginMcp",
+     {
+      "id": "p2",
+      "name": "beta"
+     }
+    ]
+   ]
+  },
+  {
+   "args": {
+    "action": "enable_plugin_mcp",
+    "name": "ghost"
+   },
+   "result": null,
+   "error": "plugin \"ghost\" not found",
+   "calls": []
+  }
+ ]
+}

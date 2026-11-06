@@ -374,6 +374,30 @@ async fn shell_and_task_goldens_recorded_from_node() {
     }
 }
 
+/// `task read`/`wait` of a finished task, `wait` that reaches its ceiling and `list` of both, as
+/// recorded from Node (`fixtures/tools/task/task-*-completed|expiry|after`).
+#[tokio::test]
+async fn task_read_wait_and_list_match_the_goldens_recorded_from_node() {
+    let rig = rig();
+    rig.shell.call(&ctx(&rig, "a"), serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
+    let owner = ThreadId::from("t");
+    rig.runtime.get(&owner, "task-a").unwrap().settled().await;
+    let c = ctx(&rig, "x");
+    for name in ["task-read-completed", "task-wait-completed"] {
+        let golden = fixture("task", name);
+        let mut input = golden["input"].clone();
+        input["task_id"] = "task-a".into();
+        assert_eq!(normalize(&body(rig.task.call(&c, input).await)), golden["text"].as_str().unwrap(), "{name}");
+    }
+    rig.shell.call(&ctx(&rig, "b"), serde_json::json!({"command": "echo tick; Start-Sleep 30", "background": true})).await.unwrap();
+    let golden = fixture("task", "task-wait-running-expiry");
+    let mut input = golden["input"].clone();
+    input["task_id"] = "task-b".into();
+    assert_eq!(normalize(&body(rig.task.call(&c, input).await)), golden["text"].as_str().unwrap());
+    let golden = fixture("task", "task-list-after");
+    assert_eq!(normalize(&body(rig.task.call(&c, golden["input"].clone()).await)), golden["text"].as_str().unwrap());
+}
+
 /// A promoted command that hits its run limit says how much of the limit was left at promotion
 /// (Node: `error: timed out after 985 ms`, counted from the process start).
 #[tokio::test]

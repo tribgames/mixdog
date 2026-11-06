@@ -118,9 +118,12 @@ sections! {
     ReviewDiff => "reviewDiff", "review/diff/updated", Thread, keyed: true;
     /// Repository status; key = repo root (scoped feed `git:<root>`).
     GitStatus => "gitStatus", "git/status/updated", Git, keyed: true;
-    /// Language-server status; key = root (scoped feed `lsp:<root>`).
+    /// Language-server status (scoped feed `lsp:<root>`); key = `<languageId>`, or
+    /// `<languageId>\0<relPath>` for a status the server answered for one file (Node's
+    /// `statusKey` in `editor-language-store.ts`). The value is Node's `DesktopLspStatusEvent`.
     LspStatus => "lspStatus", "lsp/status/updated", Lsp, keyed: true;
-    /// Diagnostics; key = document uri (scoped feed `lsp:<root>`).
+    /// Diagnostics (scoped feed `lsp:<root>`); key = document uri. The value is Node's
+    /// `DesktopLspDiagnosticEvent`; an empty `diagnostics` list clears the document.
     LspDiagnostics => "lspDiagnostics", "lsp/diagnostics/updated", Lsp, keyed: true;
     /// Media job state; key = job id (scoped feed `media:<jobId>`).
     MediaJobs => "mediaJobs", "media/job/updated", Media, keyed: true;

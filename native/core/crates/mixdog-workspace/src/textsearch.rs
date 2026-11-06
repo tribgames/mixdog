@@ -73,19 +73,19 @@ fn escape_literal(text: &str) -> String {
 }
 
 impl Pattern {
-    /// Patterns are checked by `v8regex` (V8's early errors, byte-equal to Node on the recorded
-    /// corpus) and then compiled by `regress`. `mixdog_js::js_regex_error` is the shared check
-    /// meant to replace `v8regex`; `tests/regex_errors.rs` holds it to the same corpus.
+    /// A pattern is checked by `mixdog_js::js_regex_error` (V8's message, byte for byte; the flags
+    /// shown are the ones Node's search builds) and then compiled by `regress`, whose
+    /// ECMAScript syntax keeps the matching semantics.
     pub fn compile(query: &TextQuery) -> WsResult<Self> {
         let source = if query.regex { query.query.clone() } else { escape_literal(&query.query) };
         let shown = if query.match_case { "gu" } else { "giu" };
-        let invalid = |detail: &str| WsError::invalid(format!("Invalid search pattern: Invalid regular expression: /{source}/{shown}: {detail}"));
-        let property_ok = |name: &str| regress::Regex::with_flags(&format!("\\p{{{name}}}"), "u").is_ok();
-        if let Some(detail) = crate::v8regex::early_error(&source, &property_ok) {
-            return Err(invalid(detail));
+        if let Some(message) = mixdog_js::js_regex_error(&source, shown) {
+            return Err(WsError::invalid(format!("Invalid search pattern: {message}")));
         }
         let flags = if query.match_case { "u" } else { "iu" };
-        regress::Regex::with_flags(&source, flags).map(Self).map_err(|_| invalid("Regular expression too large"))
+        regress::Regex::with_flags(&source, flags).map(Self).map_err(|_| {
+            WsError::invalid(format!("Invalid search pattern: Invalid regular expression: /{source}/{shown}: Regular expression too large"))
+        })
     }
 }
 fn word_character() -> Regex {

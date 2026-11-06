@@ -5,6 +5,7 @@
 //! cancellation token ends it.
 
 pub mod download;
+pub mod fsio;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -70,25 +71,25 @@ where
 }
 
 /// Writes `bytes` to `path` through a sibling temp file, flushed to disk before the rename.
-pub async fn write_file_atomic(path: &Path, bytes: &[u8]) -> Result<(), InstallError> {
-    use tokio::io::AsyncWriteExt;
+pub async fn write_file_atomic<L: LaneToken>(lane: L, path: &Path, bytes: &[u8]) -> Result<(), InstallError> {
     let partial = path.with_extension(format!("{}.part", std::process::id()));
     let result = async {
-        let mut file = tokio::fs::File::create(&partial).await?;
-        file.write_all(bytes).await?;
-        file.sync_all().await?;
-        drop(file);
-        tokio::fs::rename(&partial, path).await
+        let mut file = fsio::LaneWriter::create(lane, &partial).await?;
+        file.write(bytes).await?;
+        file.finish().await?;
+        fsio::rename(lane, &partial, path).await
     }
     .await;
     if let Err(error) = result {
-        let _ = tokio::fs::remove_file(&partial).await;
+        let _ = fsio::remove_file(lane, &partial).await;
         return Err(InstallError::io(error));
     }
     Ok(())
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod trigger_tests;

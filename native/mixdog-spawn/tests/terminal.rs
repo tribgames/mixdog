@@ -508,7 +508,6 @@ async fn size_owner_follows_focus_and_connection_close_without_timers() {
     assert_eq!(rig.pty(id), Some(PtySize { cols: 100, rows: 30 }));
     // The only reading of the clock is the cursor epoch of the spawn.
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
-    let baseline = thread_count();
 
     // Nobody owns the size: any view's resize applies.
     rig.tabs.resize(id, 110, 31, "A");
@@ -557,7 +556,8 @@ async fn size_owner_follows_focus_and_connection_close_without_timers() {
     std::thread::sleep(Duration::from_millis(500));
     assert_eq!(rig.events.all().len(), before);
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
-    assert!(thread_count() <= baseline + 1, "{} threads, baseline {baseline}", thread_count());
+    // The thread count is process-wide and sibling tests of this binary start threads in
+    // parallel, so it cannot witness "no thread appears"; the clock and event checks above do.
     rig.tabs.dispose(id);
 }
 

@@ -48,6 +48,17 @@ mod worktree_intents;
 mod worktree_merge;
 #[path = "worktree_session.rs"]
 mod worktree_session;
+#[path = "worktree_maintenance.rs"]
+mod worktree_maintenance;
+#[path = "worktree_setup.rs"]
+mod worktree_setup;
+#[path = "worktree_setup_note.rs"]
+mod worktree_setup_note;
+#[path = "worktree_setup_run.rs"]
+mod worktree_setup_run;
+#[cfg(test)]
+#[path = "worktree_setup_tests.rs"]
+mod worktree_setup_tests;
 #[path = "worktree_steps.rs"]
 mod worktree_steps;
 #[path = "worktree_texts.rs"]
@@ -73,6 +84,24 @@ pub use self::worktree_host::SessionView;
 pub use self::worktree_host::Undo;
 pub use self::worktree_host::WorkspaceChange;
 pub use self::worktree_host::WorkspaceHost;
+pub use self::worktree_maintenance::CancelSnapshotCleanups;
+pub use self::worktree_maintenance::LiveSessions;
+pub use self::worktree_maintenance::WorktreeMaintenance;
+pub use self::worktree_maintenance::cleanup_summary;
+pub use self::worktree_maintenance::startup_summary;
+pub use self::worktree_setup::SetupListener;
+pub use self::worktree_setup::SetupNotice;
+pub use self::worktree_setup::SetupRun;
+pub use self::worktree_setup::SetupSubscription;
+pub use self::worktree_setup::WorktreeSetup;
+pub use self::worktree_setup_note::PreparationReport;
+pub use self::worktree_setup_note::worktree_preparation_note;
+pub use self::worktree_setup_run::RunOptions;
+pub use self::worktree_setup_run::SetupEvent;
+pub use self::worktree_setup_run::SetupReport;
+pub use self::worktree_setup_run::SetupRunner;
+pub use self::worktree_setup_run::SetupStatus;
+pub use self::worktree_setup_run::SetupStep;
 pub use self::worktree_state::Resumed;
 pub use self::worktree_texts::RECOVERY_TURN_REFUSAL;
 pub use self::worktree_texts::thrown_message;

@@ -1,0 +1,572 @@
+{
+  "_doc": "Recorded from Node's real toOpenAIMessages (default options) over multipart message content. `messages` are neutral specs; `node` is the lowered Chat Completions message list.",
+  "cases": [
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "text",
+              "text": "alpha"
+            },
+            {
+              "kind": "image_url",
+              "url": "https://img.example/a.png"
+            },
+            {
+              "kind": "text",
+              "text": "beta"
+            },
+            {
+              "data": "AAAA",
+              "kind": "image_base64",
+              "mime": "image/png"
+            },
+            {
+              "id": "file-123",
+              "kind": "image_file_id"
+            },
+            {
+              "filename": "notes.txt",
+              "kind": "file_text",
+              "text": "hello file"
+            },
+            {
+              "filename": "blob.bin",
+              "kind": "file_binary"
+            }
+          ],
+          "role": "system"
+        },
+        {
+          "parts": [
+            {
+              "kind": "text",
+              "text": "hi"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "name": "system",
+      "node": [
+        {
+          "content": "alpha\nbeta\n[unsupported image file_id for OpenAI Chat-compatible request: file-123]\n--- notes.txt (text/plain, 10 bytes) ---\nhello file\n[file not sent inline: blob.bin (application/octet-stream, 4 bytes) — this type has no inline form; open it from disk with read]",
+          "role": "system"
+        },
+        {
+          "content": [
+            {
+              "text": "hi",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "text",
+              "text": "alpha"
+            },
+            {
+              "kind": "image_url",
+              "url": "https://img.example/a.png"
+            },
+            {
+              "kind": "text",
+              "text": "beta"
+            },
+            {
+              "data": "AAAA",
+              "kind": "image_base64",
+              "mime": "image/png"
+            },
+            {
+              "id": "file-123",
+              "kind": "image_file_id"
+            },
+            {
+              "filename": "notes.txt",
+              "kind": "file_text",
+              "text": "hello file"
+            },
+            {
+              "filename": "blob.bin",
+              "kind": "file_binary"
+            }
+          ],
+          "role": "developer"
+        }
+      ],
+      "name": "developer",
+      "node": [
+        {
+          "content": "alpha\nbeta\n[unsupported image file_id for OpenAI Chat-compatible request: file-123]\n--- notes.txt (text/plain, 10 bytes) ---\nhello file\n[file not sent inline: blob.bin (application/octet-stream, 4 bytes) — this type has no inline form; open it from disk with read]",
+          "role": "system"
+        }
+      ]
+    },
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "text",
+              "text": "one"
+            },
+            {
+              "kind": "text",
+              "text": "two"
+            }
+          ],
+          "role": "system"
+        }
+      ],
+      "name": "system-texts-only",
+      "node": [
+        {
+          "content": "one\ntwo",
+          "role": "system"
+        }
+      ]
+    },
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "image_url",
+              "url": "https://img.example/b.png"
+            }
+          ],
+          "role": "system"
+        }
+      ],
+      "name": "system-image-only",
+      "node": [
+        {
+          "content": "",
+          "role": "system"
+        }
+      ]
+    },
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "text",
+              "text": "alpha"
+            },
+            {
+              "kind": "image_url",
+              "url": "https://img.example/a.png"
+            },
+            {
+              "kind": "text",
+              "text": "beta"
+            },
+            {
+              "data": "AAAA",
+              "kind": "image_base64",
+              "mime": "image/png"
+            },
+            {
+              "id": "file-123",
+              "kind": "image_file_id"
+            },
+            {
+              "filename": "notes.txt",
+              "kind": "file_text",
+              "text": "hello file"
+            },
+            {
+              "filename": "blob.bin",
+              "kind": "file_binary"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "name": "user",
+      "node": [
+        {
+          "content": [
+            {
+              "text": "alpha",
+              "type": "text"
+            },
+            {
+              "image_url": {
+                "url": "https://img.example/a.png"
+              },
+              "type": "image_url"
+            },
+            {
+              "text": "beta",
+              "type": "text"
+            },
+            {
+              "image_url": {
+                "url": "data:image/png;base64,AAAA"
+              },
+              "type": "image_url"
+            },
+            {
+              "text": "[unsupported image file_id for OpenAI Chat-compatible request: file-123]",
+              "type": "text"
+            },
+            {
+              "text": "--- notes.txt (text/plain, 10 bytes) ---\nhello file",
+              "type": "text"
+            },
+            {
+              "text": "[file not sent inline: blob.bin (application/octet-stream, 4 bytes) — this type has no inline form; open it from disk with read]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "text",
+              "text": ""
+            },
+            {
+              "kind": "text",
+              "text": "x"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "name": "empty-text-part",
+      "node": [
+        {
+          "content": [
+            {
+              "text": "{\"type\":\"text\",\"text\":\"\"}",
+              "type": "text"
+            },
+            {
+              "text": "x",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "image_url",
+              "url": "https://img.example/b.png"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "name": "user-image-only",
+      "node": [
+        {
+          "content": [
+            {
+              "image_url": {
+                "url": "https://img.example/b.png"
+              },
+              "type": "image_url"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "text",
+              "text": "alpha"
+            },
+            {
+              "kind": "image_url",
+              "url": "https://img.example/a.png"
+            },
+            {
+              "kind": "text",
+              "text": "beta"
+            },
+            {
+              "data": "AAAA",
+              "kind": "image_base64",
+              "mime": "image/png"
+            },
+            {
+              "id": "file-123",
+              "kind": "image_file_id"
+            },
+            {
+              "filename": "notes.txt",
+              "kind": "file_text",
+              "text": "hello file"
+            },
+            {
+              "filename": "blob.bin",
+              "kind": "file_binary"
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "name": "assistant",
+      "node": [
+        {
+          "content": "alpha\nbeta\n[unsupported image file_id for OpenAI Chat-compatible request: file-123]\n--- notes.txt (text/plain, 10 bytes) ---\nhello file\n[file not sent inline: blob.bin (application/octet-stream, 4 bytes) — this type has no inline form; open it from disk with read]",
+          "role": "assistant"
+        }
+      ]
+    },
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "image_url",
+              "url": "https://img.example/b.png"
+            }
+          ],
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "path": "a"
+              },
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "parts": [
+            {
+              "kind": "text",
+              "text": "one"
+            },
+            {
+              "kind": "text",
+              "text": "two"
+            }
+          ],
+          "role": "tool",
+          "toolCallId": "call_1"
+        }
+      ],
+      "name": "assistant-tool-calls-image-only",
+      "node": [
+        {
+          "content": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"path\":\"a\"}",
+                "name": "read"
+              },
+              "id": "call_1",
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "content": "one\ntwo",
+          "role": "tool",
+          "tool_call_id": "call_1"
+        }
+      ]
+    },
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "text",
+              "text": "calling"
+            }
+          ],
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {},
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "parts": [
+            {
+              "kind": "text",
+              "text": "alpha"
+            },
+            {
+              "kind": "image_url",
+              "url": "https://img.example/a.png"
+            },
+            {
+              "kind": "text",
+              "text": "beta"
+            },
+            {
+              "data": "AAAA",
+              "kind": "image_base64",
+              "mime": "image/png"
+            },
+            {
+              "id": "file-123",
+              "kind": "image_file_id"
+            },
+            {
+              "filename": "notes.txt",
+              "kind": "file_text",
+              "text": "hello file"
+            },
+            {
+              "filename": "blob.bin",
+              "kind": "file_binary"
+            }
+          ],
+          "role": "tool",
+          "toolCallId": "call_1"
+        }
+      ],
+      "name": "tool-with-media",
+      "node": [
+        {
+          "content": "calling",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{}",
+                "name": "read"
+              },
+              "id": "call_1",
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "content": "alpha\nbeta\n--- notes.txt (text/plain, 10 bytes) ---\nhello file\n[file not sent inline: blob.bin (application/octet-stream, 4 bytes) — this type has no inline form; open it from disk with read]",
+          "role": "tool",
+          "tool_call_id": "call_1"
+        },
+        {
+          "content": [
+            {
+              "image_url": {
+                "url": "https://img.example/a.png"
+              },
+              "type": "image_url"
+            },
+            {
+              "image_url": {
+                "url": "data:image/png;base64,AAAA"
+              },
+              "type": "image_url"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "messages": [
+        {
+          "parts": [
+            {
+              "kind": "image_url",
+              "url": "https://img.example/b.png"
+            }
+          ],
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {},
+              "id": "call_1",
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "parts": [
+            {
+              "kind": "image_url",
+              "url": "https://img.example/b.png"
+            },
+            {
+              "data": "BBBB",
+              "kind": "image_base64",
+              "mime": "image/png"
+            }
+          ],
+          "role": "tool",
+          "toolCallId": "call_1"
+        }
+      ],
+      "name": "tool-media-only",
+      "node": [
+        {
+          "content": null,
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{}",
+                "name": "read"
+              },
+              "id": "call_1",
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "content": "[tool result included media content in the following user message]",
+          "role": "tool",
+          "tool_call_id": "call_1"
+        },
+        {
+          "content": [
+            {
+              "image_url": {
+                "url": "https://img.example/b.png"
+              },
+              "type": "image_url"
+            },
+            {
+              "image_url": {
+                "url": "data:image/png;base64,BBBB"
+              },
+              "type": "image_url"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-chat-parts.mjs"
+}

@@ -18,9 +18,9 @@
       "sha256": "a0e52404897ce3c2cae28d704e4d4242343d0b5bc72aaf2a9d2b4159763888e4"
     },
     {
-      "bytes": 1423748,
+      "bytes": 1392015,
       "path": "route-service-twin.json",
-      "sha256": "6d6251705e312d46f54af3b896d8b90b8c72c265ac4a4f68eef1cf8bc8caf6d5"
+      "sha256": "1b923d608e603f5ab7ec5b817f47a24847e95f94e7ae06f42db1cc267818cd86"
     }
   ],
   "product": {
@@ -41,5 +41,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-route-service.mjs",
   "set": "ai-admin",
-  "totalBytes": 13871054
+  "totalBytes": 13839321
 }

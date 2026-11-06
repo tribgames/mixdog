@@ -102,6 +102,7 @@ fn split_on<'a>(words: &[String], text: &'a str) -> Vec<&'a str> {
 
 impl UnigramTokenizer {
     /// Loads `tokenizer.json`; any other layout is an error.
+    #[allow(clippy::disallowed_methods, reason = "a lane-job body: the model load runs it on the lane")]
     pub fn load(path: &Path, max_length: usize) -> Result<Self> {
         let json: Value = serde_json::from_slice(&std::fs::read(path)?)
             .map_err(|error| MemoryError::Runtime(format!("tokenizer.json: {error}")))?;

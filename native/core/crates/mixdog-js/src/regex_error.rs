@@ -429,6 +429,8 @@ impl Parser {
                 return Err(INVALID_CAPTURE_GROUP_NAME);
             }
         }
+        // The final advance moves past the `>`.
+        self.advance();
         Ok(name)
     }
 

@@ -15,4 +15,5 @@ pub use ladder::{AutoLadder, CustomLadder, StepLadder};
 pub use model::ModelConfig;
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
