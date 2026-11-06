@@ -194,7 +194,9 @@ fn usage_from(usage: &Value, service_tier: Option<&str>) -> Usage {
             ],
         ),
         cache_write_1h_tokens: 0,
-        reasoning_tokens: u64_at(usage, &["output_tokens_details", "reasoning_tokens"]),
+        reasoning_tokens: usage
+            .pointer("/output_tokens_details/reasoning_tokens")
+            .and_then(Value::as_u64),
         cost: billed_cost(usage),
         raw: Some(raw),
     }
@@ -729,7 +731,7 @@ impl ResponsesDecoder {
             stop
         };
         self.terminal = true;
-        out.push(StreamEvent::Completed { stop, pricing_model: None });
+        out.push(StreamEvent::Completed { stop, pricing_model: None, request_ms: None });
     }
 
     fn response_done(&mut self, event: &Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
@@ -850,5 +852,20 @@ impl WireDecoder for ResponsesDecoder {
             tool_input_cut: self.in_flight(),
             ..self.exposure
         }
+    }
+}
+
+#[cfg(test)]
+mod reasoning_tests {
+    use super::*;
+
+    #[test]
+    fn a_reported_zero_stays_zero_and_a_missing_figure_stays_missing() {
+        let zero = usage_from(&json!({ "input_tokens": 5, "output_tokens": 2, "output_tokens_details": { "reasoning_tokens": 0 } }), None);
+        assert_eq!(zero.reasoning_tokens, Some(0));
+        let missing = usage_from(&json!({ "input_tokens": 5, "output_tokens": 2 }), None);
+        assert_eq!(missing.reasoning_tokens, None);
+        let counted = usage_from(&json!({ "output_tokens_details": { "reasoning_tokens": 7 } }), None);
+        assert_eq!(counted.reasoning_tokens, Some(7));
     }
 }

@@ -174,6 +174,22 @@ pub struct Rewrite {
     pub dropped: Option<Dropped>,
 }
 
+/// Node's event `status`: `compacted`, `no_change` (shown as checked), `skipped`, `failed`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CompactStatus {
+    Compacted,
+    NoChange,
+    Skipped,
+    Failed,
+}
+
+impl CompactStatus {
+    /// `applyCompactEvent`'s `compactChanged`.
+    pub fn changed(self) -> bool {
+        self == Self::Compacted
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct CompactEvent {
     /// Node's `droppedMessages`: messages that left the context; 0 when nothing visible was removed.
@@ -181,14 +197,42 @@ pub struct CompactEvent {
     /// `None` when nothing identifiable was dropped.
     pub dropped: Option<Dropped>,
     pub trigger: CompactTrigger,
-    pub changed: bool,
-    pub failed: bool,
+    pub status: CompactStatus,
+    /// Node `beforeTokens`: the provider's last measured context, else the pass's pressure
+    /// (`compactDisplayBeforeTokens`).
+    pub before_tokens: u64,
+    /// Node `durationMs`: the pass, from the start of the compaction stage to its end.
+    pub duration_ms: u64,
+    /// Node `afterTokens`: the context estimate after the pass, on the pre-compact gauge's scale; a
+    /// failed pass reports the pressure it started from.
+    pub after_tokens: u64,
     pub before_messages: usize,
     pub after_messages: usize,
     pub pressure_tokens: u64,
     pub trigger_tokens: u64,
     pub boundary_tokens: u64,
     pub target_budget_tokens: u64,
+}
+
+/// What Node's `usageDeltaEvent` carries about one model call beyond the token counts.
+#[derive(Clone, PartialEq, Debug)]
+pub struct UsageDelta {
+    /// `response.model || model`: the model that answered.
+    pub model: String,
+    /// The model the request named.
+    pub requested_model: String,
+    /// `deltaToolCalls`: the tool calls the response dispatched.
+    pub delta_tool_calls: u64,
+    /// `requestMs`: the send, from before the first attempt to the end of the response (retries and
+    /// the wait for the first token included).
+    pub request_ms: u64,
+    /// `deltaPrompt`: the call's prompt tokens (cache included).
+    pub delta_prompt: u64,
+    /// `sendTools`: the tools the request carried.
+    pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    /// `reasoningUsage(usage)`: `None` when the provider reported none (missing is not zero).
+    pub reasoning_tokens: Option<u64>,
+    pub reasoning_tokens_complete: bool,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -201,7 +245,7 @@ pub enum RunEvent {
     ToolCalls { iteration: u32, calls: Vec<ToolCall> },
     ToolResult { call_id: String, kind: ToolKind },
     SteerInjected(SteerInjected),
-    Usage { iteration: u32, usage: Usage },
+    Usage { iteration: u32, usage: Usage, delta: UsageDelta },
     ContextPressure {
         used_tokens: u64,
         trigger_tokens: u64,
@@ -294,6 +338,9 @@ pub struct CompactOutput {
     pub dropped_count: u64,
     /// The ids of what left; `Some` exactly when `dropped_count`'s rows are shown.
     pub dropped: Option<Dropped>,
+    /// The pass found no token reduction (`freshContextResult.skipped`): nothing is adopted and no
+    /// marker is shown.
+    pub skipped: bool,
 }
 
 #[derive(Debug)]
@@ -494,15 +541,18 @@ pub struct Reused {
     pub first_tool_use_id: String,
 }
 
+/// Async because freshness reads the file system (a metadata stat per path argument), which a host
+/// runs as a lane job, not on the runtime thread.
+#[async_trait]
 pub trait ResultReuse: Send + Sync {
-    fn lookup(&self, call: &ToolCall, touch: bool) -> Option<Reused>;
+    async fn lookup(&self, call: &ToolCall, touch: bool) -> Option<Reused>;
     /// Records the body a successful read-only call delivered. `output` is the
     /// tool's own result with `parts` and `follow_up_messages` emptied (the
     /// model-visible body is `content`): its `meta` and flags are what the
     /// tool layer reads, e.g. `code_graph::dependency_roots(output)`.
-    fn store(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &ToolOutput);
+    async fn store(&self, call: &ToolCall, content: &str, tool_use_id: &str, output: &ToolOutput);
     /// A call ran: mutations and failures invalidate what they may have touched.
-    fn after_call(&self, call: &ToolCall, failed: bool);
+    async fn after_call(&self, call: &ToolCall, failed: bool);
 }
 
 /// What a successful react call hit.

@@ -111,7 +111,7 @@ pub fn usage_of(um: &Value, style: UsageStyle) -> Usage {
         cache_read_tokens: cached,
         cache_write_tokens: 0,
         cache_write_1h_tokens: 0,
-        reasoning_tokens: thoughts.unwrap_or(0),
+        reasoning_tokens: thoughts,
         raw: Some(um.clone()),
         cost: None,
     }
@@ -374,7 +374,7 @@ impl GeminiDecoder {
         if let Some(um) = &self.usage {
             out.push(StreamEvent::Usage(usage_of(um, self.dialect.usage)));
         }
-        out.push(StreamEvent::Completed { stop, pricing_model: None });
+        out.push(StreamEvent::Completed { stop, pricing_model: None, request_ms: None });
         self.done = true;
         Ok(out)
     }
@@ -450,7 +450,7 @@ mod tests {
         let usage = usage.unwrap();
         assert_eq!(
             (usage.input_tokens, usage.output_tokens, usage.cache_read_tokens, usage.reasoning_tokens),
-            (20, 11, 5, 3)
+            (20, 11, 5, Some(3))
         );
         let Some(StreamEvent::ReasoningReplay(replay)) =
             events.iter().find(|e| matches!(e, StreamEvent::ReasoningReplay(_)))
@@ -458,7 +458,7 @@ mod tests {
             panic!("no replay");
         };
         assert_eq!(replay.items["parts"].as_array().unwrap().len(), 3);
-        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: None, pricing_model: None }));
+        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None }));
     }
 
     #[test]
@@ -471,7 +471,7 @@ mod tests {
             events.iter().filter_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some(c) } else { None }).collect();
         assert_eq!(calls[0].id, "gemini_366b187da650ce24");
         assert_eq!(calls[1].id, "srv-1");
-        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: None, pricing_model: None }));
+        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None }));
     }
 
     #[test]
@@ -500,6 +500,6 @@ mod tests {
         assert_eq!(run(&mut decoder(false), band).unwrap_err().status, Some(503));
         let max = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"cut\"}]},\"finishReason\":\"MAX_TOKENS\"}]}\n";
         let events = run(&mut decoder(false), max).unwrap();
-        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: Some(StopReason::MaxTokens), pricing_model: None }));
+        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: Some(StopReason::MaxTokens), pricing_model: None, request_ms: None }));
     }
 }

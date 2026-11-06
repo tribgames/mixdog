@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { Script } from 'node:vm';
 import { documentHandlers } from './document.mjs';
+import { imageHandlers } from './image.mjs';
 import { isInside } from './path-scope.mjs';
 import { sharedBrowserProvider } from './render-browser.mjs';
 
@@ -232,6 +233,7 @@ async function syntaxCheck(ctx) {
 
 export const handlers = {
   ...documentHandlers,
+  ...imageHandlers,
   'syntax.check': syntaxCheck,
   'ooxml.text': ooxmlText,
   'media.officeText': mediaOfficeText,

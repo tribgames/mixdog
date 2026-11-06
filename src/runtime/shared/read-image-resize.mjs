@@ -124,7 +124,7 @@ export function imageResizeCacheStats() {
 // Cached dynamic import. Resolves to the sharp factory or null (absent /
 // failed). Cached so repeated reads don't re-attempt a failing import.
 let _sharpPromise;
-async function loadSharp() {
+export async function loadSharp() {
   if (_sharpPromise === undefined) {
     _sharpPromise = (async () => {
       try {
@@ -287,7 +287,7 @@ function recallResizeResult(cacheKey) {
 // metadata() only parses headers; libpng can still reject a corrupt IDAT
 // stream later. Force one full pixel decode before any original bytes are
 // allowed through unchanged.
-async function decodedImageMeta(sharp, buffer) {
+export async function decodedImageMeta(sharp, buffer) {
   const meta = await sharp(buffer).metadata();
   await sharp(buffer, {
     sequentialRead: true,
@@ -394,6 +394,15 @@ export const TOOL_IMAGE_TARGET_BASE64_SIZE = 256 * 1024;
 const TOOL_IMAGE_JPEG_QUALITIES = [85, 70, 50];
 const TOOL_IMAGE_SOURCE_FORMATS = new Set(['png', 'jpeg', 'webp']);
 
+// One re-encode of a tool-result image: the box, white-flattened, as a JPEG.
+export function encodeToolImageJpeg(sharp, buffer, width, height, allowEnlargement, quality) {
+  return sharp(buffer)
+    .resize(width, height, { fit: 'inside', withoutEnlargement: !allowEnlargement })
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality })
+    .toBuffer({ resolveWithObject: true });
+}
+
 // Returns { data, mimeType, dimensions } or null when the image is already
 // within budget, not a re-encodable still, undecodable, or would not shrink.
 export async function compactToolResultImage(base64, mimeType) {
@@ -409,11 +418,7 @@ export async function compactToolResultImage(base64, mimeType) {
     const { width, height, allowEnlargement } = targetDimensions(meta.width, meta.height, 'anthropic');
     let encoded = null;
     for (const quality of TOOL_IMAGE_JPEG_QUALITIES) {
-      encoded = await sharp(buffer)
-        .resize(width, height, { fit: 'inside', withoutEnlargement: !allowEnlargement })
-        .flatten({ background: '#ffffff' })
-        .jpeg({ quality })
-        .toBuffer({ resolveWithObject: true });
+      encoded = await encodeToolImageJpeg(sharp, buffer, width, height, allowEnlargement, quality);
       if (Math.ceil(encoded.data.length / 3) * 4 <= TOOL_IMAGE_TARGET_BASE64_SIZE) break;
     }
     const data = encoded.data.toString('base64');

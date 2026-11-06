@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::tool::ToolIo;
-use mixdog_rt::LaneToken;
+use mixdog_rt::{CancellationToken, InLane, InteractiveIo, LaneToken};
 use mixdog_core_api::domain::process::{CommandSpec, EnvSpec, OutputMode, OutputStream, ProcessEvent, ProcessManager, ProcessOwner, SpawnRequest};
 use mixdog_protocol::ProcessHandle;
 
@@ -109,16 +109,18 @@ async fn ignored_entries(processes: &dyn ProcessManager, directory: &Path, names
     String::from_utf8_lossy(&result.stdout).split('\0').filter(|s| !s.is_empty()).map(str::to_owned).collect()
 }
 
-/// `_posixStartupShell`.
-fn posix_startup_shell() -> Option<&'static str> {
+/// `_posixStartupShell`, looked up in an io-interactive lane job.
+#[allow(clippy::disallowed_methods, reason = "takes the lane's proof: it runs inside a lane job body")]
+fn shell_candidate(_lane: &InLane<InteractiveIo>) -> Option<&'static str> {
     ["/bin/bash", "/usr/bin/bash", "/bin/sh"].into_iter().find(|candidate| Path::new(candidate).is_file())
 }
 
 /// `_probeShellToolsStartupStateAsync` on POSIX: `<shell> -lc 'command -v <names>'`, the line of what
 /// was found. A non-zero exit (a name is missing) still answers; a spawn failure, timeout or
 /// overflow does not.
-async fn posix_shell_tools(processes: &dyn ProcessManager, path_env: &str) -> String {
-    let Some(shell) = posix_startup_shell() else { return String::new() };
+async fn posix_shell_tools(io: &ToolIo, processes: &dyn ProcessManager, path_env: &str) -> String {
+    let Ok(job) = io.interactive.submit(&CancellationToken::new(), shell_candidate) else { return String::new() };
+    let Some(shell) = job.await.ok().flatten() else { return String::new() };
     let wanted = SHELL_TOOL_STARTUP_NAMES;
     let env = EnvSpec { inherit: true, set: vec![("PATH".to_owned(), path_env.to_owned())], remove: Vec::new() };
     let args = vec!["-lc".to_owned(), format!("command -v {}", wanted.join(" "))];
@@ -137,6 +139,7 @@ async fn posix_shell_tools(processes: &dyn ProcessManager, path_env: &str) -> St
 
 /// Runs the probes of a composition through the process service and records their answers.
 pub struct StartupProbes {
+    io: ToolIo,
     processes: Arc<dyn ProcessManager>,
     /// The observations this host has recorded: a request for one of them is a refresh.
     recorded: Mutex<HashSet<String>>,
@@ -150,8 +153,8 @@ fn key(request: &ProbeRequest) -> String {
 }
 
 impl StartupProbes {
-    pub fn new(processes: Arc<dyn ProcessManager>) -> Self {
-        Self { processes, recorded: Mutex::new(HashSet::new()) }
+    pub fn new(io: ToolIo, processes: Arc<dyn ProcessManager>) -> Self {
+        Self { io, processes, recorded: Mutex::new(HashSet::new()) }
     }
 
     fn recorded(&self) -> std::sync::MutexGuard<'_, HashSet<String>> {
@@ -164,7 +167,7 @@ impl StartupProbes {
         if cfg!(windows) || !self.recorded().insert(format!("s:{path_env}")) {
             return;
         }
-        let line = posix_shell_tools(self.processes.as_ref(), path_env).await;
+        let line = posix_shell_tools(&self.io, self.processes.as_ref(), path_env).await;
         observed.record_shell_tools(path_env, &line);
     }
 
@@ -273,6 +276,7 @@ pub async fn compose<R: Send + 'static>(
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds a real repository")]
 mod tests {
     use std::process::Command;
 
@@ -302,7 +306,7 @@ use mixdog_rt::LaneToken;
         let tokens = mixdog_rt::testing::tokens();
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         let processes: Arc<dyn ProcessManager> = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
-        let probes = Arc::new(StartupProbes::new(processes));
+        let probes = Arc::new(StartupProbes::new(io, processes));
         let observed = Arc::new(StartupObservations::new(Arc::new(Fixed)));
         let data = tempfile::tempdir().unwrap();
         let facts = Arc::new(PromptFacts::from_process(data.path().to_path_buf(), data.path().to_path_buf(), None));

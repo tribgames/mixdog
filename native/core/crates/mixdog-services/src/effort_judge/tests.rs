@@ -171,6 +171,26 @@ async fn a_missing_model_answers_none_without_hanging() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn step_support_follows_calibration_steps_one_and_is_read_once() {
+    let judge_in = |dir: &std::path::Path| {
+        EffortJudgeModel::new(ModelConfig { dir: dir.to_owned(), explicit: true, ort_library: PathBuf::from("unused") }, lane()).expect("model")
+    };
+    let dir = tempfile::tempdir().expect("dir");
+    // Not installed: no steps.
+    assert!(!judge_in(dir.path()).supports_steps().await);
+    for (text, want) in [(r#"{"steps":1}"#, true), (r#"{"steps":1.0}"#, true), (r#"{"steps":0}"#, false), (r#"{"steps":"1"}"#, false), (r#"{"steps":true}"#, false), ("{}", false), ("not json", false)] {
+        std::fs::write(dir.path().join("calibration.json"), text).expect("write");
+        assert_eq!(judge_in(dir.path()).supports_steps().await, want, "{text}");
+    }
+    // Read once per instance, as Node does per directory.
+    std::fs::write(dir.path().join("calibration.json"), r#"{"steps":1}"#).expect("write");
+    let model = judge_in(dir.path());
+    assert!(model.supports_steps().await);
+    std::fs::write(dir.path().join("calibration.json"), r#"{"steps":0}"#).expect("write");
+    assert!(model.supports_steps().await);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_corrupt_model_answers_none() {
     let dir = tempfile::tempdir().expect("dir");
     std::fs::write(dir.path().join("model.onnx"), b"not an onnx model").expect("write");

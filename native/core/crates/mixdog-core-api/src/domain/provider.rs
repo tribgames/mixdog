@@ -446,12 +446,24 @@ pub struct Usage {
     /// (Anthropic `cache_creation.ephemeral_1h_input_tokens`); 0 when the
     /// provider reports no split. The 5-minute part is the remainder.
     pub cache_write_1h_tokens: u64,
-    pub reasoning_tokens: u64,
+    /// The generation tokens the provider reported; `None` when it reported
+    /// none (missing is not zero, an explicit 0 stays `Some(0)`).
+    pub reasoning_tokens: Option<u64>,
     /// The provider's usage object verbatim (ledger detail, service tier).
     pub raw: Option<JsonValue>,
     /// What the provider billed for the request, when it reports it (xAI
     /// `cost_in_usd_ticks`, OpenRouter `cost`); never computed from prices.
     pub cost: Option<UsdTicks>,
+}
+
+impl Usage {
+    /// `combineReasoningUsage`'s count: `None` only when neither side reported.
+    pub fn sum_reasoning(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+        match (a, b) {
+            (None, None) => None,
+            (a, b) => Some(a.unwrap_or(0) + b.unwrap_or(0)),
+        }
+    }
 }
 
 /// An amount in xAI's unit: 1 tick = 10⁻¹⁰ USD.
@@ -517,6 +529,12 @@ pub enum StreamEvent {
         /// one sent (Node `send` result `pricingModel`, Cursor pinned
         /// suffix ids); `None` otherwise.
         pricing_model: Option<String>,
+        /// The request's wall time as the usage ledger measures it (Node
+        /// `usageDurationMs`): from the accounted send's start to the moment
+        /// its completed row was written, first-output wait included. Stamped
+        /// by the accounting layer; decoders leave `None`, and a consumer
+        /// without it falls back to its own clock.
+        request_ms: Option<u64>,
     },
 }
 

@@ -1,0 +1,167 @@
+{
+  "before": [
+    {
+      "lastContextTokens": 959921,
+      "stale": false,
+      "fallback": 1756616,
+      "before": 959921
+    },
+    {
+      "lastContextTokens": 959921,
+      "stale": true,
+      "fallback": 1756616,
+      "before": 1756616
+    },
+    {
+      "lastContextTokens": 0,
+      "stale": false,
+      "fallback": 42000,
+      "before": 42000
+    },
+    {
+      "lastContextTokens": null,
+      "stale": false,
+      "fallback": 42000,
+      "before": 42000
+    },
+    {
+      "lastContextTokens": 8000,
+      "stale": false,
+      "fallback": 31000,
+      "before": 8000
+    },
+    {
+      "lastContextTokens": 31000,
+      "stale": false,
+      "fallback": 8000,
+      "before": 31000
+    }
+  ],
+  "details": [
+    {
+      "event": {
+        "durationMs": 0,
+        "beforeTokens": 0,
+        "pressureTokens": 0,
+        "afterTokens": 0
+      },
+      "detail": "0s"
+    },
+    {
+      "event": {
+        "durationMs": 1200,
+        "beforeTokens": 12345,
+        "pressureTokens": 40000,
+        "afterTokens": 3400
+      },
+      "detail": "2s · 12k→3.4k"
+    },
+    {
+      "event": {
+        "durationMs": 40,
+        "beforeTokens": 900,
+        "pressureTokens": 900,
+        "afterTokens": 900
+      },
+      "detail": "1s"
+    },
+    {
+      "event": {
+        "durationMs": 1000,
+        "beforeTokens": 1250,
+        "pressureTokens": 5,
+        "afterTokens": 640
+      },
+      "detail": "1s · 1.3k→640"
+    },
+    {
+      "event": {
+        "durationMs": 1001,
+        "beforeTokens": 12500,
+        "pressureTokens": 5,
+        "afterTokens": 1250
+      },
+      "detail": "2s · 13k→1.3k"
+    },
+    {
+      "event": {
+        "durationMs": 59001,
+        "beforeTokens": 959921,
+        "pressureTokens": 1756616,
+        "afterTokens": 120000
+      },
+      "detail": "60s · 960k→120k"
+    },
+    {
+      "event": {
+        "durationMs": 5,
+        "beforeTokens": 0,
+        "pressureTokens": 7500,
+        "afterTokens": 2500
+      },
+      "detail": "1s"
+    }
+  ],
+  "labels": [
+    {
+      "status": "compacted",
+      "trigger": "auto",
+      "label": "Compact complete"
+    },
+    {
+      "status": "compacted",
+      "trigger": "reactive",
+      "label": "Compact complete (overflow recovery)"
+    },
+    {
+      "status": "compacted",
+      "trigger": "cache_expired",
+      "label": "Compact complete"
+    },
+    {
+      "status": "no_change",
+      "trigger": "auto",
+      "label": "Compact checked"
+    },
+    {
+      "status": "no_change",
+      "trigger": "reactive",
+      "label": "Compact checked"
+    },
+    {
+      "status": "no_change",
+      "trigger": "cache_expired",
+      "label": "Compact checked"
+    },
+    {
+      "status": "skipped",
+      "trigger": "auto",
+      "label": "Compact skipped"
+    },
+    {
+      "status": "skipped",
+      "trigger": "reactive",
+      "label": "Compact skipped"
+    },
+    {
+      "status": "skipped",
+      "trigger": "cache_expired",
+      "label": "Compact skipped"
+    },
+    {
+      "status": "failed",
+      "trigger": "auto",
+      "label": "Compact failed"
+    },
+    {
+      "status": "failed",
+      "trigger": "reactive",
+      "label": "Compact failed (overflow retry)"
+    },
+    {
+      "status": "failed",
+      "trigger": "cache_expired",
+      "label": "Compact failed"
+    }
+  ]
+}

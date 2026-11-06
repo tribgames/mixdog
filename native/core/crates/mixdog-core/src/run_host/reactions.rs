@@ -17,8 +17,14 @@ use mixdog_agent::message::AgentMessage;
 use mixdog_agent::message::Source;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::ToolCall;
+use mixdog_protocol::message_class::js::truthy;
+use serde_json::Value;
+
+use crate::session::StoredRows;
 
 pub const REACTION_TOOL_NAME: &str = "react";
+/// `ROOM_ROW_SOURCE` (`agent-room.mjs`).
+const ROOM_ROW_SOURCE: &str = "agent-room";
 /// Records held at once; the oldest is dropped past it.
 const TARGET_CAP: usize = 256;
 
@@ -44,6 +50,46 @@ impl MessageFacts for NoMessageFacts {
     }
     fn not_user_written(&self, _: &str) -> bool {
         false
+    }
+}
+
+/// The facts as Node reads them off the message in hand: the run's [`StoredRows`] holds the exact
+/// stored body of every message the turn holds (read back from the store, or committed by the run).
+/// A message the run never registered has no facts.
+impl MessageFacts for StoredRows {
+    /// `roomRowOf` (`no-tool-turn.mjs`): `meta.transcript.roomRow`.
+    fn room_row(&self, message_id: &str) -> Option<String> {
+        self.with_body(message_id, |body| {
+            body.pointer("/meta/transcript/roomRow").and_then(Value::as_str).map(str::to_owned)
+        })
+        .flatten()
+    }
+
+    /// `isRoomRowMessage` (`meta.source === 'agent-room' && Boolean(meta.room?.kind)`), then
+    /// `meta.room.kind === 'user' && !meta.room.fromSession` (`isReactableMessage`).
+    fn room_row_is_user(&self, message_id: &str) -> Option<bool> {
+        self.with_body(message_id, |body| {
+            let meta = body.get("meta")?;
+            let room = meta.get("room");
+            let kind = room.and_then(|room| room.get("kind"));
+            if meta.get("source").and_then(Value::as_str) != Some(ROOM_ROW_SOURCE) || !truthy(kind) {
+                return None;
+            }
+            Some(kind.and_then(Value::as_str) == Some("user") && !truthy(room.and_then(|room| room.get("fromSession"))))
+        })
+        .flatten()
+    }
+
+    /// `meta.synthetic === true || transcript.fromAgent || transcript.routineTrigger`.
+    fn not_user_written(&self, message_id: &str) -> bool {
+        self.with_body(message_id, |body| {
+            let Some(meta) = body.get("meta") else { return false };
+            let transcript = meta.get("transcript");
+            meta.get("synthetic") == Some(&Value::Bool(true))
+                || truthy(transcript.and_then(|t| t.get("fromAgent")))
+                || truthy(transcript.and_then(|t| t.get("routineTrigger")))
+        })
+        .unwrap_or(false)
     }
 }
 
@@ -184,5 +230,58 @@ mod tests {
         let mut notice = AgentMessage::user("<runtime-notice> x");
         notice.message_id = Some("m2".into());
         assert!(!r.is_reactable(&notice));
+    }
+
+    fn keyed(id: &str, body: serde_json::Value, rows: &StoredRows) -> AgentMessage {
+        let mut message = AgentMessage::user("hello");
+        message.message_id = Some(id.into());
+        rows.record(&message, body);
+        message
+    }
+
+    /// `isReactableMessage` and `roomRowOf` over the stored bodies the run holds (Node reads
+    /// them off `message.meta`).
+    #[test]
+    fn stored_rows_give_nodes_message_facts() {
+        let rows = Arc::new(StoredRows::new());
+        let user = |extra: serde_json::Value| {
+            let mut meta = json!({ "transcript": { "messageId": "x" } });
+            for (k, v) in extra.as_object().unwrap() {
+                if k == "transcript" {
+                    meta["transcript"].as_object_mut().unwrap().extend(v.as_object().unwrap().clone());
+                } else {
+                    meta[k] = v.clone();
+                }
+            }
+            json!({ "role": "user", "content": "hello", "meta": meta })
+        };
+        let typed = keyed("typed", user(json!({})), &rows);
+        let synthetic = keyed("synthetic", user(json!({ "synthetic": true })), &rows);
+        let synthetic_text = keyed("synthetic-text", user(json!({ "synthetic": "yes" })), &rows);
+        let from_agent = keyed("from-agent", user(json!({ "transcript": { "fromAgent": "bot" } })), &rows);
+        let routine = keyed("routine", user(json!({ "transcript": { "routineTrigger": { "id": "r" } } })), &rows);
+        let room = |id: &str, r: serde_json::Value| keyed(id, user(json!({ "source": "agent-room", "room": r })), &rows);
+        let own_row = room("own-row", json!({ "kind": "user" }));
+        let relayed_row = room("relayed-row", json!({ "kind": "user", "fromSession": "s1" }));
+        let bot_row = room("bot-row", json!({ "kind": "agent", "fromAgent": "a" }));
+        let kindless = keyed("kindless", user(json!({ "room": { "kind": "" } })), &rows);
+        let member_prompt = keyed("member-prompt", user(json!({ "synthetic": true, "transcript": { "roomRow": "row-7" } })), &rows);
+
+        let facts: &dyn MessageFacts = &*rows;
+        assert_eq!(facts.room_row("member-prompt").as_deref(), Some("row-7"));
+        assert_eq!(facts.room_row("typed"), None);
+        assert_eq!(facts.room_row_is_user("kindless"), None, "no agent-room source");
+        assert_eq!(facts.room_row_is_user("bot-row"), Some(false));
+        assert_eq!((facts.room_row("never-registered"), facts.room_row_is_user("never-registered")), (None, None));
+        assert!(!facts.not_user_written("never-registered"));
+
+        let r = LoopReactions::new(rows.clone(), |t| t.starts_with("<runtime-notice>"));
+        let reactable: Vec<bool> = [&typed, &synthetic, &synthetic_text, &from_agent, &routine, &own_row, &relayed_row, &bot_row, &kindless, &member_prompt]
+            .iter()
+            .map(|m| r.is_reactable(m))
+            .collect();
+        assert_eq!(reactable, [true, false, true, false, false, true, false, false, true, false]);
+        assert_eq!(Reactions::room_row(&r, &member_prompt).as_deref(), Some("row-7"));
+        assert_eq!(Reactions::room_row(&r, &typed), None);
     }
 }

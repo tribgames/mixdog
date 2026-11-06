@@ -10,6 +10,8 @@ use crate::env::CompactError;
 use crate::env::CompactEvent;
 use crate::env::Dropped;
 use crate::env::CompactRequest;
+use crate::env::CompactStatus;
+use crate::env::Clock;
 use crate::env::CompactTrigger;
 use crate::env::Compactor;
 use crate::env::RunEvent;
@@ -51,6 +53,35 @@ pub struct CompactSettings {
     pub target_min_tokens: Option<u64>,
     /// Provider token-count calibration (1.0 when the estimate is exact).
     pub token_calibration: f64,
+    /// The session's last measured context footprint when the run starts (`session.lastContextTokens`);
+    /// `None` when it has none or it was invalidated.
+    pub last_context_tokens: Option<u64>,
+}
+
+/// `session.lastContextTokens` and `lastContextTokensStaleAfterCompact`: the provider's last
+/// measured context footprint, which the compact marker shows as its before count.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ContextReading {
+    pub tokens: Option<u64>,
+    pub stale_after_compact: bool,
+}
+
+impl ContextReading {
+    /// `compactDisplayBeforeTokens`: the live reading, else the pass's own `fallback`.
+    pub fn display_before(&self, fallback: u64) -> u64 {
+        match self.tokens.filter(|t| *t > 0) {
+            Some(tokens) if !self.stale_after_compact => tokens,
+            _ => fallback,
+        }
+    }
+
+    /// `recordLastContextTokens` for one model call: the prompt the call measured (a `Usage`'s
+    /// input already counts cache reads and writes, which Node adds back for providers that report
+    /// them apart); no prompt leaves the window unknown until the next measured call.
+    pub fn measure(&mut self, usage: &Usage) {
+        let prompt = usage.input_tokens;
+        *self = if prompt == 0 { Self { tokens: None, stale_after_compact: true } } else { Self { tokens: Some(prompt), stale_after_compact: false } };
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -303,12 +334,17 @@ impl Run {
         // The one-shot reactive flag is consumed by this pass.
         self.reactive_overflow_retry_pending = false;
         let before = self.messages.len();
-        let event = |changed: bool, failed: bool, after: usize, dropped_count: u64, dropped: Option<Dropped>| CompactEvent {
+        let started = self.env.clock.now_ms();
+        let before_tokens = self.context.display_before(pressure);
+        let duration = |clock: &dyn Clock| (clock.now_ms() - started).max(0) as u64;
+        let event = |status: CompactStatus, after: usize, after_tokens: u64, duration_ms: u64, dropped_count: u64, dropped: Option<Dropped>| CompactEvent {
             dropped_count,
             dropped,
             trigger: trigger_kind.clone(),
-            changed,
-            failed,
+            status,
+            before_tokens,
+            duration_ms,
+            after_tokens,
             before_messages: before,
             after_messages: after,
             pressure_tokens: pressure,
@@ -330,7 +366,7 @@ impl Run {
             Ok(output) => output,
             Err(CompactError::Aborted) => return Err(AgentError::Aborted),
             Err(error) => {
-                self.emit(RunEvent::Compact(event(false, true, before, 0, None)));
+                self.emit(RunEvent::Compact(event(CompactStatus::Failed, before, pressure, duration(&*self.env.clock), 0, None)));
                 // Agent mode retries a failed compaction quietly once per
                 // turn: the context is still under the model's boundary and
                 // the next send's pass compacts again.
@@ -350,12 +386,19 @@ impl Run {
                 self.first_turn_usage = Some(usage.clone());
             }
         }
+        if output.skipped {
+            return Ok(false);
+        }
         let changed = output.messages != self.messages;
         let rewrite = Rewrite { dropped_count: output.dropped_count, dropped: output.dropped };
         if changed {
             self.adopt_compacted(output.messages, &rewrite);
         }
-        self.emit(RunEvent::Compact(event(changed, false, self.messages.len(), rewrite.dropped_count, rewrite.dropped)));
+        // The gauge's scale: the compacted transcript's estimate plus the request reserve (the provider
+        // baseline died with the old transcript).
+        let after_tokens = policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages));
+        let status = if changed { CompactStatus::Compacted } else { CompactStatus::NoChange };
+        self.emit(RunEvent::Compact(event(status, self.messages.len(), after_tokens, duration(&*self.env.clock), rewrite.dropped_count, rewrite.dropped)));
         Ok(changed)
     }
 

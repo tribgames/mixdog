@@ -125,7 +125,7 @@ impl DevinDecoder {
                 cache_read_tokens: read,
                 cache_write_tokens: write,
                 cache_write_1h_tokens: 0,
-                reasoning_tokens: 0,
+                reasoning_tokens: None,
                 raw: Some(json!({
                     "inputTokens": stats.input_tokens,
                     "outputTokens": stats.output_tokens,
@@ -303,6 +303,7 @@ impl DevinDecoder {
         }));
         events.push(StreamEvent::Completed {
             pricing_model: None,
+            request_ms: None,
             stop: Some(if tool_use {
                 StopReason::ToolUse
             } else if self.stop_reason == stop::MAX_TOKENS {

@@ -80,7 +80,14 @@ fn calibration(dir: &Path) -> Calibration {
         std::fs::read(dir.join("calibration.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let temperature = raw["temperature"].as_f64().filter(|t| *t > 0.0).unwrap_or(1.0);
     let max_tokens = raw["maxTokens"].as_f64().filter(|n| *n > 2.0).map_or(DEFAULT_MAX_TOKENS, |n| n as usize);
-    Calibration { temperature, max_tokens, steps: raw["steps"].as_i64() == Some(1) }
+    Calibration { temperature, max_tokens, steps: raw["steps"].as_f64() == Some(1.0) }
+}
+
+/// `effortJudgeSupportsSteps`: whether `calibration.json` in `dir` says `steps: 1`.
+/// A missing or unreadable file is `false`.
+pub async fn steps_in(lane: CpuBulk, dir: &Path) -> Result<bool, InstallError> {
+    let dir = dir.to_owned();
+    on_lane(lane, move || calibration(&dir).steps).await.map_err(InstallError::io)
 }
 
 pub struct JudgeModel {

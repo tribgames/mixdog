@@ -87,6 +87,19 @@ pub struct HostTodoView {
     cycles: Arc<UserCycles>,
 }
 
+impl HostTodoView {
+    /// The view of one thread; its session id (`awaitingBackgroundWork`'s key) is the thread's id.
+    pub fn new(
+        thread: ThreadId,
+        todos: Arc<dyn TodoStore>,
+        goals: Arc<dyn GoalPort>,
+        work: Arc<dyn RunningWork>,
+        cycles: Arc<UserCycles>,
+    ) -> Self {
+        Self { session_id: thread.as_str().to_owned(), thread, todos, goals, work, cycles }
+    }
+}
+
 #[async_trait]
 impl TodoView for HostTodoView {
     async fn phases(&self) -> Vec<TodoPhase> {

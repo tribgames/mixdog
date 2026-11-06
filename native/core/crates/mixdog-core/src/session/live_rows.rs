@@ -5,6 +5,7 @@
 use std::sync::LazyLock;
 
 use mixdog_agent::env::CompactEvent;
+use mixdog_agent::env::CompactStatus;
 use mixdog_agent::env::CompactTrigger;
 use mixdog_core_api::domain::provider::Usage;
 use regex::Regex;
@@ -155,12 +156,11 @@ pub(crate) fn polish_notice_text(text: &str) -> String {
 /// The event's `status` as Node's loop reports it: a pass that failed, one that changed the
 /// context, or one that changed nothing (`no_change`).
 fn compact_status(event: &CompactEvent) -> &'static str {
-    if event.failed {
-        "failed"
-    } else if event.changed {
-        "compacted"
-    } else {
-        "no_change"
+    match event.status {
+        CompactStatus::Failed => "failed",
+        CompactStatus::Compacted => "compacted",
+        CompactStatus::Skipped => "skipped",
+        CompactStatus::NoChange => "no_change",
     }
 }
 
@@ -185,18 +185,22 @@ pub(crate) fn compact_event_label(event: &CompactEvent) -> &'static str {
 fn fmt_tok(n: f64) -> String {
     if n >= 1000.0 {
         let k = n / 1000.0;
-        if n >= 10_000.0 { format!("{k:.0}") + "k" } else { format!("{k:.1}") + "k" }
+        if n >= 10_000.0 { mixdog_js::math::to_fixed(k, 0) + "k" } else { mixdog_js::math::to_fixed(k, 1) + "k" }
     } else {
         format!("{}", n.round())
     }
 }
 
-/// `compactEventDetail(event)`: the event carries no duration (`0s`) and no after-count, so
-/// the token part never shows.
+/// `compactEventDetail(event)`: the elapsed seconds (rounded up, `0s` when none), then the
+/// token move when both ends are known and differ.
 pub(crate) fn compact_event_detail(event: &CompactEvent) -> String {
-    let mut parts = vec!["0s".to_owned()];
-    let before = event.pressure_tokens as f64;
-    let after = 0.0;
+    let elapsed = match event.duration_ms {
+        0 => "0s".to_owned(),
+        ms => format!("{}s", ms.div_ceil(1000).max(1)),
+    };
+    let mut parts = vec![elapsed];
+    let before = event.before_tokens as f64;
+    let after = event.after_tokens as f64;
     if before > 0.0 && after > 0.0 && after != before {
         parts.push(format!("{}→{}", fmt_tok(before), fmt_tok(after)));
     }
@@ -242,13 +246,69 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)] // fixture loading in a test
+    fn the_marker_text_equals_the_recorded_node_text() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent/compact_marker/cases.json");
+        let golden: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let blank = |status, trigger| CompactEvent {
+            dropped_count: 0,
+            dropped: None,
+            trigger,
+            status,
+            before_tokens: 0,
+            duration_ms: 0,
+            after_tokens: 0,
+            before_messages: 0,
+            after_messages: 0,
+            pressure_tokens: 0,
+            trigger_tokens: 0,
+            boundary_tokens: 0,
+            target_budget_tokens: 0,
+        };
+        let details = golden["details"].as_array().unwrap();
+        assert!(details.iter().any(|d| d["detail"].as_str().unwrap().contains('→')));
+        for case in details {
+            let e = &case["event"];
+            let event = CompactEvent {
+                duration_ms: e["durationMs"].as_u64().unwrap(),
+                before_tokens: e["beforeTokens"].as_u64().unwrap(),
+                after_tokens: e["afterTokens"].as_u64().unwrap(),
+                ..blank(CompactStatus::Compacted, CompactTrigger::Auto)
+            };
+            assert_eq!(compact_event_detail(&event), case["detail"].as_str().unwrap(), "{e}");
+        }
+        for case in golden["labels"].as_array().unwrap() {
+            let status = match case["status"].as_str().unwrap() {
+                "compacted" => CompactStatus::Compacted,
+                "no_change" => CompactStatus::NoChange,
+                "skipped" => CompactStatus::Skipped,
+                _ => CompactStatus::Failed,
+            };
+            let trigger = match case["trigger"].as_str().unwrap() {
+                "reactive" => CompactTrigger::Reactive,
+                "cache_expired" => CompactTrigger::CacheExpired,
+                _ => CompactTrigger::Auto,
+            };
+            assert_eq!(compact_event_label(&blank(status, trigger)), case["label"].as_str().unwrap(), "{case}");
+        }
+    }
+
+    #[test]
     fn the_marker_label_follows_status_and_trigger() {
         let event = |failed: bool, changed: bool, trigger: CompactTrigger| CompactEvent {
             dropped_count: 0,
             dropped: None,
             trigger,
-            changed,
-            failed,
+            status: if failed {
+                CompactStatus::Failed
+            } else if changed {
+                CompactStatus::Compacted
+            } else {
+                CompactStatus::NoChange
+            },
+            before_tokens: 0,
+            duration_ms: 0,
+            after_tokens: 0,
             before_messages: 0,
             after_messages: 0,
             pressure_tokens: 0,
@@ -262,5 +322,13 @@ mod tests {
         assert_eq!(compact_event_label(&event(false, false, CompactTrigger::Auto)), "Compact checked");
         assert_eq!(compact_event_detail(&event(false, true, CompactTrigger::Auto)), "0s");
         assert!(!compact_changed(&event(true, false, CompactTrigger::Auto)));
+        // The marker reads the pass's own numbers: seconds rounded up, and before→after tokens.
+        let timed = CompactEvent { duration_ms: 1_200, before_tokens: 12_345, pressure_tokens: 40_000, after_tokens: 3_400, ..event(false, true, CompactTrigger::Auto) };
+        assert_eq!(compact_event_detail(&timed), "2s · 12k→3.4k");
+        let same = CompactEvent { duration_ms: 40, before_tokens: 900, pressure_tokens: 900, after_tokens: 900, ..event(false, false, CompactTrigger::Auto) };
+        assert_eq!(compact_event_detail(&same), "1s");
+        let skipped = CompactEvent { status: CompactStatus::Skipped, ..event(false, false, CompactTrigger::Auto) };
+        assert_eq!(compact_event_label(&skipped), "Compact skipped");
+        assert!(!compact_changed(&skipped));
     }
 }

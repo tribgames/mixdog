@@ -227,7 +227,7 @@ export function createPriorityScheduler(limit = 2) {
 const scheduleRendition = createPriorityScheduler(2);
 
 /** Downscale a still (path or buffer) into a webp; null without sharp. */
-async function encodeStill(input, spec) {
+export async function encodeStill(input, spec) {
   const sharp = await loadSharp();
   if (!sharp) return null;
   try {

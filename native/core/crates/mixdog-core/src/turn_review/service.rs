@@ -12,7 +12,6 @@ use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use super::chain::Chain;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -183,8 +182,6 @@ pub(super) struct Reg {
     pub parked: IndexMap<String, IndexMap<String, Review>>,
     // Owner session → how many times its change history was deleted.
     pub epochs: HashMap<String, u64>,
-    // Per-session Undo/Reapply chain: the lock and how many tasks hold or wait on it.
-    pub mutations: HashMap<String, (Arc<Chain>, usize)>,
 }
 
 pub(super) fn pending_key(owner: &str, checkpoint_id: &str) -> String {
@@ -201,6 +198,8 @@ pub struct Inner {
     pub(super) git: Arc<dyn ReviewGit>,
     pub(super) worktrees: Arc<dyn ReviewWorktrees>,
     pub(super) reg: Mutex<Reg>,
+    // Per-session Undo/Reapply chain: a key exists while a task holds or waits on it.
+    pub(super) mutations: Arc<mixdog_rt::KeyedChains>,
     cpu: mixdog_rt::CpuInteractive,
     pub(super) ignored: super::reads::IgnoredCache,
     write_seq: AtomicU64,
@@ -234,6 +233,7 @@ impl TurnReview {
                 git,
                 worktrees,
                 reg: Mutex::new(Reg::default()),
+                mutations: mixdog_rt::KeyedChains::new(),
                 cpu,
                 ignored: Mutex::new(IndexMap::new()),
                 write_seq: AtomicU64::new(0),
@@ -536,7 +536,7 @@ impl Inner {
         // Turn start and Undo/Reapply share the per-session lock: a start waits for an in-flight
         // mutation, and a mutation queued after this start re-checks under the lock and finds the
         // turn running.
-        let busy = self.reg().mutations.contains_key(&owner);
+        let busy = self.mutations.is_busy(&owner);
         let (token, tracker) = if busy {
             let inner = self.clone();
             let (worktree, owner2) = (worktree.to_owned(), owner.clone());
@@ -560,23 +560,7 @@ impl Inner {
     // ── per-session mutation chain ─────────────────────────────────────────
 
     pub(super) async fn serialize_mutation<T>(&self, owner: &str, task: impl Future<Output = T>) -> T {
-        let lock = {
-            let mut reg = self.reg();
-            let entry = reg.mutations.entry(owner.to_owned()).or_insert_with(|| (Arc::new(Chain::default()), 0));
-            entry.1 += 1;
-            entry.0.clone()
-        };
-        let guard = lock.acquire().await;
-        let out = task.await;
-        drop(guard);
-        let mut reg = self.reg();
-        if let Some(entry) = reg.mutations.get_mut(owner) {
-            entry.1 -= 1;
-            if entry.1 == 0 {
-                reg.mutations.remove(owner);
-            }
-        }
-        out
+        self.mutations.run(owner, task).await
     }
 
     // ── workers ────────────────────────────────────────────────────────────

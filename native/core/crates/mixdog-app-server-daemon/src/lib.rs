@@ -39,12 +39,14 @@ pub enum ServeError {
 pub async fn serve() -> Result<(), ServeError> {
     // The inline test backend runs lane jobs on the calling thread; WP-RT's executors replace it.
     let tokens = mixdog_rt::testing::tokens();
-    let data_dir = data_dir().ok_or(ServeError::NoDataDir)?;
+    // Every install ships the manifest: a missing or broken one is a startup error.
+    let js_runtime = js_runtime::resolve_current()?;
+    // Node's `resolvePluginData()`, the dir `mixdogd migrate` converts.
+    let data_dir = mixdog_store::paths::Paths::from_process(&js_runtime.package_root).ok_or(ServeError::NoDataDir)?.data_dir;
     let config = compose::ComposeConfig {
         user_data_dir: data_dir.join("userdata"),
         data_dir,
-        // Every install ships the manifest: a missing or broken one is a startup error.
-        js_runtime: js_runtime::resolve_current()?,
+        js_runtime,
         // Likewise the ONNX Runtime library comes from the install layout.
         ort_library: None,
         // The server that attaches here takes this router with it (`Running::build`).
@@ -59,10 +61,4 @@ pub async fn serve() -> Result<(), ServeError> {
     core.stop().await;
     core.set_state(CoreState::Stopped);
     Ok(())
-}
-
-/// The data directory serve runs on: MIXDOG_DATA_DIR, else ~/.mixdog/data (the migration's rule).
-fn data_dir() -> Option<std::path::PathBuf> {
-    let roots = mixdog_migrate::run::cli::resolve_roots(&Default::default(), &|name| std::env::var_os(name));
-    roots.map(|roots| roots.data)
 }

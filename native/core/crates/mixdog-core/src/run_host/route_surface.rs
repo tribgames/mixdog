@@ -174,6 +174,7 @@ impl RouteFacts for AiRouteFacts {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
 mod tests {
     use serde_json::{json, Value};
 

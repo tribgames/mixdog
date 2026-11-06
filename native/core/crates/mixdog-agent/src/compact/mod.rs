@@ -11,6 +11,7 @@ pub mod dropped;
 pub mod estimate;
 pub mod execution_tail;
 pub mod fresh;
+pub mod image;
 pub mod ingest;
 pub mod messages;
 pub mod observation;

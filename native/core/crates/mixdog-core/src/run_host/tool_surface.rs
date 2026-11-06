@@ -21,7 +21,7 @@ use super::tool_exposure::{
 };
 
 /// Canonical route order: locator, path, content, symbol, read, edit, execute.
-const ROUTE_TOOL_ORDER: [&str; 13] = ["explore", "find", "glob", "list", "grep", "code_graph", "read", "edit", "apply_patch", "git", "github", "shell", "task"];
+pub(super) const ROUTE_TOOL_ORDER: [&str; 13] = ["explore", "find", "glob", "list", "grep", "code_graph", "read", "edit", "apply_patch", "git", "github", "shell", "task"];
 
 /// Measured call counts (3-day trace window): order the unrouted tail and feed `deferredToolUsage`.
 const MEASURED_TOOL_USAGE: [(&str, u64); 15] = [

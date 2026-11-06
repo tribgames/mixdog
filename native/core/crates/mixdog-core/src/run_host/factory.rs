@@ -90,6 +90,9 @@ pub struct Assembled {
     pub hooks: Option<Arc<dyn ToolHooks>>,
     pub reuse: Option<Arc<dyn ResultReuse>>,
     pub reactions: Option<Arc<dyn Reactions>>,
+    /// The run's stored bodies, empty: the factory registers the turn's context and commits in
+    /// it; `reactions` reads its message facts from the same value.
+    pub rows: Arc<StoredRows>,
     pub tail: Option<Arc<dyn TailReminder>>,
     pub step_judge: Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>,
     pub artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
@@ -223,11 +226,12 @@ impl TranscriptSink for PortSink {
         let mut row = row_of(message);
         // Node hides a row by what it is: a user row the transcript shows nothing for (a hook or
         // skill note, internal text) is not visible; a card or cancel line is written into its meta.
-        let visible = if message.role() == Role::User {
+        // and the row that counts for prompt history carries its display text.
+        let (visible, prompt) = if message.role() == Role::User {
             let mut text = mixdog_protocol::message_class::user_text::UserText::new(&*self.blobs);
-            mixdog_protocol::message_class::row_facts(&mut row, &mut text).is_none_or(|facts| facts.visible)
+            mixdog_protocol::message_class::row_facts(&mut row, &mut text).map_or((true, None), |facts| (facts.visible, facts.prompt))
         } else {
-            true
+            (true, None)
         };
         self.rows.record(message, row.clone());
         {
@@ -243,7 +247,7 @@ impl TranscriptSink for PortSink {
             Role::Tool => "tool",
             Role::Developer => "developer",
         };
-        let item = ItemCommit { iid: shown.unwrap_or_else(|| self.iid_of(message)), role: Some(role.to_owned()), model: true, visible, body: row, prompt: None };
+        let item = ItemCommit { iid: shown.unwrap_or_else(|| self.iid_of(message)), role: Some(role.to_owned()), model: true, visible, body: row, prompt };
         let _ = self.jobs.send(Job::Commit(n, item));
         Ticket(n)
     }
@@ -275,6 +279,10 @@ enum Shown {
     Section(crate::session::Section),
     Started(ThreadItem),
     Delta(ItemId, String),
+    ReasoningDelta(ItemId, String),
+    Notice(String),
+    Usage(u32, mixdog_core_api::domain::provider::Usage),
+    Compact(mixdog_agent::env::CompactEvent),
 }
 
 /// `RunObserver` over progress and the port: stage and stream marks feed the progress cell, shown
@@ -283,9 +291,29 @@ struct PortObserver {
     progress: Arc<ProgressPublisher>,
     out: mpsc::UnboundedSender<Shown>,
     streaming: Arc<Mutex<Option<ItemId>>>,
+    /// The Reasoning item the thinking text streams into, until the model moves on to text,
+    /// tool calls or its usage report.
+    reasoning: Mutex<Option<ItemId>>,
 }
 
 impl PortObserver {
+    fn reasoning(&self, text: String) {
+        let id = {
+            let mut open = lock(&self.reasoning);
+            match open.as_ref() {
+                Some(id) => id.clone(),
+                None => {
+                    let id = new_item_id();
+                    *open = Some(id.clone());
+                    let item = ThreadItem::Reasoning { id: id.clone(), summary: Vec::new(), content: Vec::new(), meta: ItemMeta::default() };
+                    let _ = self.out.send(Shown::Started(item));
+                    id
+                }
+            }
+        };
+        let _ = self.out.send(Shown::ReasoningDelta(id, text));
+    }
+
     fn text(&self, text: String) {
         let id = {
             let mut shown = lock(&self.streaming);
@@ -312,10 +340,24 @@ impl RunObserver for PortObserver {
             RunEvent::Stage(Stage::WaitingOnProvider) => self.progress.stream_delta(StreamKind::Keepalive),
             RunEvent::Stage(Stage::ApprovalWait { waiting }) => self.progress.approval_wait(waiting),
             RunEvent::TextDelta(text) => {
+                lock(&self.reasoning).take();
                 self.progress.stream_delta(StreamKind::Text);
                 self.text(text);
             }
-            RunEvent::ReasoningDelta(_) => self.progress.stream_delta(StreamKind::Reasoning),
+            RunEvent::ReasoningDelta(text) => {
+                self.progress.stream_delta(StreamKind::Reasoning);
+                self.reasoning(text);
+            }
+            RunEvent::Stage(Stage::Notice { message }) => {
+                let _ = self.out.send(Shown::Notice(message));
+            }
+            RunEvent::Usage { iteration, usage, .. } => {
+                lock(&self.reasoning).take();
+                let _ = self.out.send(Shown::Usage(iteration, usage));
+            }
+            RunEvent::Compact(event) => {
+                let _ = self.out.send(Shown::Compact(event));
+            }
             // The context reading the footer shows (percent is the session's to derive).
             RunEvent::ContextPressure { used_tokens, .. } => {
                 let context = mixdog_app_protocol::v2::thread::ThreadContext { context_tokens: i64::try_from(used_tokens).ok(), ..Default::default() };
@@ -326,6 +368,7 @@ impl RunObserver for PortObserver {
                 let _ = self.out.send(Shown::Section(crate::session::Section::Route(route)));
             }
             RunEvent::ToolCalls { calls, .. } => {
+                lock(&self.reasoning).take();
                 self.progress.stage("tool_running");
                 for call in &calls {
                     self.progress.tool_call(Some(&call.name));
@@ -354,12 +397,11 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
         Err(error) => return RunOutcome::Failed(error),
     };
     let Assembled {
-        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, tail, step_judge, artifacts, images, blobs, carry,
+        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, rows, tail, step_judge, artifacts, images, blobs, carry,
     } = assembled;
     // The turn's workspace is final: take the baseline in the background; no tool runs before it.
     review.start(&worktree);
 
-    let rows = Arc::new(StoredRows::new());
     let stored = match context.read().await {
         Ok(stored) => stored,
         Err(error) => return failed(format!("model context unreadable: {error:?}"), Value::Null),
@@ -406,10 +448,14 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
                 Shown::Section(section) => shown_port.section(section).await,
                 Shown::Started(item) => shown_port.item_started(item).await,
                 Shown::Delta(id, text) => shown_port.delta(id, text).await,
+                Shown::ReasoningDelta(id, text) => shown_port.reasoning_delta(id, text).await,
+                Shown::Notice(text) => shown_port.notice(text).await,
+                Shown::Usage(iteration, usage) => shown_port.usage(iteration, usage).await,
+                Shown::Compact(event) => shown_port.compact_event(event).await,
             };
         }
     }));
-    let observer = Arc::new(PortObserver { progress: progress.clone(), out: shown_tx, streaming });
+    let observer = Arc::new(PortObserver { progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None) });
 
     config.thread_id = thread.clone();
     config.turn_id = turn.clone();
@@ -615,6 +661,7 @@ mod tests {
                 hooks: None,
                 reuse: None,
                 reactions: None,
+                rows: Arc::default(),
                 tail: None,
                 step_judge: None,
                 artifacts: None,
@@ -647,9 +694,9 @@ mod tests {
                 vec![
                     StreamEvent::TextDelta("looking".into()),
                     StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({ "a": 1 }), native_type: None }),
-                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None },
+                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                 ],
-                vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None }],
+                vec![StreamEvent::TextDelta("all done".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
             ])),
             requests: Mutex::new(Vec::new()),
         });

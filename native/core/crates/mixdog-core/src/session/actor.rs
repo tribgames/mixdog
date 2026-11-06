@@ -214,6 +214,8 @@ pub(crate) enum JobDone {
     GoalDecision(Option<crate::goal::Continuation>),
     /// The user prompt's archive of a finished Goal landed (its id, masked meanwhile).
     GoalArchived(String),
+    /// `goalControl`'s answer for the request that asked.
+    GoalControlled { op: Option<OpId>, tx: Waiter, result: Result<Value, crate::goal::GoalError> },
 }
 
 /// What the actor does first.
@@ -287,6 +289,8 @@ pub(crate) struct SessionActor {
     goal_suppressed: String,
     /// A continuation decision is on its way.
     goal_scheduled: bool,
+    /// The Goal the lane last saw and the deadline warning it last delivered.
+    goal_watch: super::goal_lane::GoalWatch,
     /// The last Goal runtime call: each waits for the one before.
     goal_tail: Option<tokio::task::JoinHandle<()>>,
     /// Answered once the deleted thread's turn ended.
@@ -355,7 +359,9 @@ impl SessionActor {
         ch: ActorChannels,
     ) -> Self {
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
+        let goal_watch = super::goal_lane::GoalWatch::new(state.sections.goal.as_ref());
         Self {
+            goal_watch,
             surface,
             feed_id: FeedId::from(id.as_str()),
             outbox: Outbox::new(deps.limits),
@@ -685,6 +691,7 @@ impl SessionActor {
             }
             JobDone::GoalSeen(None) | JobDone::GoalSettled(None) => {}
             JobDone::GoalDecision(decision) => self.goal_decision(decision),
+            JobDone::GoalControlled { op, tx, result } => self.goal_controlled(op, tx, result),
             JobDone::GoalArchived(id) => {
                 // `settle`: the mask lifts and the lane shows the record as it now is.
                 if self.goal_suppressed == id {
@@ -728,30 +735,126 @@ impl SessionActor {
         self.goal_call(Box::pin(async move { JobDone::GoalSeen(goals.goal_status(&thread).await.ok()) }));
     }
 
-    /// `cancelQueuedGoalContinuations`: the queued Goal entries leave the queue. How many went.
-    fn cancel_goal_entries(&mut self) -> usize {
-        let queued: Vec<String> = self
+    /// `cancelQueuedGoalContinuations({ keepCloseoutFor })`: the queued Goal entries leave the
+    /// queue, except the closeout of `keep` (a Goal that reached its duration), which stays with
+    /// that Goal's text now. How many went.
+    fn cancel_goal_entries(&mut self, keep: Option<&Goal>) -> usize {
+        let queued: Vec<(String, Value)> = self
             .projected
             .queue
             .iter()
             .filter(|q| super::goal_lane::is_goal_entry(&q.entry))
-            .map(|q| q.qid.clone())
+            .map(|q| (q.qid.clone(), q.entry.clone()))
             .collect();
-        for qid in &queued {
-            self.accept_record(dequeue(qid), Class::Control, Display::None, Vec::new(), Vec::new());
+        let (mut removed, mut renewed) = (0, Vec::new());
+        for (qid, entry) in queued {
+            if let Some(text) = super::goal_lane::kept_closeout_text(&entry, keep) {
+                if entry.get("message").and_then(Value::as_str) != Some(text.as_str()) {
+                    // The queue holds no in-place edit of an entry: the closeout is queued again
+                    // with the new text.
+                    let mut entry = entry;
+                    entry["message"] = Value::String(text);
+                    renewed.push(entry);
+                    self.accept_record(dequeue(&qid), Class::Control, Display::None, Vec::new(), Vec::new());
+                }
+                continue;
+            }
+            self.accept_record(dequeue(&qid), Class::Control, Display::None, Vec::new(), Vec::new());
+            removed += 1;
         }
-        queued.len()
+        for entry in renewed {
+            self.enqueue_goal_entry(entry);
+        }
+        removed
+    }
+
+    /// A Goal entry joins the queue (`enqueue` of the Goal lane).
+    fn enqueue_goal_entry(&mut self, entry: Value) {
+        let record = Record::Queue(QueueRecord {
+            qid: id(&new_id()),
+            action: QueueAction::Enqueue,
+            reason: None,
+            op: None,
+            entry: Some(Slot::Inline(entry)),
+        });
+        self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
     }
 
     /// `onGoalChanged`: the lane shows the new Goal, queued automatic work for the old one goes,
-    /// and an active Goal continues once the thread is idle.
-    fn goal_changed(&mut self, goal: Option<Goal>) {
-        let visible = super::goal_lane::visible_goal(goal.as_ref(), &self.goal_suppressed);
-        self.cancel_goal_entries();
-        self.publish_goal(goal);
+    /// the deadline notices are delivered, and an active Goal continues once the thread is idle.
+    fn goal_changed(&mut self, raw: Option<Goal>) {
+        let visible = super::goal_lane::visible_goal(raw.as_ref(), &self.goal_suppressed);
+        // Deadline notices tell the model the time used now, so they read the unmasked record.
+        let timed = visible.as_ref().and(raw.as_ref());
+        let reached = self.goal_watch.observe(visible.as_ref());
+        self.cancel_goal_entries(visible.as_ref());
+        self.publish_goal(raw.clone());
+        self.deliver_goal_warning(timed);
+        if reached {
+            self.deliver_goal_closeout(timed);
+        }
         if visible.is_some_and(|goal| goal_lane_status(&goal) == "active") {
             self.schedule_goal_continuation();
         }
+    }
+
+    /// `deliverGoalDeadlineWarning`: behind a running turn the notice rides the queue as a
+    /// prompt the loop attaches; an idle thread only marks the reminder.
+    fn deliver_goal_warning(&mut self, timed: Option<&Goal>) {
+        let Some(text) = self.goal_watch.warning(timed) else { return };
+        let Some(goal) = timed else { return };
+        if self.run.is_some() {
+            let entry = super::goal_lane::warning_entry(&text, goal, self.deps.clock.now_ms());
+            self.enqueue_goal_entry(entry);
+        } else {
+            super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id);
+        }
+    }
+
+    /// `deliverGoalCloseout`: the Goal reached its duration; the running turn closes it out.
+    fn deliver_goal_closeout(&mut self, timed: Option<&Goal>) {
+        if self.deleting || self.cell.closed.load(SeqCst) {
+            return;
+        }
+        let Some(goal) = timed else { return };
+        let busy = self.run.is_some();
+        let queue: Vec<&Value> = self.projected.queue.iter().map(|q| &q.entry).collect();
+        match super::goal_lane::closeout(goal, busy, &queue, self.deps.clock.now_ms()) {
+            super::goal_lane::Closeout::Remind => super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id),
+            super::goal_lane::Closeout::Enqueue(entry) => {
+                self.enqueue_goal_entry(entry);
+                self.start_next_queued();
+            }
+        }
+    }
+
+    /// `goalControl`: the answer, then what the session API does after a pause or stop (queued
+    /// automatic work goes, the running turn is cancelled) and the lane reads the Goal again.
+    fn goal_controlled(&mut self, op: Option<OpId>, tx: Waiter, result: Result<Value, crate::goal::GoalError>) {
+        let value = match result {
+            Ok(value) => value,
+            Err(error) => {
+                let error = super::goal_lane::failure(&error);
+                if let Some(op) = &op {
+                    self.ops.failed(op, &error);
+                }
+                let _ = tx.send(Err(error));
+                return;
+            }
+        };
+        match value.get("action").and_then(Value::as_str) {
+            Some("edit") => super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id),
+            Some("pause" | "stop") => {
+                self.cancel_goal_entries(None);
+                if let Some(run) = &self.run {
+                    let reason = mixdog_agent::cancel::abort_session_turn_reason(self.id.as_str(), "user-cancel");
+                    let _ = self.cell.abort(&run.turn, &reason);
+                }
+            }
+            _ => {}
+        }
+        self.refresh_goal();
+        self.effect_done(Effect::Reply { op, tx: Some(tx), value });
     }
 
     /// `scheduleGoalContinuation`: once the thread is idle with nothing queued, the runtime
@@ -761,9 +864,10 @@ impl SessionActor {
             return;
         }
         self.goal_scheduled = true;
-        let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
+        let (deps, thread) = (self.deps.clone(), self.id.clone());
         self.goal_call(Box::pin(async move {
-            JobDone::GoalDecision(goals.continuation(&thread, crate::goal::ContinuationInput::default()).await.ok())
+            let input = super::goal_lane::continuation_input(&*deps.todos, &*deps.work, &deps.cycles, &thread).await;
+            JobDone::GoalDecision(deps.goals.continuation(&thread, input).await.ok())
         }));
     }
 
@@ -783,21 +887,18 @@ impl SessionActor {
             return;
         }
         let entry = super::goal_lane::continuation_entry(decision.prompt.as_deref().unwrap_or_default(), decision.goal.as_ref(), self.deps.clock.now_ms());
-        let record = Record::Queue(QueueRecord {
-            qid: id(&new_id()),
-            action: QueueAction::Enqueue,
-            reason: None,
-            op: None,
-            entry: Some(Slot::Inline(entry)),
-        });
-        self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
+        self.enqueue_goal_entry(entry);
         self.start_next_queued();
     }
 
     /// `archiveCompletedGoalOnUserInput`: a genuine user prompt drops queued automatic work and
     /// retires a finished Goal, masked from the lane until the archive lands.
     fn archive_goal_on_user_input(&mut self) {
-        self.cancel_goal_entries();
+        let removed = self.cancel_goal_entries(None);
+        let reached = self.projected.sections.goal.as_ref().and_then(|g| g.get("status")).and_then(Value::as_str) == Some("duration_reached");
+        if removed > 0 && reached {
+            super::goal_lane::mark_goal_reminder(&*self.deps.goals, &self.id);
+        }
         let archived = super::goal_lane::archived_goal_id(self.projected.sections.goal.as_ref());
         if !archived.is_empty() {
             self.goal_suppressed = archived.clone();
@@ -1924,6 +2025,19 @@ impl SessionActor {
                 thread_id: self.id.clone(),
             };
             return fail(error, tx, &mut self.ops);
+        }
+        // The `/goal` route (`goalControl`): the Goal runtime answers; no record of its own.
+        if matches!(req.method.as_str(), "thread/goal/set" | "thread/goal/clear" | "thread/goal/control") {
+            let request = match super::goal_lane::control_request(req.method.as_str(), &req.params) {
+                Ok(request) => request,
+                Err(error) => return fail(error, tx, &mut self.ops),
+            };
+            let (goals, thread, op) = (self.deps.goals.clone(), self.id.clone(), req.op.clone());
+            self.goal_call(Box::pin(async move {
+                let result = goals.goal_control(&thread, request).await;
+                JobDone::GoalControlled { op, tx, result }
+            }));
+            return Ok(());
         }
         let result = match req.method.as_str() {
             "turn/start" => self.turn_start(&req),

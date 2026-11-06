@@ -367,8 +367,9 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::ServerToolBlock(value) => w::ProxyEvent::ServerToolBlock { value: value.clone() },
         E::ProviderKeepalive => w::ProxyEvent::ProviderKeepalive,
         E::ProviderState(state) => w::ProxyEvent::ProviderState { state: serde_json::to_value(state).unwrap_or(Value::Null) },
-        E::Completed { stop, pricing_model } => w::ProxyEvent::Completed {
+        E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
+            request_ms: *request_ms,
             stop: stop.as_ref().map(|s| match s {
                 p::StopReason::EndTurn => w::ProxyStop::EndTurn,
                 p::StopReason::ToolUse => w::ProxyStop::ToolUse,
@@ -417,8 +418,9 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         w::ProxyEvent::ServerToolBlock { value } => E::ServerToolBlock(value),
         w::ProxyEvent::ProviderKeepalive => E::ProviderKeepalive,
         w::ProxyEvent::ProviderState { state } => E::ProviderState(serde_json::from_value(state).map_err(|e| format!("invalid providerState: {e}"))?),
-        w::ProxyEvent::Completed { stop, pricing_model } => E::Completed {
+        w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
             pricing_model,
+            request_ms,
             stop: stop.map(|s| match s {
                 w::ProxyStop::EndTurn => p::StopReason::EndTurn,
                 w::ProxyStop::ToolUse => p::StopReason::ToolUse,

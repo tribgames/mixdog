@@ -132,7 +132,9 @@ async fn rows_of(case: &Value) -> Vec<Value> {
             accounting.finish(Outcome::Failed(&error)).await
         }
     };
-    assert_eq!(recorded, Recorded::default());
+    // Only a completed send is timed: its measured time is the row's duration.
+    let timed = (end["kind"] == "completed").then_some(stream_ms as u64);
+    assert_eq!(recorded, Recorded { error: None, request_ms: timed });
     let rows = sink.0.lock().unwrap().iter().map(|row| serde_json::to_value(row).unwrap()).collect();
     rows
 }
@@ -149,6 +151,23 @@ async fn every_outcome_writes_the_rows_node_writes() {
         let rows = rows_of(case).await;
         assert_eq!(&rows, want, "{}", case["name"]);
     }
+}
+
+#[tokio::test]
+async fn a_completed_send_reports_the_time_its_row_measured() {
+    let sink = Arc::new(Collect::default());
+    let now = Arc::new(std::sync::atomic::AtomicI64::new(10_000));
+    let clock = Arc::clone(&now);
+    let case = json!({ "provider": "openai", "model": "gpt-5" });
+    let accounting = SendAccounting::new(identity(&case, 10_000), Arc::new(Unpriced), Some(sink.clone()))
+        .with_sources(Arc::new(move || clock.load(std::sync::atomic::Ordering::SeqCst)), Arc::new(|| "<random>".into()));
+    now.store(12_345, std::sync::atomic::Ordering::SeqCst);
+    let recorded = accounting.finish(Outcome::Completed(Completed { stream_ended_at: 12_000, ..Completed::default() })).await;
+    // Measured to the write, not to the stream's end (Node `Date.now() - startedAt`).
+    assert_eq!(recorded.request_ms, Some(2_345));
+    // Without a ledger nothing is measured, so the consumer keeps its own clock.
+    let unrecorded = SendAccounting::new(identity(&case, 10_000), Arc::new(Unpriced), None);
+    assert_eq!(unrecorded.finish(Outcome::Completed(Completed::default())).await.request_ms, None);
 }
 
 #[test]

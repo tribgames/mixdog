@@ -15,9 +15,13 @@ pub mod ports;
 pub mod pricing;
 pub mod prompt;
 pub mod quota_resume;
+pub mod quota_settlement;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup")]
 mod quota_resume_tests;
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test setup")]
+mod quota_settlement_tests;
 pub mod rooms;
 pub mod run_host;
 pub mod session;

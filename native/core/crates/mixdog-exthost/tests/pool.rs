@@ -317,7 +317,12 @@ async fn close_ends_every_worker() {
     assert!(!pool.status().is_empty());
     within(pool.close()).await;
     assert!(pool.status().is_empty());
-    assert!(matches!(pool.call(call("a", "echo", json!(1))), Err(ExtError::Unavailable { .. })));
+    // The event loop may still hold its receiver for an instant after `close` returns, so a call
+    // is refused at once or its stream ends `Unavailable`; either way it is never served.
+    match pool.call(call("a", "echo", json!(1))) {
+        Err(error) => assert!(matches!(error, ExtError::Unavailable { .. })),
+        Ok(mut stream) => assert!(matches!(finish(&mut stream).await.1, Err(ExtError::Unavailable { .. }))),
+    }
 }
 
 /// `pid_file`'s helper pid, once the scripted worker has written it.
@@ -527,6 +532,162 @@ async fn document_text_equals_nodes_recorded_extraction_for_every_format_error_a
     assert!(!by_name("unreadable-not-a-pdf")["rejected"].as_str().unwrap().is_empty());
     assert!(!by_name("unreadable-truncated")["rejected"].as_str().unwrap().is_empty());
     within(pool.close()).await;
+}
+
+/// The flat-colour PNG (stored zlib blocks) `record_image.mjs` builds, so the read goldens can be
+/// replayed from their recipe.
+fn flat_png(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xffff_ffff_u32;
+        for &b in bytes {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 { 0xedb8_8320 ^ (crc >> 1) } else { crc >> 1 };
+            }
+        }
+        !crc
+    }
+    fn chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let body = [&kind[..], data].concat();
+        [(data.len() as u32).to_be_bytes().to_vec(), body.clone(), crc32(&body).to_be_bytes().to_vec()].concat()
+    }
+    let mut row = vec![0u8];
+    for _ in 0..width {
+        row.extend_from_slice(&rgb);
+    }
+    let raw: Vec<u8> = (0..height).flat_map(|_| row.clone()).collect();
+    let (mut a, mut b) = (1u32, 0u32);
+    for &x in &raw {
+        a = (a + u32::from(x)) % 65521;
+        b = (b + a) % 65521;
+    }
+    let mut zlib = vec![0x78, 0x01];
+    let blocks: Vec<&[u8]> = raw.chunks(65535).collect();
+    for (i, part) in blocks.iter().enumerate() {
+        zlib.push(u8::from(i + 1 == blocks.len()));
+        zlib.extend_from_slice(&(part.len() as u16).to_le_bytes());
+        zlib.extend_from_slice(&(!(part.len() as u16)).to_le_bytes());
+        zlib.extend_from_slice(part);
+    }
+    zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let mut ihdr = [width.to_be_bytes(), height.to_be_bytes()].concat();
+    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+    [
+        vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+        chunk(b"IHDR", &ihdr),
+        chunk(b"IDAT", &zlib),
+        chunk(b"IEND", &[]),
+    ]
+    .concat()
+}
+
+/// The image calls over a real worker: `read_resize` replays Node's recorded `read` results
+/// (`mixdog-tools/src/fs/golden/image_cases.json`: the resized bytes' sha-256, size and mime), and
+/// every op the compaction codec needs round-trips a png, a jpeg and a webp to Node's own bytes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn image_codec_equals_nodes_sharp_for_png_jpeg_and_webp() {
+    use mixdog_agent::compact::image::CodecError;
+    use mixdog_agent::compact::image::ImageCodec;
+    use mixdog_agent::compact::image::ImageSize;
+    use mixdog_exthost::ExtImageCodec;
+    use mixdog_core_api::domain::ext::ImageResizeError;
+    use mixdog_core_api::domain::ext::ImageResizer;
+    use mixdog_exthost::ReadResizeError;
+    use mixdog_exthost::RenditionVariant;
+    use sha2::Digest;
+
+    let hex = |bytes: &[u8]| format!("{:x}", sha2::Sha256::digest(bytes));
+    let mut real = config(1, &[]);
+    real.args = vec![host_dir().parent().unwrap().join("worker.mjs").into_os_string()];
+    let pool = std::sync::Arc::new(ExtHostPool::new(real).unwrap());
+    let codec = ExtImageCodec::new(pool.clone());
+    let resizer: &dyn ImageResizer = &codec;
+    let thread = ThreadId::from("t");
+
+    // The read tool's goldens, through the `ImageResizer` trait the read tool holds.
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("crates/mixdog-tools/src/fs/golden/image_cases.json");
+    let cases: Vec<Value> = serde_json::from_slice(&std::fs::read(golden).unwrap()).unwrap();
+    assert_eq!(cases.len(), 7);
+    for case in &cases {
+        let name = case["name"].as_str().unwrap();
+        let Some(png) = case.get("png") else {
+            // The empty file never reaches the resizer in Node (the tool answers first); the corrupt
+            // one is rejected by the decoder.
+            let bytes = case["bytes"].as_str().unwrap().as_bytes();
+            let got = within(resizer.resize(&thread, bytes, "png")).await;
+            let want = if bytes.is_empty() { Ok(None) } else { Err(ImageResizeError::Invalid) };
+            assert_eq!(got, want, "{name}");
+            // The inherent call agrees.
+            assert_eq!(within(codec.read_resize(&thread, bytes, "png")).await.err(), (!bytes.is_empty()).then_some(ReadResizeError::Invalid));
+            continue;
+        };
+        let rgb = png["rgb"].as_array().unwrap().iter().map(|c| c.as_u64().unwrap() as u8).collect::<Vec<_>>();
+        let bytes = flat_png(png["width"].as_u64().unwrap() as u32, png["height"].as_u64().unwrap() as u32, [rgb[0], rgb[1], rgb[2]]);
+        assert_eq!(hex(&bytes), case["sourceSha256"].as_str().unwrap(), "{name}: the rebuilt source differs from the recipe");
+        let got = within(resizer.resize(&thread, &bytes, "png")).await.unwrap().expect("sharp is present");
+        let image = case["content"].as_array().unwrap().iter().find(|b| b["type"] == "image").unwrap();
+        assert_eq!(got.mime, image["mimeType"].as_str().unwrap(), "{name}");
+        assert_eq!(got.data_base64.len() as u64, image["base64Length"].as_u64().unwrap(), "{name}");
+        assert_eq!(hex(got.data_base64.as_bytes()), image["base64Sha256"].as_str().unwrap(), "{name}");
+        assert_eq!((got.display_w, got.display_h), (image["width"].as_u64().unwrap() as u32, image["height"].as_u64().unwrap() as u32), "{name}");
+        assert_eq!((got.original_w, got.original_h), (png["width"].as_u64().unwrap() as u32, png["height"].as_u64().unwrap() as u32), "{name}");
+    }
+
+    // A jpeg and a webp (64x48 gradients, `tests/fixtures/image`): the sub-patch image is lifted to
+    // the 200 px floor in its own format; the hashes are Node's `resizeImageBuffer` on the same bytes.
+    let jpeg: &[u8] = include_bytes!("fixtures/image/gradient.jpg");
+    let webp: &[u8] = include_bytes!("fixtures/image/gradient.webp");
+    for (bytes, ext, mime, len, sha) in [
+        (jpeg, "jpeg", "image/jpeg", 3388, "64970ad2533d273244ce5ff439ba4a0611262d386eeb73c6335f9b57a27a9928"),
+        (webp, "webp", "image/webp", 1472, "536f81364c100726792f398ad75054bdf59654f83daad07c9642941b47768e53"),
+    ] {
+        let got = within(codec.read_resize(&thread, bytes, ext)).await.unwrap().unwrap();
+        assert_eq!((got.mime.as_str(), got.data_base64.len(), hex(got.data_base64.as_bytes()).as_str()), (mime, len, sha), "{ext}");
+        assert_eq!((got.original_w, got.original_h, got.display_w, got.display_h), (64, 48, 267, 200), "{ext}");
+    }
+
+    // The compaction ops, on all three formats.
+    let flat = flat_png(300, 200, [20, 200, 20]);
+    let wanted = [(&flat[..], 300, 200), (jpeg, 64, 48), (webp, 64, 48)];
+    for (bytes, width, height) in wanted {
+        assert_eq!(within(codec.probe(bytes)).await, Ok(ImageSize { width, height }));
+        assert_eq!(within(codec.validate(bytes, "png")).await, Ok(()));
+    }
+    for (bytes, len, sha) in [
+        (jpeg, 372, "fc9052f6d6194503b3eb7c6c934634c564ce587cae88624700d3932cecfd772b"),
+        (webp, 404, "28e1413eae1b1927e5eb970ea5586ba7598991d093d6c1dfb93eb4b87334d4df"),
+    ] {
+        let out = within(codec.jpeg(bytes, 32, 24, false, 85)).await.unwrap();
+        assert_eq!((out.bytes.len(), hex(&out.bytes).as_str(), out.size), (len, sha, ImageSize { width: 32, height: 24 }));
+    }
+    // The enlargement flag lifts a small image past its own size, and not otherwise.
+    let lifted = within(codec.jpeg(jpeg, 128, 96, true, 70)).await.unwrap();
+    assert_eq!(lifted.size, ImageSize { width: 128, height: 96 });
+    let held = within(codec.jpeg(jpeg, 128, 96, false, 70)).await.unwrap();
+    assert_eq!(held.size, ImageSize { width: 64, height: 48 });
+    assert_eq!(&lifted.bytes[..2], &[0xff, 0xd8]);
+
+    // Bytes no decoder takes are `Invalid` for every op.
+    let junk = b"not an image at all";
+    assert_eq!(within(codec.probe(junk)).await, Err(CodecError::Invalid));
+    assert_eq!(within(codec.validate(junk, "png")).await.unwrap_err(), CodecError::Invalid);
+    assert!(within(codec.jpeg(junk, 32, 24, false, 85)).await.is_err());
+    assert_eq!(within(codec.read_resize(&thread, junk, "png")).await, Err(ReadResizeError::Invalid));
+
+    // The media store's still rendition (Node's `encodeStill`): the webp at the variant's size and
+    // quality. The expected bytes are Node's, for the 64x48 gradient jpeg (never enlarged).
+    let thumb = within(codec.still_rendition(&thread, jpeg, RenditionVariant::Thumb)).await.unwrap().unwrap();
+    assert_eq!((thumb.extension.as_str(), thumb.bytes.len(), hex(&thumb.bytes).as_str()), (".webp", 222, "d380e48dd72a6df4e76e627f9f998b2ddf48422be3cf8ad3ddf15b3ae007f1c6"));
+    let display = within(codec.still_rendition(&thread, jpeg, RenditionVariant::Display)).await.unwrap().unwrap();
+    assert_eq!((display.bytes.len(), hex(&display.bytes).as_str()), (258, "3b548906e0a790213c3f51289a9a30cf03a40c2388feb69e656356333206e1ed"));
+    // A source that does not decode is Node's `null`.
+    assert_eq!(within(codec.still_rendition(&thread, junk, RenditionVariant::Thumb)).await, Ok(None));
+
+    // A host that is gone is an error, never "sharp is absent".
+    within(pool.close()).await;
+    assert!(matches!(within(codec.read_resize(&thread, jpeg, "jpeg")).await, Err(ReadResizeError::Host(_))));
+    assert!(within(codec.still_rendition(&thread, jpeg, RenditionVariant::Thumb)).await.is_err());
+    assert!(matches!(within(codec.probe(jpeg)).await, Err(CodecError::Environment(Some(_)))));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

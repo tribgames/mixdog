@@ -120,8 +120,9 @@ pub struct SteerInput {
 
 /// `queuePriorityValue(entry.priority) <= queuePriorityValue(max)`: `now` (0) and `next` (1)
 /// pass every drain, `later` (2) only a `later` drain; a missing or unknown priority is `next`.
+/// The priority is the entry's own top-level field, as Node's queue entries carry it.
 pub(crate) fn within_priority(entry: &Value, max: Priority) -> bool {
-    let rank = match entry.pointer("/options/priority").and_then(Value::as_str) {
+    let rank = match entry.get("priority").and_then(Value::as_str) {
         Some("now") => 0,
         Some("later") => 2,
         _ => 1,
@@ -137,9 +138,13 @@ pub(crate) fn within_priority(entry: &Value, max: Priority) -> bool {
 #[test]
 fn a_next_drain_leaves_later_entries_queued() {
     let entry = |priority: Option<&str>| match priority {
-        Some(p) => serde_json::json!({ "message": "m", "options": { "priority": p } }),
+        Some(p) => serde_json::json!({ "message": "m", "priority": p }),
         None => serde_json::json!({ "message": "m" }),
     };
+    // The Goal's continuation entry is queued with its priority at the top level.
+    let goal = super::goal_lane::continuation_entry("p", None, 1);
+    assert!(!within_priority(&goal, Priority::Next));
+    assert!(within_priority(&goal, Priority::Later));
     for (priority, next, later) in [
         (Some("now"), true, true),
         (Some("next"), true, true),

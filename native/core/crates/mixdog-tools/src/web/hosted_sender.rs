@@ -188,8 +188,8 @@ fn usage_object(usage: &Usage, input_inclusive: bool) -> Value {
         out.insert("cacheWrite1hTokens".into(), json!(usage.cache_write_1h_tokens));
     }
     out.insert("promptTokens".into(), json!(prompt));
-    if usage.reasoning_tokens > 0 {
-        out.insert("reasoningTokens".into(), json!(usage.reasoning_tokens));
+    if let Some(reasoning) = usage.reasoning_tokens {
+        out.insert("reasoningTokens".into(), json!(reasoning));
     }
     if let Some(cost) = usage.cost {
         out.insert("costUsd".into(), json!(cost.0 as f64 / 10_000_000_000.0));

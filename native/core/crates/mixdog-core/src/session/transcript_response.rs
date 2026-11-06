@@ -314,6 +314,7 @@ fn tool_row(item: &ThreadItem) -> Option<Row> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods, reason = "test setup: reads the recorded fixture")]
     use std::path::Path;
 
     use super::*;

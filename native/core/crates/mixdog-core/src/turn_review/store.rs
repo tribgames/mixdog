@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use super::chain::Chain;
-use super::chain::ChainGuard;
+use mixdog_rt::ChainGuard;
+use mixdog_rt::KeyedChains;
 
 use indexmap::IndexMap;
 use mixdog_js::json_stringify;
@@ -174,7 +174,7 @@ fn session_scopes(record: Option<&Obj>) -> Vec<Scope> {
 pub struct Store {
     disk: Arc<dyn ReviewDisk>,
     root: PathBuf,
-    chains: Mutex<HashMap<String, Arc<Chain>>>,
+    chains: Arc<KeyedChains>,
     sweep_done: Mutex<(bool, bool)>,
     cache: Mutex<ChangeCache>,
 }
@@ -224,7 +224,7 @@ impl Store {
         Self {
             disk,
             root: data_dir.join("turn-snapshots"),
-            chains: Mutex::new(HashMap::new()),
+            chains: KeyedChains::new(),
             sweep_done: Mutex::new((false, false)),
             cache: Mutex::new(ChangeCache::default()),
         }
@@ -260,24 +260,12 @@ impl Store {
 
     /// Per-key write chain: two writes of one key never race their own file.
     async fn chained(&self, key: &str) -> ChainGuard {
-        let cell = {
-            let mut chains = self.chains.lock().unwrap_or_else(|e| e.into_inner());
-            chains.entry(key.to_owned()).or_default().clone()
-        };
-        cell.acquire().await
-    }
-
-    fn release_chain(&self, key: &str) {
-        // A settled chain with nothing queued behind it holds no order to keep.
-        let mut chains = self.chains.lock().unwrap_or_else(|e| e.into_inner());
-        if chains.get(key).is_some_and(|cell| Arc::strong_count(cell) == 1) {
-            chains.remove(key);
-        }
+        self.chains.acquire(key).await
     }
 
     /// Sessions with a write chain still held (tests).
     pub fn write_chain_count(&self) -> usize {
-        self.chains.lock().unwrap_or_else(|e| e.into_inner()).len()
+        self.chains.busy_keys()
     }
 
     async fn read_json(&self, path: &Path) -> Option<Value> {
@@ -331,7 +319,6 @@ impl Store {
         let _guard = self.chained(&key).await;
         let saved = self.save_locked(&id, turn, &baseline_tree, &root).await.is_ok();
         drop(_guard);
-        self.release_chain(&key);
         saved
     }
 
@@ -453,7 +440,6 @@ impl Store {
             }
             .await;
             drop(_guard);
-            self.release_chain(&id);
             result?;
         }
         let key = format!("changes:{id}");
@@ -462,7 +448,6 @@ impl Store {
         let removed = self.disk.remove(&self.changes_path(&id)).await;
         self.cache.lock().unwrap_or_else(|e| e.into_inner()).forget(&id);
         drop(guard);
-        self.release_chain(&key);
         removed?;
         Ok(records)
     }
@@ -489,7 +474,6 @@ impl Store {
         let guard = self.chained(&id).await;
         let _ = self.disk.remove(&self.cleared_path(&id)).await;
         drop(guard);
-        self.release_chain(&id);
     }
 
     // ── Per-turn change records ──────────────────────────────────────────────
@@ -542,7 +526,6 @@ impl Store {
         let guard = self.chained(&key).await;
         let result = self.upsert_locked(&id, &checkpoint_id, next).await;
         drop(guard);
-        self.release_chain(&key);
         result
     }
 
@@ -649,7 +632,6 @@ impl Store {
         }
         .await;
         drop(guard);
-        self.release_chain(&chain_key);
         result
     }
 

@@ -25,6 +25,8 @@ struct Shared {
     /// The arguments of the last `describe_emails` call.
     last_describe: Mutex<Value>,
     fixture_calls: AtomicUsize,
+    /// The arguments of every fixture call, in order.
+    fixture_args: Mutex<Vec<Value>>,
 }
 
 fn send(shared: &Shared, message: Value) {
@@ -92,8 +94,11 @@ fn call(shared: &Arc<Shared>, id: Value, params: &Value) {
         // Hook fixtures: `fixture_<n>` answers the n-th entry of `MOCK_FIXTURES` (a JSON array of
         // strings; an `{"error": …}` entry is a tool error); `fixture_count` counts the calls.
         "fixture_count" => text(shared.fixture_calls.load(Ordering::SeqCst).to_string()),
+        // The arguments the fixtures were called with, as a JSON array.
+        "fixture_args" => text(Value::Array(shared.fixture_args.lock().unwrap().clone()).to_string()),
         fixture if fixture.starts_with("fixture_") => {
             shared.fixture_calls.fetch_add(1, Ordering::SeqCst);
+            shared.fixture_args.lock().unwrap().push(params["arguments"].clone());
             let fixtures: Vec<Value> = serde_json::from_str(&std::env::var("MOCK_FIXTURES").unwrap_or_default()).unwrap_or_default();
             match fixtures.get(fixture["fixture_".len()..].parse::<usize>().unwrap_or(usize::MAX)) {
                 Some(Value::String(output)) => text(output.clone()),
@@ -117,6 +122,7 @@ fn main() {
         elicit_answer: Mutex::new(None),
         last_describe: Mutex::new(Value::Null),
         fixture_calls: AtomicUsize::new(0),
+        fixture_args: Mutex::new(Vec::new()),
     });
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };

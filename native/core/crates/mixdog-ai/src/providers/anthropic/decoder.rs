@@ -138,7 +138,7 @@ impl UsageAcc {
             cache_read_tokens: self.cache_read,
             cache_write_tokens: self.cache_write,
             cache_write_1h_tokens: self.cache_write_1h,
-            reasoning_tokens: 0,
+            reasoning_tokens: None,
             raw: Some(Value::Object(self.raw.clone())),
             cost: None,
         }
@@ -264,6 +264,7 @@ impl AnthropicDecoder {
         out.push(StreamEvent::Usage(self.usage.usage()));
         out.push(StreamEvent::Completed {
             pricing_model: None,
+            request_ms: None,
             stop: stop_reason(self.stop.as_deref()),
         });
     }

@@ -26,6 +26,7 @@ use crate::env::DrainStage;
 use crate::env::Priority;
 use crate::env::RunEnv;
 use crate::env::RunEvent;
+use crate::env::UsageDelta;
 use crate::env::Ticket;
 use crate::env::or_cancelled;
 use crate::limits;
@@ -58,8 +59,6 @@ pub struct RunConfig {
     pub compact: Option<CompactSettings>,
     /// The higher `max_tokens` the route can offer after an output-limit stop.
     pub escalated_max_output_tokens: Option<u32>,
-    /// Tools after which a drain may also take `later`-priority input.
-    pub later_flush_tools: Vec<String>,
     /// Back-to-back provider continuations without a tool batch before the
     /// current text is accepted as final.
     pub continuation_no_tool_limit: u32,
@@ -69,10 +68,6 @@ pub struct RunConfig {
     pub first_request_after: Option<Ticket>,
     /// The route's provider needs the source of a read, not a receipt.
     pub read_body_required: bool,
-    /// Tools of which only the first call of an assistant turn runs.
-    pub single_call_tools: Vec<String>,
-    /// Start read-only calls while the provider is still streaming.
-    pub eager_dispatch: bool,
     /// Mid-conversation effort: the route's inputs and the adapter that sets
     /// BuildInputs.effort from the projection of each request.
     pub effort: Option<crate::effort::EffortWiring>,
@@ -107,12 +102,9 @@ impl RunConfig {
             forced_first_tool: false,
             compact: None,
             escalated_max_output_tokens: None,
-            later_flush_tools: Vec::new(),
             continuation_no_tool_limit: 8,
             first_request_after: None,
             read_body_required: false,
-            single_call_tools: vec!["computer".to_owned()],
-            eager_dispatch: true,
             effort: None,
             step_auto_effort: None,
             text_only: None,
@@ -316,6 +308,11 @@ pub struct Run {
     pub(crate) last_batch_later: bool,
     pub(crate) pending_skill_prompts: Vec<Content>,
     pub(crate) baseline: Option<Baseline>,
+    /// The request the latest send settled on, and when its send began (`requestStartedAt`).
+    pub(crate) last_request: Option<Arc<mixdog_core_api::domain::provider::ModelRequest>>,
+    pub(crate) request_started_ms: i64,
+    /// The provider's last measured context footprint (`session.lastContextTokens`).
+    pub(crate) context: crate::boundary::ContextReading,
     pub(crate) no_tool: NoToolState,
     pub(crate) carry: RunCarry,
     pub(crate) quiet_compact_retry_used: bool,
@@ -343,6 +340,32 @@ pub struct Run {
     pub(crate) provider_state_changed: bool,
 }
 
+/// ``reasoningUsage(usage)``: the generation tokens the provider reported, ``None`` when it reported
+/// none (missing is not zero), and whether the figure is complete. A reported count wins; otherwise
+/// the provider's raw usage is searched under the names providers use.
+pub(crate) fn reasoning_usage(usage: &Usage) -> (Option<u64>, bool) {
+    let count = |v: &mixdog_protocol::JsonValue| v.as_u64().or_else(|| v.as_f64().filter(|f| *f >= 0.0 && f.fract() == 0.0).map(|f| f as u64));
+    let found = if usage.reasoning_tokens.is_some() {
+        usage.reasoning_tokens
+    } else {
+        usage.raw.as_ref().and_then(|raw| {
+            [
+                &["output_tokens_details", "reasoning_tokens"][..],
+                &["output_tokens_details", "thinking_tokens"],
+                &["completion_tokens_details", "reasoning_tokens"],
+                &["completion_tokens_details", "thinking_tokens"],
+                &["thinking_tokens"],
+                &["thinkingTokens"],
+                &["thoughtsTokenCount"],
+                &["thoughts_token_count"],
+            ]
+            .iter()
+            .find_map(|path| path.iter().try_fold(raw, |v, key| v.get(*key)).and_then(count))
+        })
+    };
+    (found, found.is_some())
+}
+
 pub(crate) fn add_usage(total: Option<Usage>, next: &Usage) -> Usage {
     let Some(mut total) = total else {
         return next.clone();
@@ -352,7 +375,7 @@ pub(crate) fn add_usage(total: Option<Usage>, next: &Usage) -> Usage {
     total.cache_read_tokens += next.cache_read_tokens;
     total.cache_write_tokens += next.cache_write_tokens;
     total.cache_write_1h_tokens += next.cache_write_1h_tokens;
-    total.reasoning_tokens += next.reasoning_tokens;
+    total.reasoning_tokens = Usage::sum_reasoning(total.reasoning_tokens, next.reasoning_tokens);
     total.raw = next.raw.clone().or(total.raw);
     total
 }
@@ -372,6 +395,10 @@ impl Run {
         let model = config.model.clone();
         let retry = RetryStates::new(&model);
         let provider_state = config.options.provider_state.clone();
+        let context = crate::boundary::ContextReading {
+            tokens: config.compact.as_ref().and_then(|c| c.last_context_tokens),
+            stale_after_compact: false,
+        };
         Self {
             provider_state,
             provider_state_changed: false,
@@ -398,7 +425,10 @@ impl Run {
             tool_batch_just_completed: false,
             last_batch_later: false,
             pending_skill_prompts: Vec::new(),
+            context,
             baseline: None,
+            last_request: None,
+            request_started_ms: 0,
             no_tool: NoToolState::default(),
             carry,
             quiet_compact_retry_used: false,
@@ -600,12 +630,25 @@ impl Run {
             self.first_turn_usage = self.last_usage.clone();
         }
         self.record_baseline(&response.usage);
+        self.context.measure(&response.usage);
         // A provider that returned despite an abort must not have its output
         // processed.
         self.throw_if_aborted()?;
+        let (reasoning_tokens, reasoning_tokens_complete) = reasoning_usage(&response.usage);
+        let delta = UsageDelta {
+            model: if response.model.is_empty() { self.model.clone() } else { response.model.clone() },
+            requested_model: self.model.clone(),
+            delta_tool_calls: response.tool_calls.len() as u64,
+            request_ms: (self.env.clock.now_ms() - self.request_started_ms).max(0) as u64,
+            delta_prompt: response.usage.input_tokens,
+            send_tools: self.last_request.as_ref().map(|r| r.tools.clone()).unwrap_or_default(),
+            reasoning_tokens,
+            reasoning_tokens_complete,
+        };
         self.emit(RunEvent::Usage {
             iteration: self.iterations,
             usage: response.usage.clone(),
+            delta,
         });
         self.response = Some(response.clone());
         Ok(())

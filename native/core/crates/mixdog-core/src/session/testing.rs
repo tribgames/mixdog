@@ -641,6 +641,42 @@ pub(crate) struct Rig {
     pub deletes: Arc<Deletes>,
     /// The real Goal runtime over the temp data dir.
     pub goals: crate::goal::GoalRuntime,
+    /// The session's todo list, and the background work it waits on, as a Goal continuation
+    /// reads them.
+    pub todos: Arc<TestTodos>,
+    pub work: Arc<TestWork>,
+}
+
+/// An in-memory todo list shared by every thread of the rig.
+#[derive(Default)]
+pub(crate) struct TestTodos(pub Mutex<mixdog_tools::state::todo::TodoList>);
+
+#[async_trait::async_trait]
+impl mixdog_tools::state::todo::TodoStore for TestTodos {
+    async fn read(&self, _: &ThreadId) -> mixdog_tools::state::todo::TodoList {
+        lock(&self.0).clone()
+    }
+
+    async fn update(
+        &self,
+        _: &ThreadId,
+        _: &mut mixdog_tools::state::todo::TodoEdit<'_>,
+    ) -> Result<(), String> {
+        Err("the rig's list is set directly".into())
+    }
+
+    fn note_user_wait(&self, _: &ThreadId) {}
+}
+
+/// Whether a background task is running: every session waits on it while set.
+#[derive(Default)]
+pub(crate) struct TestWork(pub AtomicBool);
+
+#[async_trait::async_trait]
+impl crate::run_host::guards::RunningWork for TestWork {
+    async fn has_active(&self, _: &str, surface: &str, _: bool, _: Option<u64>) -> bool {
+        surface == "agent" && self.0.load(Ordering::SeqCst)
+    }
 }
 
 /// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`;
@@ -753,6 +789,8 @@ impl Rig {
         );
         Self {
             goals,
+            todos: Arc::default(),
+            work: Arc::default(),
             prompts: Arc::new(FilePromptHistory::new(data.path())),
             _data: data,
             store,
@@ -812,6 +850,9 @@ impl Rig {
             deletion: self.deletes.clone(),
             purge: self.purge_hooks(),
             goals: Arc::new(self.goals.clone()),
+            todos: self.todos.clone(),
+            work: self.work.clone(),
+            cycles: Arc::default(),
             lanes: SessionLanes {
                 cpu: tokens.cpu_interactive,
                 io: tokens.interactive_io,

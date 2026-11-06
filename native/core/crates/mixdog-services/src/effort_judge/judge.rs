@@ -30,7 +30,7 @@ use tokio_util::sync::CancellationToken;
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::install::{self, Manifest};
 use crate::effort_judge::ladder::StepLadder;
-use crate::effort_judge::model::{JudgeModel, ModelConfig, available, available_on};
+use crate::effort_judge::model::{JudgeModel, ModelConfig, available, available_on, steps_in};
 use crate::model_install::{InstallError, ProgressSink, run_on_lane};
 use crate::tool_state::{JudgeStatus, StateTick, onnx_runtime_supported};
 
@@ -65,6 +65,8 @@ pub struct EffortJudgeModel {
     tick: StateTick,
     refresh_checked: AtomicBool,
     repair_started: AtomicBool,
+    /// `calibration.json`'s `steps`, read on first ask.
+    steps: std::sync::OnceLock<bool>,
     /// Ends installs this instance started in the background.
     cancel: CancellationToken,
 }
@@ -93,6 +95,7 @@ impl EffortJudgeModel {
             tick: options.tick,
             refresh_checked: AtomicBool::new(false),
             repair_started: AtomicBool::new(false),
+            steps: std::sync::OnceLock::new(),
             cancel: CancellationToken::new(),
         }))
     }
@@ -146,6 +149,17 @@ impl EffortJudgeModel {
             "modelBytes": model_bytes,
             "ready": self.is_ready(),
         })
+    }
+
+    /// `effortJudgeSupportsSteps()`: whether the installed model was trained on
+    /// tool-result steps (`steps: 1` in `calibration.json`). Like Node, it is
+    /// read once per instance; a lane refusal is not remembered.
+    pub async fn supports_steps(&self) -> bool {
+        if let Some(steps) = self.steps.get() {
+            return *steps;
+        }
+        let Ok(steps) = steps_in(self.lane, &self.config.dir).await else { return false };
+        *self.steps.get_or_init(|| steps)
     }
 
     pub fn status(&self) -> JudgeStatus {

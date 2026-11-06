@@ -2,6 +2,7 @@
 //! recorded by `record-prompt-sources.mjs` on Windows (PATH and path answers are Windows ones).
 //! Each world is written into a temp folder and every query is asked of [`RealSources`] inside an
 //! io-interactive lane job.
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories and recorded fixtures")]
 #![cfg(windows)]
 
 use std::collections::HashSet;

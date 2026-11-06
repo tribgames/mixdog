@@ -206,6 +206,11 @@ async fn a_hung_or_missing_server_never_blocks_another() {
     assert!(tools.iter().any(|t| t.spec().name == "mcp__good__echo"));
     assert!(tools.iter().any(|t| t.spec().name == "mcp__busy__echo"));
     assert!(hub.resolve("mcp__good__big").is_some());
+    // The session tool set narrows each tool by its own server's scope, found by name.
+    let target = hub.tool_target("mcp__good__echo").expect("a listed tool resolves");
+    assert_eq!(target.server.name(), "good");
+    assert!(target.entry.is_some());
+    assert!(hub.tool_target("mcp__nowhere__echo").is_none());
     hub.close_all().await;
 }
 

@@ -7,6 +7,8 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use mixdog_core_api::domain::tool::ToolIo;
+use mixdog_rt::{CancellationToken, DurabilityIo, InLane, LaneToken};
 use mixdog_agent::offload::Artifact;
 use mixdog_agent::offload::ArtifactStore;
 use mixdog_store::fsio::Access;
@@ -15,6 +17,7 @@ use sha2::Digest;
 use sha2::Sha256;
 
 pub struct ToolResultArtifacts {
+    io: ToolIo,
     dir: PathBuf,
     session_ok: bool,
 }
@@ -67,7 +70,8 @@ enum State {
     Foreign,
 }
 
-fn existing_state(path: &Path, sha256: &str, bytes: u64) -> State {
+#[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
+fn existing_state(_lane: &InLane<DurabilityIo>, path: &Path, sha256: &str, bytes: u64) -> State {
     let info = match std::fs::symlink_metadata(path) {
         Ok(info) => info,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return State::Absent,
@@ -93,8 +97,8 @@ fn existing_state(path: &Path, sha256: &str, bytes: u64) -> State {
 
 impl ToolResultArtifacts {
     /// `data_dir` is the data root; `session_id` names the session whose results are stored.
-    pub fn new(data_dir: &Path, session_id: &str) -> Self {
-        Self { dir: data_dir.join("tool-results").join(safe_segment(session_id)), session_ok: !session_id.is_empty() }
+    pub fn new(io: ToolIo, data_dir: &Path, session_id: &str) -> Self {
+        Self { io, dir: data_dir.join("tool-results").join(safe_segment(session_id)), session_ok: !session_id.is_empty() }
     }
 
     fn describe(&self, content: &str) -> (PathBuf, Artifact) {
@@ -114,20 +118,18 @@ impl ArtifactStore for ToolResultArtifacts {
         let (path, artifact) = self.describe(content);
         let text = content.to_owned();
         let sha = artifact.sha256.clone();
-        tokio::task::spawn_blocking(move || {
+        let job = self.io.durability.submit(&CancellationToken::new(), move |lane| {
             let len = text.len() as u64;
-            match existing_state(&path, &sha, len) {
+            match existing_state(lane, &path, &sha, len) {
                 State::Intact => true,
                 State::Foreign => false,
                 State::Damaged | State::Absent => {
                     publish_file_with(&path, text.as_bytes(), Access::OwnerOnly).is_ok()
-                        && matches!(existing_state(&path, &sha, len), State::Intact)
+                        && matches!(existing_state(lane, &path, &sha, len), State::Intact)
                 }
             }
-        })
-        .await
-        .ok()?
-        .then_some(artifact)
+        });
+        job.ok()?.await.ok()?.then_some(artifact)
     }
 
     async fn preview(&self, content: &str) -> Option<Artifact> {
@@ -136,13 +138,19 @@ impl ArtifactStore for ToolResultArtifacts {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test setup writes and reads fixture files")]
 mod tests {
     use super::*;
+
+    fn io() -> ToolIo {
+        let tokens = mixdog_rt::testing::tokens();
+        ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io }
+    }
 
     #[tokio::test]
     async fn persist_lays_the_file_out_as_the_earlier_runtime_did() {
         let data = tempfile::tempdir().unwrap();
-        let store = ToolResultArtifacts::new(data.path(), "sess_1/../x");
+        let store = ToolResultArtifacts::new(io(), data.path(), "sess_1/../x");
         let text = "a\nb\nc";
         let preview = store.preview(text).await.unwrap();
         assert!(!data.path().join("tool-results").exists(), "a preview creates nothing");
@@ -166,7 +174,7 @@ mod tests {
     #[tokio::test]
     async fn no_session_means_no_artifact() {
         let data = tempfile::tempdir().unwrap();
-        assert!(ToolResultArtifacts::new(data.path(), "").persist("x").await.is_none());
+        assert!(ToolResultArtifacts::new(io(), data.path(), "").persist("x").await.is_none());
     }
 
     #[test]

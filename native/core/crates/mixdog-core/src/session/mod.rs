@@ -62,6 +62,8 @@ pub mod worktree;
 pub(crate) mod testing;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod goal_lane_tests;
 
 use std::sync::Arc;
 
@@ -157,6 +159,12 @@ pub struct SessionDeps {
     pub purge: delete::PurgeHooks,
     /// The Goal runtime the session's turns start, settle and continue.
     pub goals: Arc<dyn goal_lane::SessionGoals>,
+    /// What a Goal continuation reads of the session: its todo list, and the background work it
+    /// waits on (`goal-facade-api.mjs` `goalContinuation`). The cycles are the ones the turn
+    /// guards begin at each genuine user prompt.
+    pub todos: Arc<dyn mixdog_tools::state::todo::TodoStore>,
+    pub work: Arc<dyn crate::run_host::guards::RunningWork>,
+    pub cycles: Arc<crate::run_host::guards::UserCycles>,
     pub lanes: SessionLanes,
     pub limits: SessionLimits,
 }

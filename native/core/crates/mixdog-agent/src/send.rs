@@ -184,11 +184,13 @@ impl Run {
     /// Sends the transcript, recovering from failures. The returned response
     /// is whole; a retry never leaks a dead attempt's output.
     pub(crate) async fn send_provider_request(&mut self) -> Result<SendResult, AgentError> {
+        self.request_started_ms = self.env.clock.now_ms();
         loop {
             self.throw_if_aborted()?;
             // Calls a dead attempt started are dropped with it.
             self.drop_eager();
             let request = Arc::new(self.build_request());
+            self.last_request = Some(request.clone());
             let failure = match self.attempt_once(request).await? {
                 Ok(response) => {
                     // A completed send ends the outage the budgets covered.
@@ -344,7 +346,7 @@ impl Run {
             let tool_done = matches!(event, StreamEvent::ToolCallDone(_));
             builder.push(event);
             if tool_done && let Some(call) = builder.so_far().tool_calls.last().cloned() {
-                self.try_eager(&call);
+                self.try_eager(&call).await;
             }
         }
         if !builder.completed() {

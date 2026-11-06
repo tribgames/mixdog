@@ -29,6 +29,7 @@ mod rows;
 
 pub use rows::AttachmentBytes;
 pub use rows::BlobError;
+pub(crate) use rows::node_base64;
 pub use rows::{clean_image_mime, image_descriptor, image_identity};
 pub use rows::restore_turn_checkpoint_context_state_rows;
 pub use rows::rows_exact_signature;

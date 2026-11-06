@@ -260,6 +260,12 @@ impl Config {
         self.shared.doc.load().get(AGENT_SECTION).and_then(Value::as_object).cloned().unwrap_or_default()
     }
 
+    /// `readSection('agent').instructionFiles`: the stored setting as written (`None` when the
+    /// file has none); the caller normalises it, as Node does.
+    pub fn stored_instruction_files(&self) -> Option<Value> {
+        self.shared.doc.load().get(AGENT_SECTION)?.get("instructionFiles").cloned()
+    }
+
     /// Edits the agent config under the same transaction as every other writer; every other
     /// section and key of the file stays. A section that did not exist is not created for an
     /// edit that leaves it empty.

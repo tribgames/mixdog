@@ -514,6 +514,11 @@ pub struct SendAccounting {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Recorded {
     pub error: Option<String>,
+    /// The completed request's wall time, as the ledger row's `duration_ms`
+    /// measures it (Node stamps it on the result as `usageDurationMs`): `Some`
+    /// only when a completed row was timed, i.e. a ledger was attached. The
+    /// owner puts it on the send's terminal `StreamEvent::Completed.request_ms`.
+    pub request_ms: Option<u64>,
 }
 
 struct Row<'a> {
@@ -592,6 +597,10 @@ impl SendAccounting {
                 usage_request_status(failed, substituted, attempts).to_owned()
             }
         };
+        let duration_ms = if row.timed { (now - identity.started_at) as f64 } else { 0.0 };
+        if row.timed {
+            recorded.request_ms = Some(duration_ms.max(0.0) as u64);
+        }
         let stream_ms = completed.map_or(0.0, |c| (c.stream_ended_at - identity.started_at) as f64);
         let args = RecordArgs {
             ts: now,
@@ -619,7 +628,7 @@ impl SendAccounting {
             ),
             response_id: completed.and_then(|c| c.response_id.clone()).unwrap_or_default(),
             account: identity.account.clone(),
-            duration_ms: if row.timed { (now - identity.started_at) as f64 } else { 0.0 },
+            duration_ms,
             origin: None,
             id: completed
                 .and_then(|c| c.response_id.as_ref())

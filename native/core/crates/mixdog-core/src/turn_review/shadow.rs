@@ -20,8 +20,8 @@ use std::sync::Mutex;
 /// One tool-written file for the baseline index: path, bytes, mode, and whether it is a link.
 type ToolEntry = (String, Option<Vec<u8>>, Option<String>, bool);
 
-use super::chain::Chain;
-use super::chain::ChainGuard;
+use mixdog_rt::ChainGuard;
+use mixdog_rt::SerialChain;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -174,7 +174,7 @@ pub(super) struct Root {
     canonical_key: String,
     git_dir: PathBuf,
     /// `withStateLock`: one capture at a time.
-    lock: Arc<Chain>,
+    lock: Arc<SerialChain>,
     state: Mutex<RootState>,
     gc: Mutex<Option<Gc>>,
     repos: Arc<ReposShared>,
@@ -244,7 +244,7 @@ impl ShadowRepos {
             // Matched beside `root`'s own spelling: a watcher on a canonical root reports this one.
             canonical_key: shadow_key(&canonical_path(root)),
             git_dir,
-            lock: Arc::new(Chain::default()),
+            lock: SerialChain::new(),
             state: Mutex::new(RootState::default()),
             gc: Mutex::new(None),
             repos: self.shared.clone(),

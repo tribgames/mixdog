@@ -142,15 +142,18 @@ pub trait HopHost: Send + Sync {
     /// `presentErrorText(error)`.
     fn error_text(&self, error: &ProviderError) -> String;
     /// `initProviders(ensureProviderEnabled(config, provider))` then `getProvider`; `None` when
-    /// the provider is not available.
-    async fn provider(&self, provider: &str) -> Option<Arc<dyn ProviderAdapter>>;
+    /// the provider is not available. `Err` is what `initProviders` throws (its message escapes
+    /// the hop as it is).
+    async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String>;
     /// `resolveSessionContextMeta(provider, model, route).rawContextWindow`, with the route's own
     /// `selectedContextWindow` as the fallback Node reads for the current model.
     fn raw_context_window(&self, provider: &str, model: &str, route: &Value) -> Option<u64>;
     /// `updateSessionRoute(id, route, { crossProvider: true, session })` together with the hop's
     /// fields, then the wire pin, the tool surface rebuild of a Lead-class session and the
-    /// provider replay strip. Returns the updated session header, `None` when it is closed.
-    async fn apply_hop(&self, route: Obj, write: HopWrite) -> Option<Value>;
+    /// provider replay strip. Returns the updated session header, `None` when it is closed. `Err`
+    /// is what a step throws (the update, the pin, the surface rebuild): its message escapes the
+    /// hop as it is.
+    async fn apply_hop(&self, route: Obj, write: HopWrite) -> Result<Option<Value>, String>;
     /// The new route's effort projection and text-only input handling.
     fn wiring(&self, updated: &Value, provider: &Arc<dyn ProviderAdapter>) -> (Option<EffortWiring>, Option<TextOnlyInput>);
 }
@@ -191,11 +194,12 @@ fn usage_since(total: &Usage, earlier: Option<&Usage>) -> Option<Usage> {
         cache_read_tokens: delta(total.cache_read_tokens, earlier.cache_read_tokens),
         cache_write_tokens: delta(total.cache_write_tokens, earlier.cache_write_tokens),
         cache_write_1h_tokens: delta(total.cache_write_1h_tokens, earlier.cache_write_1h_tokens),
-        reasoning_tokens: delta(total.reasoning_tokens, earlier.reasoning_tokens),
+        // Only a total that reported reasoning has a reasoning share (`usageSince`).
+        reasoning_tokens: total.reasoning_tokens.map(|t| delta(t, earlier.reasoning_tokens.unwrap_or(0))),
         raw: None,
         cost: total.cost.map(|c| UsdTicks(c.0.saturating_sub(earlier.cost.map_or(0, |e| e.0)))),
     };
-    let any = out.input_tokens + out.output_tokens + out.cache_read_tokens + out.cache_write_tokens + out.cache_write_1h_tokens + out.reasoning_tokens > 0
+    let any = out.input_tokens + out.output_tokens + out.cache_read_tokens + out.cache_write_tokens + out.cache_write_1h_tokens + out.reasoning_tokens.unwrap_or(0) > 0
         || out.cost.is_some_and(|c| c.0 > 0);
     any.then_some(out)
 }
@@ -276,15 +280,15 @@ impl RouteHop {
     }
 
     /// `nextContextGrows`: a context overflow moves only to a model whose window is larger.
-    async fn next_context_grows(&self, session: &Value, next: &Value) -> bool {
+    async fn next_context_grows(&self, session: &Value, next: &Value) -> Result<bool, String> {
         let provider = text(next.get("provider"));
-        if self.host.provider(&provider).await.is_none() {
-            return false;
+        if self.host.provider(&provider).await?.is_none() {
+            return Ok(false);
         }
         let current = self.host.raw_context_window(&text(session.get("provider")), &text(session.get("model")), session);
         let window = self.host.raw_context_window(&provider, &text(next.get("model")), next);
         let fallback = session.get("selectedContextWindow").and_then(Value::as_u64);
-        window.unwrap_or(0) > current.filter(|w| *w > 0).or(fallback).unwrap_or(0)
+        Ok(window.unwrap_or(0) > current.filter(|w| *w > 0).or(fallback).unwrap_or(0))
     }
 }
 
@@ -339,7 +343,10 @@ impl RouteHop {
         let verdict = route_fallback_verdict(&error);
         let hops = match (verdict, next) {
             (RouteVerdict::Hop, _) => true,
-            (RouteVerdict::Context, Some(next)) => self.next_context_grows(&session, next).await,
+            (RouteVerdict::Context, Some(next)) => match self.next_context_grows(&session, next).await {
+                Ok(grows) => grows,
+                Err(message) => return RouteDecision::Fail(message),
+            },
             _ => false,
         };
         let Some(next) = next.filter(|_| hops) else {
@@ -350,8 +357,10 @@ impl RouteHop {
             };
         };
         let next_provider = text(next.get("provider"));
-        let Some(provider) = self.host.provider(&next_provider).await else {
-            return RouteDecision::Fail(format!("Provider \"{next_provider}\" not available"));
+        let provider = match self.host.provider(&next_provider).await {
+            Ok(Some(provider)) => provider,
+            Ok(None) => return RouteDecision::Fail(format!("Provider \"{next_provider}\" not available")),
+            Err(message) => return RouteDecision::Fail(message),
         };
         let failed = self.failure(&session, &error);
         // The left model's share of the turn ends here: the running total at the switch bounds
@@ -378,8 +387,10 @@ impl RouteHop {
             checkpoint_route_changed: session.get("activeTurnCheckpoint").is_some_and(Value::is_object),
         };
         let window = self.host.raw_context_window(&text(next.get("provider")), &text(next.get("model")), next);
-        let Some(updated) = self.host.apply_hop(route_fields(next, window), write).await else {
-            return RouteDecision::Fail("agent session closed during model fallback".to_owned());
+        let updated = match self.host.apply_hop(route_fields(next, window), write).await {
+            Ok(Some(updated)) => updated,
+            Ok(None) => return RouteDecision::Fail("agent session closed during model fallback".to_owned()),
+            Err(message) => return RouteDecision::Fail(message),
         };
         let (effort, text_only) = self.host.wiring(&updated, &provider);
         RouteDecision::Switch(RouteSwitch { provider, model: text(updated.get("model")), notice, effort, text_only })
@@ -492,19 +503,19 @@ mod tests {
         fn error_text(&self, error: &ProviderError) -> String {
             error.message.clone()
         }
-        async fn provider(&self, provider: &str) -> Option<Arc<dyn ProviderAdapter>> {
-            (provider != "gone").then(|| {
+        async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+            Ok((provider != "gone").then(|| {
                 Arc::new(Dummy {
                     id: ProviderId::from(provider),
                     policy: RetryPolicy::codex_default(),
                     keepalive: KeepaliveSchedule::SPEC,
                 }) as Arc<dyn ProviderAdapter>
-            })
+            }))
         }
         fn raw_context_window(&self, _: &str, model: &str, _: &Value) -> Option<u64> {
             self.windows.iter().find(|(m, _)| *m == model).map(|(_, w)| *w)
         }
-        async fn apply_hop(&self, route: Obj, write: HopWrite) -> Option<Value> {
+        async fn apply_hop(&self, route: Obj, write: HopWrite) -> Result<Option<Value>, String> {
             let mut session = self.session.lock().unwrap();
             let header = session.as_object_mut().unwrap();
             for (key, value) in &route {
@@ -517,7 +528,7 @@ mod tests {
             header.insert("routeFallbackIndex".into(), json!(write.index));
             header.insert("routeFallbackFailures".into(), json!(write.failures));
             self.writes.lock().unwrap().push((route, write));
-            Some(session.clone())
+            Ok(Some(session.clone()))
         }
         fn wiring(&self, _: &Value, _: &Arc<dyn ProviderAdapter>) -> (Option<EffortWiring>, Option<TextOnlyInput>) {
             (None, None)
@@ -692,7 +703,7 @@ mod tests {
             "routeFallbacks".into(),
             json!([{ "provider": "gone", "model": "m" }]),
         );
-        host.session.lock().unwrap().as_object_mut().unwrap().remove("routeFallbackSource");
+        host.session.lock().unwrap().as_object_mut().unwrap().shift_remove("routeFallbackSource");
         let hop = RouteHop::new(host.clone());
         let RouteDecision::Fail(message) = hop.decide(failure(ErrorKind::RateLimited, 429, "x"), None).await else {
             panic!("the hop fails")
@@ -724,7 +735,7 @@ mod tests {
             cache_read_tokens: v["cachedTokens"].as_u64().unwrap_or(0),
             cache_write_tokens: v["cacheWriteTokens"].as_u64().unwrap_or(0),
             cache_write_1h_tokens: v["cacheWrite1hTokens"].as_u64().unwrap_or(0),
-            reasoning_tokens: v["reasoningTokens"].as_u64().unwrap_or(0),
+            reasoning_tokens: v["reasoningTokens"].as_u64(),
             ..Usage::default()
         };
         for (name, case) in golden["segments"].as_object().unwrap() {
@@ -744,7 +755,7 @@ mod tests {
                 .map(|s| {
                     json!({ "provider": s.provider, "model": s.model, "usage": {
                         "input": s.usage.input_tokens, "output": s.usage.output_tokens, "cacheRead": s.usage.cache_read_tokens,
-                        "cacheWrite": s.usage.cache_write_tokens, "cacheWrite1h": s.usage.cache_write_1h_tokens, "reasoning": s.usage.reasoning_tokens } })
+                        "cacheWrite": s.usage.cache_write_tokens, "cacheWrite1h": s.usage.cache_write_1h_tokens, "reasoning": s.usage.reasoning_tokens.unwrap_or(0) } })
                 })
                 .collect();
             assert_eq!(json!(got), case["want"], "{name}");

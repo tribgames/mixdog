@@ -3,6 +3,7 @@
 //! replays creation (`composeSessionSystem` + seed), the deferred manifest, the `# Session`
 //! block, a route change, a cleared conversation and a staged working-folder change, and each
 //! step's system messages must equal Node's byte for byte.
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories and recorded fixtures")]
 
 use std::fs;
 use std::path::PathBuf;

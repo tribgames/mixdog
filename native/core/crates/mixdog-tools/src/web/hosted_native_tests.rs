@@ -155,7 +155,7 @@ fn reply_events(reply: &Value) -> Result<Vec<StreamEvent>, ProviderError> {
             ..Usage::default()
         }));
     }
-    events.push(StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None });
+    events.push(StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None });
     Ok(events)
 }
 

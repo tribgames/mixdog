@@ -33,6 +33,8 @@ use super::summary_run::SummarizeContext;
 use super::summary_run::SummaryMode;
 use super::summary_run::plan_steps;
 use super::summary_run::summarize_on_plan;
+use crate::boundary::CompactPolicy;
+use crate::boundary::CompactSettings;
 use crate::env::CompactError;
 use crate::env::CompactOutput;
 use crate::env::CompactRequest;
@@ -119,11 +121,58 @@ pub struct FreshCompactor {
     pub config: CompactorConfig,
 }
 
+/// What a session's compactor is wired from: the route's compaction settings, the transcript
+/// seams, and the summary's fork source and route resolver.
+pub struct SessionCompactor {
+    /// The settings the loop's policy is resolved from; `auto` is not read (see
+    /// [`FreshCompactor::for_session`]).
+    pub settings: CompactSettings,
+    pub parts: Arc<FreshParts>,
+    pub triggers: TriggerSeams,
+    pub fork: Arc<dyn ForkSource>,
+    pub resolver: Arc<dyn RouteResolver>,
+    /// `normalizeCompactionSummaryMode(config.compaction)`.
+    pub summary_mode: SummaryMode,
+    /// `session.compaction.conversationThresholdTokens`.
+    pub conversation_threshold_tokens: Option<u64>,
+}
+
 fn failure(error: FreshError) -> CompactError {
     CompactError::Failed(error.message().to_owned())
 }
 
 impl FreshCompactor {
+    /// A session's compactor as Node wires it (`resolveSessionCompactionPolicy` and
+    /// `runFreshContextCompact`): sized by the policy the settings resolve to with `auto` forced
+    /// on, because a manual or auto-clear compaction needs the same numbers while automatic
+    /// compaction is off. The reserve is the policy's, the window is the session's (else the
+    /// boundary), and the hard budget is the window in the provider's calibrated tokens.
+    /// `None` when the session knows no boundary: Node has no policy then, and a forced
+    /// compaction fails with "no context window is available".
+    pub fn for_session(session: SessionCompactor) -> Option<Arc<Self>> {
+        let policy = CompactPolicy::resolve(&CompactSettings { auto: true, ..session.settings })?;
+        let context_window = policy.context_window;
+        let max_budget_tokens = 1.max((context_window as f64 / policy.token_calibration).floor() as u64);
+        let summary = PlannedHandoff {
+            parts: session.parts.clone(),
+            fork: session.fork,
+            resolver: session.resolver,
+            config: SummaryConfig {
+                mode: session.summary_mode,
+                reserve_tokens: policy.reserve_tokens,
+                context_window,
+                token_calibration: policy.token_calibration,
+                conversation_threshold_tokens: session.conversation_threshold_tokens,
+            },
+        };
+        Some(Arc::new(Self {
+            parts: session.parts,
+            triggers: Some(session.triggers),
+            summary: Some(Arc::new(summary)),
+            config: CompactorConfig { reserve_tokens: policy.reserve_tokens, max_budget_tokens, context_window, handoff_token_cap: None },
+        }))
+    }
+
     fn options(&self, request: &CompactRequest<'_>, handoff_text: String, preview: bool, preview_summary: bool) -> FreshOptions {
         FreshOptions {
             reserve_tokens: self.config.reserve_tokens,
@@ -196,7 +245,7 @@ impl Compactor for FreshCompactor {
         // A generated summary can differ from its prediction: an automatic
         // result is never equal-sized or larger than the original.
         if request.require_reduction && meter.messages(&result.messages) >= meter.messages(request.messages) {
-            return Ok(CompactOutput { messages: request.messages.to_vec(), usage, dropped_count: 0, dropped: None });
+            return Ok(CompactOutput { messages: request.messages.to_vec(), usage, dropped_count: 0, dropped: None, skipped: true });
         }
         let (dropped_count, dropped) = if result.messages == request.messages {
             (0, None)
@@ -204,7 +253,7 @@ impl Compactor for FreshCompactor {
             let mut text = UserText::new(&*self.parts.blobs);
             dropped_summary(request.messages, &result.messages, &*self.parts.rows, &*self.parts.redactor, &mut text)
         };
-        Ok(CompactOutput { messages: result.messages, usage, dropped_count, dropped })
+        Ok(CompactOutput { messages: result.messages, usage, dropped_count, dropped, skipped: false })
     }
 }
 

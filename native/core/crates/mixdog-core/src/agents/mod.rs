@@ -96,62 +96,16 @@ struct Writes {
     now: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
-/// The queue of one id's lifecycle changes: the ones waiting for their turn.
-type Waiting = std::collections::VecDeque<tokio::sync::oneshot::Sender<()>>;
-
-fn turns() -> &'static std::sync::Mutex<HashMap<String, Waiting>> {
-    static TURNS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Waiting>>> = std::sync::OnceLock::new();
-    TURNS.get_or_init(Default::default)
-}
-
-/// An id's turn in its lifecycle queue; the next change in line starts when it drops.
-struct Turn {
-    key: String,
-}
-
-impl Drop for Turn {
-    fn drop(&mut self) {
-        let mut turns = turns().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(queue) = turns.get_mut(&self.key) else { return };
-        // A change that stopped waiting has dropped its receiver: the turn goes to the next.
-        while let Some(next) = queue.pop_front() {
-            if next.send(()).is_ok() {
-                return;
-            }
-        }
-        turns.remove(&self.key);
-    }
-}
-
 /// One id's saves, archives and restores run one at a time (`withLifecycle`); each rechecks its
 /// eligibility when its turn comes.
-async fn lifecycle(data: &std::path::Path, id: &str) -> Option<Turn> {
+async fn lifecycle(data: &std::path::Path, id: &str) -> Option<mixdog_rt::ChainGuard> {
+    static TURNS: std::sync::OnceLock<Arc<mixdog_rt::KeyedChains>> = std::sync::OnceLock::new();
     if id.is_empty() {
         return None;
     }
     let key = format!("{}\0{id}", data.display());
-    let waiting = {
-        let mut turns = turns().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        match turns.get_mut(&key) {
-            None => {
-                turns.insert(key.clone(), Waiting::new());
-                None
-            }
-            Some(queue) => {
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                queue.push_back(tx);
-                Some(rx)
-            }
-        }
-    };
-    if let Some(rx) = waiting {
-        // The turn is handed over by the change ahead. A change that stops waiting here never
-        // held it, so it has nothing to hand on.
-        let _ = rx.await;
-    }
-    Some(Turn { key })
+    Some(TURNS.get_or_init(mixdog_rt::KeyedChains::new).acquire(&key).await)
 }
-
 /// What only the sessions and the automation store know.
 #[async_trait]
 pub trait AgentEvidence: Send + Sync {
@@ -347,6 +301,12 @@ impl AgentDefinitions {
     async fn job<R: Send + 'static>(&self, work: impl FnOnce(&Folders, &Lane) -> R + Send + 'static) -> Result<R, AgentsError> {
         let folders = self.folders.clone();
         on_lane(self.lane, &CancellationToken::new(), move |lane| work(&folders, lane)).await.map_err(AgentsError::Lane)
+    }
+
+    /// `isHiddenAgent(name)`: whether `name` is an internal agent of `defaults/agents.json`.
+    /// Answered from the loaded set, so it needs no lane job.
+    pub fn hidden_agent(&self, name: Option<&str>) -> bool {
+        name.is_some_and(|name| self.folders.hidden.contains(name))
     }
 
     /// `listCustomAgentIds`.

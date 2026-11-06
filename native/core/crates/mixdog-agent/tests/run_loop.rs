@@ -161,7 +161,7 @@ fn text(s: &str) -> Step {
 }
 
 fn done(stop: StopReason) -> Step {
-    Step::Event(StreamEvent::Completed { stop: Some(stop), pricing_model: None })
+    Step::Event(StreamEvent::Completed { stop: Some(stop), pricing_model: None, request_ms: None })
 }
 
 fn call(id: &str, name: &str, args: JsonValue) -> Step {
@@ -296,6 +296,12 @@ struct Compactor100 {
     cache_expired: bool,
     /// Tool-result media arms a pass.
     request_media: bool,
+    /// The pass finds no token reduction.
+    skip: bool,
+    /// The pass fails.
+    fail: bool,
+    /// The clock this pass moves, and by how much.
+    takes: Option<(Arc<FixedClock>, i64)>,
 }
 #[async_trait]
 impl Compactor for Compactor100 {
@@ -316,6 +322,12 @@ impl Compactor for Compactor100 {
             .lock()
             .unwrap()
             .push((request.messages.len(), request.trigger.clone()));
+        if let Some((clock, ms)) = &self.takes {
+            clock.0.fetch_add(*ms, Ordering::Relaxed);
+        }
+        if self.fail {
+            return Err(CompactError::Failed("boom".into()));
+        }
         let mut kept = vec![AgentMessage::user("[summary]")];
         kept.push(request.messages.last().unwrap().clone());
         Ok(CompactOutput {
@@ -323,6 +335,7 @@ impl Compactor for Compactor100 {
             usage: None,
             dropped_count: (request.messages.len() - 1) as u64,
             dropped: Some(Dropped { message_ids: vec!["gone".into()], call_ids: vec!["call-gone".into()] }),
+            skipped: self.skip,
         })
     }
 }
@@ -378,14 +391,15 @@ impl Tool for Marked {
 /// Records what the loop admits to the tool-result cache.
 #[derive(Default)]
 struct Stored(Mutex<Vec<String>>);
+#[async_trait]
 impl ResultReuse for Stored {
-    fn lookup(&self, _call: &ToolCall, _touch: bool) -> Option<Reused> {
+    async fn lookup(&self, _call: &ToolCall, _touch: bool) -> Option<Reused> {
         None
     }
-    fn store(&self, _call: &ToolCall, content: &str, _tool_use_id: &str, _output: &ToolOutput) {
+    async fn store(&self, _call: &ToolCall, content: &str, _tool_use_id: &str, _output: &ToolOutput) {
         self.0.lock().unwrap().push(content.to_owned());
     }
-    fn after_call(&self, _call: &ToolCall, _failed: bool) {}
+    async fn after_call(&self, _call: &ToolCall, _failed: bool) {}
 }
 
 #[tokio::test]
@@ -488,6 +502,7 @@ struct Harness {
     reuse: Option<Arc<dyn ResultReuse>>,
     route: Option<Arc<dyn RouteFallback>>,
     cancel: CancellationToken,
+    clock: Arc<FixedClock>,
 }
 
 impl Harness {
@@ -505,6 +520,7 @@ impl Harness {
             reuse: None,
             route: None,
             cancel: CancellationToken::new(),
+            clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
         }
     }
 
@@ -520,7 +536,7 @@ impl Harness {
 
     fn run_env(&self) -> RunEnv {
         RunEnv {
-            clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
+            clock: self.clock.clone(),
             jitter: Arc::new(HalfJitter),
             waiter: self.waiter.clone(),
             decider: Arc::new(MockRetryDecider),
@@ -921,11 +937,99 @@ async fn compaction_runs_at_the_request_boundary_and_resets_the_epoch() {
         .events()
         .into_iter()
         .filter_map(|e| match e {
-            RunEvent::Compact(c) => Some((c.changed, c.before_messages, c.after_messages)),
+            RunEvent::Compact(c) => Some((c.status.changed(), c.before_messages, c.after_messages)),
             _ => None,
         })
         .collect();
     assert_eq!(compact_events, [(true, 11, 2)]);
+}
+
+fn compact_settings() -> CompactSettings {
+    CompactSettings { auto: true, context_window: Some(1_000), token_calibration: 1.0, ..CompactSettings::default() }
+}
+
+fn eleven_messages() -> Vec<AgentMessage> {
+    let mut messages: Vec<AgentMessage> = (0..10).map(|i| AgentMessage::user(format!("m{i}"))).collect();
+    messages.push(AgentMessage::user("latest"));
+    messages
+}
+
+fn compact_marker(h: &Harness) -> Vec<CompactEvent> {
+    h.observer.events().into_iter().filter_map(|e| if let RunEvent::Compact(c) = e { Some(c) } else { None }).collect()
+}
+
+#[tokio::test]
+async fn the_compact_marker_carries_the_passes_duration_after_tokens_and_status() {
+    // Compacted: the pass's own duration, and the estimate of the new transcript (2 × 100).
+    let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100 { takes: Some((h.clock.clone(), 1_200)), ..Default::default() }));
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    finish(h.run(cfg, vec![], eleven_messages())).await;
+    let events = compact_marker(&h);
+    assert_eq!(events.len(), 1);
+    assert_eq!((events[0].status, events[0].duration_ms), (CompactStatus::Compacted, 1_200));
+    assert_eq!(events[0].after_tokens, 200);
+
+    // Failed: the pressure the pass started from stands for the after count.
+    let mut h = Harness::new(vec![]);
+    h.compactor = Some(Arc::new(Compactor100 { fail: true, takes: Some((h.clock.clone(), 300)), ..Default::default() }));
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    assert!(h.run(cfg, vec![], eleven_messages()).run().await.is_err());
+    let events = compact_marker(&h);
+    assert_eq!(events.len(), 1);
+    assert_eq!((events[0].status, events[0].duration_ms), (CompactStatus::Failed, 300));
+    assert_eq!(events[0].after_tokens, events[0].pressure_tokens);
+
+    // Skipped (no token reduction): nothing is adopted and, as in Node, no marker is shown.
+    let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100 { skip: true, ..Default::default() }));
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    finish(h.run(cfg, vec![], eleven_messages())).await;
+    assert!(compact_marker(&h).is_empty());
+    assert!(h.sink.replaced.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_marker_before_count_is_the_providers_last_measured_context_not_the_passes_pressure() {
+    // The session's last measured context differs from the pass's own pressure (11 × 100).
+    let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100::default()));
+    let mut cfg = config();
+    cfg.compact = Some(CompactSettings { last_context_tokens: Some(777), ..compact_settings() });
+    finish(h.run(cfg, vec![], eleven_messages())).await;
+    let events = compact_marker(&h);
+    assert_eq!((events[0].before_tokens, events[0].pressure_tokens), (777, 1_100));
+
+    // No reading: the pass's pressure stands in.
+    let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100::default()));
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    finish(h.run(cfg, vec![], eleven_messages())).await;
+    assert_eq!(compact_marker(&h)[0].before_tokens, 1_100);
+}
+
+#[tokio::test]
+async fn a_calls_usage_event_carries_what_nodes_usage_delta_needs() {
+    let reported = mixdog_core_api::domain::provider::Usage { input_tokens: 120, output_tokens: 30, raw: Some(json!({ "output_tokens_details": { "reasoning_tokens": 9 } })), ..Default::default() };
+    let h = Harness::new(vec![
+        turn(vec![Step::Event(StreamEvent::Usage(reported)), call("c1", "echo", json!({})), call("c2", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![Step::Event(StreamEvent::Usage(mixdog_core_api::domain::provider::Usage { input_tokens: 5, ..Default::default() })), text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    let deltas: Vec<UsageDelta> = h.observer.events().into_iter().filter_map(|e| if let RunEvent::Usage { delta, .. } = e { Some(delta) } else { None }).collect();
+    assert_eq!(deltas.len(), 2);
+    assert_eq!((deltas[0].delta_tool_calls, deltas[0].delta_prompt), (2, 120));
+    assert_eq!(deltas[0].requested_model, deltas[0].model);
+    // The raw provider usage names the reasoning tokens; a reply that names none reports none.
+    assert_eq!((deltas[0].reasoning_tokens, deltas[0].reasoning_tokens_complete), (Some(9), true));
+    assert_eq!((deltas[1].reasoning_tokens, deltas[1].reasoning_tokens_complete), (None, false));
+    assert_eq!(deltas[1].delta_tool_calls, 0);
+    let sent: Vec<&str> = deltas[0].send_tools.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(sent, ["echo"]);
 }
 
 #[tokio::test]
