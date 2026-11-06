@@ -27,6 +27,8 @@ pub enum Blocked {
     JournalDamage { detail: String },
     /// A fault point stopped the run (test seam for the crash matrix).
     Interrupted { point: String },
+    /// The extension host's document extractor failed (the machine, not the bytes).
+    Extractor { detail: String },
 }
 
 impl Blocked {
@@ -95,6 +97,7 @@ impl fmt::Display for Blocked {
                 write!(f, "migration_blocked{{journal_damage, {detail}}}")
             }
             Blocked::Interrupted { point } => write!(f, "migration interrupted at {point}"),
+            Blocked::Extractor { detail } => write!(f, "migration_blocked{{extractor, {detail}}}"),
         }
     }
 }

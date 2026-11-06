@@ -26,6 +26,7 @@ use mixdog_core_api::domain::tool::ToolError;
 use mixdog_rt::LaneToken;
 
 use super::common::*;
+use super::os_error::io_message;
 
 const MIB: u64 = 1024 * 1024;
 /// A text file `apply_patch` may edit, rename and snapshot (`PATCH_EDIT_MAX_BYTES`).
@@ -355,10 +356,12 @@ fn fsync_outcome(result: std::io::Result<()>) -> std::io::Result<()> {
     }
 }
 
-fn write_restored(path: &Path, content: &[u8]) -> std::io::Result<()> {
-    let mut file = fs::OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
-    file.write_all(content)?;
-    fsync_outcome(file.sync_all())
+type Step<'a> = (&'static str, Option<&'a Path>, std::io::Error);
+
+fn write_restored<'a>(path: &'a Path, content: &[u8]) -> Result<(), Step<'a>> {
+    let mut file = fs::OpenOptions::new().write(true).create(true).truncate(true).open(path).map_err(|e| ("open", Some(path), e))?;
+    file.write_all(content).map_err(|e| ("write", None, e))?;
+    fsync_outcome(file.sync_all()).map_err(|e| ("fsync", None, e))
 }
 
 /// Undoes the batch: every snapshotted path is written back (or removed when it did not exist).
@@ -374,18 +377,19 @@ pub(super) async fn restore(ctx: &ToolContext, snapshots: Vec<Snapshot>) -> Resu
                 }
                 continue;
             }
+            let path = s.path.as_path();
             let result = if s.existed {
-                let parent_ok = s.path.as_path().parent().map_or(Ok(()), fs::create_dir_all);
+                let parent_ok = path.parent().map_or(Ok(()), |p| fs::create_dir_all(p).map_err(|e| ("mkdir", Some(p), e)));
                 parent_ok
-                    .and_then(|()| write_restored(s.path.as_path(), s.content.as_deref().unwrap_or_default()))
-                    .and_then(|()| s.perms.clone().map_or(Ok(()), |p| fs::set_permissions(s.path.as_path(), p)))
-            } else if s.path.as_path().exists() {
-                fs::remove_file(s.path.as_path())
+                    .and_then(|()| write_restored(path, s.content.as_deref().unwrap_or_default()))
+                    .and_then(|()| s.perms.clone().map_or(Ok(()), |p| fs::set_permissions(path, p).map_err(|e| ("chmod", Some(path), e))))
+            } else if path.exists() {
+                fs::remove_file(path).map_err(|e| ("unlink", Some(path), e))
             } else {
                 continue;
             };
-            if let Err(e) = result {
-                errors.push(format!("{shown} — {e}"));
+            if let Err((syscall, at, e)) = result {
+                errors.push(format!("{shown} — {}", io_message(&e, syscall, at)));
             }
         }
         (errors, snapshots)

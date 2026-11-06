@@ -166,6 +166,14 @@ pub struct Dropped {
     pub call_ids: Vec<String>,
 }
 
+/// What a transcript rewrite took out of the model context (Node `droppedMessages` and
+/// `droppedIdentities`); empty for a repair or a pass that dropped nothing shown.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Rewrite {
+    pub dropped_count: u64,
+    pub dropped: Option<Dropped>,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct CompactEvent {
     /// Node's `droppedMessages`: messages that left the context; 0 when nothing visible was removed.
@@ -250,9 +258,9 @@ pub struct Ticket(pub u64);
 pub trait TranscriptSink: Send + Sync {
     fn commit(&self, message: &AgentMessage) -> Ticket;
 
-    /// The transcript was rewritten (compaction); `messages` is the new
-    /// model context.
-    fn replace(&self, messages: &[AgentMessage]);
+    /// The transcript was rewritten (compaction or repair); `messages` is the new
+    /// model context and `rewrite` what the pass took out of it.
+    fn replace(&self, messages: &[AgentMessage], rewrite: &Rewrite);
 
     /// A fresh stable id for a message that arrives without one.
     fn message_id(&self) -> String;

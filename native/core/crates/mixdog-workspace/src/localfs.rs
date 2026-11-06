@@ -46,6 +46,7 @@ use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::fs::FileStat;
 use mixdog_core_api::domain::fs::FsError;
 use mixdog_core_api::domain::fs::FsErrorKind;
+use mixdog_core_api::domain::fs::FsStep;
 use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::fs::SearchMatch;
 use mixdog_core_api::domain::fs::SearchRequest;
@@ -357,16 +358,20 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), Fs
     let existing = fs::metadata(target).ok();
     let tmp = temp_name(target);
     let fsync = fsync_wanted();
-    let written = (|| -> io::Result<()> {
-        let mut file = create_temp(&tmp, existing.as_ref())?;
-        let result = file.write_all(content).and_then(|()| if fsync { sync(&file) } else { Ok(()) });
+    let written = (|| -> Result<(), (FsStep, io::Error)> {
+        let open_step = || FsStep::Open { path: AbsPath::new(&tmp).expect("a resolved target is absolute") };
+        let mut file = create_temp(&tmp, existing.as_ref()).map_err(|e| (open_step(), e))?;
+        let result = file
+            .write_all(content)
+            .map_err(|e| (FsStep::Write, e))
+            .and_then(|()| if fsync { sync(&file).map_err(|e| (FsStep::Fsync, e)) } else { Ok(()) });
         drop(file);
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
         }
         result
     })();
-    written.map_err(|e| io_error(&e, target))?;
+    written.map_err(|(step, e)| io_error(&e, target).at(step))?;
     #[cfg(windows)]
     if existing.as_ref().is_some_and(|m| m.permissions().readonly()) {
         // A mode without the write bit is the read-only attribute; the rename below then fails
@@ -410,7 +415,11 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), Fs
                 if matches!(expect, Expect::Absent) {
                     cleanup_empty_placeholder(target);
                 }
-                return Err(io_error(&e, target));
+                let step = FsStep::Rename {
+                    from: AbsPath::new(&tmp).expect("a resolved target is absolute"),
+                    to: AbsPath::new(target).expect("a resolved target is absolute"),
+                };
+                return Err(io_error(&e, target).at(step));
             }
         }
     }
@@ -944,6 +953,48 @@ mod tests {
 
     fn put(path: &AbsPath, content: &[u8], precondition: WritePrecondition) -> WriteRequest {
         WriteRequest { path: path.clone(), content: content.to_vec(), precondition }
+    }
+
+    fn tmp_suffix_is_eight_hex(tmp_name: &str, target_name: &str) -> bool {
+        tmp_name
+            .strip_prefix(target_name)
+            .and_then(|rest| rest.strip_prefix(".mixdog-tmp-"))
+            .is_some_and(|id| id.len() == 8 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+    }
+
+    #[test]
+    fn a_temp_file_that_cannot_be_created_names_the_open_step_with_the_temp_path() {
+        let dir = tempfile::tempdir().unwrap();
+        // The temp name is the target's plus 20 characters: past the 255-character name limit.
+        let name = "n".repeat(250);
+        let target = dir.path().join(&name);
+        let error = atomic_write(&target, b"x", &Expect::Nothing).unwrap_err();
+        let Some(FsStep::Open { path }) = &error.step else { panic!("{error:?}") };
+        let tmp_name = path.as_path().file_name().unwrap().to_string_lossy().into_owned();
+        assert!(tmp_suffix_is_eight_hex(&tmp_name, &name), "{tmp_name}");
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn a_blocked_rename_names_the_rename_step_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        // A non-empty directory cannot be replaced by a file.
+        let target = dir.path().join("occupied");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("inner"), b"x").unwrap();
+        let error = atomic_write(&target, b"x", &Expect::Nothing).unwrap_err();
+        let Some(FsStep::Rename { from, to }) = &error.step else { panic!("{error:?}") };
+        assert_eq!(to.as_path(), target);
+        assert!(tmp_suffix_is_eight_hex(&from.as_path().file_name().unwrap().to_string_lossy(), "occupied"));
+        assert!(!from.as_path().exists(), "the temp file is removed");
+    }
+
+    #[test]
+    fn a_successful_write_and_other_failures_carry_no_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("f.txt");
+        atomic_write(&target, b"x", &Expect::Nothing).unwrap();
+        assert!(plain(FsErrorKind::NotFound, &target).step.is_none());
     }
 
     #[test]

@@ -61,9 +61,26 @@ impl GoalQuotaResume {
         self.goals.reactivate_usage_limited(session_id, goal_id, admission).await
     }
 
-    /// `finishResume`: the note is dropped once the resume is accepted, if it still names the
-    /// same Goal.
-    pub async fn finish_resume(&self, session_id: &str, turn_key: &str, goal_id: &str) -> Result<bool, QuotaError> {
+    /// A superseding user cancel (`quota-resume.mjs:131`): the pending resume goes and so does
+    /// the note of the Goal it would have revived.
+    pub async fn cancel(&self, session_id: &str) -> Result<(), QuotaError> {
+        self.store.cancel(session_id, None).await?;
+        self.store.forget_suspended_goal(session_id).await?;
+        Ok(())
+    }
+
+    /// `finishResume`: the entry the resume fired from (when there is one) is cancelled at its
+    /// generation, then the note is dropped if it still names the same Goal.
+    pub async fn finish_resume(
+        &self,
+        session_id: &str,
+        turn_key: &str,
+        goal_id: &str,
+        entry_generation: Option<u64>,
+    ) -> Result<bool, QuotaError> {
+        if entry_generation.is_some() {
+            self.store.cancel(session_id, entry_generation).await?;
+        }
         if !goal_id.is_empty() && self.store.suspended_goal(session_id, turn_key) == goal_id {
             return self.store.forget_suspended_goal(session_id).await;
         }

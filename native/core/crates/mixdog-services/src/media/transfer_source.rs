@@ -6,6 +6,8 @@
 //! as `sanitizedFileName` offers it, the type the asset's own MIME type (else the extension's).
 //! `media-download-twin.json` holds Node's answer for every case.
 
+// The transfer contract hands the workspace an open `File`; every open here runs as a durability-lane job.
+#[allow(clippy::disallowed_types, reason = "SourceFile carries an std File; opened on a lane job")]
 use std::fs::File;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};

@@ -285,6 +285,29 @@ mod tests {
         assert_eq!(routes.resolve(RouteStep::Maintainer).await.unwrap().unwrap().context_window, 200_000);
     }
 
+    /// `String(route.effort || '').trim() || 'low'`, values checked against Node.
+    #[test]
+    fn the_maintainer_effort_reads_as_node_does() {
+        use serde_json::json;
+        let cases = [
+            (None, "low"),
+            (Some(json!(null)), "low"),
+            (Some(json!("")), "low"),
+            (Some(json!("  high ")), "high"),
+            (Some(json!(0)), "low"),
+            (Some(json!(5)), "5"),
+            (Some(json!(true)), "true"),
+            (Some(json!(false)), "low"),
+            (Some(json!(" \u{a0} ")), "low"),
+            (Some(json!([])), "low"),
+            (Some(json!([" a "])), "a"),
+            (Some(json!({})), "[object Object]"),
+        ];
+        for (value, want) in cases {
+            assert_eq!(maintainer_effort(value.as_ref()), want, "{value:?}");
+        }
+    }
+
     #[tokio::test]
     async fn no_maintainer_is_no_route_and_an_unavailable_provider_is_named() {
         let routes = SummaryRoutes::new(Arc::new(host("openai-oauth", "gpt-5")));

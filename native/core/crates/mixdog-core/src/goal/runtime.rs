@@ -68,14 +68,27 @@ impl Timer {
 /// The deadline facility: `callback` runs once after `delay_ms`. Callbacks only hand work to a
 /// task; they never block.
 pub trait GoalTimers: Send + Sync {
-    fn after(&self, delay_ms: f64, callback: Box<dyn FnOnce() + Send>) -> Timer;
+    fn after(&self, kind: TimerKind, delay_ms: f64, callback: Box<dyn FnOnce() + Send>) -> Timer;
+}
+
+/// Which part of the runtime armed a timer (Node tells them apart by the originating module).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TimerKind {
+    /// The time cap's deadline.
+    Deadline,
+    /// A deadline warning.
+    Warning,
+    /// The live heartbeat.
+    Heartbeat,
+    /// The title generation timeout.
+    Title,
 }
 
 /// The process ticker (`mixdog_rt::ticker`): one task serves every deadline; nothing polls.
 pub struct TickerTimers;
 
 impl GoalTimers for TickerTimers {
-    fn after(&self, delay_ms: f64, callback: Box<dyn FnOnce() + Send>) -> Timer {
+    fn after(&self, _kind: TimerKind, delay_ms: f64, callback: Box<dyn FnOnce() + Send>) -> Timer {
         let at = std::time::Instant::now() + std::time::Duration::from_secs_f64(delay_ms.max(0.0) / 1000.0);
         let handle = mixdog_rt::ticker().register(at, callback);
         Timer::new(move || {
@@ -231,10 +244,10 @@ pub(crate) struct Tx<'a> {
     pub held: Vec<Option<Goal>>,
 }
 
-type Turn = std::pin::Pin<Box<dyn Future<Output = tokio::sync::OwnedMutexGuard<()>> + Send>>;
+pub(crate) type Turn = std::pin::Pin<Box<dyn Future<Output = tokio::sync::OwnedMutexGuard<()>> + Send>>;
 
 /// Joins the session's queue now: the first poll registers the waiter, which keeps its place.
-fn reserve_turn(slot: &Slot) -> Turn {
+pub(crate) fn reserve_turn(slot: &Slot) -> Turn {
     let mut waiting = Box::pin(slot.chain.clone().lock_owned());
     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
     match waiting.as_mut().poll(&mut cx) {
@@ -345,7 +358,7 @@ impl Inner {
         self.run_mutation(&id, &slot, turn, op).await
     }
 
-    async fn run_mutation<R: Send + 'static>(
+    pub(crate) async fn run_mutation<R: Send + 'static>(
         self: &Arc<Self>,
         id: &str,
         slot: &Arc<Slot>,

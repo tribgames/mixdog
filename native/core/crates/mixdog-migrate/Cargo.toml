@@ -8,9 +8,12 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+base64 = { workspace = true }
 icu_collator = { workspace = true }
 icu_locale_core = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
+mixdog-agent = { workspace = true }
+mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-mcp = { workspace = true }
 mixdog-store = { workspace = true }
@@ -22,11 +25,12 @@ serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 sha1 = { workspace = true }
 sha2 = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
 uuid = { workspace = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
 mixdog-ai = { workspace = true }
-mixdog-core-api = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt", "macros"] }
 tempfile = { workspace = true }

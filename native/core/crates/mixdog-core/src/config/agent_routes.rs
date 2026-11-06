@@ -83,6 +83,13 @@ impl AgentRoutes {
         Ok(route.unwrap_or_else(|| Value::Object(Map::new())))
     }
 
+    /// The route the config holds for `id`, whichever store the agent's own route lives in:
+    /// `agentRouteFromConfig(config, id)` without the bot store. The agent editor reads Mixy's
+    /// id `lead` this way, since her own route is in her folder under another id.
+    pub fn config_route(&self, id: &str) -> Option<Value> {
+        self.config.agent().get("agents").and_then(|agents| agents.get(id)).filter(|route| is_complete(route)).cloned()
+    }
+
     /// Whether the agent is switched off (`isAgentDisabled`).
     pub fn is_disabled(&self, id: &str) -> bool {
         disabled_ids(&self.config.agent()).contains(&agent_id_key(id))

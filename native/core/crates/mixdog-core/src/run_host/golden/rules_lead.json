@@ -1,0 +1,3490 @@
+{
+ "plugin": {
+  "output-styles/common.md": "---\npartial: true\n---\nShared format rules.\n",
+  "output-styles/detailed.md": "---\nname: detailed\ntitle: Detailed\naliases: deep, long\n---\nDetailed body.\n",
+  "output-styles/simple.md": "---\nname: simple\ndescription: x\n---\nSimple body.\n",
+  "output-styles/minimal.md": "---\nname: minimal\nkeep-shared-format: false\n---\nMinimal body.\n",
+  "output-styles/extreme-minimal.md": "---\nname: extreme-minimal\ntitle: \"Extreme Minimal\"\n---\nExtreme body.\r\n",
+  "output-styles/custom-x.md": "---\ntitle: Zed Custom\naliases: zed, Z_Alias\n---\nCustom body.\n",
+  "output-styles/hidden.md": "---\npartial: yes\n---\nHidden.\n",
+  "output-styles/empty.md": "---\nname: empty\n---\n",
+  "output-styles/Alpha.md": "Alpha without frontmatter.\n"
+ },
+ "dataA": {
+  "mixdog-config.json": "{\"outputStyle\":\"zed\",\"agent\":{\"profile\":{\"title\":\"  Boss  \",\"language\":\"ko\",\"experienceLevel\":\"Vibe Coder\"}}}"
+ },
+ "dataB": {
+  "output-styles/common.md": "User shared format.\n",
+  "output-styles/simple.md": "---\nname: simple\n---\nUser simple body.\n",
+  "output-styles/user-only.md": "---\ntitle: Mine\n---\nUser only.\n"
+ },
+ "locale": "ko-KR",
+ "cases": [
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": null,
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"Boss\"; omit the title from routine progress updates and pre-tool preambles.\n- Development experience: Vibe coder. Lead with what the result does and how to use it; briefly unpack implementation jargon when it is needed for understanding. Output style controls information depth.\n\n# Output Style: Zed Custom\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nCustom body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": null,
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": null,
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": null,
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"Boss\"; omit the title from routine progress updates and pre-tool preambles.\n- Development experience: Vibe coder. Lead with what the result does and how to use it; briefly unpack implementation jargon when it is needed for understanding. Output style controls information depth."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": null,
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": null,
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {},
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {},
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {},
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {},
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {},
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {},
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Detailed\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nDetailed body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Extreme Minimal\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nExtreme body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Detailed\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nDetailed body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Zed Custom\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nCustom body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"Dr\"; omit the title from routine progress updates and pre-tool preambles.\n- Development experience: Expert. Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally. Output style controls information depth.\n\n# Output Style: Minimal\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nMinimal body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in English, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "en",
+    "name": "English"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"Dr\"; omit the title from routine progress updates and pre-tool preambles.\n- Development experience: Expert. Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally. Output style controls information depth."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in English, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "en",
+    "name": "English"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Traditional Chinese (繁體中文), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "zh-Hant",
+    "name": "Traditional Chinese (繁體中文)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Traditional Chinese (繁體中文), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "zh-Hant",
+    "name": "Traditional Chinese (繁體中文)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Beginner. Assume no development background; briefly explain only the terms and prerequisites needed to understand the answer. Output style controls information depth.\n\n# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Japanese (日本語), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ja",
+    "name": "Japanese (日本語)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Beginner. Assume no development background; briefly explain only the terms and prerequisites needed to understand the answer. Output style controls information depth."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Japanese (日本語), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ja",
+    "name": "Japanese (日本語)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"; omit the title from routine progress updates and pre-tool preambles.\n\n# Output Style: Alpha\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nAlpha without frontmatter."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"; omit the title from routine progress updates and pre-tool preambles."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"T\"; omit the title from routine progress updates and pre-tool preambles.\n\n# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"T\"; omit the title from routine progress updates and pre-tool preambles."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Junior. Assume basic development knowledge; make otherwise implicit connections clear when they are needed for easy understanding. Output style controls information depth.\n\n# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in German (Deutsch), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "de",
+    "name": "German (Deutsch)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Junior. Assume basic development knowledge; make otherwise implicit connections clear when they are needed for easy understanding. Output style controls information depth."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in German (Deutsch), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "a",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "de",
+    "name": "German (Deutsch)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": null,
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nUser simple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": null,
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": null,
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": null,
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": null,
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": null,
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {},
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nUser simple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {},
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {},
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {},
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {},
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {},
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Detailed\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nDetailed body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Extreme Minimal\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nExtreme body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Detailed\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nDetailed body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Zed Custom\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nCustom body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"Dr\"; omit the title from routine progress updates and pre-tool preambles.\n- Development experience: Expert. Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally. Output style controls information depth.\n\n# Output Style: Minimal\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nMinimal body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in English, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "en",
+    "name": "English"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"Dr\"; omit the title from routine progress updates and pre-tool preambles.\n- Development experience: Expert. Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally. Output style controls information depth."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in English, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "en",
+    "name": "English"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nUser simple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Traditional Chinese (繁體中文), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "zh-Hant",
+    "name": "Traditional Chinese (繁體中文)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Traditional Chinese (繁體中文), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "zh-Hant",
+    "name": "Traditional Chinese (繁體中文)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Beginner. Assume no development background; briefly explain only the terms and prerequisites needed to understand the answer. Output style controls information depth.\n\n# Output Style: Mine\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nUser only."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Japanese (日本語), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ja",
+    "name": "Japanese (日本語)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Beginner. Assume no development background; briefly explain only the terms and prerequisites needed to understand the answer. Output style controls information depth."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Japanese (日本語), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ja",
+    "name": "Japanese (日本語)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"; omit the title from routine progress updates and pre-tool preambles.\n\n# Output Style: Alpha\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nAlpha without frontmatter."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"; omit the title from routine progress updates and pre-tool preambles."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"T\"; omit the title from routine progress updates and pre-tool preambles.\n\n# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nUser simple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"T\"; omit the title from routine progress updates and pre-tool preambles."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nUser simple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Junior. Assume basic development knowledge; make otherwise implicit connections clear when they are needed for easy understanding. Output style controls information depth.\n\n# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nUser shared format.\n\nUser simple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in German (Deutsch), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "de",
+    "name": "German (Deutsch)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Junior. Assume basic development knowledge; make otherwise implicit connections clear when they are needed for easy understanding. Output style controls information depth."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in German (Deutsch), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "b",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "de",
+    "name": "German (Deutsch)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": null,
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": null,
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": null,
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": null,
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": null,
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": null,
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {},
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {},
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {},
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {},
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {},
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {},
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Detailed\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nDetailed body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "detailed"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Extreme Minimal\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nExtreme body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Extreme_Minimal"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Detailed\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nDetailed body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "deep"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Zed Custom\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nCustom body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "Z-alias"
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"Dr\"; omit the title from routine progress updates and pre-tool preambles.\n- Development experience: Expert. Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally. Output style controls information depth.\n\n# Output Style: Minimal\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nMinimal body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in English, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "en",
+    "name": "English"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"Dr\"; omit the title from routine progress updates and pre-tool preambles.\n- Development experience: Expert. Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally. Output style controls information depth."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in English, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "minimal",
+     "agent": {
+      "profile": {
+       "title": "Dr",
+       "experienceLevel": "expert",
+       "language": "en"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "en",
+    "name": "English"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Traditional Chinese (繁體中文), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "zh-Hant",
+    "name": "Traditional Chinese (繁體中文)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Traditional Chinese (繁體中文), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "nope",
+     "agent": {
+      "profile": {
+       "language": "zh-Hant"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "zh-Hant",
+    "name": "Traditional Chinese (繁體中文)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Beginner. Assume no development background; briefly explain only the terms and prerequisites needed to understand the answer. Output style controls information depth.\n\n# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Japanese (日本語), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ja",
+    "name": "Japanese (日本語)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Beginner. Assume no development background; briefly explain only the terms and prerequisites needed to understand the answer. Output style controls information depth."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Japanese (日本語), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "user-only",
+     "agent": {
+      "profile": {
+       "language": "ja",
+       "experienceLevel": "beginner"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ja",
+    "name": "Japanese (日本語)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"; omit the title from routine progress updates and pre-tool preambles.\n\n# Output Style: Alpha\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nAlpha without frontmatter."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"; omit the title from routine progress updates and pre-tool preambles."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "outputStyle": "alpha",
+     "profile": {
+      "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "language": "system"
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"T\"; omit the title from routine progress updates and pre-tool preambles.\n\n# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Address the user as \"T\"; omit the title from routine progress updates and pre-tool preambles."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "system",
+       "title": "T"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "xx"
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "ko",
+    "name": "Korean"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Junior. Assume basic development knowledge; make otherwise implicit connections clear when they are needed for easy understanding. Output style controls information depth.\n\n# Output Style: Simple\n\nThe section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.\n\nShared format rules.\n\nSimple body."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": "# Language\n\n- Always respond in German (Deutsch), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": true
+   },
+   "out": {
+    "id": "de",
+    "name": "German (Deutsch)"
+   }
+  },
+  {
+   "fn": "meta",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Profile Preferences\n\n- Development experience: Junior. Assume basic development knowledge; make otherwise implicit connections clear when they are needed for easy understanding. Output style controls information depth."
+  },
+  {
+   "fn": "language",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": "# Language\n\n- Always respond in German (Deutsch), including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation."
+  },
+  {
+   "fn": "languageId",
+   "args": {
+    "data": "empty",
+    "config": {
+     "agent": {
+      "profile": {
+       "language": "de",
+       "experienceLevel": "  JUNIOR "
+      }
+     }
+    },
+    "includeOutputStyle": false
+   },
+   "out": {
+    "id": "de",
+    "name": "German (Deutsch)"
+   }
+  }
+ ],
+ "ids": [
+  {
+   "locale": "ko-KR",
+   "out": "ko"
+  },
+  {
+   "locale": "en-US",
+   "out": "en"
+  },
+  {
+   "locale": "zh-TW",
+   "out": "zh-Hant"
+  },
+  {
+   "locale": "zh-Hant-CN",
+   "out": "zh-Hant"
+  },
+  {
+   "locale": "zh-CN",
+   "out": "zh-Hans"
+  },
+  {
+   "locale": "zh",
+   "out": "zh-Hans"
+  },
+  {
+   "locale": "pt_BR",
+   "out": "pt"
+  },
+  {
+   "locale": "",
+   "out": null
+  },
+  {
+   "locale": "xx",
+   "out": null
+  },
+  {
+   "locale": "fr-CA-u-ca-gregory",
+   "out": "fr"
+  },
+  {
+   "locale": "EN",
+   "out": "en"
+  },
+  {
+   "locale": "und",
+   "out": null
+  },
+  {
+   "locale": "sr-Latn-RS",
+   "out": null
+  },
+  {
+   "locale": "zh-HK",
+   "out": "zh-Hant"
+  },
+  {
+   "locale": "zh-MO",
+   "out": "zh-Hant"
+  },
+  {
+   "locale": "ja_JP",
+   "out": "ja"
+  },
+  {
+   "locale": "de",
+   "out": "de"
+  },
+  {
+   "locale": "nl-BE",
+   "out": "nl"
+  },
+  {
+   "locale": "id",
+   "out": "id"
+  },
+  {
+   "locale": "invalid locale",
+   "out": null
+  }
+ ]
+}

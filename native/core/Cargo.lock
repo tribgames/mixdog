@@ -3963,9 +3963,11 @@ dependencies = [
  "clap",
  "mixdog-app-server-client",
  "mixdog-app-server-daemon",
+ "mixdog-exthost",
  "mixdog-js",
  "mixdog-migrate",
  "mixdog-protocol",
+ "mixdog-rt",
  "mixdog-store",
  "serde_json",
  "sha2 0.10.9",
@@ -4169,9 +4171,12 @@ dependencies = [
 name = "mixdog-migrate"
 version = "1.4.5"
 dependencies = [
+ "async-trait",
+ "base64 0.22.1",
  "icu_collator",
  "icu_locale_core",
  "indexmap",
+ "mixdog-agent",
  "mixdog-ai",
  "mixdog-core-api",
  "mixdog-js",

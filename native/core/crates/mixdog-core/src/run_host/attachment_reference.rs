@@ -193,7 +193,19 @@ impl ReferencedMedia {
         // The named copy is the file the model hands to a file chooser or an office tool; the bare
         // blob path is only the fallback when the copy cannot be made.
         let path = self.files.named_file(&reference, &info.filename, &mime_type).unwrap_or_else(|()| self.files.blob_path(&reference));
-        Some(ContentPart::Text(if image { image_reference_text(&info, &path) } else { pdf_reference_text(&info, &path) }, true))
+        let mut meta = serde_json::Map::new();
+        meta.insert("attachmentRef".into(), serde_json::Value::String(reference.clone()));
+        meta.insert("kind".into(), serde_json::Value::String(if image { "image" } else { "pdf" }.to_owned()));
+        meta.insert("filename".into(), serde_json::Value::String(info.filename.clone()));
+        meta.insert("mimeType".into(), serde_json::Value::String(info.mime_type.clone()));
+        meta.insert("sizeBytes".into(), serde_json::Value::from(info.size_bytes));
+        if info.page_count > 0 {
+            meta.insert("pageCount".into(), serde_json::Value::from(info.page_count));
+        }
+        if let Some(pages) = info.text_pages {
+            meta.insert("textPages".into(), serde_json::Value::from(pages));
+        }
+        Some(ContentPart::Text(if image { image_reference_text(&info, &path) } else { pdf_reference_text(&info, &path) }, Some(meta)))
     }
 }
 
@@ -238,6 +250,42 @@ impl AttachmentSeam for ReferencedMedia {
     }
 }
 
+/// One attachment of a submission, as `attachmentsForIntake` lists it.
+#[derive(Clone, PartialEq, Debug)]
+pub struct AttachedFile {
+    pub attachment_ref: String,
+    pub name: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+}
+
+impl ReferencedMedia {
+    /// `attachedFilesNote`: the text part naming where a submission's attached files live on this
+    /// PC, each under its original name. `pasted` are the pasted texts, which are not files; a file
+    /// whose named copy cannot be made is left out. `None` when nothing is left to name. The part's
+    /// object is `{kind: "files", files: [...]}`, as Node stores it.
+    pub fn attached_files_note(&self, records: &[AttachedFile], pasted: &std::collections::HashSet<String>) -> Option<ContentPart> {
+        use serde_json::{json, Value};
+        let mut files: Vec<Value> = Vec::new();
+        let mut lines: Vec<String> = Vec::new();
+        for record in records {
+            if pasted.contains(&record.attachment_ref) {
+                continue;
+            }
+            let Ok(path) = self.files.named_file(&record.attachment_ref, &record.name, &record.mime_type) else { continue };
+            files.push(json!({ "attachmentRef": record.attachment_ref, "name": record.name, "mimeType": record.mime_type, "sizeBytes": record.size_bytes, "path": path }));
+            lines.push(format!("- {path}"));
+        }
+        if files.is_empty() {
+            return None;
+        }
+        let text = ["[Attached files on this PC:".to_owned()].into_iter().chain(lines).chain(["]".to_owned()]).collect::<Vec<_>>().join("\n");
+        let mut meta = serde_json::Map::new();
+        meta.insert("kind".into(), json!("files"));
+        meta.insert("files".into(), Value::Array(files));
+        Some(ContentPart::Text(text, Some(meta)))
+    }
+}
 #[cfg(test)]
 mod tests {
     use mixdog_agent::compact::estimate::PartMeter;
@@ -323,7 +371,14 @@ mod tests {
             assert_eq!(is_referencable(part), want["referencable"].as_bool().unwrap(), "{id} referencable");
             let got = s.reference_part(part);
             match want["text"].as_str().filter(|t| !t.is_empty()) {
-                Some(text) => assert_eq!(got, Some(ContentPart::Text(text.to_owned(), true)), "{id}"),
+                Some(text) => {
+                    let Some(ContentPart::Text(got_text, Some(info))) = got else { panic!("{id}: a text part with its reference object") };
+                    assert_eq!(got_text, text, "{id}");
+                    // The reference is the store double's (Node's is the blob hash); the rest is Node's object.
+                    let mut info = info;
+                    assert!(info.insert("attachmentRef".into(), want["info"]["attachmentRef"].clone()).is_some_and(|r| r.is_string()), "{id}");
+                    assert_eq!(Value::Object(info), want["info"], "{id} info");
+                }
                 None => assert_eq!(got, None, "{id}"),
             }
         }
@@ -339,12 +394,12 @@ mod tests {
         let s = seam(&golden);
         let pdf = ContentPart::File { source: BinarySource::Base64(b64("%PDF-1.4 abc")), mime_type: "application/pdf".into(), filename: Some("one.pdf".into()), text: None };
         let mut user = AgentMessage::user("see");
-        user.message.content = Content::Parts(vec![ContentPart::Text("see".into(), false), pdf.clone()]);
+        user.message.content = Content::Parts(vec![ContentPart::Text("see".into(), None), pdf.clone()]);
         assert!(s.has_referencable_media(&user));
         assert_eq!(s.attachment_tokens(&user), 100);
         let referenced = s.reference_media(&user);
         let Content::Parts(parts) = &referenced.message.content else { panic!("parts") };
-        assert_eq!(parts[0], ContentPart::Text("see".into(), false));
+        assert_eq!(parts[0], ContentPart::Text("see".into(), None));
         assert!(matches!(&parts[1], ContentPart::Text(t, _) if t.starts_with("[Attachment kept on disk, not inlined: \"one.pdf\" (PDF, 1 page, text layer on every page, 12 bytes)")));
         assert!(!s.has_referencable_media(&referenced));
         // A tool result is left as it is.
@@ -352,4 +407,18 @@ mod tests {
         tool.message.content = Content::Parts(vec![pdf]);
         assert_eq!(s.reference_media(&tool), tool);
     }
-}
+
+    #[test]
+    fn the_attached_files_note_names_each_path_and_keeps_the_files_object() {
+        let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
+        let s = seam(&golden);
+        let record = |r: &str| AttachedFile { attachment_ref: r.into(), name: format!("{r}.pdf"), mime_type: "application/pdf".into(), size_bytes: 7 };
+        let pasted = std::collections::HashSet::from(["p".to_owned()]);
+        assert_eq!(s.attached_files_note(&[record("p")], &pasted), None);
+        let Some(ContentPart::Text(text, Some(meta))) = s.attached_files_note(&[record("one.pdf"), record("p")], &pasted) else { panic!("note") };
+        assert!(text.starts_with("[Attached files on this PC:\n- ") && text.ends_with("\n]"), "{text}");
+        assert_eq!(meta["kind"], "files");
+        assert_eq!(meta["files"].as_array().unwrap().len(), 1);
+        assert_eq!(meta["files"][0]["attachmentRef"], "one.pdf");
+        assert_eq!(meta["files"][0]["sizeBytes"], 7);
+    }}

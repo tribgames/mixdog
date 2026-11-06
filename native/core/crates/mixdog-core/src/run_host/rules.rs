@@ -33,7 +33,7 @@ const AGENT_MODE_PROGRESS: &str = "- Just answer conversation. Quick tool use (c
 const AGENT_MODE_REPORT: &str = "- Relay agent reports faithfully. Code: one fresh Reviewer per non-trivial\n  feature after its last worker, any author (Lead if none); docs/copy/style:\n  read the diff. Recheck only concrete fixes, never rerun passing checks\n  without new evidence; at request end check feature seams.";
 
 /// `readOptional`: the trimmed file, `""` when it cannot be read.
-fn read_optional(path: &Path) -> String {
+pub(super) fn read_optional(path: &Path) -> String {
     fs::read(path).map(|bytes| js_trim(&String::from_utf8_lossy(&bytes)).to_owned()).unwrap_or_default()
 }
 
@@ -51,7 +51,7 @@ fn read_markdown_directory(dir: &Path) -> String {
 }
 
 /// `stripFrontmatter`.
-fn strip_frontmatter(markdown: &str) -> String {
+pub(super) fn strip_frontmatter(markdown: &str) -> String {
     let stripped = match FRONTMATTER_STRIP.find(markdown) {
         Some(range) => &markdown[range.end..],
         None => markdown,
@@ -59,7 +59,7 @@ fn strip_frontmatter(markdown: &str) -> String {
     js_trim(stripped).to_owned()
 }
 
-fn split_lines(text: &str) -> Vec<&str> {
+pub(super) fn split_lines(text: &str) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut from = 0;
     for range in LINE_BREAK.find_iter(text) {
@@ -359,9 +359,11 @@ mod tests {
 
     use super::*;
 
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
     fn fixture() -> (PathBuf, Vec<Value>) {
         let golden: Value = serde_json::from_str(include_str!("golden/rules_builder.json")).expect("fixture");
-        let root = PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| ".".into())).join(format!("rules-golden-{}", std::process::id()));
+        let root = PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| ".".into())).join(format!("rules-golden-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
         let _ = fs::remove_dir_all(&root);
         for (rel, body) in golden["files"].as_object().unwrap() {
             let path = root.join(rel);

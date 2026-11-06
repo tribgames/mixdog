@@ -159,7 +159,7 @@ impl TranscriptSink for DiscardSink {
     fn commit(&self, _message: &mixdog_agent::message::AgentMessage) -> Ticket {
         Ticket(0)
     }
-    fn replace(&self, _messages: &[mixdog_agent::message::AgentMessage]) {}
+    fn replace(&self, _messages: &[mixdog_agent::message::AgentMessage], _rewrite: &Rewrite) {}
     fn message_id(&self) -> String {
         String::new()
     }

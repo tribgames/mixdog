@@ -243,6 +243,16 @@ async fn edit_and_apply_patch_match_recorded_node_cases() {
         }
         let out_text = out.as_path().to_string_lossy().replace('\\', "/");
         let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), seeds).await;
+        // Files another process holds open without delete sharing (recorded on Windows only).
+        #[cfg(windows)]
+        let _held: Vec<std::fs::File> = {
+            use std::os::windows::fs::OpenOptionsExt;
+            case["hold"].as_array().into_iter().flatten().map(|rel| std::fs::OpenOptions::new().read(true).share_mode(1).open(root.as_path().join(rel.as_str().unwrap())).unwrap()).collect()
+        };
+        #[cfg(not(windows))]
+        if case.get("hold").is_some() {
+            continue;
+        }
         let tool_name = case["tool"].as_str().unwrap();
         let tool = tools.iter().find(|t| t.spec().name == tool_name).unwrap();
         let root_text = root.as_path().to_string_lossy().replace('\\', "/");
@@ -767,4 +777,25 @@ async fn native_failure_context_reads_no_more_than_8_mib() {
     let (_, big) = text_of(ApplyPatchTool::new().call(&ctx, stale("big.txt")).await);
     assert!(big.starts_with("Error: native patch failed"), "{big}");
     assert!(!big.contains("nearest line") && big.contains("expected first old/context line in big.txt: \"nope\"; use exact"), "{big}");
+}
+/// A rename between two spellings of one file (a junction alias) is an edit in place: allowed,
+/// nothing removed. Node's `renameTargetsSamePhysicalFile` allows it; its own advisory lock set
+/// holds both spellings of the one lock file and times out first, so only Rust gets this far.
+#[tokio::test]
+async fn a_rename_between_two_spellings_of_one_file_edits_it_in_place() {
+    let (_dir, root) = small_dir();
+    std::fs::create_dir_all(root.as_path().join("real")).unwrap();
+    if !link_dir(&root.as_path().join("alias"), &root.as_path().join("real")) {
+        return;
+    }
+    let ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
+    let file = root.as_path().join("real").join("a.txt");
+    for extra in [serde_json::json!({}), serde_json::json!({ "sequence": true })] {
+        std::fs::write(&file, "one\ntwo\n").unwrap();
+        let mut args = serde_json::json!({ "patch": "*** Begin Patch\n*** Update File: real/a.txt\n*** Move to: alias/a.txt\n@@\n-one\n+ONE\n*** End Patch\n" });
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let (is_error, text) = text_of(ApplyPatchTool::new().call(&ctx, args).await);
+        assert!(!is_error, "{text}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "ONE\ntwo\n", "{text}");
+    }
 }

@@ -25,11 +25,14 @@ mod turns;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod quota_tests;
+
 pub use control::GOAL_REPLACE_REQUIRED;
 pub use error::{GoalError, GoalResult};
 pub use mutations::{CreateArgs, assert_expected_goal, goal_finished, goal_stalled};
 pub use runtime::{
     Admission, GoalClock, GoalConfig, GoalEnv, GoalEvent, GoalRuntime, GoalTimers, GoalTitles, Subscription, SystemClock,
-    TickerTimers, Timer,
+    TickerTimers, Timer, TimerKind,
 };
 pub use turns::{Continuation, ContinuationInput};

@@ -173,11 +173,32 @@ async function advance(runtime, known, ms) {
   await settle(runtime, known);
 }
 
+// Fires every timer due within `ms` without letting anything settle, then asks for a control:
+// a timer's mutation is already queued when the control joins the session's queue.
+async function fireThenControl(runtime, session, ms, request) {
+  const target = clock + ms;
+  for (;;) {
+    const due = [...fakeTimers.values()].filter((t) => t.kind !== 'cache' && t.due <= target).sort((a, b) => a.due - b.due || a.id - b.id)[0];
+    if (!due) break;
+    const delta = Math.max(0, due.due - clock);
+    clock += delta;
+    mono += delta;
+    if (due.interval) due.due += due.interval;
+    else fakeTimers.delete(due.id);
+    due.fn();
+  }
+  mono += target - clock;
+  clock = target;
+  return runtime.control(session, await resolveArgs(runtime, session, request));
+}
+
 async function runOp(ctx, step) {
   const { runtime, dir } = ctx;
   const session = step.session ?? 's1';
   const args = step.args ?? {};
   switch (step.op) {
+    case 'fireThenControl':
+      return fireThenControl(runtime, session, args.ms, args.request);
     case 'control':
       return runtime.control(session, await resolveArgs(runtime, session, args.request));
     case 'tool':
@@ -421,6 +442,22 @@ await record('cap walk', {
     { op: 'advance', args: { ms: 1_800_000 } }, { op: 'advance', args: { ms: 600_000 } }, { op: 'settleTurn', session: 's1', args: { detail: { status: 'completed' } } },
     { op: 'continuation', session: 's1', args: {} }, { op: 'tool', session: 's1', args: { input: { action: 'extend', extend_minutes: 5 } } },
     { op: 'control', session: 's1', args: { request: 'resume' } },
+  ],
+});
+
+// A deadline with exactly 10 s left is a goal timer like any other (the title timeout is 10 s too).
+await record('deadline ten seconds left', {
+  steps: [
+    { op: 'tool', session: 's1', args: { input: { action: 'create', objective: 'Ten seconds', time_limit_minutes: 1 } } },
+    { op: 'advance', args: { ms: 50_000 } }, { op: 'snapshot', session: 's1' }, { op: 'advance', args: { ms: 10_000 } }, { op: 'snapshot', session: 's1' },
+  ],
+});
+
+// A warning fires and a pause is asked in the same turn: the warning publishes first.
+await record('warning then pause', {
+  steps: [
+    { op: 'tool', session: 's1', args: { input: { action: 'create', objective: 'Warn then pause', time_limit_minutes: 12 } } },
+    { op: 'fireThenControl', session: 's1', args: { ms: 121_000, request: 'pause' } }, { op: 'stored', session: 's1' },
   ],
 });
 

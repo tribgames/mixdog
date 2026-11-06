@@ -34,6 +34,7 @@ use super::patch_guard::capture;
 use super::patch_guard::content_edit_refusal;
 use super::patch_guard::decode_patch_target;
 use super::patch_guard::normalize_output_path;
+use super::patch_guard::on_lane;
 use super::patch_guard::read_for_conversion;
 use super::patch_guard::EDIT_MAX_BYTES;
 use super::patch_guard::SNAPSHOT_MAX_BYTES;
@@ -62,6 +63,7 @@ use super::patch_parse::strip_diff_prefix;
 use super::patch_redirect::relocated_header;
 use super::patch_review::committed_patch;
 use super::os_error::fs_message;
+use super::os_error::write_message;
 use super::patch_review::with_card_diff;
 use super::patch_unified::UFile;
 use super::patch_unified::parse_patch;
@@ -259,7 +261,10 @@ struct RenameOp {
     original: Vec<u8>,
     dest_before: Option<Vec<u8>>,
     lines_changed: usize,
+    /// Source and destination are one file (a case-only rename, or two spellings of it).
     same_file: bool,
+    /// ...and the two spellings differ only in case: the file is renamed after the rewrite.
+    recase: bool,
 }
 
 /// One section as the change it makes to the disk as it is now; `None` when none of its hunks
@@ -334,6 +339,17 @@ async fn convert(ctx: &ToolContext, base: &AbsPath, section: &Section, fuzzy: bo
 }
 // ---- renames ----
 
+/// Node `renameTargetsSamePhysicalFile`: two different spellings whose real paths agree (a junction
+/// alias, or a case-only difference on a case-insensitive disk); both must exist.
+async fn same_physical_file(ctx: &ToolContext, src: &AbsPath, dest: &AbsPath) -> Result<bool, ToolError> {
+    if src == dest {
+        return Ok(false);
+    }
+    let (a, b) = (src.as_path().to_path_buf(), dest.as_path().to_path_buf());
+    on_lane(ctx, move || matches!((mixdog_workspace::pathguard::canonical(&a), mixdog_workspace::pathguard::canonical(&b)), (Ok(x), Ok(y)) if x == y)).await
+}
+
+
 async fn validate_rename(ctx: &ToolContext, base: &AbsPath, section: &Section, seen_dest: &mut HashSet<String>) -> R<()> {
     let move_path = section.move_path.as_deref().unwrap_or_default();
     let src = resolve_path(base, &section.path)?;
@@ -341,7 +357,7 @@ async fn validate_rename(ctx: &ToolContext, base: &AbsPath, section: &Section, s
     if src == dest {
         return text_err(format!("apply_patch: V4A rename source and destination are the same path ({})", section.path));
     }
-    let case_only = path_key(&src) == path_key(&dest) && src != dest;
+    let case_only = path_key(&src) == path_key(&dest) && src != dest || same_physical_file(ctx, &src, &dest).await?;
     if !seen_dest.insert(path_key(&dest)) {
         return text_err(format!("apply_patch: duplicate V4A rename destination {move_path}"));
     }
@@ -426,7 +442,8 @@ async fn build_rename(ctx: &ToolContext, base: &AbsPath, section: &Section, fuzz
         original: bytes,
         dest_before,
         lines_changed: section.hunks.iter().map(|h| h.lines.len()).sum(),
-        same_file: path_key(&src) == path_key(&dest) && src != dest,
+        same_file: path_key(&src) == path_key(&dest) && src != dest || same_physical_file(ctx, &src, &dest).await?,
+        recase: path_key(&src) == path_key(&dest) && src != dest,
         src,
         dest,
     })
@@ -699,7 +716,7 @@ async fn apply_rename(ctx: &ToolContext, op: &RenameOp) -> R<()> {
     let (files, lane) = (&ctx.files, ctx.io.durability);
     let write = |path: &AbsPath, content: &[u8]| WriteRequest { path: path.clone(), content: content.to_vec(), precondition: WritePrecondition::Unconditional };
     let attempt = async {
-        files.write(lane, write(&op.dest, &op.content)).await.map_err(|e| fs_message(&e, "rename", op.dest.as_path()))?;
+        files.write(lane, write(&op.dest, &op.content)).await.map_err(|e| write_message(&e, op.dest.as_path()))?;
         if !op.same_file {
             files.remove(lane, op.src.clone(), false).await.map_err(|e| fs_message(&e, "unlink", op.src.as_path()))?;
         }
@@ -728,8 +745,11 @@ async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[&Entry])
     for op in renames {
         match (&op.dest_before, op.same_file) {
             (Some(before), true) => {
-                writes.push(WriteRequest { path: op.src.clone(), content: op.content.clone(), precondition: WritePrecondition::ContentEquals(before.clone()) });
-                recased.push((op.src.clone(), op.dest.clone()));
+                let path = if op.recase { op.src.clone() } else { op.dest.clone() };
+                writes.push(WriteRequest { path, content: op.content.clone(), precondition: WritePrecondition::ContentEquals(before.clone()) });
+                if op.recase {
+                    recased.push((op.src.clone(), op.dest.clone()));
+                }
             }
             _ => {
                 writes.push(WriteRequest { path: op.dest.clone(), content: op.content.clone(), precondition: WritePrecondition::Absent });
@@ -779,6 +799,12 @@ async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[&Entry])
     }
     for path in removes {
         if let Err(e) = guarded(ctx, "apply_patch", ctx.files.remove(ctx.io.durability, path.clone(), false)).await? {
+            // A rename's source is the executor's own step: its failure is the rename's (the batch
+            // restores the paths afterwards).
+            if let Some(op) = renames.iter().find(|r| r.src == path) {
+                let why = fs_message(&e, "unlink", path.as_path());
+                return text_err(format!("Error: apply_patch: V4A rename failed for {} → {} ({why})", op.shown_src, op.shown_dest));
+            }
             return Err(Stop::Tool(fs_failure(&e, &shown(ctx, &path))));
         }
     }

@@ -80,10 +80,11 @@ impl Default for MigrateOptions {
 /// sources and the profile's session metadata name session items).
 pub fn product_drivers(
     projector: Arc<dyn crate::index::IndexProjector>,
+    office: crate::session::context_blobs::OfficeExtractor,
 ) -> Vec<Arc<dyn ItemDriver>> {
     let profile = Arc::new(crate::desktop_profile::DesktopProfileDriver::new());
     vec![
-        Arc::new(crate::session::SessionDriver::new(vec![profile.clone()])),
+        Arc::new(crate::session::SessionDriver::new(vec![profile.clone()], office)),
         Arc::new(crate::stores::StoresDriver),
         Arc::new(crate::ledger::LedgerDriver),
         Arc::new(crate::index::IndexDriver::new(projector)),

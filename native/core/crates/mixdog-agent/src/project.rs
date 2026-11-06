@@ -387,7 +387,7 @@ fn envelope_content(content: &Content, kind: SyntheticKind) -> Content {
                         ContentPart::Text(t, _) if i == first || i == last => {
                             let open = if i == first { open_tag(kind) } else { String::new() };
                             let close = if i == last { close_tag() } else { String::new() };
-                            ContentPart::Text(format!("{open}{t}{close}"), false)
+                            ContentPart::Text(format!("{open}{t}{close}"), None)
                         }
                         other => other.clone(),
                     })

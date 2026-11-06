@@ -512,7 +512,7 @@ fn media_and_tool_results_lower_to_chat_content() {
     let mut user = Message::new(
         Role::User,
         Content::Parts(vec![
-            ContentPart::Text("look".into(), false),
+            ContentPart::Text("look".into(), None),
             ContentPart::Image(ImageSource::Base64 {
                 data: "AAAA".into(),
                 mime_type: "image/png".into(),

@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1542077,
+      "bytes": 1561864,
       "path": "goal-runtime-twin.json",
-      "sha256": "c757faabd4d428a57556ba5c1ebf4f7febd99edae7aa5e23d4a97a4d098cb80d"
+      "sha256": "c96231b2fee48f3973c1961dccac08f2c20dbf0d7520ae55189576721f43344b"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-goal-runtime.mjs",
   "set": "goal",
-  "totalBytes": 1542077
+  "totalBytes": 1561864
 }

@@ -58,6 +58,7 @@ use serde_json::Map;
 use serde_json::Value;
 
 pub use output_style::OutputStyles;
+pub(crate) use settings::{normalize_profile, PROFILE_EXPERIENCE_LEVELS, PROFILE_LANGUAGES};
 pub use settings::NoEffects;
 pub use settings::Settings;
 pub use settings::SettingsEffects;

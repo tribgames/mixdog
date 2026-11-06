@@ -35,7 +35,12 @@ use sha1::Sha1;
 use super::ids::message_iids;
 use super::model::Row;
 use super::model::RunModel;
+use super::context_blobs::ContextBlobs;
+use super::context_blobs::OfficeExtractor;
 use super::model::SessionModel;
+use super::splice::Splice;
+use super::splice::restore_header;
+use super::splice::splice;
 use crate::error::Blocked;
 use crate::framework::ItemContext;
 use crate::json;
@@ -701,18 +706,24 @@ fn replay_journal(header: &Map<String, Value>, journal: Option<&[u8]>, replaced:
     Value::Object(out)
 }
 
-/// The checkpoint disposition (SM §11.4.4): `None` = covered (or no checkpoint),
-/// else the turn messages to recover (when recoverable) and the run.
+/// The checkpoint disposition (SM §11.4.4), 1.4.5's own ([`super::splice`]): `None` =
+/// covered (or no checkpoint), else the recovered turn's messages (none for an unrecovered
+/// one) and its run. A recovered turn is spliced into the session as 1.4.5 recovery does:
+/// `session_messages` keep the turn's boundary and `session_header` its restored context.
 fn checkpoint(
     id: &str,
-    session_header: &Header,
+    session_header: &mut Header,
+    session_messages: &mut Vec<Value>,
     header: Option<&[u8]>,
     journal: Option<&[u8]>,
+    blobs: &ContextBlobs<'_, '_>,
     replaced: &mut u64,
-) -> Option<(Vec<Value>, RunModel)> {
-    let text = header?;
+) -> R<Option<(Vec<Value>, RunModel)>> {
+    let Some(text) = header else {
+        return Ok(None);
+    };
     let unrecovered = |rid: String, checkpoint: Value, at: Option<i64>| {
-        Some((
+        Ok(Some((
             Vec::new(),
             RunModel {
                 rid,
@@ -722,7 +733,7 @@ fn checkpoint(
                     Some(serde_json::json!({"unrecovered": true, "checkpoint": checkpoint})),
                 )],
             },
-        ))
+        )))
     };
     let parsed = json::parse_source(text).ok();
     let valid = parsed.as_ref().and_then(|p| {
@@ -746,29 +757,36 @@ fn checkpoint(
     };
     *replaced += parsed.as_ref().map_or(0, |p| p.replaced_surrogates);
     let folded = replay_journal(h, journal, replaced);
-    let token = json::js_to_string(&h["turnToken"]);
-    if session_header.get("turnCoverage").and_then(Value::as_str) == Some(token.as_str()) {
-        return None;
-    }
-    let rid = format!("ckpt:{token}");
+    let rid = format!("ckpt:{}", json::js_to_string(&h["turnToken"]));
     let at = h.get("startedAt").and_then(Value::as_i64);
-    let generation = |v: Option<&Value>| {
-        let n = js_number_of(v);
-        if n.is_nan() { 0.0 } else { n }
+    let folded_header = folded.as_object().expect("a folded checkpoint is its header, merged");
+    let turn = match splice(session_header, session_messages, folded_header, blobs)? {
+        Splice::Covered => return Ok(None),
+        Splice::Conflict => return unrecovered(rid, folded, at),
+        Splice::Replay { keep, turn } => {
+            // A save of the same turn made after it opened gives way to the checkpoint's copy.
+            session_messages.truncate(keep);
+            turn
+        }
     };
-    if generation(h.get("generation")) != generation(session_header.get("generation")) {
-        return unrecovered(rid, folded, at);
-    }
-    let messages = folded["turnMessages"].as_array().cloned().unwrap_or_default();
+    // The recovery's `Date.now()`: the latest time the checkpoint records, so a rerun
+    // converts identically.
+    let now = ["updatedAt", "startedAt"]
+        .into_iter()
+        .map(|key| js_number_of(folded.get(key)))
+        .filter(|n| n.is_finite())
+        .fold(0.0, f64::max);
+    let rows: Vec<Value> = session_messages.iter().chain(&turn).cloned().collect();
+    restore_header(session_header, &rows, &folded, blobs, now)?;
     let interruption = folded.get("interruption").cloned();
-    Some((
-        messages,
+    Ok(Some((
+        turn,
         RunModel {
             rid,
             at,
             phases: vec![(RunPhase::Started, None), (RunPhase::Interrupted, interruption)],
         },
-    ))
+    )))
 }
 
 // ── Shared spools and worker indexes ─────────────────────────────────────────
@@ -1197,8 +1215,9 @@ fn header_and_messages(id: &str, json: Option<&[u8]>, log: Option<&[u8]>, replac
     }
 }
 
-/// Reads every source of `session/<id>` into the model the frames are written from.
-pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str) -> R<SessionModel> {
+/// Reads every source of `session/<id>` into the model the frames are written from; `office`
+/// extracts office documents a recovered turn's context signatures read.
+pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &OfficeExtractor) -> R<SessionModel> {
     let mut replaced = 0u64;
     let read = |rel: String| -> R<Option<Vec<u8>>> {
         match source(item, &rel) {
@@ -1213,11 +1232,20 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str) -> R<SessionMod
     let ckpt_header = read(format!("turn-checkpoints/{id}.json"))?;
     let ckpt_journal = read(format!("turn-checkpoints/{id}.jsonl"))?;
 
-    let (header, messages) = header_and_messages(id, json_bytes.as_deref(), log_bytes.as_deref(), &mut replaced)?;
+    let (mut header, mut messages) =
+        header_and_messages(id, json_bytes.as_deref(), log_bytes.as_deref(), &mut replaced)?;
 
     let (archive_rows, superseded) =
         archive_rows(id, &header, archive.as_deref(), pending.as_deref(), &mut replaced)?;
-    let recovered = checkpoint(id, &header, ckpt_header.as_deref(), ckpt_journal.as_deref(), &mut replaced);
+    let recovered = checkpoint(
+        id,
+        &mut header,
+        &mut messages,
+        ckpt_header.as_deref(),
+        ckpt_journal.as_deref(),
+        &ContextBlobs { cx, office, thread: id.to_owned().into() },
+        &mut replaced,
+    )?;
     let (turn_messages, runs) = match recovered {
         Some((messages, run)) => (messages, vec![run]),
         None => (Vec::new(), Vec::new()),

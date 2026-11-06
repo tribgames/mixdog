@@ -48,7 +48,7 @@ fn is_image_part(part: &ContentPart) -> bool {
 
 fn content_parts(content: &Content) -> Vec<ContentPart> {
     match content {
-        Content::Text(text) => vec![ContentPart::Text(text.clone(), false)],
+        Content::Text(text) => vec![ContentPart::Text(text.clone(), None)],
         Content::Parts(parts) => parts.clone(),
     }
 }
@@ -331,7 +331,7 @@ pub fn supersede_observation(message: &AgentMessage, found: &Found, origin: &str
         let text = format!(
             "[Image read of {path} superseded: a newer read of this file follows. Read the file again to view it. {origin}]"
         );
-        out.message.content = with_parts(content, vec![ContentPart::Text(text, false)]);
+        out.message.content = with_parts(content, vec![ContentPart::Text(text, None)]);
         return out;
     }
     let text = match &found.kind {
@@ -382,7 +382,7 @@ pub fn supersede_observation(message: &AgentMessage, found: &Found, origin: &str
         .enumerate()
         .filter_map(|(index, part)| {
             if index == found.text_index {
-                Some(ContentPart::Text(text.clone(), false))
+                Some(ContentPart::Text(text.clone(), None))
             } else if is_image_part(part) {
                 None
             } else {

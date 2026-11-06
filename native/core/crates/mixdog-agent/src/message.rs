@@ -87,6 +87,9 @@ pub struct AgentMessage {
     /// User and tool messages: the effort the turn or step ran at (read from
     /// the stored row's metadata by the host).
     pub effort: Option<crate::effort::EffortSnapshot>,
+    /// Tool messages only (Node `uiDiff`): the call's card diff, from the result's `meta.uiDiff`.
+    /// The host stores it on the row; it is never wire text.
+    pub ui_diff: Option<String>,
 }
 
 impl AgentMessage {
@@ -103,6 +106,7 @@ impl AgentMessage {
             turn_reminder: None,
             provider_metadata: None,
             effort: None,
+            ui_diff: None,
         }
     }
 

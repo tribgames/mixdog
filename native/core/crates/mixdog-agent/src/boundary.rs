@@ -13,6 +13,7 @@ use crate::env::CompactRequest;
 use crate::env::CompactTrigger;
 use crate::env::Compactor;
 use crate::env::RunEvent;
+use crate::env::Rewrite;
 use crate::env::Stage;
 use crate::env::or_cancelled;
 use crate::message::AgentMessage;
@@ -236,7 +237,7 @@ impl Run {
                 // Provider readings belong to the old transcript.
                 self.baseline = None;
                 self.cross_turn.clear();
-                self.env.sink.replace(&self.messages);
+                self.env.sink.replace(&self.messages, &Rewrite::default());
             }
             let changed = self.pre_send_compact_pass(compact_attempted).await?;
             compact_attempted |= changed;
@@ -350,19 +351,19 @@ impl Run {
             }
         }
         let changed = output.messages != self.messages;
-        let (dropped_count, dropped) = (output.dropped_count, output.dropped);
+        let rewrite = Rewrite { dropped_count: output.dropped_count, dropped: output.dropped };
         if changed {
-            self.adopt_compacted(output.messages);
+            self.adopt_compacted(output.messages, &rewrite);
         }
-        self.emit(RunEvent::Compact(event(changed, false, self.messages.len(), dropped_count, dropped)));
+        self.emit(RunEvent::Compact(event(changed, false, self.messages.len(), rewrite.dropped_count, rewrite.dropped)));
         Ok(changed)
     }
 
     /// Replaces the live transcript and resets everything keyed to the old
     /// transcript shape.
-    fn adopt_compacted(&mut self, compacted: Vec<AgentMessage>) {
+    fn adopt_compacted(&mut self, compacted: Vec<AgentMessage>, rewrite: &Rewrite) {
         self.messages = compacted;
-        self.env.sink.replace(&self.messages);
+        self.env.sink.replace(&self.messages, rewrite);
         // Provider readings and the request in flight described the old shape.
         self.baseline = None;
         // Receipts point at tool results compaction just removed from context.

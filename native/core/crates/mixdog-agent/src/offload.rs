@@ -238,7 +238,7 @@ pub async fn offload_result(
                     continue;
                 }
                 inline = inline + u16_len(&replaced) - u16_len(text);
-                next[index] = ContentPart::Text(replaced, false);
+                next[index] = ContentPart::Text(replaced, None);
                 changed = true;
                 if inline <= limit {
                     break;
@@ -304,12 +304,12 @@ pub async fn compact_images(compactor: &dyn ImageCompactor, content: &Content) -
             ImageOutcome::Keep => out.push(part.clone()),
             ImageOutcome::Omitted(text) => {
                 changed = true;
-                out.push(ContentPart::Text(text, false));
+                out.push(ContentPart::Text(text, None));
             }
             ImageOutcome::Compacted { data, mime, note } => {
                 changed = true;
                 if let Some(note) = note {
-                    out.push(ContentPart::Text(note, false));
+                    out.push(ContentPart::Text(note, None));
                 }
                 out.push(ContentPart::Image(ImageSource::Base64 { data, mime_type: mime }));
             }

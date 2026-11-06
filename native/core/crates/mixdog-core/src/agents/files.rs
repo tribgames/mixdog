@@ -97,6 +97,17 @@ fn node_join(base: &Path, rel: &str) -> PathBuf {
     out
 }
 
+/// `agentEntryFile`: the entry file name the manifest names (default `AGENT.md`).
+pub(super) fn entry_file(manifest: &Map<String, Value>) -> String {
+    let name = clean(manifest.get("entry"));
+    if name.is_empty() { "AGENT.md".to_owned() } else { name }
+}
+
+/// `agentEntryPath`: the entry file of the agent folder `dir`, exactly as the loader reads it.
+pub(super) fn entry_path(dir: &Path, manifest: &Map<String, Value>) -> PathBuf {
+    node_join(dir, &entry_file(manifest))
+}
+
 /// `parseManifestText`: the `agent.json` object in `text`, `None` when it is not one.
 fn parse_manifest_text(text: &[u8]) -> Option<Map<String, Value>> {
     match mixdog_statefile::parse_json_text(text) {
@@ -182,7 +193,7 @@ impl Probe {
 }
 
 impl Folders {
-    fn shipped_dir(&self, id: &str) -> PathBuf {
+    pub(super) fn shipped_dir(&self, id: &str) -> PathBuf {
         self.shipped.join("agents").join(id)
     }
 
@@ -272,10 +283,7 @@ impl Folders {
         let slot = FIXED_SLOTS.iter().find(|slot| slot.0 == agent_id);
         for dir in self.source_dirs(lane, &agent_id) {
             let manifest = parse_manifest_text(read_text_safe(&dir.join("agent.json")).as_bytes()).unwrap_or_default();
-            let entry = node_join(&dir, &{
-                let name = clean(manifest.get("entry"));
-                if name.is_empty() { "AGENT.md".to_owned() } else { name }
-            });
+            let entry = entry_path(&dir, &manifest);
             let (frontmatter, body) = read_document(&read_text_safe(&entry));
             if body.is_empty() {
                 continue;

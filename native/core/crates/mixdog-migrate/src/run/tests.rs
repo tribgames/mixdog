@@ -66,7 +66,10 @@ impl IndexProjector for TestProjector {
 }
 
 pub(crate) fn drivers() -> Vec<Arc<dyn ItemDriver>> {
-    product_drivers(Arc::new(TestProjector))
+    product_drivers(
+        Arc::new(TestProjector),
+        crate::session::context_blobs::testing::office(Arc::default()),
+    )
 }
 
 fn copy_tree(from: &Path, to: &Path) {
@@ -129,7 +132,7 @@ fn fixture(root: &Path) -> MigrationRoots {
     write(&data, &format!("prompt-attachments/sha256/{}/{blob_hex}", &blob_hex[..2]), blob);
     let big = "x".repeat(300 * 1024);
     let a = format!(
-        r#"{{"id":"sess_a","title":"A","generation":2,"compaction":{{"archive":{{"nextSeq":3,"clearedThrough":0}}}},"messages":[{{"role":"user","content":"hi \ud800 there","meta":{{"transcript":{{"messageId":"m1"}}}}}},{{"role":"assistant","content":[{{"type":"text","text":"x"}},{{"type":"image","attachmentRef":"{blob_hex}"}},{{"type":"image","attachmentRef":"{}"}}],"meta":{{"modelSwitches":[{{"provider":"openai","modelId":"gpt-5","at":11}}]}}}},{{"role":"user","content":"{big}"}},{{"role":"user","content":"s","meta":"skill"}}]}}"#,
+        r#"{{"id":"sess_a","title":"A","generation":2,"transcriptEpoch":"e1","compaction":{{"archive":{{"nextSeq":3,"clearedThrough":0}}}},"messages":[{{"role":"user","content":"hi \ud800 there","meta":{{"transcript":{{"messageId":"m1"}}}}}},{{"role":"assistant","content":[{{"type":"text","text":"x"}},{{"type":"image","attachmentRef":"{blob_hex}"}},{{"type":"image","attachmentRef":"{}"}}],"meta":{{"modelSwitches":[{{"provider":"openai","modelId":"gpt-5","at":11}}]}}}},{{"role":"user","content":"{big}"}},{{"role":"user","content":"s","meta":"skill"}}]}}"#,
         "0".repeat(64)
     );
     write(&data, "sessions/sess_a.json", a.as_bytes());
@@ -153,7 +156,7 @@ fn fixture(root: &Path) -> MigrationRoots {
     write(
         &data,
         "turn-checkpoints/sess_a.json",
-        br#"{"version":1,"sessionId":"sess_a","turnToken":"t1","generation":2,"startedAt":9,"turnMessages":[{"role":"user","content":"q"}],"interruption":{"responseStarted":true,"partialAssistantContent":"pa"}}"#,
+        br#"{"version":1,"sessionId":"sess_a","turnToken":"t1","generation":2,"startedAt":9,"base":{"epoch":"e1","length":4},"boundary":4,"turnMessages":[{"role":"user","content":"q"}],"interruption":{"responseStarted":true,"partialAssistantContent":"pa"}}"#,
     );
     write(
         &data,
@@ -327,9 +330,17 @@ fn fixture_migrates_every_kind() {
     assert_eq!(a.header["worker"], json!({"releasedAt":"2026-01-02T00:00:00.000Z"}));
     let queue: Vec<&str> = a.queue.iter().map(|q| q.0.as_str()).collect();
     assert_eq!(queue, ["q1", "q2"]);
-    // 2 segment rows + 1 pending row + 4 messages + 2 recovered checkpoint rows.
-    assert_eq!(a.rows.len(), 9);
+    // 2 segment rows + 1 pending row + 4 messages + 2 recovered checkpoint rows, closed by
+    // the partial answer and the restart marker.
+    assert_eq!(a.rows.len(), 11);
     assert_eq!(a.runs[0].0, "ckpt:t1");
+    assert_eq!(a.rows[9].body, json!({"role":"assistant","content":"pa"}));
+    // The restart marker is the cancel line a restored transcript shows (`restore/mod.rs`).
+    assert_eq!(
+        a.rows[10].body,
+        json!({"role":"user","content":"[Request interrupted by process restart]",
+            "meta":{"turnEnd":{"status":"cancelled","elapsedMs":0}}})
+    );
     assert!(a.rows[3].body["content"] == "hi \u{fffd} there");
     // The assistant's model switch is a record anchored on its row, out of the stored body.
     let switches: Vec<_> = log_records(&roots.data.join("sessions/sess_a"))
@@ -438,6 +449,83 @@ fn tombstones_reach_their_one_session() {
         Some(json!({"sessionId":"sess_b","tag":"t","tombstone":{"tag":"t2","reapedAt":"2026-01-03T00:00:00.000Z"}}))
     );
     assert!(!roots.data.join("agent-workers.json").exists());
+    assert_eq!(migrator(&roots, None).run().unwrap(), complete);
+}
+
+/// A session saved again after its turn opened, with a route change in that turn: the
+/// migrated history is the one v1.4.5 recovery leaves (`session/vectors/checkpoint_splice.json`).
+/// The record's messages past the boundary give way to the checkpoint's turn, closed as a
+/// crash closes it, with its provider replay state dropped.
+#[test]
+fn a_recovered_turn_is_spliced_as_v145_recovery_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let cases: Value =
+        serde_json::from_str(include_str!("../session/vectors/checkpoint_splice.cases.json")).unwrap();
+    let golden: Value = serde_json::from_str(include_str!("../session/vectors/checkpoint_splice.json")).unwrap();
+    let case = &cases["same_turn_save_route_changed"];
+    write(&roots.data, "sessions/sess_c.json", case["durable"].to_string().as_bytes());
+    write(&roots.data, "turn-checkpoints/sess_c.json", case["checkpoint"].to_string().as_bytes());
+    let complete = migrator(&roots, None).run().unwrap();
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots));
+    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let cx = ItemContext {
+        roots: &roots,
+        manifest: &manifest,
+        manifest_sha256: &complete.manifest_sha256,
+        fault: None,
+        blobs: &blobs,
+        states: &states,
+    };
+    let c = crate::session::target::read_session(&cx, &roots.data.join("sessions/sess_c")).unwrap();
+    let bodies: Vec<&Value> = c.rows.iter().map(|r| &r.body).collect();
+    let mut want = golden["same_turn_save_route_changed"]["messages"].clone();
+    // The restart marker is the cancel line a restored transcript shows (`restore/mod.rs`).
+    want.as_array_mut().unwrap().last_mut().unwrap()["meta"] =
+        json!({"turnEnd":{"status":"cancelled","elapsedMs":0}});
+    assert_eq!(serde_json::to_string(&bodies).unwrap(), serde_json::to_string(&want).unwrap());
+    assert_eq!(c.runs[0].0, "ckpt:t2");
+    assert!(!roots.data.join("turn-checkpoints/sess_c.json").exists());
+    assert_eq!(migrator(&roots, None).run().unwrap(), complete);
+}
+
+/// A recovered turn whose context state v1.4.5 captured: the migrated header carries the
+/// reading v1.4.5 recovery re-anchors (`session/vectors/checkpoint_restore.json`), the turn's
+/// prefix baseline, and no active-turn marker.
+#[test]
+fn a_recovered_turn_restores_its_context_reading() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let golden: Value = serde_json::from_str(include_str!("../session/vectors/checkpoint_restore.json")).unwrap();
+    // The stored text the signed prefix reads, in the preserved attachment store.
+    let blob = golden["blob"].as_str().unwrap().as_bytes();
+    let hex = durable::sha256_hex(blob);
+    write(&roots.data, &format!("prompt-attachments/sha256/{}/{hex}", &hex[..2]), blob);
+    write(&roots.data, "sessions/sess_r.json", golden["durable"].to_string().as_bytes());
+    write(&roots.data, "turn-checkpoints/sess_r.json", golden["checkpoint"].to_string().as_bytes());
+    let complete = migrator(&roots, None).run().unwrap();
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots));
+    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let cx = ItemContext {
+        roots: &roots,
+        manifest: &manifest,
+        manifest_sha256: &complete.manifest_sha256,
+        fault: None,
+        blobs: &blobs,
+        states: &states,
+    };
+    let r = crate::session::target::read_session(&cx, &roots.data.join("sessions/sess_r")).unwrap();
+    for (key, value) in golden["header"].as_object().unwrap() {
+        assert_eq!(r.header.get(key), Some(value), "{key}");
+    }
+    for gone in ["activeTurnCheckpoint", "contextPressureUnanchoredAfterRestart", "contextPressureUnanchoredReason"] {
+        assert!(!r.header.contains_key(gone), "{gone}");
+    }
+    assert_eq!(r.rows.len(), golden["messages"].as_array().unwrap().len());
     assert_eq!(migrator(&roots, None).run().unwrap(), complete);
 }
 

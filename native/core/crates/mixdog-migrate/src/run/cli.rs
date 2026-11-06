@@ -14,6 +14,7 @@ use super::product_drivers;
 use crate::error::Blocked;
 use crate::framework::MigrationRoots;
 use crate::index::IndexProjector;
+use crate::session::context_blobs::OfficeExtractor;
 
 /// Arguments of `mixdogd migrate`; every `None` falls back to the environment.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -50,19 +51,28 @@ pub fn resolve_roots(args: &MigrateArgs, env: &dyn Fn(&str) -> Option<OsString>)
 }
 
 /// Runs (or resumes) the migration of the roots `args` resolves to.
-pub fn migrate(roots: MigrationRoots, projector: Arc<dyn IndexProjector>) -> Result<Complete, Blocked> {
-    Migrator::new(roots, product_drivers(projector), MigrateOptions::default()).run()
+pub fn migrate(
+    roots: MigrationRoots,
+    projector: Arc<dyn IndexProjector>,
+    office: OfficeExtractor,
+) -> Result<Complete, Blocked> {
+    Migrator::new(roots, product_drivers(projector, office), MigrateOptions::default()).run()
 }
 
-/// `mixdogd migrate`: resolves the roots from `args` and the process environment, runs the
-/// migration, prints `complete.json` on stdout or the blocking error on stderr, and returns
-/// the exit status (`EXIT_*`).
-pub fn main(args: &MigrateArgs, projector: Arc<dyn IndexProjector>) -> u8 {
-    let Some(roots) = resolve_roots(args, &|name| std::env::var_os(name)) else {
+/// The roots of `mixdogd migrate`: `args` over the process environment; when there are none,
+/// says why on stderr and gives `EXIT_NO_DATA_DIR`.
+pub fn roots(args: &MigrateArgs) -> Result<MigrationRoots, u8> {
+    resolve_roots(args, &|name| std::env::var_os(name)).ok_or_else(|| {
         eprintln!("mixdogd migrate: no data dir (set --data-dir, MIXDOG_DATA_DIR or HOME)");
-        return EXIT_NO_DATA_DIR;
-    };
-    match migrate(roots, projector) {
+        EXIT_NO_DATA_DIR
+    })
+}
+
+/// `mixdogd migrate` over [`roots`]: runs the migration, prints `complete.json` on stdout or the
+/// blocking error on stderr, and returns the exit status (`EXIT_*`). Call it outside every async
+/// context: `office` is driven with its runtime handle from this thread.
+pub fn main(roots: MigrationRoots, projector: Arc<dyn IndexProjector>, office: OfficeExtractor) -> u8 {
+    match migrate(roots, projector, office) {
         Ok(complete) => {
             println!("{}", serde_json::to_string(&complete).expect("complete encodes"));
             EXIT_COMPLETE

@@ -187,14 +187,14 @@ fn plain_json(value: Value) -> Result<Value, Invalid> {
 
 fn part_in(part: w::ProxyPart) -> Result<p::ContentPart, Invalid> {
     Ok(match part {
-        w::ProxyPart::Text { text } => p::ContentPart::Text(text, false),
+        w::ProxyPart::Text { text } => p::ContentPart::Text(text, None),
         w::ProxyPart::Image { source } => p::ContentPart::Image(match source {
             w::ProxyImage::Base64 { data, mime_type } => p::ImageSource::Base64 { data, mime_type },
             w::ProxyImage::Url { url } => p::ImageSource::Url(url),
             w::ProxyImage::FileId { id } => p::ImageSource::FileId(id),
         }),
         w::ProxyPart::File { source: w::ProxyBinary::Unavailable, mime_type, filename } => {
-            p::ContentPart::Text(unavailable_text(filename.as_deref(), &mime_type), false)
+            p::ContentPart::Text(unavailable_text(filename.as_deref(), &mime_type), None)
         }
         w::ProxyPart::File { source: w::ProxyBinary::Base64 { data }, mime_type, filename } => {
             p::ContentPart::File { source: p::BinarySource::Base64(data), mime_type, filename, text: None }
