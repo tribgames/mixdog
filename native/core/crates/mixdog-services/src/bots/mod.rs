@@ -6,6 +6,7 @@
 pub mod attachments;
 pub mod delivery;
 pub mod executor;
+pub mod heartbeat;
 pub mod host;
 pub mod ids;
 pub mod owned;
@@ -19,6 +20,7 @@ pub mod turn;
 pub(crate) mod tests;
 
 pub use executor::{ExecutorProblem, normalize_executor_agent_id};
+pub use heartbeat::HeartbeatSessions;
 pub use host::{AnnouncedRun, DeliveryItem, ExecutorFacts, ExecutorRun, OwnerProblem, RoutineHost, RoutineTurn, TurnSettle};
 pub use owned::{OwnedOutcome, RoutineRun, RunOpts, Skip};
 pub use routine::{RoutineKind, RoutineTrigger};

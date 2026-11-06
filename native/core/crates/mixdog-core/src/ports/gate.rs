@@ -47,7 +47,7 @@ pub trait GateEnv: Send + Sync {
     /// The unattended run that owns `thread`, if one does.
     fn run_of(&self, thread: &ThreadId) -> Option<GateRun>;
     /// `isContactAgentId(id, readAgentDefinitionKind(id))`: the agent is a contact bot.
-    fn is_contact_bot(&self, agent_id: &str) -> bool;
+    async fn is_contact_bot(&self, agent_id: &str) -> bool;
     /// `developerOptionEnabledStrict('allowAllActions')`: unreadable or malformed is `false`.
     fn allow_all_actions(&self) -> bool;
     /// `resolveMcpToolAccount(name, args, { scopeId, conversation })`: the account a connector call
@@ -85,11 +85,11 @@ impl SessionGate {
     }
 
     /// `actingBotId`.
-    fn acting_bot(&self, bound: &str) -> Option<String> {
+    async fn acting_bot(&self, bound: &str) -> Option<String> {
         if bound.is_empty() {
             return None;
         }
-        (bound == MIXY_AGENT_ID || self.env.is_contact_bot(bound)).then(|| bound.to_owned())
+        (bound == MIXY_AGENT_ID || self.env.is_contact_bot(bound).await).then(|| bound.to_owned())
     }
 }
 
@@ -125,10 +125,14 @@ fn life_mark(header: &Header) -> Option<String> {
 
 #[async_trait]
 impl GateSession for SessionGate {
-    fn facts(&self) -> SessionFacts {
+    fn connector_agent_id(&self) -> String {
+        connector_policy_agent(&self.header.header())
+    }
+
+    async fn facts(&self) -> SessionFacts {
         let header = self.header.header();
         let bound = self.own_bound_agent();
-        let acting_bot = self.acting_bot(&bound);
+        let acting_bot = self.acting_bot(&bound).await;
         SessionFacts {
             agent_id: if bound.is_empty() { MIXY_AGENT_ID.to_owned() } else { bound },
             contact_bot: acting_bot.clone().filter(|id| id != MIXY_AGENT_ID),
@@ -179,7 +183,7 @@ mod tests {
         fn run_of(&self, _: &ThreadId) -> Option<GateRun> {
             self.run.clone()
         }
-        fn is_contact_bot(&self, id: &str) -> bool {
+        async fn is_contact_bot(&self, id: &str) -> bool {
             self.contacts.contains(&id)
         }
         fn allow_all_actions(&self) -> bool {
@@ -196,10 +200,10 @@ mod tests {
         (SessionGate::new(ThreadId::from(thread), Arc::new(Fixed(header)), rx, Arc::new(env)), tx)
     }
 
-    #[test]
-    fn a_coding_lead_is_no_bot_and_has_no_connector_policy() {
+    #[tokio::test]
+    async fn a_coding_lead_is_no_bot_and_has_no_connector_policy() {
         let (g, _tx) = gate("sess_abc", json!({"agent": "lead", "createdAt": 5, "compaction": {"lastClearAt": 9}}), Env::default());
-        let facts = g.facts();
+        let facts = g.facts().await;
         assert_eq!(facts.agent_id, "lead");
         assert_eq!(facts.acting_bot, None);
         assert_eq!(facts.connector_agent_id, "");
@@ -207,43 +211,43 @@ mod tests {
         assert!(facts.run.is_none());
     }
 
-    #[test]
-    fn mixy_in_her_agent_mode_home_thread_is_the_acting_bot_with_her_own_policy() {
+    #[tokio::test]
+    async fn mixy_in_her_agent_mode_home_thread_is_the_acting_bot_with_her_own_policy() {
         let (g, _tx) = gate("sess_home_lead", json!({"agent": "lead", "sessionMode": "agent"}), Env::default());
-        let facts = g.facts();
+        let facts = g.facts().await;
         assert_eq!(facts.acting_bot.as_deref(), Some("lead"));
         assert_eq!(facts.contact_bot, None);
         assert_eq!(facts.connector_agent_id, "lead");
         assert_eq!(facts.life.as_deref(), Some("0:0"));
     }
 
-    #[test]
-    fn a_contact_bot_home_thread_and_a_room_seat_resolve_the_bot() {
+    #[tokio::test]
+    async fn a_contact_bot_home_thread_and_a_room_seat_resolve_the_bot() {
         let env = || Env { contacts: vec!["ann"], ..Env::default() };
         let (home, _a) = gate("sess_home_ann", json!({"agent": "ann"}), env());
-        assert_eq!(home.facts().contact_bot.as_deref(), Some("ann"));
+        assert_eq!(home.facts().await.contact_bot.as_deref(), Some("ann"));
         let (seat, _b) = gate("sess_rmem_abcdef_ann", json!({"agent": "ann"}), env());
-        assert_eq!(seat.facts().acting_bot.as_deref(), Some("ann"));
+        assert_eq!(seat.facts().await.acting_bot.as_deref(), Some("ann"));
         let (other, _c) = gate("sess_home_bob", json!({"agent": "bob"}), env());
-        let facts = other.facts();
+        let facts = other.facts().await;
         assert_eq!((facts.agent_id.as_str(), facts.acting_bot), ("bob", None));
     }
 
-    #[test]
-    fn an_unattended_run_owns_the_session_and_its_agent() {
+    #[tokio::test]
+    async fn an_unattended_run_owns_the_session_and_its_agent() {
         let env = Env { run: Some(GateRun { kind: RunKind::Schedule, agent_id: "ann".into() }), contacts: vec!["ann"], ..Env::default() };
         let (g, _tx) = gate("sess_task", json!({"agent": "worker"}), env);
-        let facts = g.facts();
+        let facts = g.facts().await;
         assert_eq!(facts.run, Some(RunKind::Schedule));
         assert_eq!(facts.agent_id, "ann");
         assert_eq!(facts.contact_bot.as_deref(), Some("ann"));
         assert!(!facts.attended());
     }
 
-    #[test]
-    fn a_closed_session_has_no_life_and_the_surface_and_settings_are_live() {
+    #[tokio::test]
+    async fn a_closed_session_has_no_life_and_the_surface_and_settings_are_live() {
         let (g, tx) = gate("sess_x", json!({"closed": true}), Env { allow_all: true, ..Env::default() });
-        assert_eq!(g.facts().life, None);
+        assert_eq!(g.facts().await.life, None);
         assert!(g.settings().allow_all_actions);
         tx.send_replace(Arc::new(SessionSurface { readonly: true, ..SessionSurface::default() }));
         assert!(g.surface().readonly);

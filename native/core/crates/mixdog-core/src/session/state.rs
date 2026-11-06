@@ -368,6 +368,13 @@ impl SessionState {
                         display,
                     });
                 }
+                QueueAction::Update => {
+                    if let (Some(queued), Some(Slot::Inline(entry))) =
+                        (self.queue.iter_mut().find(|q| q.qid == queue.qid.as_str()), &queue.entry)
+                    {
+                        queued.entry = entry.clone();
+                    }
+                }
                 QueueAction::Dequeue => self.queue.retain(|q| q.qid != queue.qid.as_str()),
             },
             // The boundary row follows its anchor's rows (and the anchor's earlier boundaries)

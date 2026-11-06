@@ -215,6 +215,10 @@ mod tests {
             Ok(())
         }
         fn note_user_wait(&self, _: &ThreadId) {}
+        fn user_waiting(&self, _: &ThreadId) -> bool {
+            false
+        }
+        fn turn_started(&self, _: &ThreadId) {}
     }
 
     struct Goal(Option<&'static str>);

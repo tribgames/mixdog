@@ -302,6 +302,7 @@ pub fn frames(
         b.queue.push(QueuedEntry {
             qid: qid.clone(),
             enqueued: pos,
+            updated: None,
         });
     }
     for set in &model.metas {

@@ -64,8 +64,9 @@ pub struct SenderDeps {
     /// The admission lane of a provider, shared with the main sends.
     pub lane: Arc<dyn Fn(&str) -> Arc<Lane> + Send + Sync>,
     /// The account a provider's next send is bound to (`currentProviderAccountId`);
-    /// empty for a provider with no accounts.
-    pub account: Arc<dyn Fn(&str) -> String + Send + Sync>,
+    /// empty for a provider with no accounts. An error is the lookup's failure, which fails the
+    /// recording of the send's rows (`usageAccountingError`), never the send.
+    pub account: Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>,
     /// Epoch ms (`Date.now()`).
     pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
@@ -78,9 +79,9 @@ impl SenderDeps {
     }
 
     /// An account provider is bound to its default account until the pool says otherwise.
-    pub fn default_account() -> Arc<dyn Fn(&str) -> String + Send + Sync> {
+    pub fn default_account() -> Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync> {
         Arc::new(|provider| {
-            if mixdog_ai::accounts::ACCOUNT_PROVIDERS.contains(&provider) { "default".to_owned() } else { String::new() }
+            Ok(if mixdog_ai::accounts::ACCOUNT_PROVIDERS.contains(&provider) { "default".to_owned() } else { String::new() })
         })
     }
 
@@ -254,7 +255,7 @@ impl HostedSearchSender for ProviderSearchSender {
             source_type: SOURCE_TYPE.to_owned(),
             input_tokens_inclusive: !excludes_cache,
             request_service_tier: String::new(),
-            account: (self.deps.account)(provider),
+            account: if mixdog_ai::accounts::ACCOUNT_PROVIDERS.contains(&provider) { (self.deps.account)(provider) } else { Ok(String::new()) },
             request_id: random_uuid(),
             started_at,
         };

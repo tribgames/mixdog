@@ -41,14 +41,15 @@ pub async fn serve() -> Result<(), ServeError> {
     let tokens = mixdog_rt::testing::tokens();
     // Every install ships the manifest: a missing or broken one is a startup error.
     let js_runtime = js_runtime::resolve_current_on(tokens.interactive_io).await?;
+    // The install names its ONNX Runtime library in the same manifest; one that names none has no models.
+    let ort_library = js_runtime::resolve_ort_library_current_on(tokens.interactive_io).await?;
     // Node's `resolvePluginData()`, the dir `mixdogd migrate` converts.
     let data_dir = mixdog_store::paths::Paths::from_process(&js_runtime.package_root).ok_or(ServeError::NoDataDir)?.data_dir;
     let config = compose::ComposeConfig {
         user_data_dir: data_dir.join("userdata"),
         data_dir,
         js_runtime,
-        // Likewise the ONNX Runtime library comes from the install layout.
-        ort_library: None,
+        ort_library,
         // The server that attaches here takes this router with it (`Running::build`).
         host: mixdog_app_server::Outgoing::new(),
     };

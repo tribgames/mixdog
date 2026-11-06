@@ -65,17 +65,18 @@ pub fn requested_route(primary: Option<(String, String)>, provider: &str, model:
     }
 }
 
-/// The account a send is bound to (`currentProviderAccountId`), read where the send starts.
+/// The account a send is bound to (`currentProviderAccountId`), read where the send starts. An
+/// unreadable roster is the error text Node's read throws inside the row's write, which fails
+/// that recording (`usageAccountingError`).
 #[async_trait]
 pub trait AccountOf: Send + Sync {
-    async fn of(&self, provider: &str) -> String;
+    async fn of(&self, provider: &str) -> Result<String, String>;
 }
 
 #[async_trait]
 impl AccountOf for crate::accounts::AccountStore {
-    /// An unreadable roster binds the send to none; Node's read would throw inside the row's write.
-    async fn of(&self, provider: &str) -> String {
-        self.current_provider_account_id(provider).await.unwrap_or_default()
+    async fn of(&self, provider: &str) -> Result<String, String> {
+        self.current_provider_account_id(provider).await.map_err(|error| error.to_string())
     }
 }
 
@@ -84,8 +85,8 @@ pub struct NoAccounts;
 
 #[async_trait]
 impl AccountOf for NoAccounts {
-    async fn of(&self, _provider: &str) -> String {
-        String::new()
+    async fn of(&self, _provider: &str) -> Result<String, String> {
+        Ok(String::new())
     }
 }
 
@@ -182,7 +183,7 @@ impl AccountedAdapter {
             source_type: scope.source_type,
             input_tokens_inclusive: !input_excludes_cache(provider),
             request_service_tier: String::new(),
-            account: if ACCOUNT_PROVIDERS.contains(&provider) { deps.account.of(provider).await } else { String::new() },
+            account: if ACCOUNT_PROVIDERS.contains(&provider) { deps.account.of(provider).await } else { Ok(String::new()) },
             request_id: (deps.new_id)(),
             started_at,
         };
@@ -211,6 +212,9 @@ impl ProviderAdapter for AccountedAdapter {
     }
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         self.inner.wire_routing()
+    }
+    fn release_session(&self, session_id: &str) {
+        self.inner.release_session(session_id);
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {

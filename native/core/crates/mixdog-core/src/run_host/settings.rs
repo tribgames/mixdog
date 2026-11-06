@@ -27,6 +27,12 @@ pub trait HeartbeatMarks: Send + Sync {
     fn is_heartbeat(&self, session_id: &str) -> bool;
 }
 
+impl HeartbeatMarks for mixdog_services::bots::HeartbeatSessions {
+    fn is_heartbeat(&self, session_id: &str) -> bool {
+        self.is_marked(session_id)
+    }
+}
+
 /// What the route's provider declares it can produce in one reply.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct OutputCeilings {
@@ -237,5 +243,24 @@ mod tests {
 
         let heartbeat = merge_settings(base(), &sources("t1"), &turn(false));
         assert_eq!(heartbeat.limits, Some(TurnLimits { max_tool_calls: Some(8), wrap_up_at_ms: Some(61_000), max_tool_rounds: None }));
+    }
+
+    /// `heartbeatTurnLimits` (`ask-turn-loop-options.mjs`): the limits ride the process mark, from marking to unmarking.
+    #[test]
+    fn the_real_marks_limit_only_a_marked_session_until_its_close_lands() {
+        let header: Header = json!({ "provider": "anthropic", "model": "opus" }).as_object().unwrap().clone();
+        let thread = ThreadId::from("t1");
+        let provider: Arc<dyn ProviderAdapter> = Arc::new(NullProvider::new());
+        let prior = [json!({ "role": "user" })];
+        let turn = TurnFacts { thread: &thread, header: &header, provider: &provider, prior: &prior, request: "fix it", injected: false, tools: &[], now_ms: 5_000 };
+        let marks = mixdog_services::bots::HeartbeatSessions::new();
+        let sources = SettingsSources { heartbeats: marks.clone(), ..sources("") };
+
+        assert!(merge_settings(base(), &sources, &turn).limits.is_none());
+        marks.mark("t1");
+        let limits = merge_settings(base(), &sources, &turn).limits;
+        assert_eq!(limits, Some(TurnLimits { max_tool_calls: Some(8), wrap_up_at_ms: Some(65_000), max_tool_rounds: None }));
+        marks.unmark("t1");
+        assert!(merge_settings(base(), &sources, &turn).limits.is_none());
     }
 }

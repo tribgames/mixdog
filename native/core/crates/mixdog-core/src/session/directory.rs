@@ -449,13 +449,8 @@ impl DirInner {
         reason: &str,
         idle: bool,
     ) -> Result<Result<DeleteHold, &'static str>, CoreError> {
-        let handle = match self.loaded(id) {
-            Some(handle) => handle,
-            None => match self.open_with(id, &CallContext::internal("thread-delete"), false).await {
-                Ok(handle) => handle,
-                Err(CoreError::ThreadNotFound { .. }) => return Ok(Err("missing")),
-                Err(error) => return Err(error),
-            },
+        let Some(handle) = self.delete_target(id).await? else {
+            return Ok(Err("missing"));
         };
         let (closed, closed_rx) = oneshot::channel();
         let (mark, mark_rx) = oneshot::channel();
@@ -466,6 +461,19 @@ impl DirInner {
         match closed_rx.await.map_err(|_| closing())? {
             Ok(()) => Ok(Ok(DeleteHold { handle, mark, marked })),
             Err(refusal) => Ok(Err(refusal)),
+        }
+    }
+
+    /// The thread a delete acts on: loaded, else opened for it (no effort prewarm); `None`
+    /// when there is no such thread.
+    pub(crate) async fn delete_target(&self, id: &ThreadId) -> Result<Option<Arc<SessionHandle>>, CoreError> {
+        if let Some(handle) = self.loaded(id) {
+            return Ok(Some(handle));
+        }
+        match self.open_with(id, &CallContext::internal("thread-delete"), false).await {
+            Ok(handle) => Ok(Some(handle)),
+            Err(CoreError::ThreadNotFound { .. }) => Ok(None),
+            Err(error) => Err(error),
         }
     }
 

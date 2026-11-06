@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use mixdog_agent::text_only::MediaText;
 use mixdog_ai::catalog::{CatalogService, ListingLookup};
 use mixdog_ai::effort::RejectionEntry;
@@ -31,9 +32,11 @@ pub trait SessionHeaders: Send + Sync {
     fn header(&self, session_id: &str) -> Option<Arc<Header>>;
 }
 
-/// What an endpoint refused per provider and model (`rejectedEffortLevelsSync`'s store).
+/// What an endpoint refused per provider and model (`rejectedEffortLevelsSync`'s store). Each
+/// read checks the store's file, so it is async: the check runs on the io lane.
+#[async_trait]
 pub trait EffortRejections: Send + Sync {
-    fn entry(&self, provider: &str, model: &str) -> Option<RejectionEntry>;
+    async fn entry(&self, provider: &str, model: &str) -> Option<RejectionEntry>;
 }
 
 /// The managed local runtime, as the text-only gate reads it (`localProviderModelEntry`,
@@ -85,10 +88,13 @@ pub fn remote_client(env: &dyn Environment) -> bool {
     mixdog_ai::service::admin_models::model_proxy_client_mode(&|name| env.var(name))
 }
 
+/// `UUID_RE`: `/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i`.
 fn is_uuid(text: &str) -> bool {
     let parts: Vec<&str> = text.split('-').collect();
     parts.len() == 5
         && [8, 4, 4, 4, 12].iter().zip(&parts).all(|(n, p)| p.len() == *n && p.bytes().all(|b| b.is_ascii_hexdigit()))
+        && matches!(parts[2].as_bytes()[0], b'1'..=b'8')
+        && matches!(parts[3].as_bytes()[0], b'8' | b'9' | b'a' | b'b' | b'A' | b'B')
 }
 
 #[allow(clippy::disallowed_methods, reason = "body of a lane job")]
@@ -96,22 +102,20 @@ fn read_id(path: &Path) -> std::io::Result<String> {
     std::fs::read_to_string(path)
 }
 
-#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
-fn create_id(path: &Path, id: &str) -> std::io::Result<bool> {
-    use std::io::Write;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    match std::fs::OpenOptions::new().write(true).create_new(true).open(path) {
-        Ok(mut file) => file.write_all(id.as_bytes()).map(|()| true),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-        Err(e) => Err(e),
-    }
+/// `writeFileAtomicSync(file, id, { createOnly, mode: 0o644 })`: `Exists` when `create_only` and
+/// the file is there already.
+fn publish_id(lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, path: &Path, id: &str, create_only: bool) -> std::io::Result<mixdog_statefile::Published> {
+    let opts = mixdog_statefile::Opts { mode: 0o644, create_only, ..mixdog_statefile::Opts::default() };
+    mixdog_statefile::write_file(lane, path, id.as_bytes(), &opts).map_err(|error| match error {
+        mixdog_statefile::StateError::Io(error) => error,
+        other => std::io::Error::other(other.to_string()),
+    })
 }
 
 /// `_codexInstallationId`: `MIXDOG_CODEX_INSTALLATION_ID` when it is a uuid, else the uuid in
 /// `<plugin data>/installation_id`, else a new one created there without replacing a concurrent
-/// winner. A file that cannot be written leaves the generated id for this process.
+/// winner; a file that holds no uuid (damaged) is replaced whole. A file that cannot be written
+/// leaves the generated id for this process.
 pub async fn resolve_installation_id(env: &dyn Environment, lanes: &LaneTokens, plugin_data: &Path) -> String {
     let explicit = env.var("MIXDOG_CODEX_INSTALLATION_ID").map(|v| mixdog_js::js_trim(&v).to_lowercase()).unwrap_or_default();
     if is_uuid(&explicit) {
@@ -126,22 +130,52 @@ pub async fn resolve_installation_id(env: &dyn Environment, lanes: &LaneTokens, 
         return existing;
     }
     let generated = mixdog_ai::accounts::new_account_id();
-    let (path, id) = (file.clone(), generated.clone());
-    let created = match lanes.durability_io.submit(&CancellationToken::new(), move |_lane| create_id(&path, &id)) {
-        Ok(job) => job.await.ok().and_then(Result::ok),
-        Err(_) => None,
+    let publish = |create_only: bool| {
+        let (path, id) = (file.clone(), generated.clone());
+        let job = lanes.durability_io.submit(&CancellationToken::new(), move |lane| publish_id(lane, &path, &id, create_only));
+        async move { job.ok()?.await.ok()?.ok() }
     };
-    match created {
-        Some(false) => read(file).await.unwrap_or(generated),
-        _ => generated,
+    if publish(true).await == Some(mixdog_statefile::Published::Exists) {
+        if let Some(winner) = read(file.clone()).await {
+            return winner;
+        }
+        publish(false).await;
     }
+    generated
 }
 
-/// `effort-rejections.json` (`{version: 1, models: {"provider:model": {rejected, allowed}}}`),
-/// read once through the lane and kept; Node re-checks the file's stat on every read, a daemon
-/// that records a rejection calls [`FileRejections::note`] for the same effect.
+/// `effort-rejections.json` (`{version: 1, models: {"provider:model": {rejected, allowed}}}`).
+/// Every read checks the file's signature (mtime and size) on the io lane and reloads the file
+/// when it changed, as Node's `load` does: a rejection another process persisted shows at once.
 pub struct FileRejections {
-    models: std::sync::Mutex<HashMap<String, RejectionEntry>>,
+    path: PathBuf,
+    lane: mixdog_rt::InteractiveIo,
+    /// What the last load saw; `None` before the first read.
+    cached: std::sync::Mutex<Option<Loaded>>,
+}
+
+/// `signature(file)`: `None` when the file cannot be statted.
+type Signature = Option<(std::time::SystemTime, u64)>;
+
+struct Loaded {
+    sig: Signature,
+    models: HashMap<String, RejectionEntry>,
+}
+
+enum Refresh {
+    Unchanged,
+    Loaded { sig: Signature, bytes: Option<Vec<u8>> },
+}
+
+/// The body of the lane job: stat the file, and read it only when its signature differs from
+/// `known`.
+#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
+fn refresh(path: &Path, known: Option<Signature>) -> Refresh {
+    let sig = std::fs::metadata(path).ok().and_then(|m| Some((m.modified().ok()?, m.len())));
+    if known == Some(sig) {
+        return Refresh::Unchanged;
+    }
+    Refresh::Loaded { sig, bytes: std::fs::read(path).ok() }
 }
 
 fn entry_key(provider: &str, model: &str) -> String {
@@ -153,30 +187,37 @@ fn strings(value: Option<&Value>) -> Vec<String> {
 }
 
 impl FileRejections {
+    pub fn new(lanes: &LaneTokens, plugin_data: &Path) -> Arc<Self> {
+        Arc::new(Self { path: plugin_data.join("effort-rejections.json"), lane: lanes.interactive_io, cached: std::sync::Mutex::new(None) })
+    }
+
     /// A missing, unreadable or foreign-version file holds nothing (Node's `load`).
-    pub async fn load(lanes: &LaneTokens, plugin_data: &Path) -> Arc<Self> {
-        let path = plugin_data.join("effort-rejections.json");
-        let text = match lanes.interactive_io.submit(&CancellationToken::new(), move |_lane| read_id(&path)) {
-            Ok(job) => job.await.ok().and_then(Result::ok),
-            Err(_) => None,
-        };
-        let parsed: Option<Value> = text.and_then(|t| serde_json::from_str(&t).ok());
+    fn parse(bytes: Option<Vec<u8>>) -> HashMap<String, RejectionEntry> {
+        let doc = bytes.and_then(|b| mixdog_statefile::parse_json_text(&b).ok());
         let mut models = HashMap::new();
-        if let Some(doc) = parsed.filter(|d| d.get("version") == Some(&Value::from(1))) {
+        if let Some(doc) = doc.filter(|d| d.get("version").and_then(Value::as_f64) == Some(1.0)) {
             for (key, entry) in doc.get("models").and_then(Value::as_object).into_iter().flatten() {
                 models.insert(key.clone(), RejectionEntry { rejected: strings(entry.get("rejected")), allowed: strings(entry.get("allowed")) });
             }
         }
-        Arc::new(Self { models: std::sync::Mutex::new(models) })
-    }
-
-    pub fn note(&self, provider: &str, model: &str, entry: RejectionEntry) {
-        self.models.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(entry_key(provider, model), entry);
+        models
     }
 }
 
+#[async_trait]
 impl EffortRejections for FileRejections {
-    fn entry(&self, provider: &str, model: &str) -> Option<RejectionEntry> {
-        self.models.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&entry_key(provider, model)).cloned()
+    async fn entry(&self, provider: &str, model: &str) -> Option<RejectionEntry> {
+        let known = self.cached.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().map(|c| c.sig);
+        let path = self.path.clone();
+        let job = self.lane.submit(&CancellationToken::new(), move |_lane| refresh(&path, known));
+        let refreshed = match job {
+            Ok(job) => job.await.ok(),
+            Err(_) => None,
+        };
+        let mut cached = self.cached.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(Refresh::Loaded { sig, bytes }) = refreshed {
+            *cached = Some(Loaded { sig, models: Self::parse(bytes) });
+        }
+        cached.as_ref()?.models.get(&entry_key(provider, model)).cloned()
     }
 }

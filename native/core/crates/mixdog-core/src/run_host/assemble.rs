@@ -117,7 +117,7 @@ pub trait SessionSeams: Send + Sync + 'static {
     /// (`effortOptionsFor(provider, autoEffortModel(..))`, and a custom route's row, protocol and
     /// base URL). The host picks the ladder and builds the judge over its `EffortJudgeModel`.
     /// Owner: WP-AI-SVC (catalog rows, registry, custom config). `None`: the route has no facts.
-    fn step_ladder_facts(&self, thread: &ThreadId, header: &Header, auto: &mixdog_agent::step_effort::StepAutoEffort) -> Option<super::step_judge::StepLadderFacts>;
+    async fn step_ladder_facts(&self, thread: &ThreadId, header: &Header, auto: &mixdog_agent::step_effort::StepAutoEffort) -> Option<super::step_judge::StepLadderFacts>;
     /// Tool-result image compaction. Owner: WP-AGENT (ImageCompactor has no implementation).
     fn image_compactor(&self) -> Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>;
     /// The install's plugin root (`rules/`, `output-styles/`): `mixdog_store::paths::Paths::plugin_root`.
@@ -268,10 +268,15 @@ impl RunParts for HostRunParts {
             (Some(auto), Some(model)) if model.supports_steps().await => Some(auto),
             _ => None,
         };
-        let step_judge = step_auto_effort.as_ref().and_then(|auto| {
-            let ladder = super::step_judge::ladder_for(provider_id, auto, seams.step_ladder_facts(thread, header, auto)?)?;
-            Some(Arc::new(EffortJudge::new(s.effort_judge.clone()?, ladder)) as Arc<dyn StepEffortJudge>)
-        });
+        let step_judge = match &step_auto_effort {
+            Some(auto) => match seams.step_ladder_facts(thread, header, auto).await {
+                Some(facts) => super::step_judge::ladder_for(provider_id, auto, facts)
+                    .zip(s.effort_judge.clone())
+                    .map(|(ladder, model)| Arc::new(EffortJudge::new(model, ladder)) as Arc<dyn StepEffortJudge>),
+                None => None,
+            },
+            None => None,
+        };
         config.step_auto_effort = step_auto_effort;
         config.text_only = settings.text_only;
         config.attachments = settings.attachments;

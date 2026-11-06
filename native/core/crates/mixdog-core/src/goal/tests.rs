@@ -126,6 +126,10 @@ impl TodoStore for NoTodos {
         Ok(())
     }
     fn note_user_wait(&self, _: &ThreadId) {}
+    fn user_waiting(&self, _: &ThreadId) -> bool {
+        false
+    }
+    fn turn_started(&self, _: &ThreadId) {}
 }
 
 struct Facts;

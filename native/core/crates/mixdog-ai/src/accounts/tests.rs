@@ -58,6 +58,25 @@ async fn has_credential_reads_the_slots_file() {
     assert!(s.has_credential(PROVIDER, ID_A).await.unwrap(), "unreadable is never a logout");
 }
 
+/// `anthropic-oauth-credentials.mjs` `loadCredentials()` returns null before reading the file when
+/// `MIXDOG_MODEL_PROXY=client`; `refreshOAuthCredentials` throws instead of writing.
+#[tokio::test]
+async fn a_remote_client_store_holds_no_oauth_credentials() {
+    use crate::oauth::Probe;
+    let dir = tempfile::tempdir().unwrap();
+    let credential = r#"{"claudeAiOauth":{"accessToken":"t","refreshToken":"r","expiresAt":9999999999999,"scopes":["user:inference"]}}"#;
+    std::fs::write(dir.path().join("anthropic-oauth-credentials.json"), credential).unwrap();
+    let open = store(&dir);
+    assert!(open.has_credential("anthropic-oauth", "default").await.unwrap());
+    let remote = store(&dir).remote_client(true);
+    assert!(!remote.has_credential("anthropic-oauth", "default").await.unwrap());
+    let file = remote.credential_file("anthropic-oauth", "default").unwrap();
+    assert!(matches!(file.load_document().await, Probe::Absent));
+    let refused = file.save(&serde_json::json!({"claudeAiOauth": {"accessToken": "new"}})).await.unwrap_err();
+    assert_eq!(refused.kind(), std::io::ErrorKind::PermissionDenied);
+    assert_eq!(std::fs::read_to_string(dir.path().join("anthropic-oauth-credentials.json")).unwrap(), credential);
+}
+
 #[tokio::test]
 async fn change_validates_and_select_if_loses_to_a_newer_selection() {
     let dir = tempfile::tempdir().unwrap();

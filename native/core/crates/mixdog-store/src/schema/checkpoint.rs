@@ -71,4 +71,15 @@ pub struct PendingApproval {
 pub struct QueuedEntry {
     pub qid: String,
     pub enqueued: FramePos,
+    /// The newest `update` of the entry, whose frame holds the entry as it stands; the queue
+    /// order stays `enqueued`'s.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated: Option<FramePos>,
+}
+
+impl QueuedEntry {
+    /// The frame holding the entry as it stands.
+    pub fn current(&self) -> FramePos {
+        self.updated.unwrap_or(self.enqueued)
+    }
 }

@@ -1,4 +1,232 @@
 {
+  "declared": [
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "claude-3-7-sonnet",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "claude-3-5-haiku",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": true,
+      "model": "claude-haiku-4-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "max": false,
+      "model": "claude-sonnet-4-5",
+      "supportsEffort": true,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": true,
+      "model": "claude-opus-4-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "max": false,
+      "model": "claude-sonnet-4-6",
+      "supportsEffort": true,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "claude-opus-4-7",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "claude-opus-4-8",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "claude-opus-4.8-20260101",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": false,
+      "levels": [],
+      "max": true,
+      "model": "claude-opus-5",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-fable-5-1",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "claude-nova",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": true,
+      "betaHeader": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "max": true,
+      "model": "anthropic/claude-opus-4.8",
+      "supportsEffort": true,
+      "xhigh": true
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "gpt-5",
+      "supportsEffort": false,
+      "xhigh": false
+    },
+    {
+      "adaptiveOnly": false,
+      "betaHeader": false,
+      "levels": [],
+      "max": false,
+      "model": "deepseek-v3",
+      "supportsEffort": false,
+      "xhigh": false
+    }
+  ],
+  "declaredRows": [
+    {
+      "id": "claude-opus-4-8",
+      "reasoningOptions": []
+    },
+    {
+      "id": "claude-sonnet-4-5",
+      "reasoningOptions": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "high"
+          ]
+        }
+      ],
+      "thinkingTypes": {
+        "adaptive": true,
+        "enabled": false
+      }
+    },
+    {
+      "id": "claude-opus-5",
+      "reasoningOptions": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        }
+      ],
+      "thinkingTypes": {
+        "adaptive": false
+      }
+    },
+    {
+      "id": "claude-sonnet-4-6-20260101",
+      "reasoningOptions": [
+        {
+          "type": "effort",
+          "values": [
+            "low",
+            "medium"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "reasoningOptions": []
+    },
+    {
+      "id": "claude-fable-5-1",
+      "thinkingTypes": {
+        "enabled": true
+      }
+    },
+    {
+      "id": "claude-opus-4-7",
+      "reasoningOptions": [],
+      "thinkingTypes": {
+        "enabled": true
+      }
+    }
+  ],
   "floor": [
     {
       "adaptiveOnly": false,

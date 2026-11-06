@@ -191,8 +191,9 @@ pub struct SendIdentity {
     pub input_tokens_inclusive: bool,
     /// The tier the last wire attempt sent.
     pub request_service_tier: String,
-    /// The provider account the send is bound to (account providers only).
-    pub account: String,
+    /// The provider account the send is bound to (account providers only), or why it could not
+    /// be read: every row of the send then fails to record.
+    pub account: Result<String, String>,
     pub request_id: String,
     pub started_at: i64,
 }
@@ -602,6 +603,15 @@ impl SendAccounting {
             recorded.request_ms = Some(duration_ms.max(0.0) as u64);
         }
         let stream_ms = completed.map_or(0.0, |c| (c.stream_ended_at - identity.started_at) as f64);
+        // `currentProviderAccountId` throws inside the row's construction: nothing is written.
+        let account = match &identity.account {
+            Ok(account) => account.clone(),
+            Err(error) => {
+                tracing::error!("[usage-ledger] RECORD NOT SAVED: {error}");
+                recorded.error = Some(error.clone());
+                return;
+            }
+        };
         let args = RecordArgs {
             ts: now,
             provider: identity.provider.clone(),
@@ -627,7 +637,7 @@ impl SendAccounting {
                     .unwrap_or_else(|| identity.request_service_tier.clone()),
             ),
             response_id: completed.and_then(|c| c.response_id.clone()).unwrap_or_default(),
-            account: identity.account.clone(),
+            account,
             duration_ms,
             origin: None,
             id: completed

@@ -16,6 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { checkReleaseVersion, workspaceVersion } from '../../../scripts/check-release-version.mjs';
+import { onnxRuntimeSupported } from '../../../src/runtime/shared/onnx-runtime-support.mjs';
 import {
   CORE_PLATFORM_TARGETS,
   manifestBuild,
@@ -44,10 +45,24 @@ const APP_EXECUTABLE = {
   darwin: '../../MacOS/Mixdog',
   linux: '../../mixdog-desktop',
 };
-export function jsRuntimeManifest(platform) {
+/** The ONNX Runtime shared library inside the `onnxruntime-node` package, per platform: the file its binding loads.
+ *  prepare-runtime mirrors it into `runtime.asar.unpacked` (native binaries cannot load from the archive). */
+const ORT_LIBRARY_FILE = { win32: 'onnxruntime.dll', linux: 'libonnxruntime.so.1', darwin: 'libonnxruntime.1.dylib' };
+export function ortLibraryPath(platform, arch) {
+  const file = ORT_LIBRARY_FILE[platform];
+  if (!file) throw new Error(`no ONNX Runtime library for ${platform}`);
+  return `../runtime.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/${platform}/${arch}/${file}`;
+}
+export function jsRuntimeManifest(platform, arch) {
   const program = APP_EXECUTABLE[platform];
   if (!program) throw new Error(`no app executable for ${platform}`);
-  return { program, packageRoot: '../runtime.asar/node_modules/mixdog', electron: true };
+  return {
+    program,
+    packageRoot: '../runtime.asar/node_modules/mixdog',
+    electron: true,
+    // A target with no onnxruntime-node binding (macOS x64) names none: the daemon builds no models there.
+    ...(onnxRuntimeSupported(platform, arch) ? { ortLibrary: ortLibraryPath(platform, arch) } : {}),
+  };
 }
 
 async function builtBinary(targetDir, target, platform) {
@@ -105,7 +120,7 @@ export async function stageCore({
   }
   await mkdir(coreDir, { recursive: true });
   await copyFile(hostSource, join(coreDir, binaryName(host.platform)));
-  await writeFile(join(coreDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(jsRuntimeManifest(host.platform), null, 2)}\n`);
+  await writeFile(join(coreDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(jsRuntimeManifest(host.platform, host.arch), null, 2)}\n`);
 
   const binaries = {};
   for (const [key, target] of Object.entries(SERVER_PLATFORM_TARGETS)) {

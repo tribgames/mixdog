@@ -26,6 +26,16 @@ pub trait ThreadState: Send + Sync {
     /// The thread's acked header; a cold thread is opened.
     async fn header(&self, thread: &ThreadId) -> Result<Header, PortError>;
     async fn patch_header(&self, thread: &ThreadId, set: Map<String, Value>, unset: Vec<String>) -> Result<(), PortError>;
+    /// A header patch the session actor applies only while `expect` still holds of its header
+    /// (key to the value the patch was computed from, `null` for absent). `Ok(Some(current))`
+    /// is a refusal: the keys' values now, to compute the patch again from.
+    async fn patch_header_if(
+        &self,
+        thread: &ThreadId,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<Option<Map<String, Value>>, PortError>;
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError>;
 }
 
@@ -72,6 +82,19 @@ impl ThreadState for SessionThreads {
 
     async fn patch_header(&self, thread: &ThreadId, set: Map<String, Value>, unset: Vec<String>) -> Result<(), PortError> {
         self.call(thread, "thread/header/patch", json!({ "threadId": thread, "set": set, "unset": unset })).await.map(|_| ())
+    }
+
+    async fn patch_header_if(
+        &self,
+        thread: &ThreadId,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<Option<Map<String, Value>>, PortError> {
+        let reply = self
+            .call(thread, "thread/header/patch", json!({ "threadId": thread, "expect": expect, "set": set, "unset": unset }))
+            .await?;
+        Ok(reply.get("conflict").and_then(Value::as_object).cloned())
     }
 
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError> {

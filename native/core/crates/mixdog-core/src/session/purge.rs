@@ -1,14 +1,15 @@
 //! `deleteSession`'s outside world over the process's own services: the store purge hooks bound
 //! to the owners of the state they drop (`registerSessionPurgeHook`), and the delete seams.
 //!
-//! File state is dropped in maintenance-lane jobs, best effort as Node's hooks are; the delete
-//! never waits on them.
+//! File state is dropped in maintenance-lane jobs, best effort as Node's hooks are; each hook
+//! returns once its job has run, so the delete completes after every effect has landed.
 
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use mixdog_agent::agent_tool::board::CancelAll;
 use mixdog_agent::agent_tool::board::CancelNotice;
 use mixdog_agent::agent_tool::board::JobBoard;
@@ -26,7 +27,7 @@ use super::agent_registry::AgentRegistry;
 use super::delete::DeleteSeams;
 use super::delete::PurgeHook;
 use super::delete::PurgeHooks;
-use super::delete::SidebarState;
+use super::gateway_routes::GatewaySessionRoutes;
 use super::worktree::WorktreeMaintenance;
 use crate::state::SectionFeedState;
 
@@ -41,18 +42,35 @@ pub struct PurgeOwners {
     pub read_state: Arc<ReadState>,
     /// The provider registry's cache-warm ledger.
     pub warm: WarmLedger,
+    /// The provider registry: each provider's connections of the session.
+    pub providers: Arc<mixdog_ai::registry::providers::ProviderRegistry>,
     /// The agent tool's worker-turn observer.
     pub worker_turns: WorkerTurns,
     /// The worker index (`registry.forgetDeletedSession`).
     pub agents: Arc<AgentRegistry>,
 }
 
-/// `job` on the maintenance lane, not awaited.
-fn on_lane(maintenance: MaintenanceIo, job: impl FnOnce(&InLane<MaintenanceIo>) + Send + 'static) {
-    drop(maintenance.submit(&CancellationToken::new(), job));
+/// `job` on the maintenance lane; resolves once it has run (Node's hooks write synchronously).
+fn on_lane(maintenance: MaintenanceIo, job: impl FnOnce(&InLane<MaintenanceIo>) + Send + 'static) -> BoxFuture<'static, ()> {
+    let submitted = maintenance.submit(&CancellationToken::new(), job);
+    Box::pin(async move {
+        match submitted {
+            Ok(job) => {
+                if job.await.is_err() {
+                    tracing::warn!("session delete: a purge job did not run");
+                }
+            }
+            Err(error) => tracing::warn!(?error, "session delete: a purge job was refused"),
+        }
+    })
 }
 
-fn hook(f: impl Fn(&str, &[String]) + Send + Sync + 'static) -> Arc<dyn PurgeHook> {
+/// A hook whose effect is already done when it returns.
+fn done() -> BoxFuture<'static, ()> {
+    Box::pin(std::future::ready(()))
+}
+
+fn hook(f: impl Fn(&str, &[String]) -> BoxFuture<'static, ()> + Send + Sync + 'static) -> Arc<dyn PurgeHook> {
     Arc::new(f)
 }
 
@@ -107,31 +125,39 @@ fn remove_all(_lane: &InLane<MaintenanceIo>, targets: &[PathBuf]) {
 }
 
 impl PurgeHooks {
-    /// The hooks bound to `owners`, in a booted 1.4.5 daemon's order. Usage metrics, browser
-    /// turns, compaction-archive capture jobs and provider connections have no per-session
-    /// state in this process yet: no hook.
+    /// The hooks bound to `owners`, in a booted 1.4.5 daemon's order.
     pub fn new(owners: PurgeOwners) -> Self {
-        let PurgeOwners { data_dir, mixdog_home, maintenance, read_state, warm, worker_turns, agents } = owners;
+        let PurgeOwners { data_dir, mixdog_home, maintenance, read_state, warm, providers, worker_turns, agents } = owners;
         let lane = maintenance;
         let data = data_dir.clone();
         let tool_result_offload = hook(move |id, _| {
             if id.is_empty() {
-                return;
+                return done();
             }
             let dir = data.join("tool-results").join(crate::run_host::artifact::safe_segment(id));
-            on_lane(lane, move |lane| clear_offloaded(lane, &dir));
+            on_lane(lane, move |lane| clear_offloaded(lane, &dir))
         });
         let transcripts = hook(move |id, cwds| {
             if id.is_empty() {
-                return;
+                return done();
             }
             let projects = mixdog_home.join("projects");
             let paths: Vec<PathBuf> =
                 cwds.iter().filter(|cwd| !cwd.is_empty()).map(|cwd| projects.join(project_slug(cwd)).join(format!("{id}.jsonl"))).collect();
-            on_lane(lane, move |lane| remove_transcripts(lane, &paths));
+            on_lane(lane, move |lane| remove_transcripts(lane, &paths))
         });
-        let cache_warm = hook(move |id, _| warm.forget(id));
-        let read_cache = hook(move |id, _| read_state.forget_session(id));
+        let cache_warm = hook(move |id, _| {
+            warm.forget(id);
+            done()
+        });
+        let read_cache = hook(move |id, _| {
+            read_state.forget_session(id);
+            done()
+        });
+        let provider_connections = hook(move |id, _| {
+            providers.release_session(id);
+            done()
+        });
         let data = data_dir.clone();
         let connector_accounts = hook(move |id, _| {
             let (data, id) = (data.clone(), id.to_owned());
@@ -139,38 +165,38 @@ impl PurgeHooks {
                 if let Err(error) = mixdog_mcp::connector_accounts::forget_conversation(lane, &data, &id) {
                     tracing::warn!(%error, "session delete: connector accounts not forgotten");
                 }
-            });
+            })
         });
-        let worker_turns = hook(move |id, _| worker_turns.forget(id));
+        let worker_turns = hook(move |id, _| {
+            worker_turns.forget(id);
+            done()
+        });
         let agent_status = hook(move |id, _| {
             let (agents, id) = (agents.clone(), id.to_owned());
-            drop(mixdog_rt::spawn("session-delete-worker-row", mixdog_rt::TaskClass::Work, async move {
+            Box::pin(async move {
                 agents.forget_deleted_session(&id).await;
-            }));
+            })
         });
         let data = data_dir.clone();
         let compaction_archive = hook(move |id, _| {
             if !stored_id(id) {
-                return;
+                return done();
             }
             let path = data.join("sessions").join(format!("{id}.compaction-archive.jsonl"));
-            on_lane(lane, move |lane| remove_all(lane, &[path]));
+            on_lane(lane, move |lane| remove_all(lane, &[path]))
         });
         let scratch_dir = hook(move |id, _| {
-            let Some(dir) = mixdog_tools::exec::session_scratch_dir(&data_dir, id) else { return };
+            let Some(dir) = mixdog_tools::exec::session_scratch_dir(&data_dir, id) else { return done() };
             // Earlier versions named the folder after the full id.
             let legacy = data_dir.join("scratch").join(id);
-            on_lane(lane, move |lane| remove_all(lane, &[dir, legacy]));
+            on_lane(lane, move |lane| remove_all(lane, &[dir, legacy]))
         });
         Self {
             tool_result_offload,
-            usage_metrics: None,
-            browser_session: None,
             transcripts,
             cache_warm,
             read_cache,
-            compaction_capture: None,
-            provider_connections: None,
+            provider_connections,
             connector_accounts,
             worker_turns,
             agent_status,
@@ -180,10 +206,7 @@ impl PurgeHooks {
     }
 }
 
-/// [`DeleteSeams`] over the process's services. `lead_pool` (`forgetLeadSession`) and
-/// `gateway_routes` (`statusRoutes.clearGatewaySessionRoute`) are the owners' when they exist;
-/// `sidebar` is the attached desktop's flags reader (none attached: `readSessionSidebarState`
-/// answers null).
+/// [`DeleteSeams`] over the process's services.
 pub struct SessionDeletion {
     /// The app feed's notifications.
     pub app: Arc<SectionFeedState>,
@@ -192,20 +215,13 @@ pub struct SessionDeletion {
     pub worktrees: Arc<WorktreeMaintenance>,
     /// The background tasks (`cancelBackgroundTasks`).
     pub board: JobBoard,
-    pub lead_pool: Option<Arc<dyn Fn(&str) + Send + Sync>>,
-    pub gateway_routes: Option<Arc<dyn Fn(&str) + Send + Sync>>,
-    pub sidebar: Option<Arc<dyn Fn() -> futures::future::BoxFuture<'static, Option<SidebarState>> + Send + Sync>>,
+    /// `statusRoutes` (`clearGatewaySessionRoute`).
+    pub gateway_routes: GatewaySessionRoutes,
 }
 
 #[async_trait]
 impl DeleteSeams for SessionDeletion {
-    fn forget_lead_session(&self, session_id: &str) {
-        if let Some(forget) = &self.lead_pool {
-            forget(session_id);
-        }
-    }
-
-    fn release_session_work(&self, session_id: &str, reason: &str) {
+    async fn release_session_work(&self, session_id: &str, reason: &str) {
         let cancel = CancelAll {
             reason: reason.to_owned(),
             execution_session_id: Some(session_id.to_owned()),
@@ -213,9 +229,7 @@ impl DeleteSeams for SessionDeletion {
             ..CancelAll::default()
         };
         self.board.cancel_all(&cancel);
-        if let Some(clear) = &self.gateway_routes {
-            clear(session_id);
-        }
+        self.gateway_routes.clear(session_id).await;
     }
 
     fn forget_session_search(&self, session_id: &str) {
@@ -234,12 +248,5 @@ impl DeleteSeams for SessionDeletion {
 
     fn thread_deleted(&self, thread: &ThreadId) {
         self.app.notify("thread/deleted", &mixdog_app_protocol::v2::thread::ThreadIdParams { thread_id: thread.clone() });
-    }
-
-    async fn sidebar_state(&self) -> Option<SidebarState> {
-        match &self.sidebar {
-            Some(read) => read().await,
-            None => None,
-        }
     }
 }

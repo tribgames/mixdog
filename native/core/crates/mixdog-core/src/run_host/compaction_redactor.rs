@@ -37,8 +37,8 @@ mod tests {
     use super::*;
 
     /// Node's `_messagesForDisk` over stored rows, recorded for a session without marks and two
-    /// with (`golden/compaction_redactor.json`, from `gen-compaction-redactor.mjs`).
-    const GOLDEN: &str = include_str!("golden/compaction_redactor.json");
+    /// with, array and other non-string attachment references among the rows (`fixtures/compaction-redactor`, from\n    /// `benchmarks/rust-core/recorders/record-compaction-redactor.mjs`).
+    const GOLDEN: &str = include_str!("../../../../fixtures/compaction-redactor/golden.json");
 
     #[test]
     fn rows_are_redacted_as_nodes_messages_for_disk_stores_them() {

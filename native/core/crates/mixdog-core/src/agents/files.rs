@@ -335,6 +335,26 @@ impl Folders {
         None
     }
 
+    /// `readAgentDefinitionKind` (`shared/agent-kind.mjs:140`): the kind from the user copy's
+    /// front matter alone, with no body required, and whether it waits for the home thread's
+    /// greeting evidence. A store bot is a bot; with no user copy the shipped role's own front
+    /// matter decides; with neither, no kind.
+    pub(super) fn kind_only(&self, lane: &Lane, id: &str) -> (Option<String>, bool) {
+        if is_store_bot(lane, &self.data, id) {
+            return (Some("bot".into()), false);
+        }
+        let dir = self.data.join("agents").join(id);
+        let read = |path: PathBuf| std::fs::read(path).map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+        let Ok(text) = read(dir.join("AGENT.md")) else {
+            return match read(self.shipped_dir(id).join("AGENT.md")) {
+                Ok(text) => (explicit_kind(read_document(&text).0.get("kind")), false),
+                Err(_) => (None, false),
+            };
+        };
+        let (frontmatter, body) = read_document(&text);
+        self.kind_of(lane, id, explicit_kind(frontmatter.get("kind")), &manifest_of(&dir), &body)
+    }
+
     /// `agentDefinitionKind` for a user copy: the kind, and whether it waits for the home
     /// thread's greeting evidence.
     fn kind_of(&self, lane: &Lane, id: &str, explicit: Option<String>, manifest: &Map<String, Value>, body: &str) -> (Option<String>, bool) {

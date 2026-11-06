@@ -93,7 +93,7 @@ fn identity(case: &Value, started_at: i64) -> SendIdentity {
         input_tokens_inclusive: case.get("inputExcludesCache") != Some(&json!(true)),
         request_service_tier: String::new(),
         // The account the send is bound to; Node's unbound default is `default`.
-        account: if crate::accounts::ACCOUNT_PROVIDERS.contains(&provider_name.as_str()) { "default".into() } else { String::new() },
+        account: Ok(if crate::accounts::ACCOUNT_PROVIDERS.contains(&provider_name.as_str()) { "default".into() } else { String::new() }),
         request_id: "<req>".into(),
         started_at,
     }
@@ -151,6 +151,32 @@ async fn every_outcome_writes_the_rows_node_writes() {
         let rows = rows_of(case).await;
         assert_eq!(&rows, want, "{}", case["name"]);
     }
+}
+
+/// `usage-accounting.mjs` `save`: `currentProviderAccountId` throwing inside the row's write
+/// writes no row and sets `usageAccountingError` to the error's message; the send's result stands.
+/// An I/O failure reading the account roster is that throw.
+#[tokio::test]
+async fn an_unreadable_account_roster_fails_the_recording_and_exposes_the_error() {
+    use crate::registry::accounted::AccountOf;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("provider-accounts.json")).unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = crate::accounts::AccountStore::new(
+        dir.path().to_path_buf(),
+        crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+    );
+    let why = store.of("openai-oauth").await.unwrap_err();
+    assert!(!why.is_empty());
+
+    let sink = Arc::new(Collect::default());
+    let case = json!({ "provider": "openai-oauth", "model": "gpt-5" });
+    let mut unbound = identity(&case, 10_000);
+    unbound.account = Err(why.clone());
+    let accounting = SendAccounting::new(unbound, Arc::new(Unpriced), Some(sink.clone())).with_sources(Arc::new(|| 11_000), Arc::new(|| "<random>".into()));
+    let recorded = accounting.finish(Outcome::Completed(Completed { stream_ended_at: 11_000, ..Completed::default() })).await;
+    assert_eq!(recorded, Recorded { error: Some(why), request_ms: Some(1_000) });
+    assert!(sink.0.lock().unwrap().is_empty(), "no row is written for a send whose account could not be read");
 }
 
 #[tokio::test]
@@ -390,8 +416,8 @@ mod through_the_registry {
     struct DefaultAccount;
     #[async_trait]
     impl crate::registry::accounted::AccountOf for DefaultAccount {
-        async fn of(&self, _: &str) -> String {
-            "default".into()
+        async fn of(&self, _: &str) -> Result<String, String> {
+            Ok("default".into())
         }
     }
 

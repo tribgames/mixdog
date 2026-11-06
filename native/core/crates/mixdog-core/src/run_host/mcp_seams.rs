@@ -242,10 +242,11 @@ pub trait UnattendedRuns: Send + Sync {
     fn run_of(&self, thread: &ThreadId) -> Option<GateRun>;
 }
 
-/// `isContactAgentId(id, readAgentDefinitionKind(id))`, answered without waiting: the agent store
-/// owns the definitions.
+/// `isContactAgentId(id, readAgentDefinitionKind(id))`: the agent store owns the definitions, and
+/// every call reads the kind afresh, as Node's gate does.
+#[async_trait]
 pub trait ContactBots: Send + Sync {
-    fn is_contact_bot(&self, agent_id: &str) -> bool;
+    async fn is_contact_bot(&self, agent_id: &str) -> bool;
 }
 
 /// The Developer option "Allow all actions" (`developerOptionEnabledStrict('allowAllActions')`).
@@ -284,8 +285,8 @@ impl GateEnv for HostGateEnv {
         self.runs.run_of(thread)
     }
 
-    fn is_contact_bot(&self, agent_id: &str) -> bool {
-        self.contacts.is_contact_bot(agent_id)
+    async fn is_contact_bot(&self, agent_id: &str) -> bool {
+        self.contacts.is_contact_bot(agent_id).await
     }
 
     fn allow_all_actions(&self) -> bool {

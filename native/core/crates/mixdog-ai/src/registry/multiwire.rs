@@ -125,6 +125,12 @@ impl ProviderAdapter for MultiWireAdapter {
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         Some(self)
     }
+
+    fn release_session(&self, session_id: &str) {
+        for (_, engine) in &self.engines {
+            engine.release_session(session_id);
+        }
+    }
 }
 
 #[async_trait]

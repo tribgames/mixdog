@@ -2,11 +2,13 @@
 //! session record (`session.todo = { phases, updatedAt }`, `runtime-core/todo-list.mjs`).
 //!
 //! Reads normalize what is stored the way `todoPhases` does (the stored record is untrusted);
-//! an update runs against the list read under the thread's own lock, so two `todo` calls of one
-//! turn never lose each other's write, and commits `todo` and `updatedAt` as one header change.
+//! an update computes its list from the header and commits `todo` and `updatedAt` as one header
+//! change the session actor applies only while `todo` is still what the list was computed from
+//! (the actor is the owner, as Node's synchronous session update is), so two `todo` calls never
+//! lose each other's write: the loser computes again from the winner's list.
 //! A thread's wait on the user (`noteTodoUserWait`) is in memory like Node's: the turn itself is.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
@@ -14,7 +16,6 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::state::todo::{TodoEdit, TodoList, TodoPhase, TodoStatus, TodoStore, TodoTask};
 use serde_json::{Map, Value, json};
-use tokio::sync::Mutex as AsyncMutex;
 
 use super::threads::ThreadState;
 use crate::run_host::hop_host::port_message;
@@ -25,19 +26,13 @@ const DEFAULT_TODO_PHASE: &str = "Tasks";
 pub struct ThreadTodos {
     threads: Arc<dyn ThreadState>,
     clock: Arc<dyn Clock>,
-    /// One lock per thread that has updated its list; a thread never waits on another's.
-    locks: Mutex<HashMap<ThreadId, Arc<AsyncMutex<()>>>>,
     /// Threads whose current turn waits on the user's decision.
     waits: Mutex<HashSet<ThreadId>>,
 }
 
 impl ThreadTodos {
     pub fn new(threads: Arc<dyn ThreadState>, clock: Arc<dyn Clock>) -> Self {
-        Self { threads, clock, locks: Mutex::default(), waits: Mutex::default() }
-    }
-
-    fn lock_of(&self, thread: &ThreadId) -> Arc<AsyncMutex<()>> {
-        self.locks.lock().unwrap_or_else(PoisonError::into_inner).entry(thread.clone()).or_default().clone()
+        Self { threads, clock, waits: Mutex::default() }
     }
 }
 
@@ -68,7 +63,7 @@ fn task_of(raw: &Value) -> Option<TodoTask> {
 }
 
 /// `todoPhases(session)`, with the record's `updatedAt`.
-fn list_of(header: &Header) -> TodoList {
+pub(crate) fn list_of(header: &Header) -> TodoList {
     let record = header.get("todo");
     let phases = record
         .and_then(|todo| todo.get("phases"))
@@ -97,17 +92,26 @@ impl TodoStore for ThreadTodos {
     }
 
     async fn update(&self, thread: &ThreadId, f: &mut TodoEdit<'_>) -> Result<(), String> {
-        let lock = self.lock_of(thread);
-        let _held = lock.lock().await;
-        let header = self.threads.header(thread).await.map_err(|error| port_message(&error))?;
-        let next = f(&list_of(&header))?;
-        // `clearTodo` leaves `todo: null`; every commit stamps the session's `updatedAt` with its own.
-        let at = if next.updated_at_ms > 0 { next.updated_at_ms } else { self.clock.now_ms() };
-        let mut set = Map::new();
-        let todo = if next.phases.is_empty() { Value::Null } else { json!({ "phases": next.phases, "updatedAt": at }) };
-        set.insert("todo".into(), todo);
-        set.insert("updatedAt".into(), json!(at));
-        self.threads.patch_header(thread, set, Vec::new()).await.map_err(|error| port_message(&error))
+        let mut header = self.threads.header(thread).await.map_err(|error| port_message(&error))?;
+        loop {
+            let seen = header.get("todo").cloned().unwrap_or(Value::Null);
+            let next = f(&list_of(&header))?;
+            // `clearTodo` leaves `todo: null`; every commit stamps the session's `updatedAt` with its own.
+            let at = if next.updated_at_ms > 0 { next.updated_at_ms } else { self.clock.now_ms() };
+            let mut set = Map::new();
+            let todo = if next.phases.is_empty() { Value::Null } else { json!({ "phases": next.phases, "updatedAt": at }) };
+            set.insert("todo".into(), todo);
+            set.insert("updatedAt".into(), json!(at));
+            let expect = Map::from_iter([("todo".to_owned(), seen)]);
+            // A refusal: another edit (or a header read behind the actor's) moved `todo`; compute again from it.
+            match self.threads.patch_header_if(thread, expect, set, Vec::new()).await.map_err(|error| port_message(&error))? {
+                None => return Ok(()),
+                Some(mut current) => match current.remove("todo") {
+                    Some(todo) if !todo.is_null() => header.insert("todo".into(), todo),
+                    _ => header.shift_remove("todo"),
+                },
+            };
+        }
     }
 
     fn note_user_wait(&self, thread: &ThreadId) {
@@ -201,6 +205,36 @@ mod tests {
         let header = threads.header(&thread).await.expect("header");
         assert_eq!((header["todo"].clone(), header["updatedAt"].clone()), (Value::Null, json!(rig.clock.now_ms())));
         assert!(todos.read(&thread).await.phases.is_empty());
+    }
+
+    /// Node updates the session synchronously, so edits made at once all land: each one is
+    /// computed from the list the one before left.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn edits_made_at_once_all_land() {
+        let (todos, threads, thread, _rig) = store(json!({})).await;
+        let add = |content: String| {
+            let todos = &todos;
+            let thread = &thread;
+            async move {
+                todos
+                    .update(thread, &mut |current| {
+                        let mut next = current.clone();
+                        if next.phases.is_empty() {
+                            next.phases.push(TodoPhase { name: "Tasks".into(), tasks: Vec::new() });
+                        }
+                        next.phases[0].tasks.push(TodoTask { content: content.clone(), status: TodoStatus::Pending, note: None });
+                        next.updated_at_ms = 0;
+                        Ok(next)
+                    })
+                    .await
+            }
+        };
+        let results = futures::future::join_all((0..8).map(|n| add(format!("t{n}")))).await;
+        assert!(results.iter().all(Result::is_ok));
+        let mut seen: Vec<String> = todos.read(&thread).await.phases[0].tasks.iter().map(|task| task.content.clone()).collect();
+        seen.sort();
+        assert_eq!(seen, (0..8).map(|n| format!("t{n}")).collect::<Vec<_>>());
+        assert_eq!(threads.header(&thread).await.expect("header")["todo"]["phases"][0]["tasks"].as_array().map(Vec::len), Some(8));
     }
 
     /// An edit that refuses leaves the list as it was; the next edit sees the one before it.

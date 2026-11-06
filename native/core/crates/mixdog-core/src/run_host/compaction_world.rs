@@ -108,7 +108,7 @@ impl CompactionWorld for ProcessCompactionWorld {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use async_trait::async_trait;
     use mixdog_agent::boundary::CompactSettings;
     use mixdog_agent::compact::summary_run::{SummaryCall, SummaryFailure, SummaryResponse, SummaryRoute, SummarySender};
@@ -272,12 +272,17 @@ mod tests {
     }
 
     async fn world(dir: &std::path::Path, agent: Value, sensitive: Arc<SensitiveStore>) -> ProcessCompactionWorld {
+        ProcessCompactionWorld::new(services(dir, agent, sensitive).await)
+    }
+
+    /// The services over test doubles and a config file under dir, for the turn-path test.
+    pub(crate) async fn services(dir: &std::path::Path, agent: Value, sensitive: Arc<SensitiveStore>) -> CompactionServices {
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let path = dir.join("mixdog-config.json");
         std::fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap()).unwrap();
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-        ProcessCompactionWorld::new(CompactionServices {
+        CompactionServices {
             config,
             sensitive,
             docs: Arc::new(Docs),
@@ -287,7 +292,7 @@ mod tests {
             routes: Arc::new(Traits),
             requests: Arc::new(Requests(WarmLedger::new())),
             summaries: Arc::new(Summaries),
-        })
+        }
     }
 
     fn header(provider: &str) -> Header {

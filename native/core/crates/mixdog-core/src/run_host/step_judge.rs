@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use mixdog_agent::step_effort::StepAutoEffort;
 use mixdog_ai::effort::{RejectionEntry, effort_options_for, reasoning_row};
 use serde_json::{Map, Value, json};
@@ -31,9 +32,10 @@ pub struct StepLadderFacts {
 /// provider's cached model row (`providerImpl.getCachedModelInfo`), the endpoint's rejected
 /// levels (`rejectedEffortLevelsSync`), a custom provider's config (`providerClient.customConfig`)
 /// and the Anthropic effort gates (`anthropicEffortLevelsFor`).
+#[async_trait]
 pub trait LadderSources: Send + Sync {
     fn cached_row(&self, provider: &str, model: &str) -> Option<Map<String, Value>>;
-    fn rejected(&self, provider: &str, model_id: &str) -> Option<RejectionEntry>;
+    async fn rejected(&self, provider: &str, model_id: &str) -> Option<RejectionEntry>;
     /// The protocol and base URL of a custom provider; `None` when its config is not known.
     fn custom_config(&self, provider: &str) -> Option<(Protocol, String)>;
     fn anthropic_levels(&self, model: &str) -> Vec<String>;
@@ -53,9 +55,9 @@ fn auto_effort_model(sources: &dyn LadderSources, provider: &str, model: &str) -
 
 /// The ladder facts of a route: `effortOptionsFor(provider, autoEffortModel(..))`, and for a
 /// custom route its effective row and config (`resolveCustomReasoning`'s inputs).
-pub fn ladder_facts(sources: &dyn LadderSources, provider: &str, model: &str) -> StepLadderFacts {
+pub async fn ladder_facts(sources: &dyn LadderSources, provider: &str, model: &str) -> StepLadderFacts {
     let meta = auto_effort_model(sources, provider, model);
-    let rejected = sources.rejected(provider, model);
+    let rejected = sources.rejected(provider, model).await;
     let options = effort_options_for(provider, &meta, rejected.as_ref());
     let custom = is_custom_provider_name(provider)
         .then(|| sources.custom_config(provider))
@@ -123,11 +125,12 @@ mod tests {
         custom: Option<(Protocol, String)>,
     }
 
+    #[async_trait]
     impl LadderSources for Sources {
         fn cached_row(&self, provider: &str, model: &str) -> Option<Map<String, Value>> {
             self.rows.get(&(provider.to_owned(), model.to_owned())).cloned()
         }
-        fn rejected(&self, _: &str, _: &str) -> Option<RejectionEntry> {
+        async fn rejected(&self, _: &str, _: &str) -> Option<RejectionEntry> {
             None
         }
         fn custom_config(&self, _: &str) -> Option<(Protocol, String)> {
@@ -140,8 +143,8 @@ mod tests {
 
     /// Node's `effortOptionsFor(provider, autoEffortModel(..))` over 18 routes and rows
     /// (`record-step-ladder.mjs`).
-    #[test]
-    fn the_options_are_the_ones_node_resolves() {
+    #[tokio::test]
+    async fn the_options_are_the_ones_node_resolves() {
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/step-ladder/golden.json")).expect("fixture");
         for case in golden["cases"].as_array().unwrap() {
             let (provider, model) = (case["provider"].as_str().unwrap(), case["model"].as_str().unwrap());
@@ -151,7 +154,7 @@ mod tests {
             }
             let anthropic = case["anthropicLevels"].as_array().map(|l| l.iter().map(|v| v.as_str().unwrap().to_owned()).collect()).unwrap_or_default();
             let sources = Sources { rows, anthropic, custom: Some((Protocol::OpenaiChat, "https://example.test/v1".into())) };
-            let facts = ladder_facts(&sources, provider, model);
+            let facts = ladder_facts(&sources, provider, model).await;
             assert_eq!(json!(facts.options), case["options"], "{provider} {model} {}", case["row"]);
             // A custom route carries its effective row; every other route none.
             assert_eq!(facts.custom.is_some(), provider.starts_with("custom-"), "{provider}");
@@ -162,9 +165,9 @@ mod tests {
     }
 
     /// A custom route whose config is not known has no ladder at all.
-    #[test]
-    fn a_custom_route_without_a_config_has_no_custom_facts() {
+    #[tokio::test]
+    async fn a_custom_route_without_a_config_has_no_custom_facts() {
         let sources = Sources { rows: HashMap::new(), anthropic: Vec::new(), custom: None };
-        assert!(ladder_facts(&sources, "custom-acme", "m1").custom.is_none());
+        assert!(ladder_facts(&sources, "custom-acme", "m1").await.custom.is_none());
     }
 }

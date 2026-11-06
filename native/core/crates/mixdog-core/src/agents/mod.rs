@@ -352,6 +352,17 @@ impl AgentDefinitions {
         self.job(move |folders, lane| folders.avatar_of(lane, &id)).await
     }
 
+    /// `readAgentDefinitionKind(id)`: the kind read afresh from the front matter alone (no body
+    /// needed), with the home thread's greeting deciding an unmarked user copy.
+    pub async fn definition_kind(&self, id: &str) -> Result<Option<String>, AgentsError> {
+        let wanted = id.to_owned();
+        let (kind, unmarked) = self.job(move |folders, lane| folders.kind_only(lane, &wanted)).await?;
+        if unmarked && self.evidence.home_greeted(id).await {
+            return Ok(Some("bot".into()));
+        }
+        Ok(kind)
+    }
+
     /// `hasUserAgentFile`.
     pub async fn has_user_file(&self, id: &str) -> Result<bool, AgentsError> {
         let id = id.to_owned();

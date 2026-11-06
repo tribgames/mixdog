@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
 
+use async_trait::async_trait;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_tools::policy::RunKind;
 use serde_json::Value;
@@ -17,10 +18,12 @@ use crate::agents::ContactIds;
 use crate::ports::gate::GateRun;
 use crate::rooms::ids::MIXY_AGENT_ID;
 use crate::rooms::ids::room_member_of_session;
+use crate::workflow::ids::truthy;
 
+#[async_trait]
 impl ContactBots for ContactIds {
-    fn is_contact_bot(&self, agent_id: &str) -> bool {
-        ContactIds::is_contact_bot(self, agent_id)
+    async fn is_contact_bot(&self, agent_id: &str) -> bool {
+        ContactIds::is_contact_bot(self, agent_id).await
     }
 }
 
@@ -97,8 +100,9 @@ impl UnattendedRuns for UnattendedRunRegistry {
             "webhook" => RunKind::Webhook,
             _ => return None,
         };
-        let agent_id = stamp.get("agentId").and_then(Value::as_str).filter(|id| !id.is_empty())?;
-        Some(GateRun { kind, agent_id: agent_id.to_owned() })
+        // `stamped.agentId` is any truthy value, read as `String(stamped.agentId)`.
+        let owner = stamp.get("agentId").filter(|owner| truthy(Some(owner)))?;
+        Some(GateRun { kind, agent_id: mixdog_js::value_to_string(owner) })
     }
 }
 
@@ -122,6 +126,8 @@ mod tests {
             ("sess_child", json!({ "kind": "webhook", "agentId": "mailer", "name": "Hook" })),
             ("sess_noowner", json!({ "kind": "schedule", "agentId": "" })),
             ("sess_odd", json!({ "kind": "room", "agentId": "mailer" })),
+            ("sess_num", json!({ "kind": "schedule", "agentId": 123 })),
+            ("sess_zero", json!({ "kind": "schedule", "agentId": 0 })),
         ]))))
     }
 
@@ -148,6 +154,9 @@ mod tests {
         assert_eq!(run(&registry, "sess_child"), Some((RunKind::Webhook, "mailer".into())));
         assert_eq!(run(&registry, "sess_noowner"), None);
         assert_eq!(run(&registry, "sess_odd"), None, "a stamp is never a room run");
+        // Any truthy owner is read as `String(owner)`; a falsy one is no owner.
+        assert_eq!(run(&registry, "sess_num"), Some((RunKind::Schedule, "123".into())));
+        assert_eq!(run(&registry, "sess_zero"), None);
         drop((daily, hook, odd));
         assert_eq!(run(&registry, "sess_home_mailer"), None, "ending the run unmarks it");
     }

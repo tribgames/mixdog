@@ -426,11 +426,10 @@ impl mixdog_agent::env::Clock for BoardClock {
 }
 
 /// `deleteSession`'s outside world over the real services, in Node's calls: the session's own
-/// background work is cancelled silently (not another session's), its gateway route and Lead
-/// pool entry go, the app feed hears `thread/deleted`, and its worktree cleanups stop; with no
-/// desktop attached the sidebar reads as none.
+/// background work is cancelled silently (not another session's), its gateway route goes (not
+/// another session's), the app feed hears `thread/deleted`, and its worktree cleanups stop.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_delete_reaches_the_board_the_app_feed_and_the_worktrees() {
+async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() {
     use mixdog_agent::agent_tool::board::JobBoard;
     use mixdog_agent::agent_tool::board::JobMeta;
     use mixdog_agent::agent_tool::board::NewJob;
@@ -443,7 +442,7 @@ async fn a_delete_reaches_the_board_the_app_feed_and_the_worktrees() {
 
     let board = JobBoard::new(Arc::new(BoardClock), None, None);
     let stopped: Arc<Mutex<Vec<String>>> = Arc::default();
-    for session in ["gone", "kept"] {
+    for session in ["sess_gone", "sess_kept"] {
         let seen = stopped.clone();
         let job = NewJob {
             operation: "shell".into(),
@@ -461,36 +460,64 @@ async fn a_delete_reaches_the_board_the_app_feed_and_the_worktrees() {
     mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
     let rig = rig();
     let cancelled = Arc::new(Mutex::new(Vec::new()));
-    let calls: Arc<Mutex<Vec<String>>> = Arc::default();
-    let (lead, route) = (calls.clone(), calls.clone());
+    let data = tempfile::tempdir().unwrap();
+    let routes_file = data.path().join(crate::session::gateway_routes::STORE_FILE);
+    let route = json!({ "mode": "claude-current", "defaultProvider": "openai", "defaultModel": "gpt", "updatedAt": 1 });
+    let stored = json!({ "version": 2, "updatedAt": 1, "sessions": { "sess_gone": route, "sess_kept": route }, "sessionHosts": {} });
+    std::fs::write(&routes_file, stored.to_string()).unwrap();
+    let maintenance = mixdog_rt::testing::tokens().maintenance_io;
     let deletion = crate::session::purge::SessionDeletion {
         app: Arc::new(crate::state::SectionFeedState::new(feed)),
         search: None,
         worktrees: Arc::new(open_maintenance(&rig, cancelled.clone())),
         board: board.clone(),
-        lead_pool: Some(Arc::new(move |id: &str| lead.lock().unwrap().push(format!("lead:{id}")))),
-        gateway_routes: Some(Arc::new(move |id: &str| route.lock().unwrap().push(format!("route:{id}")))),
-        sidebar: None,
+        gateway_routes: crate::session::gateway_routes::GatewaySessionRoutes::new(data.path(), maintenance),
     };
 
-    deletion.forget_lead_session("gone");
-    deletion.release_session_work("gone", "desktop-session-delete");
-    assert_eq!(*stopped.lock().unwrap(), ["gone"]);
-    assert_eq!(*calls.lock().unwrap(), ["lead:gone", "route:gone"]);
-    deletion.thread_deleted(&mixdog_core_api::ids::ThreadId::from("gone"));
+    deletion.release_session_work("sess_gone", "desktop-session-delete").await;
+    assert_eq!(*stopped.lock().unwrap(), ["sess_gone"]);
+    // Gone when the release returns, as Node's synchronous clear is.
+    let left: Value = serde_json::from_str(&std::fs::read_to_string(&routes_file).unwrap()).unwrap();
+    assert_eq!(left["sessions"], json!({ "sess_kept": route }));
+    assert_eq!((left["version"].clone(), left["sessionHosts"].clone()), (json!(2), json!({})));
+    deletion.thread_deleted(&mixdog_core_api::ids::ThreadId::from("sess_gone"));
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
         let texts = conn.drain_text();
-        if texts.iter().any(|t| t.contains(r#""method":"thread/deleted","params":{"threadId":"gone"}"#)) {
+        if texts.iter().any(|t| t.contains(r#""method":"thread/deleted","params":{"threadId":"sess_gone"}"#)) {
             break;
         }
         assert!(std::time::Instant::now() < deadline, "thread/deleted not published");
         std::thread::sleep(Duration::from_millis(5));
     }
-    deletion.release_deleted_worktree("gone").await;
-    assert_eq!(*cancelled.lock().unwrap(), [Some("gone".to_owned())]);
-    deletion.forget_session_search("gone");
-    assert!(deletion.sidebar_state().await.is_none());
+    deletion.release_deleted_worktree("sess_gone").await;
+    assert_eq!(*cancelled.lock().unwrap(), [Some("sess_gone".to_owned())]);
+    deletion.forget_session_search("sess_gone");
+}
+
+/// `clearGatewaySessionRoute`: an id the store never keys is refused; a session with no route
+/// writes the store back as read (`{}` when there was none).
+#[tokio::test]
+async fn a_gateway_route_clear_keeps_what_node_keeps() {
+    use crate::session::gateway_routes::clear_session_route;
+    use crate::session::gateway_routes::normalize_session_id;
+    use mixdog_rt::LaneToken;
+    assert_eq!(normalize_session_id("  sess_abc1  "), Some("sess_abc1"));
+    assert_eq!(normalize_session_id("short"), None);
+    assert_eq!(normalize_session_id("_leading"), None);
+    let data = tempfile::tempdir().unwrap();
+    let path = data.path().join("routes.json");
+    let maintenance = mixdog_rt::testing::tokens().maintenance_io;
+    for (id, cleared) in [("tiny", false), ("sess_absent", true)] {
+        let target = path.clone();
+        let job = maintenance.submit(&CancellationToken::new(), move |lane| clear_session_route(lane, &target, id, 5));
+        assert_eq!(job.expect("lane").await.expect("ran"), Ok(cleared), "{id}");
+        if !cleared {
+            assert!(!path.exists());
+        }
+    }
+    // `JSON.stringify(cur)` and its newline (`writeJsonAtomicSync`).
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}\n");
 }
 
 #[test]

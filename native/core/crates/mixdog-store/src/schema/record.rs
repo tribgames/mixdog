@@ -362,7 +362,7 @@ pub enum ApprovalPhase {
     Expired,
 }
 
-/// Pending steer/follow-up/notification messages. `entry` (present iff `enqueue`) is the
+/// Pending steer/follow-up/notification messages. `entry` (present iff `enqueue` or `update`) is the
 /// queued entry in the 1.4.5 pending-spool shape minus `id`:
 /// `{message, notificationKind?, mode?, executionId?, execution?, enqueuedAt?}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -382,6 +382,9 @@ pub struct QueueRecord {
 #[serde(rename_all = "snake_case")]
 pub enum QueueAction {
     Enqueue,
+    /// The entry of a queued `qid` is replaced in place (it keeps its queue position): Node
+    /// edits a queued entry's `content` where it stands.
+    Update,
     Dequeue,
 }
 

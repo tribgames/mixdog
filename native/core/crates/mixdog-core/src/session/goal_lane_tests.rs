@@ -270,7 +270,9 @@ async fn a_deadline_warning_is_queued_behind_a_turn_and_marks_the_reminder_when_
 
     changed(&spy, &handle, goal("g1", "active", 1, 290_000)).await;
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    // The warning queued behind the turn is taken in by it or runs as a turn of its own: the thread
+    // is idle for good once it has left the queue, not when the first turn merely ends.
+    eventually(|| (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty)).then_some(())).await;
     changed(&spy, &handle, goal("g1", "active", 2, 120_000)).await;
     eventually(|| (spy.resets() == 1).then_some(())).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -456,6 +458,151 @@ async fn a_goal_reminder_marks_the_sessions_pending_reminder() {
     assert_eq!(header.get("goalReminderRevision"), Some(&json!(2)));
     assert!(header.get("updatedAt").and_then(Value::as_i64).is_some());
     assert_eq!(spy.resets(), 2, "each mark resets the continuation rules");
+}
+
+/// `canDeliverSteeringEntry`: the terminal boundary of a running turn steers the queued closeout
+/// of the Goal at its duration; once the runtime's Goal is no longer at it, the entry leaves the
+/// queue without reaching the model.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_queued_closeout_is_steered_only_while_its_goal_is_at_its_duration() {
+    use super::run::{DrainRequest, DrainStage, Priority};
+    for still_due in [true, false] {
+        let rig = Rig::new();
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let taken = Arc::new(Mutex::new(Vec::new()));
+        let (open, out) = (gate.clone(), taken.clone());
+        rig.set_script(Arc::new(move |run| {
+            let (open, out) = (open.clone(), out.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                open.notified().await;
+                let steers = run.port.take_steers(DrainRequest { stage: DrainStage::Terminal, max_priority: Priority::Next }).await.expect("take");
+                lock(&out).extend(steers);
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+        let spy = Spy::new(&rig);
+        let directory = directory(&rig, &spy);
+        let handle = start_thread(&directory).await;
+        changed(&spy, &handle, goal("g1", "active", 0, 60_000)).await;
+        turn(&handle, "work", "op-1").await;
+        eventually(|| (!idle(&handle)).then_some(())).await;
+        changed(&spy, &handle, goal("g1", "duration_reached", 0, 0)).await;
+        eventually(|| handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
+        if !still_due {
+            // The runtime's Goal moved on without the lane hearing it yet.
+            *lock(&spy.pinned) = Some(goal("g1", "active", 0, 60_000));
+        }
+        gate.notify_one();
+        eventually(|| idle(&handle).then_some(())).await;
+        let taken = lock(&taken).clone();
+        if still_due {
+            assert_eq!(taken.len(), 1, "{taken:?}");
+            assert!(taken[0].content.as_str().unwrap().contains("<goal_deadline_reached>"), "{:?}", taken[0].content);
+        } else {
+            assert!(taken.is_empty(), "a closeout its Goal no longer wants is never steered: {taken:?}");
+        }
+        // The dequeue is acked (durable) a moment after the turn ends.
+        eventually(|| handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty).then_some(())).await;
+    }
+}
+
+/// `cancelQueuedGoalContinuations({ keepCloseoutFor })`: the kept closeout takes the text of
+/// the Goal now (`entry.content = goalDeadlineReached(..)`) in place: one `update` record of
+/// the same queue entry, no second entry.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kept_closeout_takes_the_goals_text_in_place() {
+    let rig = Rig::new();
+    let gate = holding(&rig);
+    let spy = Spy::new(&rig);
+    let directory = directory(&rig, &spy);
+    let handle = start_thread(&directory).await;
+    changed(&spy, &handle, goal("g1", "active", 0, 60_000)).await;
+    turn(&handle, "work", "op-1").await;
+    eventually(|| (!idle(&handle)).then_some(())).await;
+    changed(&spy, &handle, goal("g1", "duration_reached", 0, 0)).await;
+    let first = eventually(|| Some(queued_entries(&rig, &handle)).filter(|entries| !entries.is_empty())).await;
+
+    let mut edited = goal("g1", "duration_reached", 0, 0);
+    edited.insert("objective".into(), json!("Ship it faster"));
+    changed(&spy, &handle, edited).await;
+    let updates = || {
+        rig.store
+            .records(&handle.id)
+            .into_iter()
+            .filter_map(|(_, record)| match record {
+                Record::Queue(queue) if queue.action == QueueAction::Update => Some(queue),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let updates = eventually(|| Some(updates()).filter(|updates| !updates.is_empty())).await;
+    assert_eq!(updates.len(), 1);
+    let Some(Slot::Inline(entry)) = &updates[0].entry else { panic!("{:?}", updates[0]) };
+    assert!(entry["message"].as_str().unwrap().contains("Ship it faster"), "{entry}");
+    assert_eq!(entry["mode"], "goal-closeout");
+    assert_eq!(queued_entries(&rig, &handle).len(), first.len(), "the entry was edited, not queued again");
+    let dequeued = rig.store.records(&handle.id).into_iter().filter(|(_, r)| matches!(r, Record::Queue(q) if q.action == QueueAction::Dequeue)).count();
+    assert_eq!(dequeued, 0);
+    gate.notify_one();
+    eventually(|| idle(&handle).then_some(())).await;
+}
+
+/// `suppressDisplay`: a hidden Goal notice a turn takes in paints no row, where a user prompt
+/// taken in the same way does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_suppressed_entry_a_turn_takes_in_paints_no_row() {
+    use super::ItemCommit;
+    use super::run::{DrainRequest, DrainStage, Priority};
+    async fn items_after(hidden: bool) -> usize {
+        let rig = Rig::new();
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let open = gate.clone();
+        let steered = Arc::new(Mutex::new(0usize));
+        let counted = steered.clone();
+        rig.set_script(Arc::new(move |run| {
+            let (open, counted) = (open.clone(), counted.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                open.notified().await;
+                let steers = run.port.take_steers(DrainRequest { stage: DrainStage::Terminal, max_priority: Priority::Next }).await.expect("take");
+                *lock(&counted) += steers.len();
+                for (n, steer) in steers.into_iter().enumerate() {
+                    let ids: Vec<&str> = steer.queued_ids.iter().map(|id| id.as_str()).collect();
+                    run.port
+                        .commit_item(ItemCommit {
+                            iid: mixdog_core_api::ids::ItemId::from(format!("s-{n}")),
+                            role: Some("user".into()),
+                            model: true,
+                            visible: true,
+                            body: json!({ "role": "user", "content": steer.content, "meta": { "steered": true, "submissionIds": ids } }),
+                            prompt: None,
+                        })
+                        .await
+                        .expect("commit");
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+        let spy = Spy::new(&rig);
+        let directory = directory(&rig, &spy);
+        let handle = start_thread(&directory).await;
+        changed(&spy, &handle, goal("g1", "active", 0, 600_000)).await;
+        turn(&handle, "work", "op-1").await;
+        eventually(|| (!idle(&handle)).then_some(())).await;
+        if hidden {
+            changed(&spy, &handle, goal("g1", "active", 1, 300_000)).await;
+        } else {
+            turn(&handle, "steer me", "op-2").await;
+        }
+        eventually(|| handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
+        gate.notify_one();
+        eventually(|| idle(&handle).then_some(())).await;
+        assert_eq!(*lock(&steered), 1, "the turn took the entry in");
+        handle.cell.view.load_full().items.len()
+    }
+    let shown = items_after(false).await;
+    assert_eq!(items_after(true).await + 1, shown, "only the user prompt paints a row");
 }
 
 /// The `/goal` route: `thread/goal/set` carries the request, `clear` and `control` map to

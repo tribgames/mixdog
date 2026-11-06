@@ -1,0 +1,1310 @@
+{
+  "rows": [
+    {
+      "content": "My code is 682419",
+      "meta": {
+        "transcript": {
+          "messageId": "m1"
+        }
+      },
+      "role": "user",
+      "ts": 1
+    },
+    {
+      "content": [
+        {
+          "text": "hunter2 and hunter22",
+          "type": "text"
+        },
+        {
+          "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mimeType": "image/png",
+          "type": "image"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "text": "[Pasted text #1: 682419]",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "[Image omitted from stored history: 682419]",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "filename": "682419.pdf",
+          "mimeType": "application/pdf",
+          "type": "file"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": "plain reply",
+      "reasoning": "opaque",
+      "role": "assistant"
+    },
+    {
+      "content": "code 682419",
+      "providerReplay": {
+        "id": "r"
+      },
+      "reasoning": "opaque",
+      "role": "assistant",
+      "toolCalls": [
+        {
+          "arguments": {
+            "a": 682419
+          },
+          "id": "c1",
+          "name": "x",
+          "thoughtSignature": "sig"
+        }
+      ]
+    },
+    {
+      "content": "clean",
+      "role": "assistant",
+      "toolCalls": [
+        {
+          "arguments": "{\"k\":\"682419\",\"n\":[682419,1],\"o\":{\"p\":\"hunter2\"}}",
+          "id": "c2",
+          "name": "x",
+          "thought_signature": "sig"
+        }
+      ]
+    },
+    {
+      "content": "",
+      "role": "assistant",
+      "toolCalls": [
+        {
+          "arguments": {
+            "deep": {
+              "v": "hunter2"
+            },
+            "list": [
+              "p@ss\"word",
+              "코드123",
+              5
+            ]
+          },
+          "id": "c3",
+          "name": "x"
+        },
+        {
+          "id": "c4",
+          "name": "y"
+        }
+      ]
+    },
+    {
+      "content": "carries state",
+      "reasoning": "has 682419 inside",
+      "role": "assistant"
+    },
+    {
+      "content": "opaque holds",
+      "providerMetadata": {
+        "note": "hunter2"
+      },
+      "role": "assistant",
+      "toolCalls": [
+        {
+          "arguments": {},
+          "id": "c5",
+          "name": "x",
+          "thoughtSignature": "p@ss\"word"
+        }
+      ]
+    },
+    {
+      "content": "{\"typed\":\"682419\",\"n\":682419,\"keep\":\"yes\"}",
+      "role": "tool",
+      "toolCallId": "c1"
+    },
+    {
+      "content": "[\"hunter2\",1,{\"a\":\"코드123\"}]",
+      "role": "tool",
+      "toolCallId": "c2"
+    },
+    {
+      "content": "\"682419\"",
+      "role": "tool",
+      "toolCallId": "c3"
+    },
+    {
+      "content": " {\"a\":\"x\"}",
+      "role": "tool",
+      "toolCallId": "c4"
+    },
+    {
+      "content": "{broken 682419",
+      "role": "tool",
+      "toolCallId": "c5"
+    },
+    {
+      "content": [
+        {
+          "text": "{\"typed\":\"hunter2\"}",
+          "type": "text"
+        },
+        {
+          "content": "out 682419",
+          "type": "tool_result"
+        },
+        {
+          "content": [
+            {
+              "text": "nested 682419",
+              "type": "text"
+            },
+            {
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "type": "image"
+            }
+          ],
+          "type": "tool_result"
+        }
+      ],
+      "role": "tool",
+      "toolCallId": "c6"
+    },
+    {
+      "content": {
+        "content": [
+          {
+            "text": "wrapped 682419",
+            "type": "text"
+          }
+        ]
+      },
+      "role": "tool",
+      "toolCallId": "c7"
+    },
+    {
+      "content": {
+        "text": "single 682419",
+        "type": "text"
+      },
+      "role": "tool",
+      "toolCallId": "c8"
+    },
+    {
+      "content": [
+        "682419",
+        "bare strings hunter2",
+        7,
+        null
+      ],
+      "role": "tool",
+      "toolCallId": "c9"
+    },
+    {
+      "content": "already [redacted] and [saved login] and 682419",
+      "role": "user"
+    },
+    {
+      "role": "user"
+    },
+    {
+      "content": "no change here",
+      "role": "system",
+      "ts": 2
+    },
+    null,
+    "a bare string row 682419",
+    7,
+    {
+      "content": [
+        {
+          "attachmentRef": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          "text": "code 682419",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "attachmentRef": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          "text": "code 682419",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "attachmentRef": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "text": "code 682419",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "attachmentRef": 0,
+          "text": "code 682419",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "attachmentRef": false,
+          "text": "code 682419",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "attachmentRef": null,
+          "text": "code 682419",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "attachmentRef": true,
+          "text": "code 682419",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "attachmentRef": {},
+          "text": "code 682419",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "sessions": [
+    {
+      "calls": [],
+      "id": "sess-none",
+      "marked": false,
+      "same": true,
+      "stored": [
+        {
+          "content": "My code is 682419",
+          "meta": {
+            "transcript": {
+              "messageId": "m1"
+            }
+          },
+          "role": "user",
+          "ts": 1
+        },
+        {
+          "content": [
+            {
+              "text": "hunter2 and hunter22",
+              "type": "text"
+            },
+            {
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "type": "image"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "text": "[Pasted text #1: 682419]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "[Image omitted from stored history: 682419]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "filename": "682419.pdf",
+              "mimeType": "application/pdf",
+              "type": "file"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": "plain reply",
+          "reasoning": "opaque",
+          "role": "assistant"
+        },
+        {
+          "content": "code 682419",
+          "providerReplay": {
+            "id": "r"
+          },
+          "reasoning": "opaque",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "a": 682419
+              },
+              "id": "c1",
+              "name": "x",
+              "thoughtSignature": "sig"
+            }
+          ]
+        },
+        {
+          "content": "clean",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": "{\"k\":\"682419\",\"n\":[682419,1],\"o\":{\"p\":\"hunter2\"}}",
+              "id": "c2",
+              "name": "x",
+              "thought_signature": "sig"
+            }
+          ]
+        },
+        {
+          "content": "",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "deep": {
+                  "v": "hunter2"
+                },
+                "list": [
+                  "p@ss\"word",
+                  "코드123",
+                  5
+                ]
+              },
+              "id": "c3",
+              "name": "x"
+            },
+            {
+              "id": "c4",
+              "name": "y"
+            }
+          ]
+        },
+        {
+          "content": "carries state",
+          "reasoning": "has 682419 inside",
+          "role": "assistant"
+        },
+        {
+          "content": "opaque holds",
+          "providerMetadata": {
+            "note": "hunter2"
+          },
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {},
+              "id": "c5",
+              "name": "x",
+              "thoughtSignature": "p@ss\"word"
+            }
+          ]
+        },
+        {
+          "content": "{\"typed\":\"682419\",\"n\":682419,\"keep\":\"yes\"}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "[\"hunter2\",1,{\"a\":\"코드123\"}]",
+          "role": "tool",
+          "toolCallId": "c2"
+        },
+        {
+          "content": "\"682419\"",
+          "role": "tool",
+          "toolCallId": "c3"
+        },
+        {
+          "content": " {\"a\":\"x\"}",
+          "role": "tool",
+          "toolCallId": "c4"
+        },
+        {
+          "content": "{broken 682419",
+          "role": "tool",
+          "toolCallId": "c5"
+        },
+        {
+          "content": [
+            {
+              "text": "{\"typed\":\"hunter2\"}",
+              "type": "text"
+            },
+            {
+              "content": "out 682419",
+              "type": "tool_result"
+            },
+            {
+              "content": [
+                {
+                  "text": "nested 682419",
+                  "type": "text"
+                },
+                {
+                  "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "type": "image"
+                }
+              ],
+              "type": "tool_result"
+            }
+          ],
+          "role": "tool",
+          "toolCallId": "c6"
+        },
+        {
+          "content": {
+            "content": [
+              {
+                "text": "wrapped 682419",
+                "type": "text"
+              }
+            ]
+          },
+          "role": "tool",
+          "toolCallId": "c7"
+        },
+        {
+          "content": {
+            "text": "single 682419",
+            "type": "text"
+          },
+          "role": "tool",
+          "toolCallId": "c8"
+        },
+        {
+          "content": [
+            "682419",
+            "bare strings hunter2",
+            7,
+            null
+          ],
+          "role": "tool",
+          "toolCallId": "c9"
+        },
+        {
+          "content": "already [redacted] and [saved login] and 682419",
+          "role": "user"
+        },
+        {
+          "role": "user"
+        },
+        {
+          "content": "no change here",
+          "role": "system",
+          "ts": 2
+        },
+        null,
+        "a bare string row 682419",
+        7,
+        {
+          "content": [
+            {
+              "attachmentRef": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "text": "code 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "text": "code 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "text": "code 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": 0,
+              "text": "code 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": false,
+              "text": "code 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": null,
+              "text": "code 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": true,
+              "text": "code 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": {},
+              "text": "code 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "arguments": {
+            "action": "fill",
+            "input": {
+              "fields": [
+                {
+                  "text": "hunter2"
+                },
+                {
+                  "text": "hunter22"
+                },
+                {
+                  "text": "p@ss\"word"
+                },
+                {
+                  "text": "코드123"
+                }
+              ],
+              "ref": "e1",
+              "sensitive": true,
+              "text": "682419"
+            }
+          },
+          "name": "browser"
+        }
+      ],
+      "id": "sess-marks",
+      "marked": true,
+      "same": false,
+      "stored": [
+        {
+          "content": "My code is [redacted]",
+          "meta": {
+            "transcript": {
+              "messageId": "m1"
+            }
+          },
+          "role": "user",
+          "ts": 1
+        },
+        {
+          "content": [
+            {
+              "text": "[redacted] and [redacted]",
+              "type": "text"
+            },
+            {
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "type": "image"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "text": "[Pasted text #1: 682419]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "[Image omitted from stored history: [redacted]]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "filename": "682419.pdf",
+              "mimeType": "application/pdf",
+              "type": "file"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": "plain reply",
+          "reasoning": "opaque",
+          "role": "assistant"
+        },
+        {
+          "content": "code [redacted]",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "a": "[redacted]"
+              },
+              "id": "c1",
+              "name": "x"
+            }
+          ]
+        },
+        {
+          "content": "clean",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": "{\"k\":\"[redacted]\",\"n\":[\"[redacted]\",1],\"o\":{\"p\":\"[redacted]\"}}",
+              "id": "c2",
+              "name": "x"
+            }
+          ]
+        },
+        {
+          "content": "",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "deep": {
+                  "v": "[redacted]"
+                },
+                "list": [
+                  "[redacted]",
+                  "[redacted]",
+                  5
+                ]
+              },
+              "id": "c3",
+              "name": "x"
+            },
+            {
+              "id": "c4",
+              "name": "y"
+            }
+          ]
+        },
+        {
+          "content": "carries state",
+          "role": "assistant"
+        },
+        {
+          "content": "opaque holds",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {},
+              "id": "c5",
+              "name": "x"
+            }
+          ]
+        },
+        {
+          "content": "{\"typed\":\"[redacted]\",\"n\":\"[redacted]\",\"keep\":\"yes\"}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "[\"[redacted]\",1,{\"a\":\"[redacted]\"}]",
+          "role": "tool",
+          "toolCallId": "c2"
+        },
+        {
+          "content": "\"[redacted]\"",
+          "role": "tool",
+          "toolCallId": "c3"
+        },
+        {
+          "content": " {\"a\":\"x\"}",
+          "role": "tool",
+          "toolCallId": "c4"
+        },
+        {
+          "content": "{broken [redacted]",
+          "role": "tool",
+          "toolCallId": "c5"
+        },
+        {
+          "content": [
+            {
+              "text": "{\"typed\":\"[redacted]\"}",
+              "type": "text"
+            },
+            {
+              "content": "out [redacted]",
+              "type": "tool_result"
+            },
+            {
+              "content": [
+                {
+                  "text": "nested [redacted]",
+                  "type": "text"
+                },
+                {
+                  "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "type": "image"
+                }
+              ],
+              "type": "tool_result"
+            }
+          ],
+          "role": "tool",
+          "toolCallId": "c6"
+        },
+        {
+          "content": {
+            "content": [
+              {
+                "text": "wrapped [redacted]",
+                "type": "text"
+              }
+            ]
+          },
+          "role": "tool",
+          "toolCallId": "c7"
+        },
+        {
+          "content": {
+            "text": "single 682419",
+            "type": "text"
+          },
+          "role": "tool",
+          "toolCallId": "c8"
+        },
+        {
+          "content": [
+            "[redacted]",
+            "bare strings [redacted]",
+            7,
+            null
+          ],
+          "role": "tool",
+          "toolCallId": "c9"
+        },
+        {
+          "content": "already [redacted] and [saved login] and [redacted]",
+          "role": "user"
+        },
+        {
+          "role": "user"
+        },
+        {
+          "content": "no change here",
+          "role": "system",
+          "ts": 2
+        },
+        null,
+        "a bare string row 682419",
+        7,
+        {
+          "content": [
+            {
+              "attachmentRef": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "text": "code 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "text": "code [redacted]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "text": "code [redacted]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": 0,
+              "text": "code [redacted]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": false,
+              "text": "code [redacted]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": null,
+              "text": "code [redacted]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": true,
+              "text": "code [redacted]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": {},
+              "text": "code [redacted]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "arguments": {
+            "action": "fill",
+            "input": {
+              "fields": [
+                {
+                  "value": "red"
+                }
+              ],
+              "ref": "e1",
+              "sensitive": true,
+              "text": "e"
+            }
+          },
+          "name": "browser"
+        }
+      ],
+      "id": "sess-short",
+      "marked": true,
+      "same": false,
+      "stored": [
+        {
+          "content": "My cod[redacted] is 682419",
+          "meta": {
+            "transcript": {
+              "messageId": "m1"
+            }
+          },
+          "role": "user",
+          "ts": 1
+        },
+        {
+          "content": [
+            {
+              "text": "hunt[redacted]r2 and hunt[redacted]r22",
+              "type": "text"
+            },
+            {
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "type": "image"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "text": "[Pasted text #1: 682419]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "text": "[Imag[redacted] omitt[redacted]d from sto[redacted] history: 682419]",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "filename": "682419.pdf",
+              "mimeType": "application/pdf",
+              "type": "file"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": "plain r[redacted]ply",
+          "role": "assistant"
+        },
+        {
+          "content": "cod[redacted] 682419",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "a": 682419
+              },
+              "id": "c1",
+              "name": "x"
+            }
+          ]
+        },
+        {
+          "content": "cl[redacted]an",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": "{\"k\":\"682419\",\"n\":[682419,1],\"o\":{\"p\":\"hunt[redacted]r2\"}}",
+              "id": "c2",
+              "name": "x"
+            }
+          ]
+        },
+        {
+          "content": "",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {
+                "deep": {
+                  "v": "hunt[redacted]r2"
+                },
+                "list": [
+                  "p@ss\"word",
+                  "코드123",
+                  5
+                ]
+              },
+              "id": "c3",
+              "name": "x"
+            },
+            {
+              "id": "c4",
+              "name": "y"
+            }
+          ]
+        },
+        {
+          "content": "carri[redacted]s stat[redacted]",
+          "role": "assistant"
+        },
+        {
+          "content": "opaqu[redacted] holds",
+          "role": "assistant",
+          "toolCalls": [
+            {
+              "arguments": {},
+              "id": "c5",
+              "name": "x"
+            }
+          ]
+        },
+        {
+          "content": "{\"typed\":\"682419\",\"n\":682419,\"keep\":\"y[redacted]s\"}",
+          "role": "tool",
+          "toolCallId": "c1"
+        },
+        {
+          "content": "[\"hunt[redacted]r2\",1,{\"a\":\"코드123\"}]",
+          "role": "tool",
+          "toolCallId": "c2"
+        },
+        {
+          "content": "\"682419\"",
+          "role": "tool",
+          "toolCallId": "c3"
+        },
+        {
+          "content": " {\"a\":\"x\"}",
+          "role": "tool",
+          "toolCallId": "c4"
+        },
+        {
+          "content": "{brok[redacted]n 682419",
+          "role": "tool",
+          "toolCallId": "c5"
+        },
+        {
+          "content": [
+            {
+              "text": "{\"typed\":\"hunt[redacted]r2\"}",
+              "type": "text"
+            },
+            {
+              "content": "out 682419",
+              "type": "tool_result"
+            },
+            {
+              "content": [
+                {
+                  "text": "n[redacted]st[redacted]d 682419",
+                  "type": "text"
+                },
+                {
+                  "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "type": "image"
+                }
+              ],
+              "type": "tool_result"
+            }
+          ],
+          "role": "tool",
+          "toolCallId": "c6"
+        },
+        {
+          "content": {
+            "content": [
+              {
+                "text": "wrapp[redacted]d 682419",
+                "type": "text"
+              }
+            ]
+          },
+          "role": "tool",
+          "toolCallId": "c7"
+        },
+        {
+          "content": {
+            "text": "single 682419",
+            "type": "text"
+          },
+          "role": "tool",
+          "toolCallId": "c8"
+        },
+        {
+          "content": [
+            "682419",
+            "bar[redacted] strings hunt[redacted]r2",
+            7,
+            null
+          ],
+          "role": "tool",
+          "toolCallId": "c9"
+        },
+        {
+          "content": "alr[redacted]ady [redacted] and [saved login] and 682419",
+          "role": "user"
+        },
+        {
+          "role": "user"
+        },
+        {
+          "content": "no chang[redacted] h[redacted]r[redacted]",
+          "role": "system",
+          "ts": 2
+        },
+        null,
+        "a bare string row 682419",
+        7,
+        {
+          "content": [
+            {
+              "attachmentRef": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "text": "code 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "text": "cod[redacted] 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "text": "cod[redacted] 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": 0,
+              "text": "cod[redacted] 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": false,
+              "text": "cod[redacted] 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": null,
+              "text": "cod[redacted] 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": true,
+              "text": "cod[redacted] 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "attachmentRef": {},
+              "text": "cod[redacted] 682419",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    }
+  ]
+}

@@ -11,35 +11,44 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::ids::ThreadId;
 
 /// The reason `deleteSession` closes with.
 pub const DELETE_REASON: &str = "desktop-session-delete";
 
-/// One store purge hook (`registerSessionPurgeHook`): synchronous, best effort; `cwds` are the
-/// working folders the session is known to have used (`knownSessionCwds`).
+/// One store purge hook (`registerSessionPurgeHook`), best effort; `cwds` are the working
+/// folders the session is known to have used (`knownSessionCwds`). Node's hooks are
+/// synchronous, so their effects have landed when the delete completes: the returned future
+/// resolves once this hook's effect has (its lane job included).
 pub trait PurgeHook: Send + Sync {
-    fn purge(&self, session_id: &str, cwds: &[String]);
+    fn purge(&self, session_id: &str, cwds: &[String]) -> BoxFuture<'static, ()>;
 }
 
-impl<F: Fn(&str, &[String]) + Send + Sync> PurgeHook for F {
-    fn purge(&self, session_id: &str, cwds: &[String]) {
-        self(session_id, cwds);
+impl<F: Fn(&str, &[String]) -> BoxFuture<'static, ()> + Send + Sync> PurgeHook for F {
+    fn purge(&self, session_id: &str, cwds: &[String]) -> BoxFuture<'static, ()> {
+        self(session_id, cwds)
     }
+}
+
+/// One hook step: neither a panic building it nor one while it runs stops the delete or the
+/// hooks after it (Node's per-hook `try`).
+async fn guarded(step: impl FnOnce() -> BoxFuture<'static, ()>) {
+    use futures::FutureExt;
+    let Ok(effect) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(step)) else { return };
+    let _ = std::panic::AssertUnwindSafe(effect).catch_unwind().await;
 }
 
 /// The store purge hooks in the order a booted 1.4.5 daemon registers (and so runs) them
 /// (`delete_goldens/purge_order.json`). The turn review's (`runtime-review-api.mjs:26`) is
 /// `SessionDeps.turn_review`'s `forget_session`, run in its place between `connector_accounts`
-/// and `worker_turns`. A `None` hook is state no Rust owner holds yet; it runs nothing.
+/// and `worker_turns`. Node's `usageMetrics`, `browserSession` and `compactionCapture` hooks
+/// have no Rust counterpart: Rust holds no such per-session state (decisions.md, "Session
+/// delete purge hooks").
 pub struct PurgeHooks {
     /// `tool-result-offload.mjs:506` `clearOffloadSessionSync`.
     pub tool_result_offload: Arc<dyn PurgeHook>,
-    /// `usage-metrics.mjs:21` `dropMetricSeenState`.
-    pub usage_metrics: Option<Arc<dyn PurgeHook>>,
-    /// `runtime-liveness.mjs:65` `forgetBrowserSession`.
-    pub browser_session: Option<Arc<dyn PurgeHook>>,
     /// `session-transcript-purge.mjs:20`: the conversation transcripts under `cwds` and their
     /// memory ingest offsets.
     pub transcripts: Arc<dyn PurgeHook>,
@@ -47,10 +56,8 @@ pub struct PurgeHooks {
     pub cache_warm: Arc<dyn PurgeHook>,
     /// `read-cache.mjs:317`.
     pub read_cache: Arc<dyn PurgeHook>,
-    /// `compaction-archive-capture.mjs:738`.
-    pub compaction_capture: Option<Arc<dyn PurgeHook>>,
     /// `session-close.mjs:282` `closeProviderConnections(id, 'session-deleted')`.
-    pub provider_connections: Option<Arc<dyn PurgeHook>>,
+    pub provider_connections: Arc<dyn PurgeHook>,
     /// `boot/providers.mjs:54` `forgetConversationConnectorAccounts`.
     pub connector_accounts: Arc<dyn PurgeHook>,
     /// `worker-turns.mjs:208`.
@@ -64,44 +71,41 @@ pub struct PurgeHooks {
 }
 
 impl PurgeHooks {
-    /// `_runSessionPurgeHooks(id, { cwds })`, then the archive and scratch removal. A hook that
-    /// panics never breaks the delete or the hooks after it (Node's per-hook `try`).
-    pub(crate) fn run(&self, review: &dyn mixdog_core_api::turn_review::TurnReviewApi, id: &str, cwds: &[String]) {
-        let guarded = |hook: &dyn Fn()| {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(hook));
-        };
+    /// `_runSessionPurgeHooks(id, { cwds })`, then the archive and scratch removal, one after
+    /// another; it returns once every hook's effect has landed. A hook that panics never breaks
+    /// the delete or the hooks after it (Node's per-hook `try`).
+    pub(crate) async fn run(&self, review: &dyn mixdog_core_api::turn_review::TurnReviewApi, id: &str, cwds: &[String]) {
         for hook in [
-            Some(&self.tool_result_offload),
-            self.usage_metrics.as_ref(),
-            self.browser_session.as_ref(),
-            Some(&self.transcripts),
-            Some(&self.cache_warm),
-            Some(&self.read_cache),
-            self.compaction_capture.as_ref(),
-            self.provider_connections.as_ref(),
-            Some(&self.connector_accounts),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            guarded(&|| hook.purge(id, cwds));
+            &self.tool_result_offload,
+            &self.transcripts,
+            &self.cache_warm,
+            &self.read_cache,
+            &self.provider_connections,
+            &self.connector_accounts,
+        ] {
+            guarded(|| hook.purge(id, cwds)).await;
         }
-        guarded(&|| review.forget_session(id));
+        guarded(|| {
+            review.forget_session(id);
+            Box::pin(std::future::ready(()))
+        })
+        .await;
         for hook in [&self.worker_turns, &self.agent_status, &self.compaction_archive, &self.scratch_dir] {
-            guarded(&|| hook.purge(id, cwds));
+            guarded(|| hook.purge(id, cwds)).await;
         }
     }
 }
 
-/// What `deleteSession` does outside the session and its store.
+/// What `deleteSession` does outside the session and its store. Node's
+/// `agentTool.forgetLeadSession(id)` has no counterpart: a Lead's pool row is the session's own
+/// `worker` header map, gone with the session (decisions.md, "Session delete purge hooks").
 #[async_trait]
 pub trait DeleteSeams: Send + Sync {
-    /// `agentTool.forgetLeadSession(id)`.
-    fn forget_lead_session(&self, session_id: &str);
     /// `releaseSessionWork(id, reason)`: `cancelBackgroundTasks({ reason, notify: false,
     /// executionSessionId: id })` (this session's own tasks, not the sessions it delegated to),
-    /// then `statusRoutes.clearGatewaySessionRoute(id)`.
-    fn release_session_work(&self, session_id: &str, reason: &str);
+    /// then `statusRoutes.clearGatewaySessionRoute(id)`; returns once both have landed, as
+    /// Node's synchronous calls have.
+    async fn release_session_work(&self, session_id: &str, reason: &str);
     /// `forgetSessionSearch(id)`, not awaited.
     fn forget_session_search(&self, session_id: &str);
     /// `releaseDeletedWorktree(id)`: the worktree maintenance's `cleanupDeletedSession`, off the
@@ -109,16 +113,14 @@ pub trait DeleteSeams: Send + Sync {
     async fn release_deleted_worktree(&self, session_id: &str);
     /// `thread/deleted` on the app feed.
     fn thread_deleted(&self, thread: &ThreadId);
-    /// `readSessionSidebarState()`: the desktop's archived and favorite session ids; `None`
-    /// when it cannot be read.
-    async fn sidebar_state(&self) -> Option<SidebarState>;
 }
 
-/// The desktop sidebar's flags (`session-sidebar-host.mjs`).
-#[derive(Clone, Debug, Default)]
-pub struct SidebarState {
-    pub archived: std::collections::HashSet<String>,
-    pub favorites: std::collections::HashSet<String>,
+/// `readSessionSidebarState()`'s flags for one session. The desktop's archived and favorite
+/// marks are the session's own header fields here (`archivedAt`, `favoriteAt`: SPEC
+/// `desktop-session-metadata.json` row, `thread/metadata/update`), set when positive as the
+/// catalog reads `archivedAt`.
+fn sidebar_flag(header: &mixdog_store::schema::record::Header, key: &str) -> bool {
+    header.get(key).map_or(0.0, mixdog_js::to_number) > 0.0
 }
 
 /// The reason the idle delete closes with.
@@ -168,10 +170,15 @@ pub(crate) async fn delete_session_if_idle(
     }
     let thread = ThreadId::from(id);
     let deps = directory.deps().clone();
-    let Some(sidebar) = deps.deletion.sidebar_state().await.filter(|s| s.archived.contains(id)) else {
+    // A session that is not there has no archive mark.
+    let Some(handle) = directory.delete_target(&thread).await? else {
         return refuse("not-archived");
     };
-    if sidebar.favorites.contains(id) {
+    let header = handle.cell.header.load_full();
+    if !sidebar_flag(&header, "archivedAt") {
+        return refuse("not-archived");
+    }
+    if sidebar_flag(&header, "favoriteAt") {
         return refuse("favorite");
     }
     let meta = match idle_refusal(directory, &thread, expected).await? {
@@ -186,8 +193,7 @@ pub(crate) async fn delete_session_if_idle(
     if !remove(directory, &thread, meta.cwds, hold).await {
         return refuse("delete-failed");
     }
-    deps.deletion.forget_lead_session(id);
-    deps.deletion.release_session_work(id, AUTO_DELETE_REASON);
+    deps.deletion.release_session_work(id, AUTO_DELETE_REASON).await;
     after_delete(&deps, id);
     Ok(serde_json::json!({ "deleted": true }))
 }
@@ -211,7 +217,7 @@ async fn remove(
     // A failed purge leaves the marked session's files for the next delete's purge or the
     // boot purge; the session is deleted either way.
     drop(deps.store.purge_deleted().await);
-    deps.purge.run(deps.turn_review.as_ref(), thread.as_str(), &cwds);
+    deps.purge.run(deps.turn_review.as_ref(), thread.as_str(), &cwds).await;
     deps.deletion.thread_deleted(thread);
     true
 }
@@ -286,8 +292,7 @@ pub(crate) async fn delete_session(directory: &super::directory::DirInner, id: &
     let Ok(hold) = directory.close_for_delete(&thread, &reason, false).await? else {
         return Ok(false);
     };
-    deps.deletion.forget_lead_session(id);
-    deps.deletion.release_session_work(id, DELETE_REASON);
+    deps.deletion.release_session_work(id, DELETE_REASON).await;
     if !remove(directory, &thread, meta.cwds, hold).await {
         return Ok(false);
     }

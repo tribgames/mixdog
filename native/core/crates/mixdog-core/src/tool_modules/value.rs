@@ -128,10 +128,13 @@ pub fn normalize_instruction_files(value: Option<&Value>) -> &'static str {
         .unwrap_or("off")
 }
 
-/// `autoEffortBase`: trimmed and lower-cased; anything else is `medium`.
+/// `autoEffortBase`: `String(setting ?? '')` trimmed and lower-cased; anything else is `medium`.
 pub fn auto_effort_base(value: Option<&Value>) -> &'static str {
-    let effort = value.and_then(Value::as_str).unwrap_or("");
-    let effort = mixdog_js::js_trim(effort).to_lowercase();
+    let text = match value {
+        None | Some(Value::Null) => String::new(),
+        Some(other) => mixdog_js::value_to_string(other),
+    };
+    let effort = mixdog_js::js_trim(&text).to_lowercase();
     AUTO_EFFORT_BASES
         .into_iter()
         .find(|base| *base == effort)

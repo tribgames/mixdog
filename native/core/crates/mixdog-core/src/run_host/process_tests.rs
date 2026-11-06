@@ -71,8 +71,9 @@ impl SessionHeaders for Headers {
 #[derive(Default)]
 struct Rejections(Mutex<BTreeMap<(String, String), RejectionEntry>>);
 
+#[async_trait]
 impl EffortRejections for Rejections {
-    fn entry(&self, provider: &str, model: &str) -> Option<RejectionEntry> {
+    async fn entry(&self, provider: &str, model: &str) -> Option<RejectionEntry> {
         self.0.lock().unwrap().get(&(provider.to_owned(), model.to_owned())).cloned()
     }
 }
@@ -218,6 +219,31 @@ async fn the_installation_id_is_the_env_uuid_else_the_file_else_a_new_one_kept()
     let first = resolve_installation_id(&set("nope"), &tokens, dir.path()).await;
     assert_eq!(first.len(), 36);
     assert_eq!(resolve_installation_id(&TestEnv(HashMap::new()), &tokens, dir.path()).await, first);
+}
+
+/// `openai-codex-metadata.mjs` `UUID_RE` takes versions 1-8 and variants 8, 9, a, b only, and
+/// `_codexInstallationId` replaces a file that holds no such uuid whole.
+#[tokio::test]
+async fn an_installation_id_needs_a_valid_version_and_variant_and_a_damaged_file_is_replaced() {
+    let tokens = mixdog_rt::testing::tokens();
+    let set = |v: &str| TestEnv([("MIXDOG_CODEX_INSTALLATION_ID".to_owned(), v.to_owned())].into());
+    let valid = "11111111-2222-8333-b444-555555555555";
+    assert_eq!(resolve_installation_id(&set(&valid.to_uppercase()), &tokens, tempfile::tempdir().unwrap().path()).await, valid);
+    for bad in ["11111111-2222-0333-8444-555555555555", "11111111-2222-9333-8444-555555555555", "11111111-2222-4333-c444-555555555555", "11111111-2222-4333-0444-555555555555"] {
+        let dir = tempfile::tempdir().unwrap();
+        let id = resolve_installation_id(&set(bad), &tokens, dir.path()).await;
+        assert_ne!(id, bad, "{bad} is not a uuid");
+        assert_eq!(std::fs::read_to_string(dir.path().join("installation_id")).unwrap(), id);
+    }
+    // A file that holds a bad variant, nothing, or NULs is replaced by the generated id.
+    for damaged in ["11111111-2222-4333-c444-555555555555", "", "\0\0\0\0"] {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("installation_id"), damaged).unwrap();
+        let id = resolve_installation_id(&TestEnv(HashMap::new()), &tokens, dir.path()).await;
+        assert_ne!(id, damaged);
+        assert_eq!(std::fs::read_to_string(dir.path().join("installation_id")).unwrap(), id, "{damaged:?}");
+        assert_eq!(resolve_installation_id(&TestEnv(HashMap::new()), &tokens, dir.path()).await, id, "the repaired file is read back");
+    }
 }
 
 #[tokio::test]
@@ -393,8 +419,8 @@ async fn the_ladder_reads_the_process_stores() {
     assert!(ladder.cached_row("openai", "gpt-5.5").is_none());
 
     // What an endpoint refused.
-    assert_eq!(ladder.rejected("openai", "gpt-5.5").map(|e| e.rejected), Some(vec!["xhigh".to_owned()]));
-    assert!(ladder.rejected("openai", "gpt-5.4").is_none());
+    assert_eq!(ladder.rejected("openai", "gpt-5.5").await.map(|e| e.rejected), Some(vec!["xhigh".to_owned()]));
+    assert!(ladder.rejected("openai", "gpt-5.4").await.is_none());
 
     // The Anthropic efforts of the catalog's caps.
     assert_eq!(ladder.anthropic_levels("claude-sonnet-4-6"), ["low", "medium", "high"]);
@@ -410,10 +436,10 @@ async fn the_ladder_facts_of_a_custom_and_an_anthropic_route() {
     });
     let w = world(&[], providers, Vec::new()).await;
     let ladder = ProcessLadder::new(&w.services);
-    let custom = ladder_facts(&ladder, "custom-acme", "m1");
+    let custom = ladder_facts(&ladder, "custom-acme", "m1").await;
     let route = custom.custom.expect("a custom route carries its row and config");
     assert_eq!(route.base_url, "https://example.test/v1");
-    let anthropic = ladder_facts(&ladder, "anthropic", "claude-opus-5");
+    let anthropic = ladder_facts(&ladder, "anthropic", "claude-opus-5").await;
     assert_eq!(anthropic.options, ["low", "medium", "high", "xhigh"]);
     assert!(anthropic.custom.is_none());
 }
@@ -427,10 +453,29 @@ async fn a_rejection_the_file_holds_reaches_the_ladder() {
         r#"{"version":1,"models":{"openai:gpt-5.5":{"rejected":["xhigh"],"allowed":["low","high"]},"x:y":{"rejected":[]}}}"#,
     )
     .unwrap();
-    let store = FileRejections::load(&w.services.lanes, &w.services.plugin_data).await;
-    let entry = store.entry("openai", "GPT-5.5 ").unwrap();
+    let store = FileRejections::new(&w.services.lanes, &w.services.plugin_data);
+    let entry = store.entry("openai", "GPT-5.5 ").await.unwrap();
     assert_eq!((entry.rejected, entry.allowed), (vec!["xhigh".to_owned()], vec!["low".to_owned(), "high".to_owned()]));
-    assert!(store.entry("openai", "gpt-5.4").is_none());
+    assert!(store.entry("openai", "gpt-5.4").await.is_none());
+}
+
+/// `effort-rejection.mjs` `load`: the cached copy is trusted only while the file's mtime and size
+/// are unchanged, so a rejection another process persists (or a file it removes) shows on the
+/// next read.
+#[tokio::test]
+async fn a_file_another_process_changed_is_reloaded_on_the_next_read() {
+    let w = world(&[], json!({}), Vec::new()).await;
+    let file = w.services.plugin_data.join("effort-rejections.json");
+    std::fs::create_dir_all(&w.services.plugin_data).unwrap();
+    let store = FileRejections::new(&w.services.lanes, &w.services.plugin_data);
+    assert!(store.entry("openai", "gpt-5.5").await.is_none(), "no file holds nothing");
+    std::fs::write(&file, r#"{"version":1,"models":{"openai:gpt-5.5":{"rejected":["xhigh"]}}}"#).unwrap();
+    assert_eq!(store.entry("openai", "gpt-5.5").await.map(|e| e.rejected), Some(vec!["xhigh".to_owned()]));
+    std::fs::write(&file, r#"{"version":1,"models":{"openai:gpt-5.5":{"rejected":["xhigh","high"]},"x:y":{"rejected":["low"]}}}"#).unwrap();
+    assert_eq!(store.entry("openai", "gpt-5.5").await.map(|e| e.rejected), Some(vec!["xhigh".to_owned(), "high".to_owned()]));
+    assert_eq!(store.entry("x", "y").await.map(|e| e.rejected), Some(vec!["low".to_owned()]));
+    std::fs::remove_file(&file).unwrap();
+    assert!(store.entry("openai", "gpt-5.5").await.is_none(), "a removed file holds nothing");
 }
 
 // ---- HopWiring and ErrorText --------------------------------------------------------------

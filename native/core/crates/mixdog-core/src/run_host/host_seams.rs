@@ -124,8 +124,8 @@ impl SessionSeams for HostSeams {
         super::tail::tail_context(header, || self.parts.config.response_language())
     }
 
-    fn step_ladder_facts(&self, _thread: &ThreadId, header: &Header, _auto: &StepAutoEffort) -> Option<StepLadderFacts> {
-        Some(ladder_facts(&*self.parts.ladder, text(header, "provider"), text(header, "model")))
+    async fn step_ladder_facts(&self, _thread: &ThreadId, header: &Header, _auto: &StepAutoEffort) -> Option<StepLadderFacts> {
+        Some(ladder_facts(&*self.parts.ladder, text(header, "provider"), text(header, "model")).await)
     }
 
     fn image_compactor(&self) -> Option<Arc<dyn ImageCompactor>> {

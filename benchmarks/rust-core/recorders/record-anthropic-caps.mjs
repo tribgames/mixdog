@@ -34,6 +34,19 @@ const LIVE = [
   { id: 'deepseek-v3', reasoningOptions: [{ type: 'effort', values: ['low', 'high'] }] },
 ];
 
+// Rows that declare more than a ladder: an empty stated ladder (a model that takes no effort),
+// `thinkingTypes` flags, a bare alias that keeps the richer sibling, and a row stating no ladder
+// at all (unknown, so skipped).
+const DECLARED = [
+  { id: 'claude-opus-4-8', reasoningOptions: [] },
+  { id: 'claude-sonnet-4-5', reasoningOptions: [{ type: 'effort', values: ['low', 'high'] }], thinkingTypes: { adaptive: true, enabled: false } },
+  { id: 'claude-opus-5', reasoningOptions: [{ type: 'effort', values: ['low', 'medium', 'high', 'xhigh'] }], thinkingTypes: { adaptive: false } },
+  { id: 'claude-sonnet-4-6-20260101', reasoningOptions: [{ type: 'effort', values: ['low', 'medium'] }] },
+  { id: 'claude-sonnet-4-6', reasoningOptions: [] },
+  { id: 'claude-fable-5-1', thinkingTypes: { enabled: true } },
+  { id: 'claude-opus-4-7', reasoningOptions: [], thinkingTypes: { enabled: true } },
+];
+
 function answers() {
   return IDS.map((model) => ({
     model,
@@ -50,7 +63,9 @@ effort.setModelEffortCapabilities([]);
 const floor = answers();
 effort.setModelEffortCapabilities(LIVE);
 const live = answers();
+effort.setModelEffortCapabilities(DECLARED);
+const declared = answers();
 
-writeJson(join(stage, 'golden.json'), { ids: IDS, live: LIVE, floor, withLive: live });
+writeJson(join(stage, 'golden.json'), { ids: IDS, live: LIVE, floor, withLive: live, declaredRows: DECLARED, declared });
 writeSetManifest(stage, { set: 'anthropic-caps', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
 commitStage(stage, finalDir);

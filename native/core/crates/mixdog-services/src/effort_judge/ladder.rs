@@ -35,6 +35,22 @@ pub fn ladder_of(options: &[String]) -> Vec<&'static str> {
         .collect()
 }
 
+/// `clampAutoEffortBase`: `base` (one of `low`/`medium`/`high`, as `autoEffortBase` returns it)
+/// on the model's ladder: itself, else the nearest ladder level, the lower one on a tie. `None`
+/// when the ladder is empty.
+pub fn clamp_base(base: &str, options: &[String]) -> Option<&'static str> {
+    let ladder = ladder_of(options);
+    let place = |level: &str| EFFORT_ORDER.iter().position(|l| *l == level).map_or(-1, |i| i as isize);
+    let want = place(base);
+    let mut best = *ladder.first()?;
+    for level in &ladder {
+        if (place(level) - want).abs() < (place(best) - want).abs() {
+            best = level;
+        }
+    }
+    Some(best)
+}
+
 fn expected_cost(values: &[f64; LEVELS], level: usize) -> f64 {
     values
         .iter()

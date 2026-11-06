@@ -448,6 +448,10 @@ pub struct AgentTurn {
 pub struct RunStart {
     /// `Some` for a worker's turn started by `agent_registry::SessionTurns`.
     pub agent_turn: Option<AgentTurn>,
+    /// `snapshotPendingGoalReminder`: the Goal's state the turn's tail block carries (after the
+    /// deferred tool delta, before the todo start reminder); the actor acknowledges it when the
+    /// turn is accepted.
+    pub goal_reminder: Option<super::goal_reminder::GoalReminder>,
     pub thread: ThreadId,
     pub turn: TurnId,
     pub input: TurnInput,
