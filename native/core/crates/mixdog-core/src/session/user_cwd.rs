@@ -143,7 +143,7 @@ pub fn normalize_platform_cwd(p: &str) -> Option<String> {
 
 /// Node's `path.resolve(p)` against the process cwd: absolute, `.` and `..` folded, no
 /// trailing separator except at a root.
-fn node_resolve(p: &str) -> String {
+pub(crate) fn node_resolve(p: &str) -> String {
     use std::path::Component;
     let joined = std::env::current_dir().unwrap_or_default().join(p);
     let absolute = std::path::absolute(&joined).unwrap_or(joined);

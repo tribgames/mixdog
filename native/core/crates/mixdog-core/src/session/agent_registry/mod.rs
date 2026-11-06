@@ -408,6 +408,27 @@ impl AgentRegistry {
         }
     }
 
+    /// `forgetDeletedSession` (`gone-rows.mjs`): a deleted session's settled row goes, as a
+    /// tombstone; a Lead pool row, a running one or an owed restart failure stays. Whether one
+    /// went. Reads the index as it is now (`readAllWorkerRows`).
+    pub async fn forget_deleted_session(&self, session_id: &str) -> bool {
+        let id = clean_str(session_id);
+        if id.is_empty() {
+            return false;
+        }
+        self.reload().await;
+        let now = self.now();
+        let mut st = self.lock();
+        let Some(row) = st.map(&id).cloned().and_then(|map| st.row(&id, &map, now)) else {
+            return false;
+        };
+        if clean(row.get("sessionId")) != id || is_lead_pool_agent(row.get("agent")) || !is_terminal_row(&row) || is_unnotified_restart_failure(&row) {
+            return false;
+        }
+        self.tombstone_rows(&mut st, &[row]);
+        true
+    }
+
     /// `removeWorkerRow({sessionId})`: an owed restart failure stays.
     fn remove_row(&self, st: &mut State, session: &str) {
         let now = self.now();

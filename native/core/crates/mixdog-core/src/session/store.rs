@@ -204,6 +204,34 @@ impl StoreThreads {
         }
     }
 
+    /// Over the data dir's stores: `index` is the core's one `SqliteStore` (WP-STORE opens it,
+    /// with its boot purge), `ownership` the core's data-dir lock every log writer revalidates;
+    /// the blob store and the log writers are the data dir's own. `<data>/sessions` is made on
+    /// the maintenance lane first. Call on the Tokio runtime the projections run on.
+    pub async fn over_data_dir(
+        data: &Path,
+        index: SqliteStore,
+        ownership: Arc<dyn mixdog_core_api::domain::ownership::Ownership>,
+        maintenance: MaintenanceIo,
+    ) -> Result<Self, CoreError> {
+        let sessions = data.join("sessions");
+        mixdog_rt::LaneToken::submit(maintenance, &mixdog_rt::CancellationToken::new(), move |_lane| {
+            mixdog_store::fsio::create_dir_durable(&sessions)
+        })
+        .map_err(|_| internal("sessions-dir", &"maintenance lane refused"))?
+        .await
+        .map_err(|_| internal("sessions-dir", &"maintenance job dropped"))?
+        .map_err(|e| internal("sessions-dir", &e))?;
+        let blobs = BlobStore::new(data);
+        let writer = WriterDeps {
+            io: Arc::new(mixdog_store::log::OsIo),
+            blobs: blobs.clone(),
+            ownership,
+            index: Arc::new(index.clone()),
+        };
+        Ok(Self::new(data, blobs, index, writer, maintenance))
+    }
+
     /// An index write from inside a lane job (`_lane` is the proof). Lane threads are not runtime
     /// threads; an inline lane (tests) runs on a runtime worker, which must hand off its tasks
     /// first.
@@ -463,14 +491,31 @@ impl StoreThreads {
 /// [`super::seams::TurnIngest`] over the session-search writer.
 pub struct SessionSearchTurns(pub Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>);
 
+impl SessionSearchTurns {
+    /// Over the memory service's one session-search writer (`SessionSearchIngest::new(db,
+    /// sensitive)`, the same one `forgetSessionSearch` and the backfill use).
+    pub fn new(ingest: Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>) -> Self {
+        Self(ingest)
+    }
+}
+
+/// What one completed turn hands the session-search writer: the session's model context, and
+/// `isAgentOnlySession` (store-summary-visibility.mjs) of its header.
+pub(crate) fn search_session(
+    id: &ThreadId,
+    header: &mixdog_store::schema::record::Header,
+    messages: Vec<Value>,
+) -> mixdog_services::memory::session_search::ingest::IngestSession {
+    mixdog_services::memory::session_search::ingest::IngestSession {
+        id: id.as_str().to_owned(),
+        messages,
+        agent_only: mixdog_store::summary::session_visibility(header) == "agent-only",
+    }
+}
+
 impl super::seams::TurnIngest for SessionSearchTurns {
     fn ingest_turn(&self, id: &ThreadId, header: &mixdog_store::schema::record::Header, messages: Vec<Value>) {
-        self.0.ingest_turn(mixdog_services::memory::session_search::ingest::IngestSession {
-            id: id.as_str().to_owned(),
-            messages,
-            // `isAgentOnlySession` (store-summary-visibility.mjs).
-            agent_only: mixdog_store::summary::session_visibility(header) == "agent-only",
-        });
+        self.0.ingest_turn(search_session(id, header, messages));
     }
 }
 
@@ -486,6 +531,13 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
 /// [`super::seams::CloseIngest`] over the memory module's `ingest_session` action; `None` when
 /// memory was not started this run (today's `getMemoryModPromise()` returning null).
 pub struct MemoryCloseIngest(pub Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>);
+
+impl MemoryCloseIngest {
+    /// Over the memory module the daemon started (`LocalMemory`), or `None` when memory is off.
+    pub fn new(memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>) -> Self {
+        Self(memory)
+    }
+}
 
 impl super::seams::CloseIngest for MemoryCloseIngest {
     fn ingest(&self, id: &ThreadId, cwd: &str, messages: Vec<Value>) -> futures::future::BoxFuture<'static, ()> {
@@ -917,6 +969,18 @@ impl ThreadStore for StoreThreads {
 pub struct CoreThreadFeeds {
     pub limits: crate::feed::FeedLimits,
     pub cpu: CpuInteractive,
+}
+
+impl CoreThreadFeeds {
+    /// Thread feeds under the core's wire limits (`ringBytes`, `maxSnapshotBytes`); `cpu` runs
+    /// their snapshot encodes.
+    pub fn new(limits: &mixdog_app_protocol::limits::Limits, cpu: CpuInteractive) -> Self {
+        let bytes = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
+        Self {
+            limits: crate::feed::FeedLimits { ring_bytes: bytes(limits.ring_bytes), max_snapshot_bytes: bytes(limits.max_snapshot_bytes) },
+            cpu,
+        }
+    }
 }
 
 impl super::FeedFactory for CoreThreadFeeds {

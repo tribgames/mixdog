@@ -950,16 +950,12 @@ async fn a_cold_open_is_single_flight_and_reopens_the_same_state() {
     ));
 }
 
-/// The real thread store (log writer, codec, index) over the data dir `data`.
-#[allow(clippy::disallowed_methods, reason = "test setup makes the sessions folder")]
-async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
+/// The real thread store (log writer, codec, index) over the data dir `data`
+/// (`StoreThreads::over_data_dir`).
+pub(super) async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
     use mixdog_core_api::domain::mock::MockOwnership;
-    use mixdog_store::blobs::BlobStore;
-    use mixdog_store::log::OsIo;
-    use mixdog_store::log::WriterDeps;
     use mixdog_store::sqlite::SqliteStore;
 
-    std::fs::create_dir_all(data.join("sessions")).unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let root = data.to_path_buf();
     let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
@@ -969,14 +965,8 @@ async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
     .await
     .expect("job ran")
     .expect("index");
-    let blobs = BlobStore::new(data);
-    let writer = WriterDeps {
-        io: Arc::new(OsIo),
-        blobs: blobs.clone(),
-        ownership: Arc::new(MockOwnership::default()),
-        index: Arc::new(index.clone()),
-    };
-    Arc::new(super::StoreThreads::new(data, blobs, index, writer, tokens.maintenance_io))
+    let ownership = Arc::new(MockOwnership::default());
+    Arc::new(super::StoreThreads::over_data_dir(data, index, ownership, tokens.maintenance_io).await.expect("the thread store"))
 }
 
 /// `thread/delete` (`deleteSession`): the pending approval leaves the list and the running

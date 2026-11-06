@@ -418,6 +418,81 @@ async fn a_deleted_session_with_nothing_reports_nothing_and_still_stops_its_clea
     assert_eq!(*cancelled.lock().unwrap(), [Some("ghost".to_owned())]);
 }
 
+struct BoardClock;
+impl mixdog_agent::env::Clock for BoardClock {
+    fn now_ms(&self) -> i64 {
+        1
+    }
+}
+
+/// `deleteSession`'s outside world over the real services, in Node's calls: the session's own
+/// background work is cancelled silently (not another session's), its gateway route and Lead
+/// pool entry go, the app feed hears `thread/deleted`, and its worktree cleanups stop; with no
+/// desktop attached the sidebar reads as none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delete_reaches_the_board_the_app_feed_and_the_worktrees() {
+    use mixdog_agent::agent_tool::board::JobBoard;
+    use mixdog_agent::agent_tool::board::JobMeta;
+    use mixdog_agent::agent_tool::board::NewJob;
+    use mixdog_core_api::feed::FeedSource;
+    use mixdog_core_api::mock::MockConnection;
+    use mixdog_core_api::mock::MockFeed;
+    use mixdog_core_api::mock::MockLimits;
+
+    use crate::session::delete::DeleteSeams;
+
+    let board = JobBoard::new(Arc::new(BoardClock), None, None);
+    let stopped: Arc<Mutex<Vec<String>>> = Arc::default();
+    for session in ["gone", "kept"] {
+        let seen = stopped.clone();
+        let job = NewJob {
+            operation: "shell".into(),
+            meta: JobMeta { session_id: Some(session.into()), ..JobMeta::default() },
+            cancel: Some(Arc::new(move || seen.lock().unwrap().push(session.to_owned()))),
+            ..NewJob::default()
+        };
+        board.register(job).unwrap();
+    }
+    let limits = MockLimits::default();
+    let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
+    let conn = MockConnection::new(mixdog_core_api::ids::ConnectionId(1), limits);
+    let source: Arc<dyn FeedSource> = feed.clone();
+    let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &conn).unwrap();
+    mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
+    let rig = rig();
+    let cancelled = Arc::new(Mutex::new(Vec::new()));
+    let calls: Arc<Mutex<Vec<String>>> = Arc::default();
+    let (lead, route) = (calls.clone(), calls.clone());
+    let deletion = crate::session::purge::SessionDeletion {
+        app: Arc::new(crate::state::SectionFeedState::new(feed)),
+        search: None,
+        worktrees: Arc::new(open_maintenance(&rig, cancelled.clone())),
+        board: board.clone(),
+        lead_pool: Some(Arc::new(move |id: &str| lead.lock().unwrap().push(format!("lead:{id}")))),
+        gateway_routes: Some(Arc::new(move |id: &str| route.lock().unwrap().push(format!("route:{id}")))),
+        sidebar: None,
+    };
+
+    deletion.forget_lead_session("gone");
+    deletion.release_session_work("gone", "desktop-session-delete");
+    assert_eq!(*stopped.lock().unwrap(), ["gone"]);
+    assert_eq!(*calls.lock().unwrap(), ["lead:gone", "route:gone"]);
+    deletion.thread_deleted(&mixdog_core_api::ids::ThreadId::from("gone"));
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let texts = conn.drain_text();
+        if texts.iter().any(|t| t.contains(r#""method":"thread/deleted","params":{"threadId":"gone"}"#)) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "thread/deleted not published");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    deletion.release_deleted_worktree("gone").await;
+    assert_eq!(*cancelled.lock().unwrap(), [Some("gone".to_owned())]);
+    deletion.forget_session_search("gone");
+    assert!(deletion.sidebar_state().await.is_none());
+}
+
 #[test]
 fn the_daemon_log_lines_equal_nodes() {
     let quiet = json!({"removed": [], "recovered": [], "pruned": [], "kept": [{"id": "a", "reason": "dirty"}], "errors": []});
