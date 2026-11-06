@@ -271,6 +271,14 @@ async fn one_transcription_starts_the_children_node_recorded_with_the_same_argum
         let pipeline = VoicePipeline::new(dir.path().to_owned(), manifest, Arc::new(Fixed(json!({"enabled": true, "transcription": scenario["voice"]["transcription"], "language": scenario["voice"]["language"]}))), server.clone(), Arc::new(ProcessAudioTools(processes.clone())), mixdog_rt::testing::tokens().durability_io);
         let text = pipeline.transcribe(&dir.path().join("in").join("clip.ogg"), Some("att-1")).await.unwrap();
         assert_eq!(text.as_deref(), scenario["text"].as_str(), "{}", scenario["name"]);
+        // The pid file records the child while it runs and goes with it when it dies on its own.
+        let pid_path = dir.path().join("voice-runtime").join("whisper-server.pid.json");
+        let recorded: Value = serde_json::from_str(&std::fs::read_to_string(&pid_path).unwrap()).unwrap();
+        assert_eq!((recorded["pid"].as_u64(), recorded["host"].as_str()), (Some(u64::from(WHISPER_PID)), Some("127.0.0.1")));
+        let handle = ProcessHandle(manager.servers.lock().unwrap().keys().next().unwrap().clone());
+        manager.kill(&handle).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(!pid_path.exists(), "the exit watcher clears the pid file");
         server.stop().await;
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
         let data = dir.path().to_string_lossy().into_owned();

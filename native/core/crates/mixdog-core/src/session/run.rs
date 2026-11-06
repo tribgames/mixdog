@@ -3,6 +3,8 @@
 //! storage), replies come back on oneshots. The run selects each await against its token.
 
 use async_trait::async_trait;
+pub use mixdog_agent::env::DrainRequest;
+pub use mixdog_agent::env::DrainStage;
 pub use mixdog_agent::env::Priority;
 pub use mixdog_agent::env::SteerMode;
 use bytes::Bytes;
@@ -95,18 +97,25 @@ pub enum RunError {
     NotApplied,
 }
 
-/// A queue entry handed to the run at a model-call boundary (R10): a steered prompt or a
-/// background job's completion.
+/// One steering input handed to the run at a model-call boundary (R10), as today's drain
+/// returns it (`ask-turn-steering-drain.mjs`): a steered entry alone, the queued prompts merged
+/// into one, or one background job's completion.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SteerInput {
-    pub queued_id: QueuedId,
-    /// The queue entry (`{message, …}`).
-    pub entry: Value,
+    /// The queue entries this input took, in queue order (`ids`).
+    pub queued_ids: Vec<QueuedId>,
+    /// The model content: a string or an array of prompt parts (`content`).
+    pub content: Value,
+    /// Display text (`text`); a steered entry carries its own, if any.
+    pub text: Option<String>,
     /// `TaskNotification` for a completion: the drain's `SteerEntry.mode`, stored under its own
     /// source, never as the user speaking.
     pub mode: SteerMode,
     /// A completion's execution provenance (`SteerEntry.execution`).
     pub execution: Option<Value>,
+    /// A steered entry's `submittedAt` and `messageId`; a merged group carries neither.
+    pub submitted_at: Option<i64>,
+    pub message_id: Option<String>,
 }
 
 /// `queuePriorityValue(entry.priority) <= queuePriorityValue(max)`: `now` (0) and `next` (1)
@@ -177,7 +186,7 @@ pub(crate) enum ProducerMsg {
     },
     TakeSteers {
         turn: TurnId,
-        max_priority: Priority,
+        request: DrainRequest,
         reply: oneshot::Sender<Vec<SteerInput>>,
     },
     ProviderState {
@@ -306,18 +315,20 @@ impl RunPort {
         rx.await.map_err(|_| RunError::Closed)?
     }
 
-    /// Entries dequeued for injection now: the steered ones whose enqueue is durable and whose
-    /// queue priority is at most `max_priority`, in queue order (today's
-    /// `drainPendingSteering({maxPriority})`: `next` leaves `later` entries queued), then every
-    /// queued completion, oldest first, each its own entry (`createAskSteeringDrain`: a queue
-    /// holding only notifications is taken at every boundary). While a route saved during the
-    /// turn is held, completions stay queued for the next turn. A completion no boundary took
-    /// starts its own turn when this one ends.
-    pub async fn take_steers(&self, max_priority: Priority) -> Result<Vec<SteerInput>, RunError> {
+    /// Input dequeued for injection at this boundary (`createAskSteeringDrain`). First the
+    /// steered entries whose enqueue is durable and whose queue priority is at most
+    /// `max_priority`, in queue order, one input each (`drainPendingSteering({maxPriority})`:
+    /// `next` leaves `later` entries queued). Then the rest of the queue within that priority,
+    /// at the `Terminal` stage, or at any stage when it holds task notifications only
+    /// (`pendingQueueHoldsOnlyNotifications`): its prompts merged into one input, then each
+    /// completion on its own, oldest first (`_groupPendingMessageEntries`). While a route saved
+    /// during the turn is held, that rest stays queued for the next turn. A completion no
+    /// boundary took starts its own turn when this one ends.
+    pub async fn take_steers(&self, request: DrainRequest) -> Result<Vec<SteerInput>, RunError> {
         let (reply, rx) = oneshot::channel();
         self.send(ProducerMsg::TakeSteers {
             turn: self.turn.clone(),
-            max_priority,
+            request,
             reply,
         })
         .await?;

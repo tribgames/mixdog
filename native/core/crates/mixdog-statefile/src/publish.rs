@@ -283,14 +283,25 @@ pub(crate) fn rename_with_retry(src: &Path, dst: &Path) -> io::Result<()> {
 }
 
 fn read_or_null(path: &Path) -> io::Result<Option<Vec<u8>>> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
+    // On Windows a read racing another writer's rename-over fails with a sharing violation
+    // (PermissionDenied) for a few milliseconds; Node's reader has the same window and no retry,
+    // which an unlocked concurrent writer then loses at random.
+    let mut attempt = 0;
+    loop {
+        match fs::read(path) {
+            Ok(bytes) => return Ok(Some(bytes)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied && attempt < 20 && !path.is_dir() => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(error) => return Err(error),
+        }
     }
 }
 
-pub(crate) fn read_content(path: &Path) -> io::Result<Option<Vec<u8>>> {
+/// The file's bytes, `None` when it is missing.
+pub fn read_content(path: &Path) -> io::Result<Option<Vec<u8>>> {
     read_or_null(path)
 }
 

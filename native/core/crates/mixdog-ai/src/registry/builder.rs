@@ -60,6 +60,8 @@ use crate::providers::connect::rewrite::RewriteCodec;
 use crate::providers::connect::rewrite::Credential;
 use crate::providers::custom;
 use crate::providers::custom::CustomRequestConfig;
+use crate::providers::custom::listing::CustomListing;
+use mixdog_core_api::domain::provider::ModelListing;
 use crate::providers::custom::CustomRewriter;
 use crate::providers::custom::Protocol;
 use crate::providers::devin::DevinAdapter;
@@ -559,7 +561,11 @@ impl DefaultProviderBuilder {
             .map(|map| map.iter().filter_map(|(m, w)| Some((m.clone(), Wire::parse(w.as_str()?)?))).collect())
             .unwrap_or_default();
         let routing = RouteInputs { model_wires, catalog: None };
-        Ok(adapter(CompatAdapter::new(codec, http, Some(key)).with_routing(routing)))
+        Ok(adapter(
+            CompatAdapter::new(codec, http, Some(key))
+                .with_routing(routing)
+                .with_listing_lookup(self.env.listing.clone()),
+        ))
     }
 
     async fn build_gemini(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -758,21 +764,46 @@ impl DefaultProviderBuilder {
         let request = CustomRequestConfig { base_url: base_url.clone(), headers, request_body, model_body, model_headers };
         let mut engines: Vec<(Wire, Arc<dyn ProviderAdapter>)> = Vec::new();
         for wire in &served {
+            // The provider lists its models once, through the engine of its protocol's wire.
+            let listing = (*wire == protocol_wire).then(|| -> Arc<dyn ModelListing> {
+                let header = if *wire == Wire::Messages { key("x-api-key", false) } else { key("authorization", true) };
+                Arc::new(CustomListing::new(
+                    name,
+                    protocol.clone(),
+                    &base_url,
+                    request.headers.clone(),
+                    self.env.http.clone(),
+                    header,
+                    keyless,
+                    cfg,
+                    self.env.listing.clone(),
+                ))
+            });
             let engine: Arc<dyn ProviderAdapter> = match wire {
-                Wire::Messages => Arc::new(self.custom_messages_engine(name, &request, key("x-api-key", false))),
+                Wire::Messages => {
+                    let engine = self.custom_messages_engine(name, &request, key("x-api-key", false));
+                    Arc::new(match listing {
+                        Some(listing) => engine.with_listing(listing),
+                        None => engine,
+                    })
+                }
                 other => {
                     let family = if *other == Wire::Chat {
                         custom::chat_codec(name, &base_url)
                     } else {
                         custom::responses_codec(name, &base_url)
                     };
-                    Arc::new(HttpAdapter::new(
+                    let engine = HttpAdapter::new(
                         ProviderId::from(name),
                         Arc::new(RewriteCodec::new(family, CustomRewriter { config: request.clone() })),
                         self.env.http.clone(),
                         key("authorization", true),
                         retry.clone(),
-                    ))
+                    );
+                    Arc::new(match listing {
+                        Some(listing) => engine.with_listing(listing),
+                        None => engine,
+                    })
                 }
             };
             engines.push((*wire, engine));

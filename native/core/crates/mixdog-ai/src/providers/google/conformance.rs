@@ -238,7 +238,7 @@ fn fold(events: &[StreamEvent]) -> Folded {
             StreamEvent::TextDelta(t) => text.push_str(t),
             StreamEvent::ToolCallDone(c) => calls.push(c.clone()),
             StreamEvent::Usage(u) => usage = Some((u.input_tokens, u.output_tokens)),
-            StreamEvent::Completed { stop: s } => stop = s.clone(),
+            StreamEvent::Completed { stop: s, .. } => stop = s.clone(),
             _ => {}
         }
     }
@@ -902,6 +902,43 @@ async fn vertex_adc_mints_per_request_and_replays_the_recorded_401() {
     let seen = http.seen.lock().unwrap();
     assert_eq!(String::from_utf8_lossy(&seen[0].body), token.body);
     assert!(seen[1].headers.contains(&("authorization".into(), "Bearer fixture-access-token".into())));
+}
+
+fn vertex_at(place: VertexPlace, http: &Arc<Scripted>) -> super::adapter::GoogleAdapter {
+    super::vertex(place, Arc::new(super::auth::ApiKeyAuth::new("key-1")), String::new(), http.clone(), traits())
+}
+
+const NOT_FOUND: &str = r#"{"error":{"code":404,"status":"NOT_FOUND","message":"gone"}}"#;
+
+#[tokio::test]
+async fn a_404_from_an_environment_region_is_resent_once_on_global() {
+    let http = Scripted::new(vec![respond(404, NOT_FOUND), respond(200, "")]);
+    let adapter = vertex_at(VertexPlace::project("p", None, Some("us-central1")), &http);
+    assert!(adapter.attempt(Arc::new(fixture_request("gemini-2.5-pro"))).await.is_ok());
+    let urls = http.urls();
+    assert_eq!(urls.len(), 2);
+    assert!(urls[0].starts_with("https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/"));
+    assert!(urls[1].starts_with("https://aiplatform.googleapis.com/v1/projects/p/locations/global/"));
+}
+
+#[tokio::test]
+async fn a_404_at_global_after_the_fallback_surfaces_with_the_global_hint() {
+    let http = Scripted::new(vec![respond(404, NOT_FOUND), respond(404, NOT_FOUND)]);
+    let adapter = vertex_at(VertexPlace::project("p", None, Some("us-central1")), &http);
+    let err = adapter.attempt(Arc::new(fixture_request("gemini-2.5-pro"))).await.err().expect("404");
+    assert_eq!(err.status, Some(404));
+    assert_eq!(http.urls().len(), 2, "resent once, not again");
+    assert!(err.message.contains("global"), "{}", err.message);
+}
+
+#[tokio::test]
+async fn a_configured_or_global_location_is_never_resent_on_a_404() {
+    for place in [VertexPlace::project("p", Some("us-central1"), None), VertexPlace::project("p", None, None)] {
+        let http = Scripted::new(vec![respond(404, NOT_FOUND)]);
+        let err = vertex_at(place, &http).attempt(Arc::new(fixture_request("gemini-2.5-pro"))).await.err().expect("404");
+        assert_eq!(err.status, Some(404));
+        assert_eq!(http.urls().len(), 1);
+    }
 }
 
 #[tokio::test]

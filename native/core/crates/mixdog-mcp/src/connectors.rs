@@ -13,9 +13,19 @@ use crate::config::InlineSecret;
 use crate::config::OAuthBinding;
 use crate::config::StaticClient;
 
+/// How a catalog connector is reached: a remote server with MCP sign-in, or a server that takes
+/// one key (an HTTP header or a stdio environment variable).
+pub enum Backend {
+    OAuth { url: &'static str },
+    ApiKey { url: Option<&'static str>, header: &'static str, prefix: &'static str, command: &'static str, args: &'static [&'static str], env: &'static str },
+}
+
 pub struct Connector {
     pub id: &'static str,
     pub name: &'static str,
+    pub backend: Backend,
+    /// New connections go by app password only (Gmail).
+    pub app_password_only: bool,
     /// Tools that ask before they run unless the agent set their permission.
     pub ask_tools: &'static [&'static str],
     /// The pre-registered sign-in client the connector uses, with the scopes it requests.
@@ -24,33 +34,74 @@ pub struct Connector {
 
 const GOOGLE_SCOPE_BASE: &str = "https://www.googleapis.com/auth";
 
-const fn plain(id: &'static str, name: &'static str) -> Connector {
-    Connector { id, name, ask_tools: &[], google_scopes: None }
+const fn plain(id: &'static str, name: &'static str, url: &'static str) -> Connector {
+    Connector { id, name, backend: Backend::OAuth { url }, app_password_only: false, ask_tools: &[], google_scopes: None }
+}
+
+const fn key_over_http(id: &'static str, name: &'static str, url: &'static str) -> Connector {
+    Connector {
+        id,
+        name,
+        backend: Backend::ApiKey { url: Some(url), header: "Authorization", prefix: "Bearer ", command: "", args: &[], env: "" },
+        app_password_only: false,
+        ask_tools: &[],
+        google_scopes: None,
+    }
 }
 
 /// The catalog, in Node's order (`CONNECTOR_CATALOG`).
 pub const CATALOG: [Connector; 16] = [
-    plain("airtable", "Airtable"),
-    plain("confluence", "Confluence"),
-    plain("dropbox", "Dropbox"),
-    Connector { id: "gmail", name: "Gmail", ask_tools: &["send_email"], google_scopes: Some(&["gmail.send"]) },
+    plain("airtable", "Airtable", "https://mcp.airtable.com/mcp"),
+    plain("confluence", "Confluence", "https://mcp.atlassian.com/v1/mcp/authv2"),
+    plain("dropbox", "Dropbox", "https://mcp.dropbox.com/mcp"),
+    Connector {
+        id: "gmail",
+        name: "Gmail",
+        backend: Backend::OAuth { url: "https://gmail.mixdog.invalid/mcp" },
+        app_password_only: true,
+        ask_tools: &["send_email"],
+        google_scopes: Some(&["gmail.send"]),
+    },
     Connector {
         id: "google-calendar",
         name: "Google Calendar",
+        backend: Backend::OAuth { url: "https://calendar.mixdog.invalid/mcp" },
+        app_password_only: false,
         ask_tools: &["delete_event"],
         google_scopes: Some(&["calendar.events"]),
     },
-    Connector { id: "google-drive", name: "Google Drive", ask_tools: &[], google_scopes: Some(&["drive.file"]) },
-    plain("hugging-face", "Hugging Face"),
-    plain("jira", "Jira"),
-    plain("linear", "Linear"),
-    plain("notion", "Notion"),
-    plain("postgres", "Postgres"),
-    plain("sentry", "Sentry"),
-    plain("stripe", "Stripe"),
-    plain("supabase", "Supabase"),
-    plain("trello", "Trello"),
-    plain("vercel", "Vercel"),
+    Connector {
+        id: "google-drive",
+        name: "Google Drive",
+        backend: Backend::OAuth { url: "https://drive.mixdog.invalid/mcp" },
+        app_password_only: false,
+        ask_tools: &[],
+        google_scopes: Some(&["drive.file"]),
+    },
+    key_over_http("hugging-face", "Hugging Face", "https://huggingface.co/mcp"),
+    plain("jira", "Jira", "https://mcp.atlassian.com/v1/mcp/authv2"),
+    plain("linear", "Linear", "https://mcp.linear.app/mcp"),
+    plain("notion", "Notion", "https://mcp.notion.com/mcp"),
+    Connector {
+        id: "postgres",
+        name: "Postgres",
+        backend: Backend::ApiKey {
+            url: None,
+            header: "",
+            prefix: "",
+            command: "npx",
+            args: &["-y", "@microsoft/postgres-mcp@0.2.0", "run"],
+            env: "POSTGRES_MCP_CONNECTION_STRING",
+        },
+        app_password_only: false,
+        ask_tools: &[],
+        google_scopes: None,
+    },
+    plain("sentry", "Sentry", "https://mcp.sentry.dev/mcp"),
+    key_over_http("stripe", "Stripe", "https://mcp.stripe.com"),
+    plain("supabase", "Supabase", "https://mcp.supabase.com/mcp"),
+    plain("trello", "Trello", "https://mcp.trello.com/v1"),
+    plain("vercel", "Vercel", "https://mcp.vercel.com"),
 ];
 
 pub fn connector(id: &str) -> Option<&'static Connector> {

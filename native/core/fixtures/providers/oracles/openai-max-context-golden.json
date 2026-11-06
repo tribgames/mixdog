@@ -1,0 +1,251 @@
+{
+  "_doc": "Recorded from src/runtime/agent/orchestrator/providers/openai-codex-model.mjs (_codexMaxContextWindow). reported is the catalog row max_context_window as sent.",
+  "cases": [
+    {
+      "id": "gpt-5.6-sol",
+      "maxContextWindow": 1000000,
+      "reported": null
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "maxContextWindow": 1000000,
+      "reported": 0
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "maxContextWindow": 1000000,
+      "reported": "junk"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "maxContextWindow": 1000000,
+      "reported": 272000
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "maxContextWindow": 1000000,
+      "reported": 500000
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "maxContextWindow": 1000000,
+      "reported": 1000000
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "maxContextWindow": 2000000,
+      "reported": 2000000
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "maxContextWindow": 1000000,
+      "reported": null
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "maxContextWindow": 1000000,
+      "reported": 0
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "maxContextWindow": 1000000,
+      "reported": "junk"
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "maxContextWindow": 1000000,
+      "reported": 272000
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "maxContextWindow": 1000000,
+      "reported": 500000
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "maxContextWindow": 1000000,
+      "reported": 1000000
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "maxContextWindow": 2000000,
+      "reported": 2000000
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "maxContextWindow": 1000000,
+      "reported": null
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "maxContextWindow": 1000000,
+      "reported": 0
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "maxContextWindow": 1000000,
+      "reported": "junk"
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "maxContextWindow": 1000000,
+      "reported": 272000
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "maxContextWindow": 1000000,
+      "reported": 500000
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "maxContextWindow": 1000000,
+      "reported": 1000000
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "maxContextWindow": 2000000,
+      "reported": 2000000
+    },
+    {
+      "id": "GPT-5.6-Terra",
+      "maxContextWindow": 1000000,
+      "reported": null
+    },
+    {
+      "id": "GPT-5.6-Terra",
+      "maxContextWindow": 1000000,
+      "reported": 0
+    },
+    {
+      "id": "GPT-5.6-Terra",
+      "maxContextWindow": 1000000,
+      "reported": "junk"
+    },
+    {
+      "id": "GPT-5.6-Terra",
+      "maxContextWindow": 1000000,
+      "reported": 272000
+    },
+    {
+      "id": "GPT-5.6-Terra",
+      "maxContextWindow": 1000000,
+      "reported": 500000
+    },
+    {
+      "id": "GPT-5.6-Terra",
+      "maxContextWindow": 1000000,
+      "reported": 1000000
+    },
+    {
+      "id": "GPT-5.6-Terra",
+      "maxContextWindow": 2000000,
+      "reported": 2000000
+    },
+    {
+      "id": "GPT-5.6-LUNA",
+      "maxContextWindow": 1000000,
+      "reported": null
+    },
+    {
+      "id": "GPT-5.6-LUNA",
+      "maxContextWindow": 1000000,
+      "reported": 0
+    },
+    {
+      "id": "GPT-5.6-LUNA",
+      "maxContextWindow": 1000000,
+      "reported": "junk"
+    },
+    {
+      "id": "GPT-5.6-LUNA",
+      "maxContextWindow": 1000000,
+      "reported": 272000
+    },
+    {
+      "id": "GPT-5.6-LUNA",
+      "maxContextWindow": 1000000,
+      "reported": 500000
+    },
+    {
+      "id": "GPT-5.6-LUNA",
+      "maxContextWindow": 1000000,
+      "reported": 1000000
+    },
+    {
+      "id": "GPT-5.6-LUNA",
+      "maxContextWindow": 2000000,
+      "reported": 2000000
+    },
+    {
+      "id": "gpt-5.5",
+      "maxContextWindow": null,
+      "reported": null
+    },
+    {
+      "id": "gpt-5.5",
+      "maxContextWindow": null,
+      "reported": 0
+    },
+    {
+      "id": "gpt-5.5",
+      "maxContextWindow": null,
+      "reported": "junk"
+    },
+    {
+      "id": "gpt-5.5",
+      "maxContextWindow": 272000,
+      "reported": 272000
+    },
+    {
+      "id": "gpt-5.5",
+      "maxContextWindow": 500000,
+      "reported": 500000
+    },
+    {
+      "id": "gpt-5.5",
+      "maxContextWindow": 1000000,
+      "reported": 1000000
+    },
+    {
+      "id": "gpt-5.5",
+      "maxContextWindow": 2000000,
+      "reported": 2000000
+    },
+    {
+      "id": "gpt-5.6-sol-mini",
+      "maxContextWindow": null,
+      "reported": null
+    },
+    {
+      "id": "gpt-5.6-sol-mini",
+      "maxContextWindow": null,
+      "reported": 0
+    },
+    {
+      "id": "gpt-5.6-sol-mini",
+      "maxContextWindow": null,
+      "reported": "junk"
+    },
+    {
+      "id": "gpt-5.6-sol-mini",
+      "maxContextWindow": 272000,
+      "reported": 272000
+    },
+    {
+      "id": "gpt-5.6-sol-mini",
+      "maxContextWindow": 500000,
+      "reported": 500000
+    },
+    {
+      "id": "gpt-5.6-sol-mini",
+      "maxContextWindow": 1000000,
+      "reported": 1000000
+    },
+    {
+      "id": "gpt-5.6-sol-mini",
+      "maxContextWindow": 2000000,
+      "reported": 2000000
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-openai-max-context.mjs"
+}

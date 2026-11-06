@@ -944,6 +944,9 @@ pub struct ModelRecord {
     /// The model a routing alias resolves to (OpenRouter `~vendor/model`),
     /// used to look up capabilities.
     pub alias_target: Option<String>,
+    /// The body field a reasoning model returns its thinking under and expects
+    /// replayed (`reasoning_content`), as the listing or the catalog states it.
+    pub reasoning_content_field: Option<String>,
     /// The wire id(s) the picker id is sent under; kept in the catalog cache
     /// so a send resolves the picker id after a restart, before any listing.
     pub wire: Option<WireIds>,
@@ -969,6 +972,7 @@ impl ModelRecord {
             mode: None,
             created: None,
             alias_target: None,
+            reasoning_content_field: None,
             wire: None,
             raw: None,
         }

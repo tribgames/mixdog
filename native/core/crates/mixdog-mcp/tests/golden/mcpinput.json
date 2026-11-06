@@ -1,0 +1,6988 @@
+{
+ "base": "D:\\mixdog-build\\tmp\\mcpinput-base",
+ "cases": [
+  {
+   "fn": "normalize",
+   "args": {},
+   "result": null,
+   "error": "MCP server name is required"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "  "
+   },
+   "result": null,
+   "error": "MCP server name is required"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "My Server!!"
+   },
+   "result": null,
+   "error": "MCP server command or URL is required"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "--A..b__c--",
+    "command": "node"
+   },
+   "result": {
+    "name": "a..b__c",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "Ünï Çode",
+    "command": "x"
+   },
+   "result": {
+    "name": "n-ode",
+    "config": {
+     "type": "stdio",
+     "command": "x",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x"
+   },
+   "result": null,
+   "error": "MCP server command or URL is required"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "args": [
+     "a",
+     "",
+     5,
+     "b c"
+    ]
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [
+      "a",
+      "5",
+      "b c"
+     ]
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "args": " a  b\tc\nd "
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [
+      "a",
+      "b",
+      "c",
+      "d"
+     ]
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "args": 5
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [
+      "5"
+     ]
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "args": null
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": " node ",
+    "cwd": "~"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "cwd": "<BASE>\\home"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "cwd": "~/proj"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "cwd": "<BASE>\\home\\proj"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "cwd": "~\\proj"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "cwd": "<BASE>\\home\\proj"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "cwd": "~user"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "cwd": "<BASE>\\work\\~user"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "cwd": "sub/dir"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "cwd": "<BASE>\\work\\sub\\dir"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "cwd": "../up"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "cwd": "<BASE>\\up"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "cwd": "<BASE>\\work\\norm"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "cwd": "<BASE>\\work\\norm"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "env": {
+     "A": 1,
+     "B": null,
+     "D": true,
+     "E": {
+      "x": 1
+     },
+     "F": [
+      1,
+      2
+     ]
+    }
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "env": {
+      "A": "1",
+      "D": "true",
+      "E": "[object Object]",
+      "F": "1,2"
+     }
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "env": {}
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "env": [
+     1
+    ]
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "env": "str"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "env_vars": [
+     "A",
+     " B ",
+     "",
+     5
+    ]
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "env_vars": [
+      "A",
+      "B",
+      "5"
+     ]
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "envVars": [
+     "C"
+    ]
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "env_vars": [
+      "C"
+     ]
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "env_vars": "A"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "env_vars": [],
+    "envVars": [
+     "Z"
+    ]
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/mcp"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/mcp"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/mcp#frag"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/mcp"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/a?b=1#c"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/a?b=1"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": " https://Example.COM:443/p "
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/p"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "http://example.com/mcp"
+   },
+   "result": null,
+   "error": "MCP URLs must use https://; http:// is allowed only for loopback"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "http://localhost:3000/mcp"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "http://localhost:3000/mcp"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "http://127.0.0.1/mcp"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "http://127.0.0.1/mcp"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "http://[::1]:8080/mcp"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "http://[::1]:8080/mcp"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://user:pw@example.com/mcp"
+   },
+   "result": null,
+   "error": "MCP URLs must not contain credentials"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "not a url"
+   },
+   "result": null,
+   "error": "MCP http URL is invalid"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "ftp://example.com"
+   },
+   "result": null,
+   "error": "MCP URLs must use https://; http:// is allowed only for loopback"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "wss://example.com/ws"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "ws",
+     "url": "wss://example.com/ws"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "ws://example.com/ws"
+   },
+   "result": null,
+   "error": "MCP WebSocket URLs must use wss://; ws:// is allowed only for loopback"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "ws://localhost:1/ws"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "ws",
+     "url": "ws://localhost:1/ws"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "WSS://example.com/ws"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "ws",
+     "url": "wss://example.com/ws"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/ws",
+    "type": "ws"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "ws",
+     "url": "https://example.com/ws"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "wss://example.com/ws",
+    "type": "http"
+   },
+   "result": null,
+   "error": "MCP URLs must use https://; http:// is allowed only for loopback"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/sse",
+    "type": "SSE"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "sse",
+     "url": "https://example.com/sse"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "type": "streamable-http"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "type": "stdio"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "type": "bogus"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "headers": {
+     "A": 1,
+     "B": null,
+     "C": "c"
+    }
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m",
+     "headers": {
+      "A": "1",
+      "C": "c"
+     }
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "headers": {}
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "headers": [
+     "a"
+    ]
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "bearer_token_env_var": " TOK "
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m",
+     "bearer_token_env_var": "TOK"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "bearerTokenEnvVar": "TOK2"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m",
+     "bearer_token_env_var": "TOK2"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "bearer_token_env_var": "",
+    "bearerTokenEnvVar": "TOK3"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m",
+     "bearer_token_env_var": "TOK3"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "env_http_headers": {
+     "X": "ENV_X"
+    }
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m",
+     "env_http_headers": {
+      "X": "ENV_X"
+     }
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "envHttpHeaders": {
+     "Y": "ENV_Y"
+    }
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m",
+     "env_http_headers": {
+      "Y": "ENV_Y"
+     }
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "oauthClientId": " client "
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m",
+     "oauthClientId": "client"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "oauthClientId": "",
+    "oauthClientSecret": "never stored"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "command": "ignored",
+    "args": [
+     "ignored"
+    ]
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "headers": {
+     "A": "b"
+    },
+    "oauthClientId": "c"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startupTimeoutSec": 5
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "startupTimeoutSec": 5
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startup_timeout_sec": "7"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "startupTimeoutSec": 7
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startupTimeoutSec": 0
+   },
+   "result": null,
+   "error": "startupTimeoutSec must be a positive number"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startupTimeoutSec": -1
+   },
+   "result": null,
+   "error": "startupTimeoutSec must be a positive number"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startupTimeoutSec": "abc"
+   },
+   "result": null,
+   "error": "startupTimeoutSec must be a positive number"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startupTimeoutSec": ""
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startupTimeoutSec": null,
+    "startupTimeoutMs": 1500
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "startupTimeoutMs": 1500
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startupTimeoutSec": "",
+    "startupTimeoutMs": 1500
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "startupTimeoutMs": 1500
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startupTimeoutMs": "x"
+   },
+   "result": null,
+   "error": "startupTimeoutMs must be a positive number"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startupTimeoutMs": 2.5
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "startupTimeoutMs": 2.5
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "toolTimeoutSec": 2.5
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "timeoutMs": 2500
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "toolTimeoutSec": 0.0004
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "timeoutMs": 0
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "toolTimeoutSec": 1.0005
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "timeoutMs": 1001
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "toolTimeoutSec": 30,
+    "timeoutMs": 5
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "timeoutMs": 30000
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "timeoutMs": 1234.5
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "timeoutMs": 1235
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "timeoutMs": 1234.4
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "timeoutMs": 1234
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "timeoutMs": 0
+   },
+   "result": null,
+   "error": "timeoutMs must be a positive number"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "timeoutMs": "90000"
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "timeoutMs": 90000
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "toolTimeoutSec": "nope"
+   },
+   "result": null,
+   "error": "toolTimeoutSec must be a positive number"
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "url": "https://example.com/m",
+    "startupTimeoutSec": 3,
+    "toolTimeoutSec": 4
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "http",
+     "url": "https://example.com/m",
+     "startupTimeoutSec": 3,
+     "timeoutMs": 4000
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "startupTimeoutSec": true
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "startupTimeoutSec": 1
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "timeoutMs": [
+     5
+    ]
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": [],
+     "timeoutMs": 5
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "normalize",
+   "args": {
+    "name": "x",
+    "command": "node",
+    "extra": "dropped",
+    "enabled": false
+   },
+   "result": {
+    "name": "x",
+    "config": {
+     "type": "stdio",
+     "command": "node",
+     "args": []
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "merge",
+   "args": [
+    {
+     "command": "a",
+     "args": [
+      "x"
+     ],
+     "env": {
+      "A": "1"
+     },
+     "enabled": false,
+     "timeoutMs": 5,
+     "note": "keep"
+    },
+    {
+     "type": "stdio",
+     "command": "b",
+     "args": []
+    }
+   ],
+   "result": {
+    "enabled": false,
+    "timeoutMs": 5,
+    "note": "keep",
+    "type": "stdio",
+    "command": "b",
+    "args": []
+   },
+   "error": null
+  },
+  {
+   "fn": "merge",
+   "args": [
+    {
+     "url": "https://e.com",
+     "headers": {
+      "A": "b"
+     },
+     "startupTimeoutSec": 3,
+     "startup_timeout_ms": 4
+    },
+    {
+     "type": "http",
+     "url": "https://f.com",
+     "startupTimeoutMs": 9
+    }
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://f.com",
+    "startupTimeoutMs": 9
+   },
+   "error": null
+  },
+  {
+   "fn": "merge",
+   "args": [
+    {
+     "url": "https://e.com",
+     "timeout_ms": 5,
+     "callTimeoutMs": 6,
+     "timeoutMs": 7
+    },
+    {
+     "type": "http",
+     "url": "https://e.com",
+     "timeoutMs": 8
+    }
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://e.com",
+    "timeoutMs": 8
+   },
+   "error": null
+  },
+  {
+   "fn": "merge",
+   "args": [
+    {
+     "command": "a",
+     "oauthClientId": "c",
+     "autoDetect": true,
+     "bearer_token_env_var": "T",
+     "env_vars": [
+      "A"
+     ],
+     "cwd": "/x",
+     "transport": "http"
+    },
+    {
+     "type": "stdio",
+     "command": "a"
+    }
+   ],
+   "result": {
+    "type": "stdio",
+    "command": "a"
+   },
+   "error": null
+  },
+  {
+   "fn": "merge",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": [
+      {
+       "name": "n"
+      }
+     ],
+     "enabled": true
+    },
+    {
+     "type": "http",
+     "url": "https://u"
+    }
+   ],
+   "result": {
+    "connector": "notion",
+    "accounts": [
+     {
+      "name": "n"
+     }
+    ],
+    "enabled": true,
+    "type": "http",
+    "url": "https://u"
+   },
+   "error": null
+  },
+  {
+   "fn": "merge",
+   "args": [
+    null,
+    {
+     "type": "stdio",
+     "command": "a"
+    }
+   ],
+   "result": {
+    "type": "stdio",
+    "command": "a"
+   },
+   "error": null
+  },
+  {
+   "fn": "merge",
+   "args": [
+    [
+     1
+    ],
+    {
+     "type": "stdio",
+     "command": "a"
+    }
+   ],
+   "result": {
+    "type": "stdio",
+    "command": "a"
+   },
+   "error": null
+  },
+  {
+   "fn": "merge",
+   "args": [
+    {},
+    {}
+   ],
+   "result": {},
+   "error": null
+  },
+  {
+   "fn": "merge",
+   "args": [
+    {
+     "a": 1,
+     "b": 2
+    },
+    {
+     "b": 3,
+     "c": 4
+    }
+   ],
+   "result": {
+    "a": 1,
+    "b": 3,
+    "c": 4
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "name": "x",
+     "env": {
+      "B": "2"
+     }
+    },
+    {
+     "command": "a",
+     "env": {
+      "A": "1"
+     },
+     "startupTimeoutSec": 3
+    },
+    "x"
+   ],
+   "result": {
+    "command": "a",
+    "env": {
+     "A": "1",
+     "B": "2"
+    },
+    "name": "x"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "env": {
+      "B": "2"
+     },
+     "headers": {
+      "H": "v"
+     }
+    },
+    {
+     "command": "a",
+     "env": {
+      "A": "1"
+     },
+     "headers": {
+      "G": "g"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "command": "a",
+    "env": {
+     "A": "1",
+     "B": "2"
+    },
+    "headers": {
+     "G": "g",
+     "H": "v"
+    },
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "name": " New ",
+     "command": "b"
+    },
+    {
+     "command": "a",
+     "env": {
+      "A": "1"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "command": "b",
+    "env": {
+     "A": "1"
+    },
+    "name": "New"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://n"
+    },
+    {
+     "command": "a",
+     "env": {
+      "A": "1"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://n",
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "type": "streamable-http"
+    },
+    {
+     "url": "https://e",
+     "headers": {
+      "A": "1"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "url": "https://e",
+    "headers": {
+     "A": "1"
+    },
+    "type": "streamable-http",
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "type": "stdio"
+    },
+    {
+     "url": "https://e",
+     "headers": {
+      "A": "1"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "type": "stdio",
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "type": "sse"
+    },
+    {
+     "type": "sse",
+     "url": "https://e",
+     "headers": {
+      "A": "1"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "type": "sse",
+    "url": "https://e",
+    "headers": {
+     "A": "1"
+    },
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "command": "b"
+    },
+    {
+     "url": "https://e",
+     "headers": {
+      "A": "1"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "command": "b",
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "url": "https://n"
+    },
+    {
+     "command": "a"
+    },
+    "orig"
+   ],
+   "result": {
+    "url": "https://n",
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "url": "https://n"
+    },
+    {
+     "url": "https://e",
+     "env_http_headers": {
+      "X": "Y"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "url": "https://n",
+    "env_http_headers": {
+     "X": "Y"
+    },
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "env_http_headers": {
+      "Z": "W"
+     }
+    },
+    {
+     "url": "https://e",
+     "env_http_headers": {
+      "X": "Y"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "url": "https://e",
+    "env_http_headers": {
+     "X": "Y",
+     "Z": "W"
+    },
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "env": null
+    },
+    {
+     "command": "a",
+     "env": {
+      "A": "1"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "command": "a",
+    "env": {
+     "A": "1"
+    },
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "env": "str"
+    },
+    {
+     "command": "a",
+     "env": {
+      "A": "1"
+     }
+    },
+    "orig"
+   ],
+   "result": {
+    "command": "a",
+    "env": {
+     "0": "s",
+     "1": "t",
+     "2": "r",
+     "A": "1"
+    },
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "description": "d"
+    },
+    {
+     "command": "a",
+     "timeoutMs": 0,
+     "startup_timeout_sec": "off",
+     "callTimeoutMs": 7,
+     "note": "n"
+    },
+    "orig"
+   ],
+   "result": {
+    "command": "a",
+    "note": "n",
+    "description": "d",
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {
+     "name": ""
+    },
+    {},
+    "orig"
+   ],
+   "result": {
+    "name": "orig"
+   },
+   "error": null
+  },
+  {
+   "fn": "mergedInput",
+   "args": [
+    {},
+    {},
+    ""
+   ],
+   "result": {
+    "name": ""
+   },
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "notion"
+   ],
+   "result": {
+    "serverName": "notion",
+    "cfg": {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "account": {
+     "name": "notion",
+     "url": "https://notion.example/mcp",
+     "id": "a1",
+     "oauthKey": "k1"
+    },
+    "accountCfg": {
+     "name": "notion",
+     "type": "http",
+     "url": "https://notion.example/mcp",
+     "oauthKey": "k1",
+     "connector": "notion"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "notion"
+   ],
+   "result": "The name \"notion\" is used by a Notion account. Choose another name.",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "notion-2"
+   ],
+   "result": {
+    "serverName": "notion",
+    "cfg": {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "account": {
+     "name": "notion-2",
+     "url": "https://notion-2.example/mcp",
+     "enabled": false,
+     "headers": {
+      "A": "b"
+     }
+    },
+    "accountCfg": {
+     "name": "notion-2",
+     "type": "http",
+     "url": "https://notion-2.example/mcp",
+     "headers": {
+      "A": "b"
+     },
+     "connector": "notion"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "notion-2"
+   ],
+   "result": "The name \"notion-2\" is used by a Notion account. Choose another name.",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "cmd"
+   ],
+   "result": {
+    "serverName": "notion",
+    "cfg": {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "account": {
+     "name": "cmd",
+     "command": "x",
+     "args": [
+      "1"
+     ],
+     "env": {
+      "E": "1"
+     },
+     "type": "stdio"
+    },
+    "accountCfg": {
+     "name": "cmd",
+     "type": "stdio",
+     "command": "x",
+     "args": [
+      "1"
+     ],
+     "env": {
+      "E": "1"
+     },
+     "connector": "notion"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "cmd"
+   ],
+   "result": "The name \"cmd\" is used by a Notion account. Choose another name.",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "plain"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "plain"
+   ],
+   "result": "MCP server already exists: plain",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "gmail"
+   ],
+   "result": {
+    "serverName": "gmail",
+    "cfg": {
+     "type": "http",
+     "url": "https://gmail-imap.mixdog.invalid/mcp/",
+     "headers": {
+      "x-mixdog-gmail-account": "Me@Example.com "
+     },
+     "connector": "gmail",
+     "accounts": [
+      {
+       "name": "gmail",
+       "url": "https://gmail-imap.mixdog.invalid/mcp",
+       "headers": {
+        "X-Mixdog-Gmail-Account": "me@example.com"
+       }
+      }
+     ]
+    },
+    "account": {
+     "name": "gmail",
+     "url": "https://gmail-imap.mixdog.invalid/mcp",
+     "headers": {
+      "X-Mixdog-Gmail-Account": "me@example.com"
+     }
+    },
+    "accountCfg": {
+     "name": "gmail",
+     "type": "http",
+     "url": "https://gmail-imap.mixdog.invalid/mcp",
+     "headers": {
+      "X-Mixdog-Gmail-Account": "me@example.com"
+     },
+     "connector": "gmail"
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "gmail"
+   ],
+   "result": "The name \"gmail\" is used by a Gmail account. Choose another name.",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "bad"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "bad"
+   ],
+   "result": "MCP server already exists: bad",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "q"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "q"
+   ],
+   "result": "MCP server already exists: q",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "nope"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    "nope"
+   ],
+   "result": "MCP server already exists: nope",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    ""
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "notion": {
+      "type": "http",
+      "url": "https://connectors.mixdog.invalid/notion/mcp",
+      "connector": "notion",
+      "timeoutMs": 5000,
+      "accounts": [
+       {
+        "name": "notion",
+        "url": "https://notion.example/mcp",
+        "id": "a1",
+        "oauthKey": "k1"
+       },
+       {
+        "name": "notion-2",
+        "url": "https://notion-2.example/mcp",
+        "enabled": false,
+        "headers": {
+         "A": "b"
+        }
+       },
+       {
+        "name": "bad"
+       },
+       "str",
+       {
+        "name": "",
+        "url": "u"
+       },
+       {
+        "name": "cmd",
+        "command": "x",
+        "args": [
+         "1"
+        ],
+        "env": {
+         "E": "1"
+        },
+        "type": "stdio"
+       }
+      ]
+     },
+     "plain": {
+      "command": "x"
+     },
+     "gmail": {
+      "type": "http",
+      "url": "https://gmail-imap.mixdog.invalid/mcp/",
+      "headers": {
+       "x-mixdog-gmail-account": "Me@Example.com "
+      },
+      "connector": "gmail",
+      "accounts": [
+       {
+        "name": "gmail",
+        "url": "https://gmail-imap.mixdog.invalid/mcp",
+        "headers": {
+         "X-Mixdog-Gmail-Account": "me@example.com"
+        }
+       }
+      ]
+     },
+     "legacy": {
+      "connector": "notion",
+      "url": "https://x"
+     },
+     "unknown": {
+      "connector": "nope",
+      "accounts": [
+       {
+        "name": "q",
+        "url": "u"
+       }
+      ]
+     }
+    },
+    ""
+   ],
+   "result": "MCP server already exists: ",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "notion"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "notion"
+   ],
+   "result": "MCP server already exists: notion",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "notion-2"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "notion-2"
+   ],
+   "result": "MCP server already exists: notion-2",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "cmd"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "cmd"
+   ],
+   "result": "MCP server already exists: cmd",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "plain"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "plain"
+   ],
+   "result": "MCP server already exists: plain",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "gmail"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "gmail"
+   ],
+   "result": "MCP server already exists: gmail",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "bad"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "bad"
+   ],
+   "result": "MCP server already exists: bad",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "q"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "q"
+   ],
+   "result": "MCP server already exists: q",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "nope"
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    "nope"
+   ],
+   "result": "MCP server already exists: nope",
+   "error": null
+  },
+  {
+   "fn": "accountTarget",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    ""
+   ],
+   "result": null,
+   "error": null
+  },
+  {
+   "fn": "nameTaken",
+   "args": [
+    {
+     "a": null,
+     "b": 5,
+     "c": [
+      1
+     ]
+    },
+    ""
+   ],
+   "result": "MCP server already exists: ",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    }
+   ],
+   "result": [
+    {
+     "name": "notion",
+     "url": "https://notion.example/mcp",
+     "id": "a1",
+     "oauthKey": "k1"
+    },
+    {
+     "name": "notion-2",
+     "url": "https://notion-2.example/mcp",
+     "enabled": false,
+     "headers": {
+      "A": "b"
+     }
+    },
+    {
+     "name": "cmd",
+     "command": "x",
+     "args": [
+      "1"
+     ],
+     "env": {
+      "E": "1"
+     },
+     "type": "stdio"
+    }
+   ],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    }
+   ],
+   "result": [
+    {
+     "name": "notion",
+     "type": "http",
+     "url": "https://notion.example/mcp",
+     "oauthKey": "k1",
+     "connector": "notion"
+    },
+    {
+     "name": "notion-2",
+     "type": "http",
+     "url": "https://notion-2.example/mcp",
+     "headers": {
+      "A": "b"
+     },
+     "connector": "notion"
+    },
+    {
+     "name": "cmd",
+     "type": "stdio",
+     "command": "x",
+     "args": [
+      "1"
+     ],
+     "env": {
+      "E": "1"
+     },
+     "connector": "notion"
+    }
+   ],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    }
+   ],
+   "result": [
+    {
+     "name": "notion",
+     "type": "http",
+     "url": "https://notion.example/mcp",
+     "oauthKey": "k1",
+     "connector": "notion"
+    },
+    {
+     "name": "cmd",
+     "type": "stdio",
+     "command": "x",
+     "args": [
+      "1"
+     ],
+     "env": {
+      "E": "1"
+     },
+     "connector": "notion"
+    }
+   ],
+   "error": null
+  },
+  {
+   "fn": "serverSettings",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    }
+   ],
+   "result": {
+    "connector": "notion",
+    "timeoutMs": 5000
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    }
+   ],
+   "result": "notion",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    }
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    {
+     "command": "x"
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    {
+     "command": "x"
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    {
+     "command": "x"
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "serverSettings",
+   "args": [
+    {
+     "command": "x"
+    }
+   ],
+   "result": {},
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    {
+     "command": "x"
+    }
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    {
+     "command": "x"
+    }
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://gmail-imap.mixdog.invalid/mcp/",
+     "headers": {
+      "x-mixdog-gmail-account": "Me@Example.com "
+     },
+     "connector": "gmail",
+     "accounts": [
+      {
+       "name": "gmail",
+       "url": "https://gmail-imap.mixdog.invalid/mcp",
+       "headers": {
+        "X-Mixdog-Gmail-Account": "me@example.com"
+       }
+      }
+     ]
+    }
+   ],
+   "result": [
+    {
+     "name": "gmail",
+     "url": "https://gmail-imap.mixdog.invalid/mcp",
+     "headers": {
+      "X-Mixdog-Gmail-Account": "me@example.com"
+     }
+    }
+   ],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://gmail-imap.mixdog.invalid/mcp/",
+     "headers": {
+      "x-mixdog-gmail-account": "Me@Example.com "
+     },
+     "connector": "gmail",
+     "accounts": [
+      {
+       "name": "gmail",
+       "url": "https://gmail-imap.mixdog.invalid/mcp",
+       "headers": {
+        "X-Mixdog-Gmail-Account": "me@example.com"
+       }
+      }
+     ]
+    }
+   ],
+   "result": [
+    {
+     "name": "gmail",
+     "type": "http",
+     "url": "https://gmail-imap.mixdog.invalid/mcp",
+     "headers": {
+      "X-Mixdog-Gmail-Account": "me@example.com"
+     },
+     "connector": "gmail"
+    }
+   ],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://gmail-imap.mixdog.invalid/mcp/",
+     "headers": {
+      "x-mixdog-gmail-account": "Me@Example.com "
+     },
+     "connector": "gmail",
+     "accounts": [
+      {
+       "name": "gmail",
+       "url": "https://gmail-imap.mixdog.invalid/mcp",
+       "headers": {
+        "X-Mixdog-Gmail-Account": "me@example.com"
+       }
+      }
+     ]
+    }
+   ],
+   "result": [
+    {
+     "name": "gmail",
+     "type": "http",
+     "url": "https://gmail-imap.mixdog.invalid/mcp",
+     "headers": {
+      "X-Mixdog-Gmail-Account": "me@example.com"
+     },
+     "connector": "gmail"
+    }
+   ],
+   "error": null
+  },
+  {
+   "fn": "serverSettings",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://gmail-imap.mixdog.invalid/mcp/",
+     "headers": {
+      "x-mixdog-gmail-account": "Me@Example.com "
+     },
+     "connector": "gmail",
+     "accounts": [
+      {
+       "name": "gmail",
+       "url": "https://gmail-imap.mixdog.invalid/mcp",
+       "headers": {
+        "X-Mixdog-Gmail-Account": "me@example.com"
+       }
+      }
+     ]
+    }
+   ],
+   "result": {
+    "connector": "gmail"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://gmail-imap.mixdog.invalid/mcp/",
+     "headers": {
+      "x-mixdog-gmail-account": "Me@Example.com "
+     },
+     "connector": "gmail",
+     "accounts": [
+      {
+       "name": "gmail",
+       "url": "https://gmail-imap.mixdog.invalid/mcp",
+       "headers": {
+        "X-Mixdog-Gmail-Account": "me@example.com"
+       }
+      }
+     ]
+    }
+   ],
+   "result": "gmail",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://gmail-imap.mixdog.invalid/mcp/",
+     "headers": {
+      "x-mixdog-gmail-account": "Me@Example.com "
+     },
+     "connector": "gmail",
+     "accounts": [
+      {
+       "name": "gmail",
+       "url": "https://gmail-imap.mixdog.invalid/mcp",
+       "headers": {
+        "X-Mixdog-Gmail-Account": "me@example.com"
+       }
+      }
+     ]
+    }
+   ],
+   "result": "me@example.com",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    {
+     "connector": "notion",
+     "url": "https://x"
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    {
+     "connector": "notion",
+     "url": "https://x"
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    {
+     "connector": "notion",
+     "url": "https://x"
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "serverSettings",
+   "args": [
+    {
+     "connector": "notion",
+     "url": "https://x"
+    }
+   ],
+   "result": {
+    "connector": "notion"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    {
+     "connector": "notion",
+     "url": "https://x"
+    }
+   ],
+   "result": "notion",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    {
+     "connector": "notion",
+     "url": "https://x"
+    }
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    {
+     "connector": "nope",
+     "accounts": [
+      {
+       "name": "q",
+       "url": "u"
+      }
+     ]
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    {
+     "connector": "nope",
+     "accounts": [
+      {
+       "name": "q",
+       "url": "u"
+      }
+     ]
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    {
+     "connector": "nope",
+     "accounts": [
+      {
+       "name": "q",
+       "url": "u"
+      }
+     ]
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "serverSettings",
+   "args": [
+    {
+     "connector": "nope",
+     "accounts": [
+      {
+       "name": "q",
+       "url": "u"
+      }
+     ]
+    }
+   ],
+   "result": {
+    "connector": "nope"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    {
+     "connector": "nope",
+     "accounts": [
+      {
+       "name": "q",
+       "url": "u"
+      }
+     ]
+    }
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    {
+     "connector": "nope",
+     "accounts": [
+      {
+       "name": "q",
+       "url": "u"
+      }
+     ]
+    }
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    null
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    null
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    null
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    null
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    null
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    []
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    []
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    []
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    []
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    []
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    "x"
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    "x"
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    "x"
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    "x"
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    "x"
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    {
+     "connector": "notion"
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    {
+     "connector": "notion"
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    {
+     "connector": "notion"
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "serverSettings",
+   "args": [
+    {
+     "connector": "notion"
+    }
+   ],
+   "result": {
+    "connector": "notion"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    {
+     "connector": "notion"
+    }
+   ],
+   "result": "notion",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    {
+     "connector": "notion"
+    }
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": []
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": []
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": []
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "serverSettings",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": []
+    }
+   ],
+   "result": {
+    "connector": "notion"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": []
+    }
+   ],
+   "result": "notion",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": []
+    }
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "accountsOf",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": [
+      {
+       "name": "a",
+       "url": "u",
+       "enabled": false
+      }
+     ]
+    }
+   ],
+   "result": [
+    {
+     "name": "a",
+     "url": "u",
+     "enabled": false
+    }
+   ],
+   "error": null
+  },
+  {
+   "fn": "accountServers",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": [
+      {
+       "name": "a",
+       "url": "u",
+       "enabled": false
+      }
+     ]
+    }
+   ],
+   "result": [
+    {
+     "name": "a",
+     "type": "http",
+     "url": "u",
+     "connector": "notion"
+    }
+   ],
+   "error": null
+  },
+  {
+   "fn": "liveAccountServers",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": [
+      {
+       "name": "a",
+       "url": "u",
+       "enabled": false
+      }
+     ]
+    }
+   ],
+   "result": [],
+   "error": null
+  },
+  {
+   "fn": "serverSettings",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": [
+      {
+       "name": "a",
+       "url": "u",
+       "enabled": false
+      }
+     ]
+    }
+   ],
+   "result": {
+    "connector": "notion"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorOfServer",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": [
+      {
+       "name": "a",
+       "url": "u",
+       "enabled": false
+      }
+     ]
+    }
+   ],
+   "result": "notion",
+   "error": null
+  },
+  {
+   "fn": "gmailAppPasswordAccount",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": [
+      {
+       "name": "a",
+       "url": "u",
+       "enabled": false
+      }
+     ]
+    }
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "withAccountEnabled",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "notion",
+    true
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://connectors.mixdog.invalid/notion/mcp",
+    "connector": "notion",
+    "timeoutMs": 5000,
+    "accounts": [
+     {
+      "name": "notion",
+      "url": "https://notion.example/mcp",
+      "id": "a1",
+      "oauthKey": "k1"
+     },
+     {
+      "name": "notion-2",
+      "url": "https://notion-2.example/mcp",
+      "enabled": false,
+      "headers": {
+       "A": "b"
+      }
+     },
+     {
+      "name": "bad"
+     },
+     "str",
+     {
+      "name": "",
+      "url": "u"
+     },
+     {
+      "name": "cmd",
+      "command": "x",
+      "args": [
+       "1"
+      ],
+      "env": {
+       "E": "1"
+      },
+      "type": "stdio"
+     }
+    ],
+    "enabled": true
+   },
+   "error": null
+  },
+  {
+   "fn": "withAccountEnabled",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "notion",
+    false
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://connectors.mixdog.invalid/notion/mcp",
+    "connector": "notion",
+    "timeoutMs": 5000,
+    "accounts": [
+     {
+      "name": "notion",
+      "url": "https://notion.example/mcp",
+      "id": "a1",
+      "oauthKey": "k1",
+      "enabled": false
+     },
+     {
+      "name": "notion-2",
+      "url": "https://notion-2.example/mcp",
+      "enabled": false,
+      "headers": {
+       "A": "b"
+      }
+     },
+     {
+      "name": "bad"
+     },
+     "str",
+     {
+      "name": "",
+      "url": "u"
+     },
+     {
+      "name": "cmd",
+      "command": "x",
+      "args": [
+       "1"
+      ],
+      "env": {
+       "E": "1"
+      },
+      "type": "stdio"
+     }
+    ]
+   },
+   "error": null
+  },
+  {
+   "fn": "withAccountEnabled",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "notion-2",
+    true
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://connectors.mixdog.invalid/notion/mcp",
+    "connector": "notion",
+    "timeoutMs": 5000,
+    "accounts": [
+     {
+      "name": "notion",
+      "url": "https://notion.example/mcp",
+      "id": "a1",
+      "oauthKey": "k1"
+     },
+     {
+      "name": "notion-2",
+      "url": "https://notion-2.example/mcp",
+      "headers": {
+       "A": "b"
+      }
+     },
+     {
+      "name": "bad"
+     },
+     "str",
+     {
+      "name": "",
+      "url": "u"
+     },
+     {
+      "name": "cmd",
+      "command": "x",
+      "args": [
+       "1"
+      ],
+      "env": {
+       "E": "1"
+      },
+      "type": "stdio"
+     }
+    ],
+    "enabled": true
+   },
+   "error": null
+  },
+  {
+   "fn": "withAccountEnabled",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "notion-2",
+    false
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://connectors.mixdog.invalid/notion/mcp",
+    "connector": "notion",
+    "timeoutMs": 5000,
+    "accounts": [
+     {
+      "name": "notion",
+      "url": "https://notion.example/mcp",
+      "id": "a1",
+      "oauthKey": "k1"
+     },
+     {
+      "name": "notion-2",
+      "url": "https://notion-2.example/mcp",
+      "headers": {
+       "A": "b"
+      },
+      "enabled": false
+     },
+     {
+      "name": "bad"
+     },
+     "str",
+     {
+      "name": "",
+      "url": "u"
+     },
+     {
+      "name": "cmd",
+      "command": "x",
+      "args": [
+       "1"
+      ],
+      "env": {
+       "E": "1"
+      },
+      "type": "stdio"
+     }
+    ]
+   },
+   "error": null
+  },
+  {
+   "fn": "withAccountEnabled",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "cmd",
+    true
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://connectors.mixdog.invalid/notion/mcp",
+    "connector": "notion",
+    "timeoutMs": 5000,
+    "accounts": [
+     {
+      "name": "notion",
+      "url": "https://notion.example/mcp",
+      "id": "a1",
+      "oauthKey": "k1"
+     },
+     {
+      "name": "notion-2",
+      "url": "https://notion-2.example/mcp",
+      "enabled": false,
+      "headers": {
+       "A": "b"
+      }
+     },
+     {
+      "name": "bad"
+     },
+     "str",
+     {
+      "name": "",
+      "url": "u"
+     },
+     {
+      "name": "cmd",
+      "command": "x",
+      "args": [
+       "1"
+      ],
+      "env": {
+       "E": "1"
+      },
+      "type": "stdio"
+     }
+    ],
+    "enabled": true
+   },
+   "error": null
+  },
+  {
+   "fn": "withAccountEnabled",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "cmd",
+    false
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://connectors.mixdog.invalid/notion/mcp",
+    "connector": "notion",
+    "timeoutMs": 5000,
+    "accounts": [
+     {
+      "name": "notion",
+      "url": "https://notion.example/mcp",
+      "id": "a1",
+      "oauthKey": "k1"
+     },
+     {
+      "name": "notion-2",
+      "url": "https://notion-2.example/mcp",
+      "enabled": false,
+      "headers": {
+       "A": "b"
+      }
+     },
+     {
+      "name": "bad"
+     },
+     "str",
+     {
+      "name": "",
+      "url": "u"
+     },
+     {
+      "name": "cmd",
+      "command": "x",
+      "args": [
+       "1"
+      ],
+      "env": {
+       "E": "1"
+      },
+      "type": "stdio",
+      "enabled": false
+     }
+    ]
+   },
+   "error": null
+  },
+  {
+   "fn": "withAccountEnabled",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "zzz",
+    true
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://connectors.mixdog.invalid/notion/mcp",
+    "connector": "notion",
+    "timeoutMs": 5000,
+    "accounts": [
+     {
+      "name": "notion",
+      "url": "https://notion.example/mcp",
+      "id": "a1",
+      "oauthKey": "k1"
+     },
+     {
+      "name": "notion-2",
+      "url": "https://notion-2.example/mcp",
+      "enabled": false,
+      "headers": {
+       "A": "b"
+      }
+     },
+     {
+      "name": "bad"
+     },
+     "str",
+     {
+      "name": "",
+      "url": "u"
+     },
+     {
+      "name": "cmd",
+      "command": "x",
+      "args": [
+       "1"
+      ],
+      "env": {
+       "E": "1"
+      },
+      "type": "stdio"
+     }
+    ],
+    "enabled": true
+   },
+   "error": null
+  },
+  {
+   "fn": "withAccountEnabled",
+   "args": [
+    {
+     "type": "http",
+     "url": "https://connectors.mixdog.invalid/notion/mcp",
+     "connector": "notion",
+     "timeoutMs": 5000,
+     "accounts": [
+      {
+       "name": "notion",
+       "url": "https://notion.example/mcp",
+       "id": "a1",
+       "oauthKey": "k1"
+      },
+      {
+       "name": "notion-2",
+       "url": "https://notion-2.example/mcp",
+       "enabled": false,
+       "headers": {
+        "A": "b"
+       }
+      },
+      {
+       "name": "bad"
+      },
+      "str",
+      {
+       "name": "",
+       "url": "u"
+      },
+      {
+       "name": "cmd",
+       "command": "x",
+       "args": [
+        "1"
+       ],
+       "env": {
+        "E": "1"
+       },
+       "type": "stdio"
+      }
+     ]
+    },
+    "zzz",
+    false
+   ],
+   "result": {
+    "type": "http",
+    "url": "https://connectors.mixdog.invalid/notion/mcp",
+    "connector": "notion",
+    "timeoutMs": 5000,
+    "accounts": [
+     {
+      "name": "notion",
+      "url": "https://notion.example/mcp",
+      "id": "a1",
+      "oauthKey": "k1"
+     },
+     {
+      "name": "notion-2",
+      "url": "https://notion-2.example/mcp",
+      "enabled": false,
+      "headers": {
+       "A": "b"
+      }
+     },
+     {
+      "name": "bad"
+     },
+     "str",
+     {
+      "name": "",
+      "url": "u"
+     },
+     {
+      "name": "cmd",
+      "command": "x",
+      "args": [
+       "1"
+      ],
+      "env": {
+       "E": "1"
+      },
+      "type": "stdio"
+     }
+    ]
+   },
+   "error": null
+  },
+  {
+   "fn": "withAccountEnabled",
+   "args": [
+    {
+     "connector": "notion",
+     "accounts": [
+      {
+       "name": "only",
+       "url": "u"
+      }
+     ]
+    },
+    "only",
+    false
+   ],
+   "result": {
+    "connector": "notion",
+    "accounts": [
+     {
+      "name": "only",
+      "url": "u",
+      "enabled": false
+     }
+    ],
+    "enabled": false
+   },
+   "error": null
+  },
+  {
+   "fn": "accountEntry",
+   "args": [
+    {
+     "type": "http",
+     "url": "u",
+     "headers": {
+      "A": 1
+     },
+     "oauthKey": "k",
+     "extra": 1
+    }
+   ],
+   "result": {
+    "name": "nm",
+    "url": "u",
+    "headers": {
+     "A": 1
+    },
+    "oauthKey": "k"
+   },
+   "error": null
+  },
+  {
+   "fn": "accountEntry",
+   "args": [
+    {
+     "type": "stdio",
+     "command": "c",
+     "args": [
+      1
+     ],
+     "env": {
+      "E": 1
+     }
+    }
+   ],
+   "result": {
+    "name": "nm",
+    "type": "stdio",
+    "command": "c",
+    "args": [
+     1
+    ],
+    "env": {
+     "E": 1
+    }
+   },
+   "error": null
+  },
+  {
+   "fn": "accountEntry",
+   "args": [
+    {
+     "url": "u"
+    }
+   ],
+   "result": {
+    "name": "nm",
+    "url": "u"
+   },
+   "error": null
+  },
+  {
+   "fn": "accountEntry",
+   "args": [
+    null
+   ],
+   "result": {
+    "name": "nm"
+   },
+   "error": null
+  },
+  {
+   "fn": "accountEntry",
+   "args": [
+    {}
+   ],
+   "result": {
+    "name": "nm"
+   },
+   "error": null
+  },
+  {
+   "fn": "accountsUrl",
+   "args": [
+    "notion"
+   ],
+   "result": "https://connectors.mixdog.invalid/notion/mcp",
+   "error": null
+  },
+  {
+   "fn": "accountsUrl",
+   "args": [
+    "google drive"
+   ],
+   "result": "https://connectors.mixdog.invalid/google%20drive/mcp",
+   "error": null
+  },
+  {
+   "fn": "accountsUrl",
+   "args": [
+    "a/b?c"
+   ],
+   "result": "https://connectors.mixdog.invalid/a%2Fb%3Fc/mcp",
+   "error": null
+  },
+  {
+   "fn": "accountsUrl",
+   "args": [
+    "it's (1)!~*"
+   ],
+   "result": "https://connectors.mixdog.invalid/it's%20(1)!~*/mcp",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    "Me@Example.com"
+   ],
+   "result": "me@example.com",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    " a@b.co "
+   ],
+   "result": "a@b.co",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    "bad"
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    "a@b"
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    ""
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    null
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    5
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    "x y@b.co"
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    "a@b.c.d"
+   ],
+   "result": "a@b.c.d",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    "a@@b.co"
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    "a@b..co"
+   ],
+   "result": "a@b..co",
+   "error": null
+  },
+  {
+   "fn": "gmailAddress",
+   "args": [
+    "a@b.co."
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailPassword",
+   "args": [
+    "abcd efgh ijkl mnop"
+   ],
+   "result": "abcdefghijklmnop",
+   "error": null
+  },
+  {
+   "fn": "gmailPassword",
+   "args": [
+    "abcdefghijklmnop"
+   ],
+   "result": "abcdefghijklmnop",
+   "error": null
+  },
+  {
+   "fn": "gmailPassword",
+   "args": [
+    "short"
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailPassword",
+   "args": [
+    ""
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailPassword",
+   "args": [
+    null
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailPassword",
+   "args": [
+    "abcdefghijklmnop "
+   ],
+   "result": "abcdefghijklmnop",
+   "error": null
+  },
+  {
+   "fn": "gmailPassword",
+   "args": [
+    "ab\tcd\nefghijklmnop"
+   ],
+   "result": "abcdefghijklmnop",
+   "error": null
+  },
+  {
+   "fn": "gmailPassword",
+   "args": [
+    "abcdefghijklmnopq"
+   ],
+   "result": "",
+   "error": null
+  },
+  {
+   "fn": "gmailPassword",
+   "args": [
+    "한글한글한글한글한글한글한글한글"
+   ],
+   "result": "한글한글한글한글한글한글한글한글",
+   "error": null
+  },
+  {
+   "fn": "gmailServerInput",
+   "args": [
+    "g",
+    "Me@Example.com",
+    "abcd efgh ijkl mnop"
+   ],
+   "result": {
+    "name": "g",
+    "type": "http",
+    "url": "https://gmail-imap.mixdog.invalid/mcp",
+    "headers": {
+     "X-Mixdog-Gmail-Account": "me@example.com"
+    },
+    "connector": "gmail",
+    "appPassword": "abcdefghijklmnop"
+   },
+   "error": null
+  },
+  {
+   "fn": "gmailServerInput",
+   "args": [
+    "g",
+    "bad",
+    "abcd efgh ijkl mnop"
+   ],
+   "result": null,
+   "error": "GMAIL_APP_PASSWORD_ADDRESS: Enter a Gmail address."
+  },
+  {
+   "fn": "gmailServerInput",
+   "args": [
+    "g",
+    "a@b.co",
+    "short"
+   ],
+   "result": null,
+   "error": "GMAIL_APP_PASSWORD_FORMAT: An app password has 16 characters."
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "airtable",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.airtable.com/mcp",
+    "connector": "airtable"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "airtable",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.airtable.com/mcp",
+    "connector": "airtable"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "airtable",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.airtable.com/mcp",
+    "connector": "airtable"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "airtable",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.airtable.com/mcp",
+    "connector": "airtable"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "confluence",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+    "connector": "confluence"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "confluence",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+    "connector": "confluence"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "confluence",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+    "connector": "confluence"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "confluence",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+    "connector": "confluence"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "dropbox",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.dropbox.com/mcp",
+    "connector": "dropbox"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "dropbox",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.dropbox.com/mcp",
+    "connector": "dropbox"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "dropbox",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.dropbox.com/mcp",
+    "connector": "dropbox"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "dropbox",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.dropbox.com/mcp",
+    "connector": "dropbox"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "gmail",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://gmail.mixdog.invalid/mcp",
+    "connector": "gmail"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "gmail",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://gmail.mixdog.invalid/mcp",
+    "connector": "gmail"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "gmail",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://gmail.mixdog.invalid/mcp",
+    "connector": "gmail"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "gmail",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://gmail.mixdog.invalid/mcp",
+    "connector": "gmail"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "google-calendar",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://calendar.mixdog.invalid/mcp",
+    "connector": "google-calendar"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "google-calendar",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://calendar.mixdog.invalid/mcp",
+    "connector": "google-calendar"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "google-calendar",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://calendar.mixdog.invalid/mcp",
+    "connector": "google-calendar"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "google-calendar",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://calendar.mixdog.invalid/mcp",
+    "connector": "google-calendar"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "google-drive",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://drive.mixdog.invalid/mcp",
+    "connector": "google-drive"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "google-drive",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://drive.mixdog.invalid/mcp",
+    "connector": "google-drive"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "google-drive",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://drive.mixdog.invalid/mcp",
+    "connector": "google-drive"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "google-drive",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://drive.mixdog.invalid/mcp",
+    "connector": "google-drive"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "hugging-face",
+    ""
+   ],
+   "result": null,
+   "error": "Hugging Face needs a key"
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "hugging-face",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://huggingface.co/mcp",
+    "headers": {
+     "Authorization": "Bearer sk-123"
+    },
+    "connector": "hugging-face"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "hugging-face",
+    null
+   ],
+   "result": null,
+   "error": "Hugging Face needs a key"
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "hugging-face",
+    0
+   ],
+   "result": null,
+   "error": "Hugging Face needs a key"
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "jira",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+    "connector": "jira"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "jira",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+    "connector": "jira"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "jira",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+    "connector": "jira"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "jira",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+    "connector": "jira"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "linear",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.linear.app/mcp",
+    "connector": "linear"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "linear",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.linear.app/mcp",
+    "connector": "linear"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "linear",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.linear.app/mcp",
+    "connector": "linear"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "linear",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.linear.app/mcp",
+    "connector": "linear"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "notion",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.notion.com/mcp",
+    "connector": "notion"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "notion",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.notion.com/mcp",
+    "connector": "notion"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "notion",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.notion.com/mcp",
+    "connector": "notion"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "notion",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.notion.com/mcp",
+    "connector": "notion"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "postgres",
+    ""
+   ],
+   "result": null,
+   "error": "Postgres needs a key"
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "postgres",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+     "-y",
+     "@microsoft/postgres-mcp@0.2.0",
+     "run"
+    ],
+    "env": {
+     "POSTGRES_MCP_CONNECTION_STRING": "sk-123"
+    },
+    "connector": "postgres"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "postgres",
+    null
+   ],
+   "result": null,
+   "error": "Postgres needs a key"
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "postgres",
+    0
+   ],
+   "result": null,
+   "error": "Postgres needs a key"
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "sentry",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.sentry.dev/mcp",
+    "connector": "sentry"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "sentry",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.sentry.dev/mcp",
+    "connector": "sentry"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "sentry",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.sentry.dev/mcp",
+    "connector": "sentry"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "sentry",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.sentry.dev/mcp",
+    "connector": "sentry"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "stripe",
+    ""
+   ],
+   "result": null,
+   "error": "Stripe needs a key"
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "stripe",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.stripe.com",
+    "headers": {
+     "Authorization": "Bearer sk-123"
+    },
+    "connector": "stripe"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "stripe",
+    null
+   ],
+   "result": null,
+   "error": "Stripe needs a key"
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "stripe",
+    0
+   ],
+   "result": null,
+   "error": "Stripe needs a key"
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "supabase",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.supabase.com/mcp",
+    "connector": "supabase"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "supabase",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.supabase.com/mcp",
+    "connector": "supabase"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "supabase",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.supabase.com/mcp",
+    "connector": "supabase"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "supabase",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.supabase.com/mcp",
+    "connector": "supabase"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "trello",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.trello.com/v1",
+    "connector": "trello"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "trello",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.trello.com/v1",
+    "connector": "trello"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "trello",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.trello.com/v1",
+    "connector": "trello"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "trello",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.trello.com/v1",
+    "connector": "trello"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "vercel",
+    ""
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.vercel.com",
+    "connector": "vercel"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "vercel",
+    " sk-123 "
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.vercel.com",
+    "connector": "vercel"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "vercel",
+    null
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.vercel.com",
+    "connector": "vercel"
+   },
+   "error": null
+  },
+  {
+   "fn": "connectorServerInput",
+   "args": [
+    "vercel",
+    0
+   ],
+   "result": {
+    "name": "nm",
+    "type": "http",
+    "url": "https://mcp.vercel.com",
+    "connector": "vercel"
+   },
+   "error": null
+  }
+ ]
+}

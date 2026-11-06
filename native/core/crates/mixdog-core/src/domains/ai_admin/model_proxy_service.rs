@@ -38,7 +38,9 @@ pub struct HostProxyTransport {
 impl ModelProxyTransport for HostProxyTransport {
     async fn execute(&self, call: Value, events: &mut (dyn FnMut(Value) + Send), cancel: &CancellationToken) -> Result<Value, ProxyError> {
         let request = self.host.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({ "call": call }), events);
+        // Biased: a call already cancelled is cancelled even when the request settles in the same poll.
         let reply = tokio::select! {
+            biased;
             () = cancel.cancelled() => return Err(ProxyError::Cancelled),
             reply = request => reply,
         };

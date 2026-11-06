@@ -81,7 +81,7 @@ fn num(n: f64) -> Value {
     }
 }
 
-fn is_stored_session_id(s: &str) -> bool {
+pub(crate) fn is_stored_session_id(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
@@ -355,6 +355,6 @@ pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> Catalo
         source_name: str_field("sourceName"),
         summary: Value::Object(s).to_string(),
         worker: crate::worker::WorkerKeys::of(h),
-        agent_tag: crate::worker::TagKeys::of(h),
+        agent_tag: crate::worker::TagKeys::of(&head.session, h),
     }
 }

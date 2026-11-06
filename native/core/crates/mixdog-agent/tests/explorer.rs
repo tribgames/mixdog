@@ -264,7 +264,7 @@ async fn explorer_results_equal_nodes() {
                 let hang = entry["hang"].as_bool().unwrap_or(false);
                 if let Some(stop) = entry["stop"].as_str() {
                     let stop = if stop == "tool_use" { StopReason::ToolUse } else { StopReason::EndTurn };
-                    events.push(StreamEvent::Completed { stop: Some(stop) });
+                    events.push(StreamEvent::Completed { stop: Some(stop), pricing_model: None });
                 }
                 (events, hang)
             })
@@ -303,7 +303,7 @@ async fn deadline_with_nothing_written_is_a_timeout() {
 #[tokio::test]
 async fn a_finished_answer_is_trimmed_and_not_late() {
     let provider = Provider::new(
-        vec![StreamEvent::TextDelta("  done \n".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn) }],
+        vec![StreamEvent::TextDelta("  done \n".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None }],
         false,
     );
     let answer = explore(provider.clone(), Duration::from_secs(60)).await.unwrap();

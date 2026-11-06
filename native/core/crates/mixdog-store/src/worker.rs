@@ -39,22 +39,28 @@ impl WorkerKeys {
     }
 }
 
-/// The session's own tag keys, as 1.4.5 `lastTagSession` reads a session record:
-/// `agentTagOf(session)` = `clean(agentTag)` and the owner of `sessionMatchesContext`.
+/// The session's own tag keys, as 1.4.5 `lastTagSession` reads the agent registry's
+/// descriptor of a stored session (`agent-rehydrate.mjs` `storedAgentCandidate` and
+/// `rehydratedDescriptor`): `agentTagOf` = `clean(agentTag)`, and the parent link that
+/// `sessionMatchesContext` compares.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagKeys {
     pub tag: String,
-    pub owner: Option<String>,
+    pub owner: String,
 }
 
 impl TagKeys {
-    /// `None` without a tag, and for a Lead pool session (`isLeadPoolAgent(session.agent)`).
-    pub fn of(header: &Map<String, Value>) -> Option<TagKeys> {
+    /// `None` unless the session is in the agent registry (agent-only, or a legacy
+    /// `owner: agent` child, with a parent link that is a session id other than its own),
+    /// has a tag, and is not a Lead pool session (`agent || sourceName` "lead").
+    pub fn of(session: &str, header: &Map<String, Value>) -> Option<TagKeys> {
+        let owner = owner_of(header).filter(|o| crate::summary::is_stored_session_id(o) && o != session)?;
+        let agent_only = crate::summary::session_visibility(header) == "agent-only"
+            || clean(header.get("owner")).to_lowercase() == "agent";
+        let agent = header.get("agent");
+        let agent = if truthy(agent) { agent } else { header.get("sourceName") };
         let tag = clean(header.get("agentTag"));
-        if tag.is_empty() || clean(header.get("agent")).to_lowercase() == "lead" {
-            return None;
-        }
-        Some(TagKeys { tag, owner: owner_of(header) })
+        (agent_only && !tag.is_empty() && clean(agent).to_lowercase() != "lead").then_some(TagKeys { tag, owner })
     }
 }
 
@@ -73,10 +79,14 @@ pub struct TagSession {
     pub summary: String,
 }
 
-/// Newest `created_at` first (1.4.5 compares `createdAt`), then id.
+/// 1.4.5 keeps the first session of its walk with the greatest `createdAt` (a missing one
+/// is 0, here NULL, which sorts last). The walk is the agent registry's insertion order
+/// (`agent-tree.mjs` `listSessions`, `registry.ids()`), which a boot fills by rehydration
+/// from the stored listing, newest `updatedAt` first (`summary-cache.mjs`); its own ties
+/// fall to the directory scan, for which id stands.
 pub(crate) const NEWEST_TAG_SQL: &str = "SELECT id, summary FROM sessions
     WHERE agent_tag = ?1 AND agent_owner = ?2 AND deleted = 0 AND log_id <> ''
-    ORDER BY created_at DESC, id LIMIT 1";
+    ORDER BY created_at DESC, updated_at DESC, id LIMIT 1";
 
 /// Whose rows a lookup returns: 1.4.5 `sessionMatchesContext` (the caller's owner session
 /// when it has one, else its host process, else every row).

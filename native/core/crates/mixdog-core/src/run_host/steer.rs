@@ -37,22 +37,21 @@ fn content_of(message: &serde_json::Value) -> Content {
 }
 
 fn entry_of(input: SteerInput) -> SteerEntry {
-    let e = &input.entry;
     SteerEntry {
-        content: content_of(e.get("message").unwrap_or(&serde_json::Value::Null)),
-        text: e.get("text").and_then(|t| t.as_str()).map(str::to_owned),
-        ids: vec![input.queued_id.as_str().to_owned()],
-        submitted_at: e.get("submittedAt").and_then(|t| t.as_i64()),
-        message_id: e.get("messageId").and_then(|t| t.as_str()).map(str::to_owned),
+        content: content_of(&input.content),
+        text: input.text,
+        ids: input.queued_ids.iter().map(|id| id.as_str().to_owned()).collect(),
+        submitted_at: input.submitted_at,
+        message_id: input.message_id,
         mode: input.mode,
-        execution: input.execution.clone(),
+        execution: input.execution,
     }
 }
 
 #[async_trait::async_trait]
 impl SteerSource for SteerQueue {
     async fn drain(&self, request: DrainRequest) -> Vec<SteerEntry> {
-        match self.port.take_steers(request.max_priority).await {
+        match self.port.take_steers(request).await {
             Ok(inputs) => inputs.into_iter().map(entry_of).collect(),
             // A closed run has nothing left to inject.
             Err(_) => Vec::new(),
@@ -67,10 +66,13 @@ mod tests {
     #[test]
     fn a_task_notification_keeps_its_mode_and_text_content() {
         let input = SteerInput {
-            queued_id: mixdog_core_api::ids::QueuedId::from("q1".to_owned()),
-            entry: serde_json::json!({"message": "hi", "messageId": "m1"}),
+            queued_ids: vec![mixdog_core_api::ids::QueuedId::from("q1".to_owned())],
+            content: serde_json::json!("hi"),
+            text: None,
             mode: SteerMode::TaskNotification,
             execution: Some(serde_json::json!({"id": "e1"})),
+            submitted_at: None,
+            message_id: Some("m1".into()),
         };
         let entry = entry_of(input);
         assert_eq!(entry.mode, SteerMode::TaskNotification);

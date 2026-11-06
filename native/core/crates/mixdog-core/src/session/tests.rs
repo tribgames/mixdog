@@ -34,6 +34,8 @@ use super::ItemCommit;
 use super::SessionDirectory;
 use super::SessionHandle;
 use super::SteerInput;
+use super::run::DrainRequest;
+use super::run::DrainStage;
 use super::run::Priority;
 use super::run::SteerMode;
 use super::seams::RunOutcome;
@@ -491,7 +493,7 @@ async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             open.notified().await;
-            let steers = run.port.take_steers(Priority::Next).await.expect("take");
+            let steers = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take");
             lock(&out).extend(steers);
             RunOutcome::Completed
         })
@@ -515,9 +517,68 @@ async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
     assert_eq!(taken.len(), 1);
     assert_eq!(taken[0].mode, SteerMode::TaskNotification);
     assert_eq!(taken[0].execution, Some(json!({ "id": "job-7", "status": "completed" })));
-    assert_eq!(taken[0].entry["message"], "job-7 finished.");
+    assert_eq!(taken[0].content, "job-7 finished.");
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(runs_started(&rig, &handle.id), 1, "a taken completion starts no turn");
+}
+
+fn drain(stage: DrainStage) -> DrainRequest {
+    DrainRequest { stage, max_priority: Priority::Next }
+}
+
+/// `ask-turn-steering-drain.mjs:44-58`: a mid-chain boundary takes queued input only while the
+/// queue holds task notifications alone; the terminal boundary takes it all, the prompts merged
+/// into one input and each completion on its own, and none of it starts a turn of its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
+    use mixdog_tools::exec::TaskNotifier;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let taken: Arc<Mutex<Vec<Vec<SteerInput>>>> = Arc::default();
+    let (open, out) = (gate.clone(), taken.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, out) = (open.clone(), out.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if lock(&out).is_empty() {
+                open.notified().await;
+            }
+            for stage in [DrainStage::PreSend, DrainStage::Terminal] {
+                let steers = run.port.take_steers(drain(stage)).await.expect("take");
+                lock(&out).push(steers);
+            }
+            RunOutcome::Completed
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "build", "op-1").await;
+    let first = turn(&handle, "first", "op-2").await;
+    let second = turn(&handle, "second", "op-3").await;
+    directory.finished(&handle.id, "job-7", "completed", "job-7 finished.".into()).await;
+    eventually(|| {
+        let queued = rig.store.records(&handle.id).into_iter().filter(|(_, record)| {
+            matches!(record, mixdog_store::schema::record::Record::Queue(_))
+        });
+        (queued.count() == 3).then_some(())
+    })
+    .await;
+    gate.notify_one();
+    eventually(|| idle(&handle).then_some(())).await;
+    let taken = lock(&taken).clone();
+    assert_eq!(taken.len(), 2);
+    assert!(taken[0].is_empty(), "a queued prompt keeps the mid-chain boundary from the queue");
+    let terminal = &taken[1];
+    assert_eq!(terminal.len(), 2);
+    assert_eq!(terminal[0].mode, SteerMode::Prompt);
+    assert_eq!(terminal[0].content, "first\nsecond");
+    let ids: Vec<&str> = terminal[0].queued_ids.iter().map(|id| id.as_str()).collect();
+    assert_eq!(ids, [first["queuedId"].as_str().unwrap(), second["queuedId"].as_str().unwrap()]);
+    assert_eq!(terminal[1].mode, SteerMode::TaskNotification);
+    assert_eq!(terminal[1].content, "job-7 finished.");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(runs_started(&rig, &handle.id), 1, "taken input starts no turn");
+    assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
 }
 
 /// `notification-bus.test.mjs` "one wake per session is in flight, and a suppressed wake
@@ -536,7 +597,7 @@ async fn completions_after_the_woken_turns_last_look_replay_oldest_first() {
             run.port.input_durable().await.expect("input durable");
             let first = lock(&seen).is_empty();
             // The boundary looks first; the woken turn then waits past its last look.
-            let took = run.port.take_steers(Priority::Next).await.expect("take").len();
+            let took = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take").len();
             lock(&seen).push((run.input_body.clone(), took));
             if first {
                 open.notified().await;
@@ -615,7 +676,7 @@ async fn a_held_route_leaves_a_completion_to_the_next_turn() {
             if lock(&seen).is_empty() {
                 open.notified().await;
             }
-            let n = run.port.take_steers(Priority::Next).await.expect("take").len();
+            let n = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take").len();
             lock(&seen).push(n);
             RunOutcome::Completed
         })

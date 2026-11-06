@@ -161,7 +161,7 @@ fn text(s: &str) -> Step {
 }
 
 fn done(stop: StopReason) -> Step {
-    Step::Event(StreamEvent::Completed { stop: Some(stop) })
+    Step::Event(StreamEvent::Completed { stop: Some(stop), pricing_model: None })
 }
 
 fn call(id: &str, name: &str, args: JsonValue) -> Step {

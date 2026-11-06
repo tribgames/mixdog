@@ -556,6 +556,43 @@ impl Worktrees {
         Ok(warnings)
     }
 
+    /// Lists a link Mixdog made in `entry_id`'s checkout (a dependency preparation, a snapshot's
+    /// shared folder) on its record, so its removal unlinks it instead of refusing as an
+    /// unrecorded link. Written before the link is made (`pending`), then `created` once it
+    /// exists, as the include creation does. Works for every kind of worktree.
+    pub async fn record_link(&self, entry_id: &str, rel: &str, source: &Path, status: &str, cancel: &CancellationToken) -> Result<IncludeItem, ScmFailure> {
+        let record = self.record(cancel, entry_id).await?.ok_or_else(|| crate::worktree::errors::missing(Some(entry_id.to_owned()), None, None))?;
+        let opened = self.scm().open(&crate::worktree::housekeeping::repo_cwd(&record), cancel).await?;
+        let _lock = opened.lock_repository().await?;
+        let mut current = self.record(cancel, entry_id).await?.ok_or_else(|| crate::worktree::errors::missing(Some(entry_id.to_owned()), None, None))?;
+        let path = rel.split('/').filter(|part| !part.is_empty()).fold(PathBuf::from(&current.path), |p, part| p.join(part));
+        let inside = mixdog_workspace::pathguard::is_within(Path::new(&current.path), &path)
+            && !rel.split('/').any(|part| part == ".." || part == ".git" || part.contains(':'));
+        if rel.is_empty() || !inside {
+            return Err(crate::worktree::errors::path_unsafe(current.id.clone(), path.to_string_lossy().into_owned(), Some("outside-worktree")));
+        }
+        let item = IncludeItem {
+            mode: "link".into(),
+            rel: rel.to_owned(),
+            path: path.to_string_lossy().into_owned(),
+            status: status.to_owned(),
+            digest: None,
+            source: Some(source.to_string_lossy().into_owned()),
+            link_type: Some("directory".into()),
+            dependency: false,
+        };
+        let mut ledger = ledger_of(&current);
+        match ledger.iter_mut().find(|known| known.path == item.path) {
+            Some(known) => *known = item.clone(),
+            None => ledger.push(item.clone()),
+        }
+        let mut resources = current.extra.get("resources").cloned().filter(serde_json::Value::is_object).unwrap_or_else(|| serde_json::json!({}));
+        resources["includes"] = serde_json::to_value(&ledger).unwrap_or(serde_json::Value::Null);
+        current.extra.insert("resources".into(), resources);
+        self.put_record(cancel, current).await?;
+        Ok(item)
+    }
+
     /// Undoes a failed creation: the links it made, the checkout, the branch it created, the
     /// record. Best effort: what cannot be undone stays for the cleanup to retry.
     pub(crate) async fn rollback_creation(&self, record: &WorktreeRecord, repo_root: &Path, cancel: &CancellationToken) {

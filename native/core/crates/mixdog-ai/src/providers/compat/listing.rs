@@ -40,6 +40,7 @@ use super::profile::Wire;
 use super::wire_route::WireFacts;
 use super::wire_route::route_for;
 use super::wire_route::wire_of_package;
+use crate::catalog::ListingLookup;
 use crate::catalog::keep_native;
 use crate::catalog::seed_display_name;
 use crate::catalog::seed_roster;
@@ -79,6 +80,26 @@ fn native_record(info: &CompatModelInfo, publish_names: bool) -> ModelRecord {
         record.picker.reasoning_options = effort_options(&record.reasoning_levels);
     }
     record
+}
+
+/// `listCompatModels` past the fetch: enrichment, then the native limits and
+/// mode restored over what it derived, then the sanitizer. A custom provider
+/// runs the same steps over its own endpoint's rows.
+pub(crate) fn compat_rows_of(lookup: &ListingLookup, provider: &str, infos: &[CompatModelInfo], publish_names: bool) -> Vec<ModelRecord> {
+    let native: Vec<ModelRecord> = infos.iter().map(|info| native_record(info, publish_names)).collect();
+    // A published roster is the lookup's base layer, and a base's display name
+    // is never replaced by the listed row's own `name` (which is only the id).
+    let mut lent = native.clone();
+    if publish_names {
+        for row in &mut lent {
+            row.name = None;
+        }
+    }
+    let mut enriched = lookup.enrich_listed(provider, lent);
+    for (row, native) in enriched.iter_mut().zip(&native) {
+        row.name.clone_from(&native.name);
+    }
+    lookup.sanitize_listed(provider, keep_native(&native, enriched))
 }
 
 impl CompatAdapter {
@@ -142,21 +163,7 @@ impl CompatAdapter {
     /// `listCompatModels` past the fetch: enrichment, then the native limits
     /// and mode restored over what it derived, then the sanitizer.
     fn compat_rows(&self, infos: &[CompatModelInfo], publish_names: bool) -> Vec<ModelRecord> {
-        let provider = self.codec.profile().id;
-        let native: Vec<ModelRecord> = infos.iter().map(|info| native_record(info, publish_names)).collect();
-        // A published roster is the lookup's base layer, and a base's display name
-        // is never replaced by the listed row's own `name` (which is only the id).
-        let mut lent = native.clone();
-        if publish_names {
-            for row in &mut lent {
-                row.name = None;
-            }
-        }
-        let mut enriched = self.lookup.enrich_listed(provider, lent);
-        for (row, native) in enriched.iter_mut().zip(&native) {
-            row.name.clone_from(&native.name);
-        }
-        self.lookup.sanitize_listed(provider, keep_native(&native, enriched))
+        compat_rows_of(&self.lookup, self.codec.profile().id, infos, publish_names)
     }
 
     async fn compat_listing(&self, rules: &ListingRules, decorate: Option<(&[&str], bool)>) -> Result<Vec<ModelRecord>, ProviderError> {
@@ -231,7 +238,8 @@ impl CompatAdapter {
             // seed's own label keeps the seed's spelling ("(C)" tier marker).
             let candidate = discovered.or_else(|| row.display_name.clone().filter(|n| *n != row.id)).unwrap_or_default();
             let name = tier_name(&candidate, seed_display_name(provider, &row.id).as_deref());
-            row.display_name = (name != row.id && !name.is_empty()).then(|| name.clone());
+            // Node's Muse rows carry the label as `name` alone.
+            row.display_name = None;
             row.name = Some(if name.is_empty() { row.id.clone() } else { name });
             if row.picker.reasoning_options.is_empty() && row.supports_reasoning != Some(false) {
                 row.picker.reasoning_options = effort_options(&levels);
@@ -285,7 +293,16 @@ impl CompatAdapter {
             native.push(record);
         }
         self.roster_wires.store(Arc::new(wires));
-        Ok(self.lookup.enrich_listed(provider, native))
+        // The console roster is the lookup's base layer: its labels stay `name`
+        // alone, as in the compat rows.
+        let names: Vec<Option<String>> = native.iter_mut().map(|r| r.name.take()).collect();
+        let mut rows = self.lookup.enrich_listed(provider, native);
+        for (row, name) in rows.iter_mut().zip(names) {
+            row.name = name;
+            // Node spreads the catalog's facts under the row (`displayName`), never as `display`.
+            row.display_name = None;
+        }
+        Ok(rows)
     }
 }
 

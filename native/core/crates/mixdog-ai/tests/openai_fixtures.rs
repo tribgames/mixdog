@@ -141,7 +141,7 @@ fn text_stream_completes_with_usage() {
         .collect();
     assert_eq!(text, "The result is 42.");
     assert!(events.iter().any(|e| matches!(e, StreamEvent::Usage(u) if u.input_tokens == 20 && u.output_tokens == 8)));
-    assert!(matches!(events.last(), Some(StreamEvent::Completed { stop: None })));
+    assert!(matches!(events.last(), Some(StreamEvent::Completed { stop: None, .. })));
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn tool_call_stream_yields_one_call_and_no_stop_reason() {
     assert_eq!(calls[0].id, "call_fx1");
     assert_eq!(calls[0].name, "lookup");
     assert_eq!(calls[0].arguments, json!({"key": "answer"}));
-    assert!(matches!(events.last(), Some(StreamEvent::Completed { stop: None })));
+    assert!(matches!(events.last(), Some(StreamEvent::Completed { stop: None, .. })));
 }
 
 /// Every intercepted Responses recording (API key and OAuth, SSE and
@@ -235,7 +235,7 @@ fn intercepted_recordings_decode_to_the_recorded_results() {
             // `stopReason: null` in the recording is `None`, never an inferred reason.
             assert_eq!(ok["stopReason"], Value::Null);
             let stop: Option<StopReason> = match events.last() {
-                Some(StreamEvent::Completed { stop }) => stop.clone(),
+                Some(StreamEvent::Completed { stop, .. }) => stop.clone(),
                 other => panic!("{family}/{scenario}: last event {other:?}"),
             };
             assert_eq!(stop, None, "{family}/{scenario} stop reason");

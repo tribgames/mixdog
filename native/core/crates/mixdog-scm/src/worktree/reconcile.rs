@@ -95,8 +95,15 @@ impl ReconcileReport {
     }
 }
 
-fn describe(failure: &ScmFailure) -> String {
-    failure.message().map(str::to_owned).unwrap_or_else(|| failure.to_string())
+/// What Node's `error.message` says: the failure's own text, else its code's contract default.
+pub(crate) fn describe(failure: &ScmFailure) -> String {
+    if let Some(message) = failure.message() {
+        return message.to_owned();
+    }
+    match failure {
+        ScmFailure::Coded { code, detail, .. } => crate::worktree::texts::contract_message(code, detail.as_deref()).map_or_else(|| failure.to_string(), str::to_owned),
+        _ => failure.to_string(),
+    }
 }
 
 /// Whether the automatic pass would try to remove the ready, not-live worktree `record` (the

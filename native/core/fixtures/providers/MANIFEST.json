@@ -10,7 +10,7 @@
     "oracles/openai-transport-switch-golden.json (WP-AI-OPENAI)",
     "oracles/openai-ws-delta-golden.json (WP-AI-OPENAI)"
   ],
-  "fileCount": 75,
+  "fileCount": 77,
   "files": [
     {
       "bytes": 309490,
@@ -303,6 +303,11 @@
       "sha256": "121f6f7f866e15f2a783701f105a68dc8a97ea5507d53064352e1a3378e32fd9"
     },
     {
+      "bytes": 26461,
+      "path": "oracles/custom-listing.json",
+      "sha256": "569fb4d6a76066b7fc053ab6ffdc1df28bfa242b99b4904e0128c644632dec4c"
+    },
+    {
       "bytes": 264455,
       "path": "oracles/native-request-bytes.head.json",
       "sha256": "72398a2d04bb93ea1a4c848cf3dde476ebaa874dfe28f70f3badc371807110e2"
@@ -321,6 +326,11 @@
       "bytes": 7080,
       "path": "oracles/openai-login-golden.json",
       "sha256": "a3eac4717bc2ea4fa5a24f4e14f7c9f76cf6e99dd427f8a322f4911a4cd70fd6"
+    },
+    {
+      "bytes": 5163,
+      "path": "oracles/openai-max-context-golden.json",
+      "sha256": "cd9739189ac51e42375560914185cf416ed5421c75de0d8296c3d4b17825c9f7"
     },
     {
       "bytes": 8295,
@@ -424,5 +434,5 @@
     "openai-responses-http-sse/truncated-no-completed"
   ],
   "set": "providers",
-  "totalBytes": 1882021
+  "totalBytes": 1913645
 }

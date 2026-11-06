@@ -453,7 +453,7 @@ impl Worktrees {
         let mut remaining = Vec::new();
         match self.remove_folder(record, &mut remaining, cancel).await {
             Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
-            Err(error) => remaining.push(remnant("error", None, Some(&error.to_string()))),
+            Err(error) => remaining.push(remnant("error", None, Some(&crate::worktree::reconcile::describe(&error)))),
             Ok(()) => {}
         }
         if !remaining.is_empty() && deleting_flag(record, "automatic") {

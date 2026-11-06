@@ -183,7 +183,7 @@ fn fold(events: &[StreamEvent]) -> Folded {
             StreamEvent::ToolCallDone(call) => folded.tool_calls.push(call.clone()),
             StreamEvent::Usage(usage) => folded.usage = Some(usage.clone()),
             StreamEvent::ReasoningReplay(replay) => folded.replay.push(replay.clone()),
-            StreamEvent::Completed { stop } => folded.stop = stop.clone(),
+            StreamEvent::Completed { stop, .. } => folded.stop = stop.clone(),
             _ => {}
         }
     }

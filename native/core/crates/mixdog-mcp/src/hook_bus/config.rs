@@ -88,27 +88,31 @@ enum Unreadable {
     Io(String),
 }
 
-/// A hooks file's document: `Ok(None)` when it is missing. A damaged rules file is restored
-/// from its valid `.bak` copy.
-#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn read_document(path: &Path, restore: bool) -> Result<Option<Value>, Unreadable> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => return Ok(None),
+/// A hooks file's document (`readHookDocument`): `Ok(None)` when it is missing. A damaged rules
+/// file (`restore`) goes through `readJsonStateSync` with `keepWithoutBackup`: a valid `.bak` is
+/// restored and read, the damaged bytes kept aside as `<file>.corrupt-<ts>`; without one the
+/// file stays in place. Hooks files the user or a plugin owns are never moved or locked.
+fn read_document(lane: &InLane<MaintenanceIo>, path: &Path, restore: bool) -> Result<Option<Value>, Unreadable> {
+    let content = match mixdog_statefile::read_content(path) {
+        Ok(Some(content)) => content,
+        Ok(None) => return Ok(None),
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotADirectory) => return Ok(None),
         Err(e) => return Err(Unreadable::Io(e.to_string())),
     };
-    let damage = if text.trim_matches(|c: char| c == '\0' || mixdog_js::is_js_space(c)).is_empty() {
+    let damage = if mixdog_statefile::holds_no_data(&content) {
         "the file holds no data (empty or NUL-filled)".to_owned()
     } else {
-        match serde_json::from_str::<Value>(&text) {
+        match mixdog_statefile::parse_json_text(&content) {
             Ok(value) => return Ok(Some(value)),
             Err(error) => error.to_string(),
         }
     };
     if restore {
-        let backup = PathBuf::from(format!("{}.bak", path.display()));
-        if let Some(value) = std::fs::read_to_string(backup).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
-            return Ok(Some(value));
+        let opts = mixdog_statefile::Opts { keep_without_backup: true, ..mixdog_statefile::Opts::default() };
+        match mixdog_statefile::read_json(lane, path, None, &opts) {
+            Ok(Some(value)) => return Ok(Some(value)),
+            Ok(None) => {}
+            Err(e) => return Err(Unreadable::Io(e.to_string())),
         }
     }
     Err(Unreadable::Damaged(damage))
@@ -136,7 +140,7 @@ pub fn load_config(
     let mut config = HookConfig::default();
     let mut cacheable = cacheable;
     for entry in &entries {
-        let parsed = match read_document(&entry.path, entry.path == rules_path) {
+        let parsed = match read_document(lane, &entry.path, entry.path == rules_path) {
             Ok(Some(parsed)) => parsed,
             Ok(None) => continue,
             Err(Unreadable::Damaged(problem)) => {
@@ -169,7 +173,7 @@ pub fn load_config(
             config.legacy_rules.extend(rules);
         }
     }
-    config.fallback_rules = read_document(&rules_path, true).ok().flatten().map(|d| normalize_rules(&d)).unwrap_or_default();
+    config.fallback_rules = read_document(lane, &rules_path, true).ok().flatten().map(|d| normalize_rules(&d)).unwrap_or_default();
     config.standard = !config.events.is_empty();
     config.key = if cacheable { key } else { String::new() };
     Loaded { config: Arc::new(config), project_exists, fresh: true }

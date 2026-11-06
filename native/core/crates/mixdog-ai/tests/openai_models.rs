@@ -140,6 +140,7 @@ async fn the_codex_list_is_node_s_request_and_node_s_rows() {
         assert_eq!(record.display_name.as_deref(), node["name"].as_str(), "{id}: name");
         assert_eq!(record.context_window, node["contextWindow"].as_u64(), "{id}: context window");
         assert_eq!(record.max_output_tokens, node["outputTokens"].as_u64(), "{id}: output tokens");
+        assert_eq!(record.max_context_window, node["maxContextWindow"].as_u64(), "{id}: max context window");
         assert_eq!(record.reasoning_levels, strings(&node["reasoningLevels"]), "{id}: levels");
         assert_eq!(record.default_reasoning_level.as_deref(), node["defaultEffort"].as_str(), "{id}: default effort");
         assert_eq!(record.hidden, node.get("hidden") == Some(&json!(true)), "{id}: hidden");
@@ -213,5 +214,18 @@ async fn a_codex_row_keeps_its_own_effort_options_through_enrichment() {
     for node in golden["normalized"].as_array().unwrap().iter().filter(|m| m.get("id").is_some()) {
         let record = records.iter().find(|r| r.id == node["id"].as_str().unwrap()).unwrap();
         assert_eq!(json!(record.picker.reasoning_options), node["reasoningOptions"], "{}: effort options", record.id);
+    }
+}
+
+#[test]
+fn the_max_context_window_follows_node_s_rule_for_every_recorded_case() {
+    let path = format!("{}/../../fixtures/providers/oracles/openai-max-context-golden.json", env!("CARGO_MANIFEST_DIR"));
+    let golden: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let cases = golden["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 49);
+    for case in cases {
+        let id = case["id"].as_str().unwrap();
+        let record = mixdog_ai::providers::openai::models::codex_record(&json!({"slug": id, "max_context_window": case["reported"]})).unwrap();
+        assert_eq!(record.max_context_window, case["maxContextWindow"].as_u64(), "{id} reported {}", case["reported"]);
     }
 }

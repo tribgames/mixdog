@@ -117,6 +117,16 @@ fn resolved_text(path: &Path) -> String {
     path.components().collect::<PathBuf>().to_string_lossy().into_owned()
 }
 
+/// What the file host does under [`Worktrees::with_recovery_store`]; write and restore need a
+/// ready checkout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveryAction {
+    Write,
+    Restore,
+    Inspect,
+    Discard,
+}
+
 struct Scope {
     root: PathBuf,
     directory: PathBuf,
@@ -259,6 +269,70 @@ impl Worktrees {
         }
         let root = crate::worktree::names::managed_root(self.data_dir(), Path::new(repo_common_dir));
         on_lane(self.scm().lane, cancel, move || prune_empty_root(&root)).await
+    }
+
+    /// File-host seam (Node `withWorktreeRecoveryStore`): records the host-owned journal scope
+    /// on the worktree containing `root` before the journal is prepared, and holds the
+    /// repository lock every removal takes through `run`. The descriptor survives daemon exit
+    /// and startup reconcile. A root outside any managed checkout runs as an ordinary project,
+    /// unless it lies in the managed store itself (a checkout that vanished).
+    pub async fn with_recovery_store<T, F, Fut>(&self, root: &Path, directory: &Path, action: RecoveryAction, run: F, cancel: &CancellationToken) -> Result<T, ScmFailure>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<T, ScmFailure>>,
+    {
+        let contained = self.all_records(cancel).await?.into_iter().find(|r| mixdog_workspace::pathguard::is_within(Path::new(&r.path), root));
+        let Some(entry) = contained else {
+            let (store, wanted) = (self.data_dir().join(crate::worktree::registry::STORE_DIR), root.to_path_buf());
+            let inside = on_lane(self.scm().lane, cancel, move || {
+                let canonical = mixdog_workspace::pathguard::canonical(&store).ok();
+                [Some(store), canonical].into_iter().flatten().any(|s| mixdog_workspace::pathguard::is_within(&s, &wanted))
+            })
+            .await?;
+            if inside {
+                return Err(errors::missing(None, None, Some(root.to_string_lossy().into_owned())));
+            }
+            return run().await;
+        };
+        let opened = self.scm().open(&repo_cwd(&entry), cancel).await?;
+        let _lock = opened.lock_repository().await?;
+        let needs_ready = matches!(action, RecoveryAction::Write | RecoveryAction::Restore);
+        let Some(mut record) = self.record(cancel, &entry.id).await?.filter(|r| !(needs_ready && r.state != "ready")) else {
+            return Err(errors::missing(Some(entry.id.clone()), None, None));
+        };
+        let descriptor = serde_json::json!({ "root": root, "directory": directory });
+        let mut probe = record.clone();
+        probe.extra.insert("editorRecoveryStores".into(), serde_json::json!([descriptor]));
+        let unusable = || errors::file_recovery(record.id.clone(), record.path.clone(), record.path.clone());
+        if recovery_scopes(&probe).is_none() {
+            return Err(unusable());
+        }
+        let Some(scopes) = recovery_scopes(&record) else { return Err(unusable()) };
+        let known = scopes.iter().any(|s| s.root == root && s.directory == directory);
+        if !known {
+            let mut stores = record.extra.get("editorRecoveryStores").and_then(|v| v.as_array().cloned()).unwrap_or_default();
+            if stores.len() >= 64 {
+                // Only descriptors of verifiably empty or missing stores may be pruned.
+                let probe = record.clone();
+                let kept = on_lane(self.scm().lane, cancel, move || {
+                    recovery_scopes(&probe)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|s| !store_is_empty(s))
+                        .map(|s| serde_json::json!({ "root": s.root, "directory": s.directory }))
+                        .collect::<Vec<_>>()
+                })
+                .await?;
+                stores = kept;
+                if stores.len() >= 64 {
+                    return Err(unusable());
+                }
+            }
+            stores.push(descriptor);
+            record.extra.insert("editorRecoveryStores".into(), serde_json::Value::Array(stores));
+            self.put_record(cancel, record).await?;
+        }
+        run().await
     }
 
     /// `WORKTREE_FILE_RECOVERY` while retained editor-recovery records exist (force does not matter).
