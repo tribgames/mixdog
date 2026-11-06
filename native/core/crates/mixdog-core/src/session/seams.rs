@@ -35,6 +35,7 @@ use mixdog_store::schema::record::ItemRecord;
 use mixdog_store::schema::record::QueueRecord;
 use mixdog_store::schema::record::Record;
 use mixdog_store::schema::record::RunRecord;
+use mixdog_store::sqlite::CompactionEntry;
 use mixdog_tools::policy::SessionSurface;
 use mixdog_agent::agent_tool::flow::seams::TurnResult;
 use serde_json::Value;
@@ -248,15 +249,16 @@ pub trait ThreadStore: Send + Sync + 'static {
         iid: &str,
     ) -> Result<Option<(u64, ItemRecord)>, CoreError>;
 
-    /// The ordinal of the live `compacted` frame of the lineage whose replacement holds the
-    /// entry `iid` (a compaction summary has no history row): a `model_switch` anchor on it
-    /// is `{iid, ordinal}`. The newest such frame; `None` when no live one holds it.
+    /// The live `compacted` frame of the lineage whose replacement holds the entry `iid` (a
+    /// compaction summary has no history row), with its ordinal and `cid`: a `model_switch`
+    /// anchor on it is `{iid, ordinal}`. The newest such frame; `None` when no live one
+    /// holds it.
     fn compaction_entry(
         &self,
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
         iid: &str,
-    ) -> Result<Option<u64>, CoreError>;
+    ) -> Result<Option<CompactionEntry>, CoreError>;
 
     /// The io step of a model-context read (the lineage's model rows since its last
     /// compaction, as acked so far): `None` starts the read; a stale page restarts it.

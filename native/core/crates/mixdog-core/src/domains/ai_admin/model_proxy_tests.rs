@@ -21,7 +21,7 @@ fn request() -> p::ModelRequest {
     let mut user = p::Message::new(
         p::Role::User,
         p::Content::Parts(vec![
-            p::ContentPart::Text("hi".into(), false),
+            p::ContentPart::Text("hi".into(), None),
             p::ContentPart::Image(p::ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into() }),
             p::ContentPart::File { source: p::BinarySource::Base64("QUJD".into()), mime_type: "text/plain".into(), filename: Some("a.txt".into()), text: None },
             p::ContentPart::Document { source: p::DocumentSource::Text { media_type: None, data: "d".into() }, title: Some("T".into()) },
@@ -79,7 +79,7 @@ fn the_senders_scope_and_unresolved_references_stay_home() {
     let text = serde_json::to_string(&request_out(&sent)).unwrap();
     assert!(!text.contains("blob-1") && !text.contains("sender-scope"));
     let got = request_in(serde_json::from_str(&text).unwrap()).unwrap();
-    assert_eq!(got.messages[0].content, p::Content::Parts(vec![p::ContentPart::Text("[attachment unavailable: y.pdf]".into(), false)]));
+    assert_eq!(got.messages[0].content, p::Content::Parts(vec![p::ContentPart::Text("[attachment unavailable: y.pdf]".into(), None)]));
     assert_eq!((got.options.transport_scope, got.options.model_max_output_tokens), (None, None));
 }
 

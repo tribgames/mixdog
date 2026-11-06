@@ -140,7 +140,7 @@ impl Run {
         });
         if let Some(snapshot) = marked {
             self.messages[index].effort = Some(snapshot);
-            self.env.sink.replace(&self.messages);
+            self.env.sink.replace(&self.messages, &crate::env::Rewrite::default());
         }
     }
 

@@ -16,12 +16,17 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use mixdog_core_api::domain::ext::DocumentText;
+use mixdog_core_api::domain::ext::ExtError;
+use mixdog_core_api::domain::ext::PdfIntake;
 use mixdog_migrate::framework::MigrationRoots;
 use mixdog_migrate::index::IndexProjector;
 use mixdog_migrate::run::MigrateOptions;
 use mixdog_migrate::run::Migrator;
 use mixdog_migrate::run::product_drivers;
+use mixdog_migrate::session::context_blobs::OfficeExtractor;
 use mixdog_migrate::session::target::read_sessions;
+use mixdog_protocol::ThreadId;
 use mixdog_store::schema::record::Form;
 use serde_json::Value;
 use serde_json::json;
@@ -34,6 +39,22 @@ struct StoreProjector;
 impl IndexProjector for StoreProjector {
     fn project(&self, data: &Path, db: &Path, sessions: &[String]) -> Result<(), String> {
         mixdog_store::sqlite::project_index(data, db, sessions)
+    }
+}
+
+/// The corpus scenarios recover no turn, so no context signature reads a document.
+struct NoDocuments;
+
+#[async_trait::async_trait]
+impl DocumentText for NoDocuments {
+    async fn office_text(&self, _: &ThreadId, filename: &str, _: &str) -> Result<Option<String>, ExtError> {
+        unreachable!("the corpus signs no office document ({filename})")
+    }
+    async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, ExtError> {
+        unreachable!("the migration extracts no PDF text")
+    }
+    async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<PdfIntake, ExtError> {
+        unreachable!("the migration counts no PDF")
     }
 }
 
@@ -52,6 +73,8 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(r"C:\Users\tempe\.mixdog\data\scratch\rust-core\migration-corpus"));
     let mut dump = serde_json::Map::new();
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: runtime.handle().clone() };
     for (scenario, data_rel) in SCENARIOS {
         let dir = tempfile::tempdir().unwrap();
         let roots = MigrationRoots {
@@ -61,7 +84,8 @@ fn main() {
         };
         copy_tree(&corpus.join(data_rel), &roots.data);
         copy_tree(&corpus.join("home"), &roots.home);
-        let complete = Migrator::new(roots.clone(), product_drivers(Arc::new(StoreProjector)), MigrateOptions::default())
+        let drivers = product_drivers(Arc::new(StoreProjector), office.clone());
+        let complete = Migrator::new(roots.clone(), drivers, MigrateOptions::default())
             .run()
             .unwrap();
         let sessions: serde_json::Map<String, Value> = read_sessions(&roots, &complete.manifest_sha256)

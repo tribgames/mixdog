@@ -263,7 +263,7 @@ impl RunObserver for Observer {
 #[derive(Default)]
 struct Sink {
     committed: Mutex<Vec<AgentMessage>>,
-    replaced: Mutex<Vec<Vec<AgentMessage>>>,
+    replaced: Mutex<Vec<(Vec<AgentMessage>, Rewrite)>>,
     ids: AtomicU64,
     /// Storage that never acks.
     stalled: std::sync::atomic::AtomicBool,
@@ -275,8 +275,8 @@ impl TranscriptSink for Sink {
         committed.push(message.clone());
         Ticket(committed.len() as u64)
     }
-    fn replace(&self, messages: &[AgentMessage]) {
-        self.replaced.lock().unwrap().push(messages.to_vec());
+    fn replace(&self, messages: &[AgentMessage], rewrite: &Rewrite) {
+        self.replaced.lock().unwrap().push((messages.to_vec(), rewrite.clone()));
     }
     fn message_id(&self) -> String {
         format!("m{}", self.ids.fetch_add(1, Ordering::Relaxed) + 1)
@@ -321,8 +321,8 @@ impl Compactor for Compactor100 {
         Ok(CompactOutput {
             messages: kept,
             usage: None,
-            dropped_count: 0,
-            dropped: None,
+            dropped_count: (request.messages.len() - 1) as u64,
+            dropped: Some(Dropped { message_ids: vec!["gone".into()], call_ids: vec!["call-gone".into()] }),
         })
     }
 }
@@ -399,6 +399,38 @@ async fn a_partial_result_is_never_admitted_to_the_cache() {
         h.reuse = Some(reuse.clone());
         finish(h.run(config(), vec![Arc::new(Marked(complete))], vec![AgentMessage::user("go")])).await;
         assert_eq!(*reuse.0.lock().unwrap(), stored, "complete = {complete}");
+    }
+}
+
+/// `echo` whose result carries the given `meta`, as `apply_patch` carries `uiDiff`.
+struct WithMeta(JsonValue);
+#[async_trait]
+impl Tool for WithMeta {
+    fn spec(&self) -> &ToolSpec {
+        static SPEC: std::sync::OnceLock<ToolSpec> = std::sync::OnceLock::new();
+        SPEC.get_or_init(|| Echo::tool().spec().clone())
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        Ok(ToolOutput { parts: vec![ToolPart::Text("body".into())], meta: Some(self.0.clone()), ..ToolOutput::default() })
+    }
+}
+
+#[tokio::test]
+async fn a_tool_results_ui_diff_rides_its_message_as_a_string_and_stays_off_the_wire() {
+    for (meta, want) in [
+        (json!({ "uiDiff": "@@ -1 +1 @@" }), Some("@@ -1 +1 @@")),
+        (json!({ "uiDiff": 7 }), None),
+        (json!({ "other": "x" }), None),
+    ] {
+        let h = Harness::new(vec![
+            turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        let out = finish(h.run(config(), vec![Arc::new(WithMeta(meta.clone()))], vec![AgentMessage::user("go")])).await;
+        let result = out.transcript.iter().find(|m| m.tool_call_id() == Some("c1")).expect("tool result");
+        assert_eq!(result.ui_diff.as_deref(), want, "{meta}");
+        assert_eq!(result.text(), "body");
+        assert!(out.transcript.iter().filter(|m| m.tool_call_id() != Some("c1")).all(|m| m.ui_diff.is_none()));
     }
 }
 
@@ -875,8 +907,15 @@ async fn compaction_runs_at_the_request_boundary_and_resets_the_epoch() {
     let compactor = h.compactor.as_ref().unwrap();
     assert_eq!(*compactor.requests.lock().unwrap(), [(11, CompactTrigger::Auto)]);
     assert_eq!(wire_dump(&h.provider.requests()[0]), ["User:[summary]", "User:latest"]);
-    assert_eq!(h.sink.replaced.lock().unwrap().len(), 1);
     assert_eq!(output.iterations, 1);
+    // The sink is told what the pass took out, as the compactor reported it (10 of 11 left).
+    let replaced = h.sink.replaced.lock().unwrap();
+    assert_eq!(replaced.len(), 1);
+    assert_eq!(
+        replaced[0].1,
+        Rewrite { dropped_count: 10, dropped: Some(Dropped { message_ids: vec!["gone".into()], call_ids: vec!["call-gone".into()] }) }
+    );
+    drop(replaced);
     let compact_events: Vec<_> = h
         .observer
         .events()
@@ -1334,7 +1373,7 @@ async fn a_stored_text_reference_reaches_the_request_as_its_text_and_stays_a_ref
     let text_ref = reference("text-ref", Some(TextAttachment { kind: Some("file".into()) }));
     let image_ref = reference("image-ref", None);
     let prompt = AgentMessage::user_content(Content::Parts(vec![
-        ContentPart::Text("see".into(), false),
+        ContentPart::Text("see".into(), None),
         text_ref,
         image_ref.clone(),
     ]));
@@ -1345,8 +1384,8 @@ async fn a_stored_text_reference_reaches_the_request_as_its_text_and_stays_a_ref
     assert_eq!(
         sent,
         &Content::Parts(vec![
-            ContentPart::Text("see".into(), false),
-            ContentPart::Text("<file name=\"notes.md\">\nbody\n</file>".into(), false),
+            ContentPart::Text("see".into(), None),
+            ContentPart::Text("<file name=\"notes.md\">\nbody\n</file>".into(), None),
             image_ref,
         ])
     );
@@ -1362,7 +1401,7 @@ async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
     let prompt = AgentMessage::user_content(Content::Parts(vec![
-        ContentPart::Text("look".into(), false),
+        ContentPart::Text("look".into(), None),
         ContentPart::Image(ImageSource::Url("u".into())),
     ]));
     let output = finish(h.run(config(), vec![], vec![prompt])).await;
@@ -1372,8 +1411,8 @@ async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
     assert_eq!(
         requests[1].messages[0].content,
         Content::Parts(vec![
-            ContentPart::Text("look".into(), false),
-            ContentPart::Text(mixdog_agent::recovery_placeholder().into(), false),
+            ContentPart::Text("look".into(), None),
+            ContentPart::Text(mixdog_agent::recovery_placeholder().into(), None),
         ])
     );
     // the stored transcript keeps the image
@@ -1398,7 +1437,9 @@ async fn a_rejected_replay_is_dropped_from_the_newest_assistant_turn() {
         Some(json!([{"type": "text", "text": "t"}]))
     );
     assert_eq!(h.provider.requests().len(), 2);
-    assert_eq!(h.sink.replaced.lock().unwrap().len(), 1, "the repair is persisted");
+    let replaced = h.sink.replaced.lock().unwrap();
+    assert_eq!(replaced.len(), 1, "the repair is persisted");
+    assert_eq!(replaced[0].1, Rewrite::default(), "a repair drops nothing");
 }
 
 #[tokio::test]

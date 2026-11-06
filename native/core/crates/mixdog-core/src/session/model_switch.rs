@@ -56,13 +56,13 @@ pub async fn record_model_switch(directory: &SessionDirectory, thread: &ThreadId
         // The anchor is a compaction's replacement entry (the summary): it has no history row,
         // and its boundaries show on the compaction's divider.
         None => {
-            let Some(ordinal) = directory.compaction_entry(thread, &iid).await? else {
+            let Some(compaction) = directory.compaction_entry(thread, &iid).await? else {
                 return Ok(false);
             };
             if same(&messages[index]) {
                 return Ok(true);
             }
-            (ordinal, None, None)
+            (compaction.ordinal, None, None)
         }
     };
     let ctx = CallContext::internal("route");

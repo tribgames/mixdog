@@ -82,7 +82,7 @@ fn content_of(value: &Value) -> Content {
             parts
                 .iter()
                 .map(|part| match part["type"].as_str() {
-                    Some("text") => ContentPart::Text(part["text"].as_str().unwrap_or_default().to_owned(), false),
+                    Some("text") => ContentPart::Text(part["text"].as_str().unwrap_or_default().to_owned(), None),
                     other => panic!("unsupported content part {other:?}"),
                 })
                 .collect(),

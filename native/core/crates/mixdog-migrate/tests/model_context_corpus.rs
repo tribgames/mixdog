@@ -14,12 +14,17 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use mixdog_core_api::domain::ext::DocumentText;
+use mixdog_core_api::domain::ext::ExtError;
+use mixdog_core_api::domain::ext::PdfIntake;
 use mixdog_migrate::framework::MigrationRoots;
 use mixdog_migrate::index::IndexProjector;
 use mixdog_migrate::json::js_stable;
 use mixdog_migrate::run::MigrateOptions;
 use mixdog_migrate::run::Migrator;
 use mixdog_migrate::run::product_drivers;
+use mixdog_migrate::session::context_blobs::OfficeExtractor;
+use mixdog_protocol::ThreadId;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::LaneToken;
 use mixdog_rt::testing::tokens;
@@ -41,6 +46,22 @@ struct StoreProjector;
 impl IndexProjector for StoreProjector {
     fn project(&self, data: &Path, db: &Path, sessions: &[String]) -> Result<(), String> {
         mixdog_store::sqlite::project_index(data, db, sessions)
+    }
+}
+
+/// The corpus scenarios recover no turn, so no context signature reads a document.
+struct NoDocuments;
+
+#[async_trait::async_trait]
+impl DocumentText for NoDocuments {
+    async fn office_text(&self, _: &ThreadId, filename: &str, _: &str) -> Result<Option<String>, ExtError> {
+        unreachable!("the corpus signs no office document ({filename})")
+    }
+    async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, ExtError> {
+        unreachable!("the migration extracts no PDF text")
+    }
+    async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<PdfIntake, ExtError> {
+        unreachable!("the migration counts no PDF")
     }
 }
 
@@ -149,7 +170,8 @@ async fn golden(scenario: &str, data_rel: &str) {
     let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
     copy_tree(&corpus().join(data_rel), &roots.data);
     copy_tree(&corpus().join("home"), &roots.home);
-    Migrator::new(roots.clone(), product_drivers(Arc::new(StoreProjector)), MigrateOptions::default()).run().unwrap();
+    let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: tokio::runtime::Handle::current() };
+    Migrator::new(roots.clone(), product_drivers(Arc::new(StoreProjector), office), MigrateOptions::default()).run().unwrap();
     let data = roots.data.clone();
     let store = tokens()
         .maintenance_io

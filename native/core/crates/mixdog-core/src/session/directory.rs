@@ -173,8 +173,12 @@ impl SessionDirectory {
         handle.inbox.send(Inbox::CompletionCard { content, meta }).await.is_ok()
     }
 
-    /// The ordinal of the live compaction whose replacement holds the entry `iid`.
-    pub(crate) async fn compaction_entry(&self, id: &ThreadId, iid: &str) -> Result<Option<u64>, CoreError> {
+    /// The live compaction (ordinal and `cid`) whose replacement holds the entry `iid`.
+    pub(crate) async fn compaction_entry(
+        &self,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         let deps = &self.inner.deps;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         deps.lanes

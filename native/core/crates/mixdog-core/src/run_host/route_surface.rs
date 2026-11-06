@@ -172,3 +172,89 @@ impl RouteFacts for AiRouteFacts {
         route_surface_change(&surface, self.clock.as_ref(), header, (self.prepare_tools)(header), (self.hidden_agent)(agent))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{json, Value};
+
+    use super::*;
+    use crate::run_host::rules::{build_base_rules, refresh_rule_variants, RulesPolicy};
+
+    struct Fixed;
+    impl Clock for Fixed {
+        fn now_ms(&self) -> i64 {
+            1_700_000_000_000
+        }
+    }
+
+    struct Host(Vec<Value>);
+    impl SurfaceHost for Host {
+        fn bridge_tools(&self) -> Vec<Value> {
+            self.0.clone()
+        }
+        fn mcp_server_instructions(&self, _: Option<&str>) -> Value {
+            json!({})
+        }
+    }
+
+    struct Policy;
+    impl RulesPolicy for Policy {
+        fn hidden_agent(&self, _: Option<&str>) -> bool {
+            false
+        }
+        fn delegation_disabled(&self, _: &Value, _: bool) -> bool {
+            false
+        }
+    }
+
+    fn without_messages(value: &Value) -> Map<String, Value> {
+        value.as_object().unwrap().iter().filter(|(k, _)| *k != "messages").map(|(k, v)| (k.clone(), v.clone())).collect()
+    }
+
+    /// Node's `applyAgentToolExposure(session, { existing: true })` over the deferred-surface
+    /// sessions, owned by an agent and by a lead, with and without a schema allowlist.
+    #[test]
+    fn the_route_surface_follows_node() {
+        let surface_golden: Value = serde_json::from_str(include_str!("golden/tool_surface.json")).expect("fixture");
+        let golden: Value = serde_json::from_str(include_str!("golden/route_surface_variant.json")).expect("fixture");
+        let host = Host(surface_golden["bridgeTools"].as_array().unwrap().clone());
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        for row in golden["surface"].as_array().unwrap() {
+            if row["changed"].is_string() {
+                continue;
+            }
+            let header = row["before"].as_object().unwrap().clone();
+            let change = route_surface_change(&surface, &Fixed, &header, None, false);
+            let mut got = header.clone();
+            for key in &change.unset {
+                got.shift_remove(key);
+            }
+            for (key, value) in change.set {
+                got.insert(key, value);
+            }
+            assert_eq!(without_messages(&Value::Object(got)), without_messages(&row["after"]), "{} {}", row["name"], row["before"]["owner"]);
+        }
+    }
+
+    /// Node's `_refreshSessionRuleVariantsForModel` over every route pair, with the block untagged
+    /// (replaced) and tagged (left alone), and a denied tool.
+    #[test]
+    fn the_rules_variant_follows_node() {
+        let rules: Value = serde_json::from_str(include_str!("golden/rules_builder.json")).expect("fixture");
+        let golden: Value = serde_json::from_str(include_str!("golden/route_surface_variant.json")).expect("fixture");
+        let root = std::path::PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| ".".into())).join(format!("variant-golden-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for (rel, body) in rules["files"].as_object().unwrap() {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body.as_str().unwrap()).unwrap();
+        }
+        let _ = build_base_rules;
+        for row in golden["variant"].as_array().unwrap() {
+            let mut session = row["before"].clone();
+            let changed = refresh_rule_variants(&mut session, &root, row["previousModel"].as_str().unwrap(), row["previousProvider"].as_str(), &Policy);
+            assert_eq!(Value::Bool(changed), row["changed"], "{}", row["before"]);
+            assert_eq!(session, row["after"], "{}", row["before"]);
+        }
+    }
+}

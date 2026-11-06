@@ -28,7 +28,7 @@ fn content_of(message: &serde_json::Value) -> Content {
             parts
                 .iter()
                 .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                .map(|t| ContentPart::Text(t.to_owned(), false))
+                .map(|t| ContentPart::Text(t.to_owned(), None))
                 .collect(),
         ),
         other => Content::Text(other.as_str().unwrap_or_default().to_owned()),

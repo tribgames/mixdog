@@ -345,5 +345,15 @@ pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> Catalo
         summary: Value::Object(s).to_string(),
         worker: crate::worker::WorkerKeys::of(h),
         agent_tag: crate::worker::TagKeys::of(&head.session, h),
+        deleted: is_deleted(h),
     }
+}
+
+/// The header key of the delete mark (FORMAT.md §5.1 `meta`): `true` once `thread/delete`
+/// removed the session. The log keeps it, so a rebuilt index holds it too.
+pub const DELETED: &str = "deleted";
+
+/// Whether the header carries the delete mark.
+pub fn is_deleted(header: &Map<String, Value>) -> bool {
+    header.get(DELETED) == Some(&Value::Bool(true))
 }

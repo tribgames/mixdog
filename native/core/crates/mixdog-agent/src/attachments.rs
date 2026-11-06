@@ -38,7 +38,7 @@ pub async fn resolve_text_attachments(
         let Content::Parts(parts) = &mut message.content else { continue };
         for part in parts.iter_mut().filter(|p| is_reference(p)) {
             if let Some(text) = resolver.text_of(part).await? {
-                *part = ContentPart::Text(text, false);
+                *part = ContentPart::Text(text, None);
             }
         }
     }

@@ -228,6 +228,18 @@ impl StoreThreads {
         }
     }
 
+    /// The bounded open of a thread's log; `threadNotFound` for an unknown or deleted thread
+    /// (its header's delete mark). A fork still reads a deleted base's logs: `lineage` opens
+    /// them directly.
+    fn open(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<log::OpenedLog, CoreError> {
+        let opened = log::open_log(lane, &self.dir(id.as_str()), &self.blobs, &self.index)
+            .map_err(|e| Self::open_error(id, e))?;
+        if mixdog_store::summary::is_deleted(&opened.fold.header) {
+            return Err(Self::not_found(id));
+        }
+        Ok(opened)
+    }
+
     fn read_error(id: &ThreadId, error: ReadError) -> CoreError {
         match error {
             ReadError::Damaged(d) => CoreError::StoreDamaged {
@@ -356,8 +368,7 @@ impl StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<ContextState, CoreError> {
-        let opened = log::open_log(lane, &self.dir(id.as_str()), &self.blobs, &self.index)
-            .map_err(|e| Self::open_error(id, e))?;
+        let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         let cut = opened.fold.base_cut;
         let page = self
@@ -469,13 +480,10 @@ impl ThreadStore for StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<HeadRead, CoreError> {
-        let dir = self.dir(id.as_str());
-        if !dir.is_dir() {
+        if !self.dir(id.as_str()).is_dir() {
             return Err(Self::not_found(id));
         }
-        let opened = log::open_log(lane, &dir, &self.blobs, &self.index)
-            .map_err(|e| Self::open_error(id, e))?;
-        Ok(HeadRead(Box::new(opened)))
+        Ok(HeadRead(Box::new(self.open(lane, id)?)))
     }
 
     fn read_window(
@@ -588,9 +596,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
     ) -> Result<Vec<ItemRecord>, CoreError> {
         self.wait(self.projector.flush());
-        let dir = self.dir(id.as_str());
-        let opened = log::open_log(lane, &dir, &self.blobs, &self.index)
-            .map_err(|e| Self::open_error(id, e))?;
+        let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         let prompts = self
             .index
@@ -608,10 +614,8 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
     ) -> Result<Vec<ItemRecord>, CoreError> {
         self.wait(self.projector.flush());
-        let dir = self.dir(id.as_str());
         'read: loop {
-            let opened = log::open_log(lane, &dir, &self.blobs, &self.index)
-                .map_err(|e| Self::open_error(id, e))?;
+            let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
             let (mut rows, mut cursor) = (Vec::new(), None);
             loop {
@@ -642,10 +646,8 @@ impl ThreadStore for StoreThreads {
         iid: &str,
     ) -> Result<Option<(u64, ItemRecord)>, CoreError> {
         self.wait(self.projector.flush());
-        let dir = self.dir(id.as_str());
         'read: loop {
-            let opened = log::open_log(lane, &dir, &self.blobs, &self.index)
-                .map_err(|e| Self::open_error(id, e))?;
+            let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
             let mut cursor = None;
             loop {
@@ -670,10 +672,9 @@ impl ThreadStore for StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
         iid: &str,
-    ) -> Result<Option<u64>, CoreError> {
+    ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         self.wait(self.projector.flush());
-        let opened = log::open_log(lane, &self.dir(id.as_str()), &self.blobs, &self.index)
-            .map_err(|e| Self::open_error(id, e))?;
+        let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         self.index
             .compaction_entry_on_lane(lane, &lineage, opened.fold.base_cut, iid)

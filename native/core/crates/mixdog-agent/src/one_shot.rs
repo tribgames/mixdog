@@ -58,7 +58,7 @@ impl TranscriptSink for DiscardSink {
     fn commit(&self, _message: &AgentMessage) -> Ticket {
         Ticket(0)
     }
-    fn replace(&self, _messages: &[AgentMessage]) {}
+    fn replace(&self, _messages: &[AgentMessage], _rewrite: &crate::env::Rewrite) {}
     fn message_id(&self) -> String {
         String::new()
     }

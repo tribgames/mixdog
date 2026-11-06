@@ -297,11 +297,19 @@ pub(crate) fn delete_pack(paths: &WorkflowPaths, requested: &str) -> Result<(Str
 // --- shipped definitions ---
 
 /// The editable surface of a pack plus the loader-visible fields the editor cannot express.
-struct Definition {
-    name: String,
-    description: String,
-    body: String,
-    fields: Vec<(String, String)>,
+pub(crate) struct Definition {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) body: String,
+    pub(crate) fields: Vec<(String, String)>,
+}
+
+/// Where a kind of definition lives: the folder under the install and data roots, its entry
+/// file, and the files its editor writes (`absorbSaveEqualToShipped`'s `dir`, `entry`, `files`).
+pub(crate) struct ShippedKind<'a> {
+    pub dir: &'a str,
+    pub entry: &'a str,
+    pub files: &'a [&'a str],
 }
 
 /// `normalizeText`: CRLF to LF, trailing blanks of every line and of the text dropped.
@@ -388,13 +396,26 @@ fn absorb_equal_to_shipped(
     definition: &Definition,
     now: &dyn Fn() -> String,
 ) -> Result<bool, CoreError> {
-    let Some(shipped) = definition_from_dir(&paths.root.join("workflows").join(id), ENTRY, id) else {
+    let kind = ShippedKind { dir: "workflows", entry: ENTRY, files: &[ENTRY] };
+    absorb_kind_equal_to_shipped(&paths.root, &paths.data, &kind, id, definition, now)
+}
+
+/// [`absorb_equal_to_shipped`] for any kind of definition.
+pub(crate) fn absorb_kind_equal_to_shipped(
+    root: &Path,
+    data: &Path,
+    kind: &ShippedKind<'_>,
+    id: &str,
+    definition: &Definition,
+    now: &dyn Fn() -> String,
+) -> Result<bool, CoreError> {
+    let Some(shipped) = definition_from_dir(&root.join(kind.dir).join(id), kind.entry, id) else {
         return Ok(false);
     };
     if surface_hash(definition) != surface_hash(&shipped) {
         return Ok(false);
     }
-    let copy = paths.user_dir(id);
+    let copy = data.join(kind.dir).join(id);
     if !copy.exists() {
         return Ok(true);
     }
@@ -406,16 +427,16 @@ fn absorb_equal_to_shipped(
         let entry = entry.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let is_file = entry.file_type().is_ok_and(|kind| kind.is_file());
-        if !(is_file && (name == ENTRY || name == ".deleted" || is_stray(&name))) {
+        if !(is_file && (kind.files.contains(&name.as_str()) || name == ".deleted" || is_stray(&name))) {
             return Ok(false);
         }
     }
-    if let Some(existing) = definition_from_dir(&copy, ENTRY, id)
+    if let Some(existing) = definition_from_dir(&copy, kind.entry, id)
         && fields_key(&existing.fields) != fields_key(&shipped.fields)
     {
         return Ok(false);
     }
-    Ok(move_to_backup(&paths.data, &copy, now))
+    Ok(move_to_backup(data, &copy, now))
 }
 
 /// `makeBackup(dataDir).move(target)`: the target moves into a fresh

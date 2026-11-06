@@ -23,7 +23,7 @@ use serde_json::{Map, Value, json};
 use super::error::{GoalError, GoalResult};
 use super::js::Goal;
 use super::recovery::{RecoverySource, StoredGoals, recover_active_goals};
-use super::runtime::{GoalClock, GoalConfig, GoalEnv, GoalRuntime, GoalTimers, GoalTitles, Timer};
+use super::runtime::{GoalClock, GoalConfig, GoalEnv, GoalRuntime, GoalTimers, GoalTitles, Timer, TimerKind};
 use super::session_title::SESSION_TITLE_TIMEOUT_MS;
 use super::state::{DEFAULT_COMPLETED_GOAL_TTL_MS, goal_state_snapshot, parse_goal_duration, parse_user_command};
 use super::text::{continuation_prompt, duration_label, goal_state_reminder};
@@ -70,8 +70,8 @@ impl GoalClock for Clock {
 struct Timers(Arc<World>);
 
 impl GoalTimers for Timers {
-    fn after(&self, delay_ms: f64, callback: Box<dyn FnOnce() + Send>) -> Timer {
-        let beat = delay_ms == super::state::GOAL_LIVE_HEARTBEAT_MS;
+    fn after(&self, kind: TimerKind, delay_ms: f64, callback: Box<dyn FnOnce() + Send>) -> Timer {
+        let beat = kind == TimerKind::Heartbeat;
         let reused = if beat {
             let mut places = self.0.beat_places.lock().unwrap();
             (!places.is_empty()).then(|| places.remove(0))
@@ -82,7 +82,7 @@ impl GoalTimers for Timers {
             Some((id, fired_due)) => (id, fired_due + delay_ms),
             None => (self.0.seq.fetch_add(1, Ordering::SeqCst), self.0.clock() + delay_ms.max(0.0)),
         };
-        let title = delay_ms == SESSION_TITLE_TIMEOUT_MS as f64;
+        let title = kind == TimerKind::Title;
         self.0.timers.lock().unwrap().insert(id, FakeTimer { due, title, beat, callback: Some(callback) });
         let world = self.0.clone();
         Timer::new(move || {
@@ -327,11 +327,36 @@ impl Case {
                 self.world.beat_places.lock().unwrap().push((id, timer.due));
             }
             (timer.callback.take().unwrap())();
-            self.settle().await;
+            // The legacy-task clear is a no-op for a record without legacy tasks, and costs a
+            // locked read per session; between timers only the background work is awaited.
+            self.runtime.settled().await;
         }
         *self.world.mono.lock().unwrap() += target - self.world.clock();
         *self.world.clock.lock().unwrap() = target;
         self.settle().await;
+    }
+
+    /// Fires every timer due within `ms` with nothing settling in between: what a timer queued is
+    /// already in the session's queue when the next request arrives.
+    fn fire_unsettled(&self, ms: f64) {
+        let target = self.world.clock() + ms;
+        loop {
+            let due = {
+                let timers = self.world.timers.lock().unwrap();
+                timers.iter().filter(|(_, t)| t.due <= target).min_by(|a, b| a.1.due.total_cmp(&b.1.due).then(a.0.cmp(b.0))).map(|(id, _)| *id)
+            };
+            let Some(id) = due else { break };
+            let mut timer = self.world.timers.lock().unwrap().remove(&id).unwrap();
+            let delta = (timer.due - self.world.clock()).max(0.0);
+            *self.world.clock.lock().unwrap() += delta;
+            *self.world.mono.lock().unwrap() += delta;
+            if timer.beat {
+                self.world.beat_places.lock().unwrap().push((id, timer.due));
+            }
+            (timer.callback.take().unwrap())();
+        }
+        *self.world.mono.lock().unwrap() += target - self.world.clock();
+        *self.world.clock.lock().unwrap() = target;
     }
 
     async fn goal_ref(&self, session: &str, reference: &str) -> String {
@@ -376,6 +401,11 @@ impl Case {
         let args = &step["args"];
         let fail = |e: GoalError| e.message;
         match step["op"].as_str().unwrap() {
+            "fireThenControl" => {
+                self.fire_unsettled(args["ms"].as_f64().unwrap());
+                let request = self.resolve(session, &args["request"]).await;
+                self.runtime.control(session, request).await.map_err(fail)
+            }
             "control" => {
                 let request = self.resolve(session, &args["request"]).await;
                 self.runtime.control(session, request).await.map_err(fail)
@@ -521,9 +551,6 @@ async fn replay(case: &Value) -> Result<(), String> {
                 actual.insert("error".into(), namer.name(&scrub(&dir, &Value::String(message))));
             }
         }
-        if std::env::var("GOAL_CASE").is_ok() {
-            eprintln!("STEP {index} {op} {}", shorten(actual.get("value").unwrap_or(&Value::Null)));
-        }
         let events = Value::Array(run.events.lock().unwrap().clone());
         actual.insert("events".into(), namer.name(&events));
         let errors = Value::Array(run.errors.lock().unwrap().iter().cloned().map(Value::String).collect());
@@ -570,11 +597,14 @@ async fn the_runtime_answers_like_node_operation_by_operation() {
     let twin = twin();
     let mut failures = Vec::new();
     let cases = twin["cases"].as_array().unwrap();
-    for case in cases {
-        if std::env::var("GOAL_CASE").is_ok_and(|only| only != case["name"].as_str().unwrap()) {
-            continue;
-        }
-        if let Err(message) = replay(case).await {
+    // Every case has its own directory and clock; the durable writes (fsync) of different cases
+    // overlap on the lanes.
+    let replays = cases
+        .iter()
+        .filter(|case| std::env::var("GOAL_CASE").is_ok_and(|only| only == case["name"].as_str().unwrap()) || std::env::var("GOAL_CASE").is_err())
+        .map(|case| async move { (case, replay(case).await) });
+    for (case, replayed) in futures::future::join_all(replays).await {
+        if let Err(message) = replayed {
             failures.push(format!("{}: {message}", case["name"]));
         }
     }

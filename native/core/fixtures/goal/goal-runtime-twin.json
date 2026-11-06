@@ -30747,6 +30747,433 @@
     },
     {
       "files": {},
+      "name": "deadline ten seconds left",
+      "options": {},
+      "steps": [
+        {
+          "args": {
+            "input": {
+              "action": "create",
+              "objective": "Ten seconds",
+              "time_limit_minutes": 1
+            }
+          },
+          "events": [
+            {
+              "goal": {
+                "archivedAt": null,
+                "blocker": "",
+                "completedAt": null,
+                "createdAt": 1800000000000,
+                "deadlineAt": 1800000060000,
+                "id": "<goal 1>",
+                "lastStartedAt": 1800000000000,
+                "objective": "Ten seconds",
+                "pauseReason": "user",
+                "remainingMs": 60000,
+                "sessionId": "s1",
+                "snapshotAt": 1800000000000,
+                "status": "active",
+                "stoppedAt": null,
+                "timeLimitMs": 60000,
+                "timeUsedMs": 0,
+                "title": "Ten seconds",
+                "turnCount": 1,
+                "updatedAt": 1800000000000,
+                "warningRevision": 0
+              },
+              "sessionId": "s1"
+            },
+            {
+              "goal": {
+                "archivedAt": null,
+                "blocker": "",
+                "completedAt": null,
+                "createdAt": 1800000000000,
+                "deadlineAt": 1800000060000,
+                "id": "<goal 1>",
+                "lastStartedAt": 1800000000000,
+                "objective": "Ten seconds",
+                "pauseReason": "user",
+                "remainingMs": 60000,
+                "sessionId": "s1",
+                "snapshotAt": 1800000000000,
+                "status": "active",
+                "stoppedAt": null,
+                "timeLimitMs": 60000,
+                "timeUsedMs": 0,
+                "title": "Ten seconds",
+                "turnCount": 1,
+                "updatedAt": 1800000000000,
+                "warningRevision": 1
+              },
+              "sessionId": "s1"
+            },
+            {
+              "goal": {
+                "archivedAt": null,
+                "blocker": "",
+                "completedAt": null,
+                "createdAt": 1800000000000,
+                "deadlineAt": 1800000060000,
+                "id": "<goal 1>",
+                "lastStartedAt": 1800000000000,
+                "objective": "Ten seconds",
+                "pauseReason": "user",
+                "remainingMs": 60000,
+                "sessionId": "s1",
+                "snapshotAt": 1800000000000,
+                "status": "active",
+                "stoppedAt": null,
+                "timeLimitMs": 60000,
+                "timeUsedMs": 0,
+                "title": "Title: Ten seconds",
+                "turnCount": 1,
+                "updatedAt": 1800000000000,
+                "warningRevision": 1
+              },
+              "sessionId": "s1"
+            }
+          ],
+          "files": {
+            "s1.json": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ten seconds\",\n    \"title\": \"Title: Ten seconds\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 60000,\n    \"timeUsedMs\": 0,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000000000,\n    \"lastStartedAt\": 1800000000000,\n    \"liveAt\": 1800000000000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 300000,\n    \"warningRevision\": 1\n  }\n}\n",
+            "s1.json.bak": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ten seconds\",\n    \"title\": \"Ten seconds\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 60000,\n    \"timeUsedMs\": 0,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000000000,\n    \"lastStartedAt\": 1800000000000,\n    \"liveAt\": 1800000000000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 300000,\n    \"warningRevision\": 1\n  }\n}\n"
+          },
+          "op": "tool",
+          "session": "s1",
+          "storageErrors": [],
+          "timers": [
+            60000,
+            60000
+          ],
+          "value": "{\"goal\":{\"id\":\"<goal 1>\",\"warningRevision\":0,\"sessionId\":\"s1\",\"objective\":\"Ten seconds\",\"title\":\"Ten seconds\",\"status\":\"active\",\"turnCount\":1,\"blocker\":\"\",\"pauseReason\":\"user\",\"timeLimitMs\":60000,\"timeUsedMs\":0,\"remainingMs\":60000,\"deadlineAt\":1800000060000,\"snapshotAt\":1800000000000,\"createdAt\":1800000000000,\"updatedAt\":1800000000000,\"lastStartedAt\":1800000000000,\"completedAt\":null,\"archivedAt\":null},\"remaining_ms\":60000}"
+        },
+        {
+          "args": {
+            "ms": 50000
+          },
+          "events": [],
+          "op": "advance",
+          "session": null,
+          "storageErrors": [],
+          "timers": [
+            10000,
+            10000
+          ],
+          "value": null
+        },
+        {
+          "args": {},
+          "events": [],
+          "op": "snapshot",
+          "session": "s1",
+          "storageErrors": [],
+          "timers": [
+            10000,
+            10000
+          ],
+          "value": {
+            "archivedAt": null,
+            "blocker": "",
+            "completedAt": null,
+            "createdAt": 1800000000000,
+            "deadlineAt": 1800000060000,
+            "id": "<goal 1>",
+            "lastStartedAt": 1800000000000,
+            "objective": "Ten seconds",
+            "pauseReason": "user",
+            "remainingMs": 10000,
+            "sessionId": "s1",
+            "snapshotAt": 1800000050000,
+            "status": "active",
+            "stoppedAt": null,
+            "timeLimitMs": 60000,
+            "timeUsedMs": 50000,
+            "title": "Title: Ten seconds",
+            "turnCount": 1,
+            "updatedAt": 1800000000000,
+            "warningRevision": 1
+          }
+        },
+        {
+          "args": {
+            "ms": 10000
+          },
+          "events": [
+            {
+              "goal": {
+                "archivedAt": null,
+                "blocker": "",
+                "completedAt": null,
+                "createdAt": 1800000000000,
+                "deadlineAt": null,
+                "id": "<goal 1>",
+                "lastStartedAt": null,
+                "objective": "Ten seconds",
+                "pauseReason": "user",
+                "remainingMs": 0,
+                "sessionId": "s1",
+                "snapshotAt": 1800000060000,
+                "status": "duration_reached",
+                "stoppedAt": null,
+                "timeLimitMs": 60000,
+                "timeUsedMs": 60000,
+                "title": "Title: Ten seconds",
+                "turnCount": 1,
+                "updatedAt": 1800000060000,
+                "warningRevision": 1
+              },
+              "sessionId": "s1"
+            }
+          ],
+          "files": {
+            "s1.json": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ten seconds\",\n    \"title\": \"Title: Ten seconds\",\n    \"objectiveRevision\": 0,\n    \"status\": \"duration_reached\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 60000,\n    \"timeUsedMs\": 60000,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000060000,\n    \"lastStartedAt\": null,\n    \"liveAt\": 1800000060000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 300000,\n    \"warningRevision\": 1\n  }\n}\n",
+            "s1.json.bak": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ten seconds\",\n    \"title\": \"Title: Ten seconds\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 60000,\n    \"timeUsedMs\": 0,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000000000,\n    \"lastStartedAt\": 1800000000000,\n    \"liveAt\": 1800000060000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 300000,\n    \"warningRevision\": 1\n  }\n}\n"
+          },
+          "op": "advance",
+          "session": null,
+          "storageErrors": [],
+          "timers": [],
+          "value": null
+        },
+        {
+          "args": {},
+          "events": [],
+          "op": "snapshot",
+          "session": "s1",
+          "storageErrors": [],
+          "timers": [],
+          "value": {
+            "archivedAt": null,
+            "blocker": "",
+            "completedAt": null,
+            "createdAt": 1800000000000,
+            "deadlineAt": null,
+            "id": "<goal 1>",
+            "lastStartedAt": null,
+            "objective": "Ten seconds",
+            "pauseReason": "user",
+            "remainingMs": 0,
+            "sessionId": "s1",
+            "snapshotAt": 1800000060000,
+            "status": "duration_reached",
+            "stoppedAt": null,
+            "timeLimitMs": 60000,
+            "timeUsedMs": 60000,
+            "title": "Title: Ten seconds",
+            "turnCount": 1,
+            "updatedAt": 1800000060000,
+            "warningRevision": 1
+          }
+        }
+      ]
+    },
+    {
+      "files": {},
+      "name": "warning then pause",
+      "options": {},
+      "steps": [
+        {
+          "args": {
+            "input": {
+              "action": "create",
+              "objective": "Warn then pause",
+              "time_limit_minutes": 12
+            }
+          },
+          "events": [
+            {
+              "goal": {
+                "archivedAt": null,
+                "blocker": "",
+                "completedAt": null,
+                "createdAt": 1800000000000,
+                "deadlineAt": 1800000720000,
+                "id": "<goal 1>",
+                "lastStartedAt": 1800000000000,
+                "objective": "Warn then pause",
+                "pauseReason": "user",
+                "remainingMs": 720000,
+                "sessionId": "s1",
+                "snapshotAt": 1800000000000,
+                "status": "active",
+                "stoppedAt": null,
+                "timeLimitMs": 720000,
+                "timeUsedMs": 0,
+                "title": "Warn then pause",
+                "turnCount": 1,
+                "updatedAt": 1800000000000,
+                "warningRevision": 0
+              },
+              "sessionId": "s1"
+            },
+            {
+              "goal": {
+                "archivedAt": null,
+                "blocker": "",
+                "completedAt": null,
+                "createdAt": 1800000000000,
+                "deadlineAt": 1800000720000,
+                "id": "<goal 1>",
+                "lastStartedAt": 1800000000000,
+                "objective": "Warn then pause",
+                "pauseReason": "user",
+                "remainingMs": 720000,
+                "sessionId": "s1",
+                "snapshotAt": 1800000000000,
+                "status": "active",
+                "stoppedAt": null,
+                "timeLimitMs": 720000,
+                "timeUsedMs": 0,
+                "title": "Title: Warn then pause",
+                "turnCount": 1,
+                "updatedAt": 1800000000000,
+                "warningRevision": 0
+              },
+              "sessionId": "s1"
+            }
+          ],
+          "files": {
+            "s1.json": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Warn then pause\",\n    \"title\": \"Title: Warn then pause\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 720000,\n    \"timeUsedMs\": 0,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000000000,\n    \"lastStartedAt\": 1800000000000,\n    \"liveAt\": 1800000000000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n",
+            "s1.json.bak": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Warn then pause\",\n    \"title\": \"Warn then pause\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"blocker\": \"\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 720000,\n    \"timeUsedMs\": 0,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000000000,\n    \"lastStartedAt\": 1800000000000,\n    \"completedAt\": null,\n    \"archivedAt\": null,\n    \"liveAt\": 1800000000000\n  }\n}\n"
+          },
+          "op": "tool",
+          "session": "s1",
+          "storageErrors": [],
+          "timers": [
+            60000,
+            120250,
+            720000
+          ],
+          "value": "{\"goal\":{\"id\":\"<goal 1>\",\"warningRevision\":0,\"sessionId\":\"s1\",\"objective\":\"Warn then pause\",\"title\":\"Warn then pause\",\"status\":\"active\",\"turnCount\":1,\"blocker\":\"\",\"pauseReason\":\"user\",\"timeLimitMs\":720000,\"timeUsedMs\":0,\"remainingMs\":720000,\"deadlineAt\":1800000720000,\"snapshotAt\":1800000000000,\"createdAt\":1800000000000,\"updatedAt\":1800000000000,\"lastStartedAt\":1800000000000,\"completedAt\":null,\"archivedAt\":null},\"remaining_ms\":720000}"
+        },
+        {
+          "args": {
+            "ms": 121000,
+            "request": "pause"
+          },
+          "events": [
+            {
+              "goal": {
+                "archivedAt": null,
+                "blocker": "",
+                "completedAt": null,
+                "createdAt": 1800000000000,
+                "deadlineAt": 1800000720000,
+                "id": "<goal 1>",
+                "lastStartedAt": 1800000000000,
+                "objective": "Warn then pause",
+                "pauseReason": "user",
+                "remainingMs": 599000,
+                "sessionId": "s1",
+                "snapshotAt": 1800000121000,
+                "status": "active",
+                "stoppedAt": null,
+                "timeLimitMs": 720000,
+                "timeUsedMs": 121000,
+                "title": "Title: Warn then pause",
+                "turnCount": 1,
+                "updatedAt": 1800000121000,
+                "warningRevision": 1
+              },
+              "sessionId": "s1"
+            },
+            {
+              "goal": {
+                "archivedAt": null,
+                "blocker": "",
+                "completedAt": null,
+                "createdAt": 1800000000000,
+                "deadlineAt": null,
+                "id": "<goal 1>",
+                "lastStartedAt": null,
+                "objective": "Warn then pause",
+                "pauseReason": "user",
+                "remainingMs": 599000,
+                "sessionId": "s1",
+                "snapshotAt": 1800000121000,
+                "status": "paused",
+                "stoppedAt": null,
+                "timeLimitMs": 720000,
+                "timeUsedMs": 121000,
+                "title": "Title: Warn then pause",
+                "turnCount": 1,
+                "updatedAt": 1800000121000,
+                "warningRevision": 1
+              },
+              "sessionId": "s1"
+            }
+          ],
+          "files": {
+            "s1.json": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Warn then pause\",\n    \"title\": \"Title: Warn then pause\",\n    \"objectiveRevision\": 0,\n    \"status\": \"paused\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 720000,\n    \"timeUsedMs\": 121000,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000121000,\n    \"lastStartedAt\": null,\n    \"liveAt\": 1800000121000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 600000,\n    \"warningRevision\": 1\n  }\n}\n",
+            "s1.json.bak": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Warn then pause\",\n    \"title\": \"Title: Warn then pause\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 720000,\n    \"timeUsedMs\": 0,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000121000,\n    \"lastStartedAt\": 1800000000000,\n    \"liveAt\": 1800000121000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 600000,\n    \"warningRevision\": 1\n  }\n}\n"
+          },
+          "op": "fireThenControl",
+          "session": "s1",
+          "storageErrors": [],
+          "timers": [],
+          "value": {
+            "action": "pause",
+            "goal": {
+              "archivedAt": null,
+              "blocker": "",
+              "completedAt": null,
+              "createdAt": 1800000000000,
+              "deadlineAt": null,
+              "id": "<goal 1>",
+              "lastStartedAt": null,
+              "objective": "Warn then pause",
+              "pauseReason": "user",
+              "remainingMs": 599000,
+              "sessionId": "s1",
+              "snapshotAt": 1800000121000,
+              "status": "paused",
+              "stoppedAt": null,
+              "timeLimitMs": 720000,
+              "timeUsedMs": 121000,
+              "title": "Title: Warn then pause",
+              "turnCount": 1,
+              "updatedAt": 1800000121000,
+              "warningRevision": 1
+            },
+            "message": "Goal paused · Warn then pause",
+            "ok": true
+          }
+        },
+        {
+          "args": {},
+          "events": [],
+          "op": "stored",
+          "session": "s1",
+          "storageErrors": [],
+          "timers": [],
+          "value": {
+            "archivedAt": null,
+            "blocker": "",
+            "completedAt": null,
+            "createdAt": 1800000000000,
+            "deadlineAt": null,
+            "id": "<goal 1>",
+            "lastStartedAt": null,
+            "objective": "Warn then pause",
+            "pauseReason": "user",
+            "remainingMs": 599000,
+            "sessionId": "s1",
+            "snapshotAt": 1800000121000,
+            "status": "paused",
+            "stoppedAt": null,
+            "timeLimitMs": 720000,
+            "timeUsedMs": 121000,
+            "title": "Title: Warn then pause",
+            "turnCount": 1,
+            "updatedAt": 1800000121000,
+            "warningRevision": 1
+          }
+        }
+      ]
+    },
+    {
+      "files": {},
       "name": "suspend",
       "options": {
         "monotonic": true

@@ -131,15 +131,36 @@ pub enum FsErrorKind {
     },
 }
 
+/// The step of an atomic write that failed (Node's `atomicWrite` names it in its error text).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum FsStep {
+    /// Creating the temp file.
+    Open { path: AbsPath },
+    /// Writing the content to the temp file.
+    Write,
+    /// Syncing the temp file (a code the filesystem is allowed to refuse is not a failure).
+    Fsync,
+    /// Replacing the target with the temp file, after the retries.
+    Rename { from: AbsPath, to: AbsPath },
+    Unlink,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FsError {
     pub kind: FsErrorKind,
     pub path: Option<AbsPath>,
+    /// The failing step of a write; `None` for every other failure.
+    pub step: Option<FsStep>,
 }
 
 impl FsError {
     pub fn new(kind: FsErrorKind, path: Option<AbsPath>) -> Self {
-        Self { kind, path }
+        Self { kind, path, step: None }
+    }
+
+    pub fn at(mut self, step: FsStep) -> Self {
+        self.step = Some(step);
+        self
     }
 }
 

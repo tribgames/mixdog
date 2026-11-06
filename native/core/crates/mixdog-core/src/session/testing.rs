@@ -321,20 +321,20 @@ impl ThreadStore for MemStore {
         _lane: &InLane<InteractiveIo>,
         id: &ThreadId,
         iid: &str,
-    ) -> Result<Option<u64>, CoreError> {
-        let mut frames: Vec<u64> = Vec::new();
+    ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
+        let mut frames: Vec<mixdog_store::sqlite::CompactionEntry> = Vec::new();
         for (ordinal, record) in self.records(id) {
             match record {
                 Record::Compacted(c) => {
                     if matches!(&c.replacement, Slot::Inline(entries) if entries.iter().any(|e| e.iid == iid)) {
-                        frames.push(ordinal);
+                        frames.push(mixdog_store::sqlite::CompactionEntry { ordinal, cid: c.cid.as_str().to_owned() });
                     }
                 }
-                Record::Rewind(rewind) => frames.retain(|o| *o < rewind.to_ordinal),
+                Record::Rewind(rewind) => frames.retain(|f| f.ordinal < rewind.to_ordinal),
                 _ => {}
             }
         }
-        Ok(frames.last().copied())
+        Ok(frames.pop())
     }
 }
 

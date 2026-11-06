@@ -2580,6 +2580,47 @@
     }
   },
   {
+    "name": "patch-held-source-rename",
+    "hold": [
+      "a.txt"
+    ],
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: b.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A rename failed for a.txt → b.txt (EBUSY: resource busy or locked, unlink '<ROOT>\\a.txt')\n--- rollback incomplete ---\n<ROOT>/a.txt — EBUSY: resource busy or locked, open '<ROOT>\\a.txt'",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-held-source-rename-ordered",
+    "hold": [
+      "a.txt"
+    ],
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "one\ntwo\n",
+      "c.txt": "keep\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: c.txt\n@@\n-keep\n+KEEP\n*** Update File: a.txt\n*** Move to: b.txt\n@@\n-one\n+ONE\n*** End Patch\n",
+      "sequence": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch sequence stopped at section 2/2 (a.txt); 1 earlier section(s) were applied to disk (committed) and left in place; 0 later section(s) were skipped (not attempted).\nRetry only the failed and skipped sections; do not resend committed sections.\n--- applied (committed to disk) ---\n  OK Modify c.txt — +1/-1\n--- failed section: a.txt ---\napply_patch: V4A rename failed for a.txt → b.txt (EBUSY: resource busy or locked, unlink '<ROOT>\\a.txt')",
+    "isError": true,
+    "after": {
+      "a.txt": "one\ntwo\n",
+      "c.txt": "KEEP\n"
+    }
+  },
+  {
     "name": "patch-salvage-leading-blank",
     "tool": "apply_patch",
     "files": {

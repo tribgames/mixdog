@@ -104,7 +104,7 @@ pub fn degrade_media_parts(
         match text {
             Some(text) => {
                 changed = true;
-                next.push(ContentPart::Text(text, false));
+                next.push(ContentPart::Text(text, None));
             }
             None => next.push(part.clone()),
         }

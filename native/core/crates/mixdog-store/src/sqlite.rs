@@ -219,6 +219,8 @@ pub struct CatalogRow {
     pub worker: Option<crate::worker::WorkerKeys>,
     /// The header's `agentTag` and owner.
     pub agent_tag: Option<crate::worker::TagKeys>,
+    /// The header's delete mark (`summary::is_deleted`); a row once deleted stays deleted.
+    pub deleted: bool,
 }
 
 /// FORMAT.md §8.2 `fold(x)`: Unicode default lowercase, no normalization.
@@ -291,6 +293,73 @@ fn set_status_on(tx: &Transaction, session: &str, status: SessionStatus, damage:
     Ok(())
 }
 
+/// A deleted session no other session forks from (a purged fork takes its edge with it).
+const PURGEABLE_SQL: &str = "SELECT id FROM sessions s WHERE deleted = 1
+    AND NOT EXISTS (SELECT 1 FROM fork_edges e WHERE e.base = s.id) LIMIT 1";
+
+/// The tables holding a session's rows, with their keys: a purge step deletes by key.
+const PURGE_TABLES: [(&str, &str); 14] = [
+    ("history", "session, ordinal"),
+    ("model_switches", "session, ordinal"),
+    ("amends", "session, ordinal"),
+    ("compactions", "session, ordinal"),
+    ("compaction_dropped", "session, kind, id, ordinal"),
+    ("message_rows", "session, ordinal, idx, ver"),
+    ("message_epochs", "session, start"),
+    ("message_views", "session, valid_from"),
+    ("turns", "session, rid"),
+    ("approvals", "session, aid"),
+    ("blob_refs", "digest, session, ordinal"),
+    ("prompt_occurrences", "session, ordinal"),
+    ("prompt_history", "session, key"),
+    ("thread_ops", "session, op_id"),
+];
+
+/// The folder of a deleted session, gone: the first log file first, so a rebuild never
+/// indexes a half-removed folder. Already-removed parts are skipped.
+#[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
+fn remove_session_dir(_lane: &InLane<MaintenanceIo>, dir: &Path) -> Result<(), DbError> {
+    use crate::fsio::IoOp;
+    let gone = |r: std::io::Result<()>, op: IoOp, path: &Path| match r {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err(DbError::Write(crate::fsio::err(op, path)(e).to_string()))
+        }
+        _ => Ok(()),
+    };
+    let first = dir.join(crate::log::log_name(0));
+    gone(std::fs::remove_file(&first), IoOp::Remove, &first)?;
+    if dir.is_dir() {
+        crate::fsio::sync_dir(dir).map_err(|e| DbError::Write(e.to_string()))?;
+    }
+    gone(std::fs::remove_dir_all(dir), IoOp::Remove, dir)?;
+    let parent = dir.parent().expect("session folder in `sessions`");
+    crate::fsio::sync_dir(parent).map_err(|e| DbError::Write(e.to_string()))
+}
+
+/// Removes every folder under `sessions` without its first log file; their ids, in name order.
+#[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
+fn remove_incomplete_dirs(lane: &InLane<MaintenanceIo>, sessions: &Path) -> Result<Vec<String>, DbError> {
+    let entries = match std::fs::read_dir(sessions) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(DbError::Write(format!("{}: {e}", sessions.display()))),
+    };
+    let mut ids = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| DbError::Write(format!("{}: {e}", sessions.display())))?;
+        let Ok(name) = entry.file_name().into_string() else { continue };
+        let dir = entry.path();
+        if dir.is_dir() && !dir.join(crate::log::log_name(0)).is_file() {
+            ids.push(name);
+        }
+    }
+    ids.sort();
+    for id in &ids {
+        remove_session_dir(lane, &sessions.join(id))?;
+    }
+    Ok(ids)
+}
+
 /// The agent-only sessions in list order (`sessions_visibility_recent`).
 pub(crate) const AGENT_ONLY_SQL: &str = "SELECT summary FROM sessions WHERE visibility = 'agent-only'
     AND deleted = 0 AND log_id <> '' ORDER BY activity DESC, id";
@@ -302,11 +371,12 @@ INSERT INTO sessions (id, dirty, status, damage, deleted, base_session, log_id, 
     parent_session_id, agent, source_type, classification, archived, title_kind, id_key,
     title_fold, preview_fold, cwd_fold, project_fold, id_fold, model_fold, source_fold, summary,
     title, worker, worker_tag, worker_owner, worker_host_pid, agent_tag, agent_owner)
-VALUES (?1, ?2, 'ok', NULL, 0, ?3, ?4, 0, 0, 0, 0, 0, 0, 0,
+VALUES (?1, ?2, 'ok', NULL, ?36, ?3, ?4, 0, 0, 0, 0, 0, 0, 0,
     ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
     ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?29, ?30, ?31, ?32, ?33, ?34, ?35)
 ON CONFLICT(id) DO UPDATE SET
     dirty = CASE WHEN ?28 THEN dirty ELSE excluded.dirty END,
+    deleted = max(deleted, excluded.deleted),
     activity = excluded.activity, created_at = excluded.created_at,
     updated_at = excluded.updated_at, closed = excluded.closed, archived_at = excluded.archived_at,
     cwd = excluded.cwd, visibility = excluded.visibility,
@@ -374,6 +444,7 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
         row.worker.as_ref().and_then(|w| w.host_pid),
         row.agent_tag.as_ref().map(|t| &t.tag),
         row.agent_tag.as_ref().map(|t| &t.owner),
+        row.deleted,
     ])?;
     Ok(())
 }
@@ -390,6 +461,8 @@ enum Command {
     Delete { session: String, ack: Ack },
     Project { projection: Projection, ack: Option<Ack> },
     Labels { labels: PlaceholderLabels, ack: Ack },
+    /// Drop the index rows of a deleted session whose folder is gone.
+    Purge { session: String, ack: Ack },
 }
 
 /// A projection being applied: frames before `next` are committed.
@@ -417,6 +490,8 @@ struct Writer {
     waiting: HashMap<String, CatalogHead>,
     /// Pending fork views may need a maintenance step.
     views: bool,
+    /// Deleted sessions whose rows go in maintenance steps, oldest request first.
+    purges: VecDeque<(String, Ack)>,
     seq: u64,
     /// Rows per append transaction and per maintenance step (tests shrink them).
     append_rows: usize,
@@ -463,6 +538,7 @@ impl Writer {
             refold,
             waiting: HashMap::new(),
             views,
+            purges: VecDeque::new(),
             seq: 0,
             append_rows: APPEND_ROWS,
             step_rows: STEP_ROWS,
@@ -489,12 +565,55 @@ impl Writer {
             Command::Project { projection, ack } => {
                 self.projections.push_back(Pending { projection, next: 0, ack, seq });
             }
+            Command::Purge { session, ack } => self.purges.push_back((session, ack)),
             other => self.small.push_back(other),
         }
     }
 
     fn idle(&self) -> bool {
-        self.upserts.is_empty() && self.small.is_empty() && self.projections.is_empty() && !self.refold && !self.views
+        self.upserts.is_empty()
+            && self.small.is_empty()
+            && self.projections.is_empty()
+            && !self.refold
+            && !self.views
+            && self.purges.is_empty()
+    }
+
+    /// One bounded step of the oldest purge: at most `step_rows` of the session's rows,
+    /// then, once none is left, its fork edge and catalog row.
+    fn purge_step(&mut self) {
+        let Some((session, _)) = self.purges.front() else { return };
+        let session = session.clone();
+        let step_rows = self.step_rows;
+        let step = (|| -> rusqlite::Result<bool> {
+            let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let mut budget = step_rows;
+            for (table, key) in PURGE_TABLES {
+                let sql = format!(
+                    "DELETE FROM {table} WHERE ({key}) IN (SELECT {key} FROM {table} WHERE session = ?1 LIMIT ?2)"
+                );
+                budget -= tx.prepare_cached(&sql)?.execute(params![session, budget as i64])?;
+                if budget == 0 {
+                    tx.commit()?;
+                    return Ok(false);
+                }
+            }
+            tx.prepare_cached("DELETE FROM fork_edges WHERE child = ?1")?.execute([&session])?;
+            tx.prepare_cached("DELETE FROM sessions WHERE id = ?1")?.execute([&session])?;
+            tx.commit()?;
+            Ok(true)
+        })();
+        match step {
+            Ok(false) => {}
+            Ok(true) => {
+                let (_, ack) = self.purges.pop_front().expect("front");
+                let _ = ack.send(Ok(()));
+            }
+            Err(e) => {
+                let (_, ack) = self.purges.pop_front().expect("front");
+                let _ = ack.send(Err(DbError::Write(e.to_string())));
+            }
+        }
     }
 
     /// One bounded step of the pending fork views; a finished view rebuilds its row.
@@ -548,6 +667,7 @@ impl Writer {
             if self.views {
                 self.view_step();
             }
+            self.purge_step();
         }
     }
 
@@ -592,7 +712,9 @@ impl Writer {
                         self.refold = true;
                         acks.push(ack);
                     }
-                    Command::Upsert { .. } | Command::Project { .. } => unreachable!("queued separately"),
+                    Command::Upsert { .. } | Command::Project { .. } | Command::Purge { .. } => {
+                        unreachable!("queued separately")
+                    }
                 }
             }
             // Projections in arrival order, frame by frame.
@@ -1303,11 +1425,11 @@ impl SqliteStore {
     }
 
     /// The JSON list row of a session; `None` for a session whose log has no readable
-    /// `session` frame (1.4.5 reads such a file as no session).
+    /// `session` frame (1.4.5 reads such a file as no session) or that was deleted.
     pub async fn summary(&self, session: &str) -> Result<Option<String>, DbError> {
         let session = session.to_owned();
         self.read(move |c| {
-            Ok(c.prepare_cached("SELECT summary FROM sessions WHERE id = ?1 AND log_id <> ''")?
+            Ok(c.prepare_cached("SELECT summary FROM sessions WHERE id = ?1 AND log_id <> '' AND deleted = 0")?
                 .query_row([&session], |r| r.get(0))
                 .optional()?)
         })
@@ -1315,16 +1437,72 @@ impl SqliteStore {
     }
 
     /// The raw header `title` of a session (1.4.5 `readStoredSessionMetadata`'s
-    /// `session.title || null`); `None` when it has none or is not listed.
+    /// `session.title || null`); `None` when it has none, is not listed or was deleted.
     pub async fn title(&self, session: &str) -> Result<Option<String>, DbError> {
         let session = session.to_owned();
         self.read(move |c| {
-            Ok(c.prepare_cached("SELECT title FROM sessions WHERE id = ?1 AND log_id <> ''")?
+            Ok(c.prepare_cached("SELECT title FROM sessions WHERE id = ?1 AND log_id <> '' AND deleted = 0")?
                 .query_row([&session], |r| r.get(0))
                 .optional()?
                 .flatten())
         })
         .await
+    }
+
+    /// Whether the session was deleted (its header's delete mark, or `mark_deleted`);
+    /// `None` for a session the index does not hold (never created, or purged).
+    pub async fn deleted(&self, session: &str) -> Result<Option<bool>, DbError> {
+        let session = session.to_owned();
+        self.read(move |c| {
+            Ok(c.prepare_cached("SELECT deleted FROM sessions WHERE id = ?1")?
+                .query_row([&session], |r| r.get(0))
+                .optional()?)
+        })
+        .await
+    }
+
+    /// Removes the files and index rows of every deleted session no live thread's lineage
+    /// reads, and returns their ids in removal order. A deleted session that is a fork base
+    /// stays while any session forked from it (at any depth) is not deleted: the fork reads
+    /// its base's logs. Each removal unlinks the first log file (a rebuild then no longer
+    /// sees the folder), then the folder, on the maintenance lane; then the writer drops the
+    /// index rows in maintenance steps of `STEP_ROWS` rows, the catalog row last. A base whose
+    /// last fork went is removed in the same call. Run it after a delete; `purge_at_boot`
+    /// runs it at boot, so an interrupted removal resumes.
+    /// The boot purge, before any thread is opened or created: every session folder without
+    /// its first log file goes (a create publishes `log.000000` before anything else, and a
+    /// purge unlinks it first, so such a folder is a half-finished create or purge that no
+    /// rebuild indexes), with whatever index rows its id has; then `purge_deleted`. Returns
+    /// the incomplete folders' ids, then the purged sessions'.
+    pub async fn purge_at_boot(&self, lane: MaintenanceIo, data: PathBuf) -> Result<Vec<String>, DbError> {
+        let sessions = data.join("sessions");
+        let mut removed = lane
+            .submit(&CancellationToken::new(), move |lane| remove_incomplete_dirs(lane, &sessions))
+            .map_err(|_| DbError::LaneFull)?
+            .await
+            .map_err(|_| DbError::Stopped)??;
+        for session in &removed {
+            let session = session.clone();
+            self.ask(|ack| Command::Purge { session, ack }).await?;
+        }
+        removed.extend(self.purge_deleted(lane, data).await?);
+        Ok(removed)
+    }
+
+    pub async fn purge_deleted(&self, lane: MaintenanceIo, data: PathBuf) -> Result<Vec<String>, DbError> {
+        let mut purged = Vec::new();
+        loop {
+            let found = self.read(|c| Ok(c.prepare_cached(PURGEABLE_SQL)?.query_row([], |r| r.get::<_, String>(0)).optional()?));
+            let Some(session) = found.await? else { return Ok(purged) };
+            let dir = data.join("sessions").join(&session);
+            lane.submit(&CancellationToken::new(), move |lane| remove_session_dir(lane, &dir))
+                .map_err(|_| DbError::LaneFull)?
+                .await
+                .map_err(|_| DbError::Stopped)??;
+            let id = session.clone();
+            self.ask(|ack| Command::Purge { session: id, ack }).await?;
+            purged.push(session);
+        }
     }
 
     /// The worker rows (FORMAT.md §8.2 worker index) in `scope`, of tag `tag` when given
@@ -1445,17 +1623,17 @@ impl SqliteStore {
         self.shared.pool.with(|c| page_on(c, lineage, cut, cursor, limit))
     }
 
-    /// The ordinal of the live `compacted` frame whose replacement holds the entry `iid`
-    /// (such as the summary, which has no history row), as the reader of `lineage` with
-    /// `cut` sees it: the `ordinal` of a `model_switch` anchor on that entry (FORMAT.md
-    /// §5.3). The newest such frame when later replacements kept the entry; `None` when no
-    /// live one holds it.
+    /// The live `compacted` frame whose replacement holds the entry `iid` (such as the
+    /// summary, which has no history row), as the reader of `lineage` with `cut` sees it:
+    /// its `ordinal` is that of a `model_switch` anchor on the entry (FORMAT.md §5.3). The
+    /// newest such frame when later replacements kept the entry; `None` when no live one
+    /// holds it.
     pub async fn compaction_entry(
         &self,
         lineage: Vec<LineageLevel>,
         cut: Option<u64>,
         iid: String,
-    ) -> Result<Option<u64>, DbError> {
+    ) -> Result<Option<CompactionEntry>, DbError> {
         self.read(move |c| compaction_entry_on(c, &lineage, cut, &iid)).await
     }
 
@@ -1466,9 +1644,16 @@ impl SqliteStore {
         lineage: &[LineageLevel],
         cut: Option<u64>,
         iid: &str,
-    ) -> Result<Option<u64>, DbError> {
+    ) -> Result<Option<CompactionEntry>, DbError> {
         self.shared.pool.with(|c| compaction_entry_on(c, lineage, cut, iid))
     }
+}
+
+/// The `compacted` frame holding a replacement entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompactionEntry {
+    pub ordinal: u64,
+    pub cid: String,
 }
 
 /// Newest level first: a session's own compactions follow its bases'.
@@ -1477,15 +1662,18 @@ fn compaction_entry_on(
     lineage: &[LineageLevel],
     cut: Option<u64>,
     iid: &str,
-) -> Result<Option<u64>, DbError> {
+) -> Result<Option<CompactionEntry>, DbError> {
     for (i, level) in lineage.iter().enumerate() {
         let asof = level.end.map_or(i64::MAX, |v| v.min(i64::MAX as u64) as i64);
         let bound = crate::archive_index::level_bound(lineage, cut, i);
-        let found: Option<i64> = c
+        let found = c
             .prepare_cached(COMPACTION_ENTRY_SQL)?
-            .query_row(params![level.session, iid, asof, bound], |r| r.get(0))?;
-        if let Some(ordinal) = found {
-            return Ok(Some(ordinal as u64));
+            .query_row(params![level.session, iid, asof, bound], |r| {
+                Ok(CompactionEntry { ordinal: r.get::<_, i64>(0)? as u64, cid: r.get(1)? })
+            })
+            .optional()?;
+        if found.is_some() {
+            return Ok(found);
         }
     }
     Ok(None)
@@ -1493,10 +1681,11 @@ fn compaction_entry_on(
 
 /// The newest `compacted` frame of session `?1` below `?4`, live as of `?3`, with a
 /// replacement entry `?2`.
-pub(crate) const COMPACTION_ENTRY_SQL: &str = "SELECT max(m.ordinal) FROM message_rows m
+pub(crate) const COMPACTION_ENTRY_SQL: &str = "SELECT m.ordinal, c.cid FROM message_rows m
      JOIN compactions c ON c.session = m.session AND c.ordinal = m.ordinal
      WHERE m.session = ?1 AND m.iid = ?2 AND m.ver = m.ordinal AND m.ordinal < ?4
-       AND (c.superseded_rev IS NULL OR c.superseded_rev >= ?3)";
+       AND (c.superseded_rev IS NULL OR c.superseded_rev >= ?3)
+     ORDER BY m.ordinal DESC LIMIT 1";
 
 /// The production `IndexProjector` of the migration (WP-MIGRATE `index.rs`): projects the
 /// verified `sessions` of data dir `data` into a new index database at `db` (absent

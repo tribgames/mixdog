@@ -2,11 +2,13 @@
 //! dev log, or the pair, with its archive, pending archive jobs, turn checkpoint, pending
 //! messages and worker row; published as `sessions/<id>/` and verified by digest.
 
+pub mod context_blobs;
 pub mod ids;
 pub mod model;
 pub mod observe;
 pub mod restore;
 pub mod source;
+pub mod splice;
 pub mod target;
 pub mod write;
 
@@ -114,11 +116,12 @@ fn classify(name: &str) -> Entry {
 
 pub struct SessionDriver {
     metas: Vec<Arc<dyn SessionMetaSource>>,
+    office: context_blobs::OfficeExtractor,
 }
 
 impl SessionDriver {
-    pub fn new(metas: Vec<Arc<dyn SessionMetaSource>>) -> Self {
-        Self { metas }
+    pub fn new(metas: Vec<Arc<dyn SessionMetaSource>>, office: context_blobs::OfficeExtractor) -> Self {
+        Self { metas, office }
     }
 }
 
@@ -299,7 +302,7 @@ impl ItemDriver for SessionDriver {
             Fail::Quarantine(code, detail) => Ok(Staged::Quarantine { code, detail }),
             Fail::Blocked(b) => Err(b),
         };
-        let mut model = match source::read(cx, item, id) {
+        let mut model = match source::read(cx, item, id, &self.office) {
             Ok(m) => m,
             Err(f) => return fail(f),
         };

@@ -10,7 +10,7 @@ use std::sync::{Arc, Weak};
 
 use super::error::GoalResult;
 use super::js::{Goal, count, number, put_num, string, truthy};
-use super::runtime::{Inner, Slot, SlotMem, Tx};
+use super::runtime::{Inner, Slot, SlotMem, TimerKind, Tx, reserve_turn};
 use super::state::{
     GOAL_LIVE_HEARTBEAT_MS, active_elapsed_ms, discard_suspended_time, normalize_deadline_warned_ms, stop_active_clock,
 };
@@ -173,18 +173,6 @@ impl Inner {
         Some(Warnings { crossed: self.crossed_warning_ms(goal, remaining), next_delay: self.next_warning_delay_ms(goal, remaining) })
     }
 
-    /// `deliverDeadlineWarning` over the record the observer reads.
-    pub async fn deliver_deadline_warning(self: &Arc<Self>, id: &str, threshold_ms: f64) {
-        let slot = self.slot(id);
-        if self.is_closed() || slot.mem().warning_pending {
-            return;
-        }
-        match self.cached(&slot, id).await {
-            Ok(goal) => self.deliver_warning_with(&slot, id, threshold_ms, goal),
-            Err(error) => self.on_error(&error),
-        }
-    }
-
     /// The rest of `deliverDeadlineWarning` over a record already read; its mutation joins the
     /// session's queue at once.
     fn deliver_warning_with(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, threshold_ms: f64, mut view: Option<Goal>) {
@@ -221,9 +209,39 @@ impl Inner {
         });
     }
 
-    fn spawn_warning(self: &Arc<Self>, id: &str, threshold_ms: f64) {
+    /// `deliverDeadlineWarning` from the warning timer. Node reads the record synchronously and
+    /// queues the mutation in the same turn; the read here needs the lane, so the place in the
+    /// session's queue is taken first, at the moment the timer fires, and the mutation's own
+    /// re-check decides whether anything is written.
+    fn spawn_warning(self: &Arc<Self>, id: &str) {
+        let slot = self.slot(id);
+        if self.is_closed() || slot.mem().warning_pending {
+            return;
+        }
+        slot.mem().warning_pending = true;
+        let turn = reserve_turn(&slot);
         let (inner, id) = (self.clone(), id.to_owned());
-        self.spawn_task(async move { inner.deliver_deadline_warning(&id, threshold_ms).await });
+        self.spawn_task(async move {
+            let slot = inner.slot(&id);
+            let view = inner.cached(&slot, &id).await;
+            let outcome = match view {
+                Err(error) => Err(error),
+                Ok(mut view) => {
+                    let pending = inner.warning_state(&slot, &id, view.as_mut(), inner.now());
+                    match pending.map(|p| p.crossed).filter(|c| *c != 0.0) {
+                        None => Ok(()),
+                        Some(target) => {
+                            let (task_slot, task_id) = (slot.clone(), id.clone());
+                            inner.run_mutation(&id, &slot, turn, move |tx| tx.deliver_warning(&task_slot, &task_id, target)).await
+                        }
+                    }
+                }
+            };
+            if let Err(error) = outcome {
+                inner.on_error(&error);
+            }
+            slot.mem().warning_pending = false;
+        });
     }
 
     /// The crossing seen by `armDeadline` is delivered from that same read.
@@ -282,11 +300,12 @@ impl Inner {
                 let delay = f64::min(remaining, warnings.next_delay + WARNING_MARGIN_MS);
                 let (weak, task_id) = (Arc::downgrade(self), id.to_owned());
                 let timer = self.env.timers.after(
+                    TimerKind::Warning,
                     delay,
                     Box::new(move || {
                         let Some(inner) = weak.upgrade() else { return };
                         inner.slot(&task_id).mem().warning_timer = None;
-                        inner.spawn_warning(&task_id, 0.0);
+                        inner.spawn_warning(&task_id);
                     }),
                 );
                 slot.mem().warning_timer = Some(timer);
@@ -294,6 +313,7 @@ impl Inner {
         }
         let (weak, task_id) = (Arc::downgrade(self), id.to_owned());
         let timer = self.env.timers.after(
+            TimerKind::Deadline,
             remaining,
             Box::new(move || {
                 let Some(inner) = weak.upgrade() else { return };
@@ -319,6 +339,7 @@ impl Inner {
     fn schedule_beat(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, generation: u64) {
         let (weak, task_id): (Weak<Inner>, String) = (Arc::downgrade(self), id.to_owned());
         let timer = self.env.timers.after(
+            TimerKind::Heartbeat,
             GOAL_LIVE_HEARTBEAT_MS,
             Box::new(move || {
                 let Some(inner) = weak.upgrade() else { return };

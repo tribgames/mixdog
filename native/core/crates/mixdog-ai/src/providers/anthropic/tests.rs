@@ -619,7 +619,7 @@ fn error_results_keep_only_text_and_hoist_media() {
     let mut result = Message::new(
         Role::Tool,
         Content::Parts(vec![
-            ContentPart::Text("failed".into(), false),
+            ContentPart::Text("failed".into(), None),
             ContentPart::Image(mixdog_core_api::domain::provider::ImageSource::Base64 {
                 data: "AAAA".into(),
                 mime_type: "image/png".into(),

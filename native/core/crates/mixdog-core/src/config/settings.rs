@@ -270,7 +270,7 @@ impl Settings {
 const PROFILE_TITLE_MAX: usize = 64;
 
 /// `PROFILE_LANGUAGES`: id, label, prompt (`null` for the system locale).
-const PROFILE_LANGUAGES: [(&str, &str, Option<&str>); 21] = [
+pub(crate) const PROFILE_LANGUAGES: [(&str, &str, Option<&str>); 21] = [
     ("system", "System (locale)", None),
     ("en", "English", Some("English")),
     ("ko", "한국어", Some("Korean")),
@@ -294,7 +294,7 @@ const PROFILE_LANGUAGES: [(&str, &str, Option<&str>); 21] = [
     ("uk", "Українська", Some("Ukrainian (Українська)")),
 ];
 
-const PROFILE_EXPERIENCE_LEVELS: [(&str, &str); 4] =
+pub(crate) const PROFILE_EXPERIENCE_LEVELS: [(&str, &str); 4] =
     [("beginner", "Beginner"), ("vibe-coder", "Vibe coder"), ("junior", "Junior"), ("expert", "Expert")];
 
 fn language_json((id, label, prompt): &(&str, &str, Option<&str>)) -> Value {
@@ -315,7 +315,7 @@ fn first_text(values: &[Option<&Value>], fallback: &str) -> String {
 }
 
 /// `normalizeProfileConfig`: `{ title, language, experienceLevel }`.
-fn normalize_profile(value: Option<&Value>) -> Doc {
+pub(crate) fn normalize_profile(value: Option<&Value>) -> Doc {
     let raw = value.and_then(Value::as_object);
     let get = |key: &str| raw.and_then(|m| m.get(key));
     let title_text = first_text(&[get("title"), get("name")], "");

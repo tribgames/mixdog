@@ -417,7 +417,7 @@ mod tests {
             text: None,
         };
         match spec["kind"].as_str().unwrap() {
-            "text" => ContentPart::Text(text("text"), false),
+            "text" => ContentPart::Text(text("text"), None),
             "image_url" => ContentPart::Image(ImageSource::Url(text("url"))),
             "image_base64" => ContentPart::Image(ImageSource::Base64 { data: text("data"), mime_type: text("mime") }),
             "image_file_id" => ContentPart::Image(ImageSource::FileId(text("id"))),

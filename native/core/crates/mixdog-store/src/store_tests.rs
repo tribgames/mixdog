@@ -1148,9 +1148,20 @@ async fn an_amend_reaches_a_compaction_replacement_entry() {
     assert_eq!(row_counts(&env, "s1").await, (3, "edited summary".into()));
 }
 
+/// The `content` text of each message of `context_bodies`.
+async fn model_context(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>, limit: usize) -> Vec<(String, String)> {
+    let bodies = context_bodies(env, levels, cut, limit).await;
+    bodies.into_iter().map(|(iid, body)| (iid, body["content"].as_str().unwrap_or_default().to_owned())).collect()
+}
+
 /// The whole model context of `levels`, read in pages of `limit` rows through the four
 /// lane steps.
-async fn model_context(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>, limit: usize) -> Vec<(String, String)> {
+async fn context_bodies(
+    env: &Env,
+    levels: Vec<LineageLevel>,
+    cut: Option<u64>,
+    limit: usize,
+) -> Vec<(String, serde_json::Value)> {
     use crate::context::*;
     let (io, cpu) = (tokens().interactive_io, tokens().cpu_interactive);
     let mut out = Vec::new();
@@ -1178,12 +1189,131 @@ async fn model_context(env: &Env, levels: Vec<LineageLevel>, cut: Option<u64>, l
             (decoded, ContextBlobs::default())
         };
         let messages = cpu.submit(&CancellationToken::new(), move |l| finish_context(l, decoded, blobs)).unwrap().await.unwrap().unwrap();
-        out.extend(messages.into_iter().map(|m| (m.iid, m.body["content"].as_str().unwrap_or_default().to_owned())));
+        out.extend(messages.into_iter().map(|m| (m.iid, m.body)));
         match next {
             Some(c) => cursor = Some(c),
             None => return out,
         }
     }
+}
+
+/// A 1.4.5 media reference part (`attachment-reference.mjs` `mediaPartToReference`: the
+/// part carries the reference `info` object) and a plain text part (no key) keep Node's
+/// `JSON.stringify` bytes through the log, a body blob and the model-context read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn attachment_reference_parts_keep_their_stored_bytes() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let node = |pad: usize| {
+        format!(
+            concat!(
+                r#"{{"role":"user","content":[{{"type":"text","text":"see{}"}},"#,
+                r#"{{"type":"text","text":"[Attachment kept on disk]","attachmentReference":{{"attachmentRef":"{}","#,
+                r#""kind":"pdf","filename":"a.pdf","mimeType":"application/pdf","sizeBytes":12,"pageCount":1,"textPages":1}}}}]}}"#
+            ),
+            "x".repeat(pad),
+            "a".repeat(64)
+        )
+    };
+    let (small, large) = (node(0), node(300 << 10));
+    let item = |iid: &str, bytes: &str| {
+        let body: serde_json::Value = serde_json::from_str(bytes).unwrap();
+        let record = json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,"refs":[],
+            "body":{"inline":body}});
+        crate::encode::encode_record(serde_json::from_value(record).unwrap()).unwrap()
+    };
+    let (inline, blob) = (item("a", &small), item("b", &large));
+    assert_eq!((inline.blobs().len(), blob.blobs().len()), (0, 1), "the large body is a blob");
+    assert_eq!(&blob.blobs()[0].bytes, large.as_bytes(), "the blob holds Node's bytes");
+    let (_w, _) = env.commit(w, vec![inline, blob]).await;
+    let log = std::fs::read(env.dir("s1").join(log_name(0))).unwrap();
+    assert!(log.windows(small.len()).any(|w| w == small.as_bytes()), "the log holds Node's bytes");
+    let got = context_bodies(&env, lineage(&[("s1", None)]), None, 10).await;
+    let got: Vec<String> = got.iter().map(|(_, body)| serde_json::to_string(body).unwrap()).collect();
+    assert_eq!(got, [small, large]);
+}
+
+/// A deleted session is hidden at once but keeps its files while a fork reads them; the
+/// mark is in the log, so a rebuild keeps it. Deleting the last fork removes the fork and
+/// then the base in one purge, files and index rows alike.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deleted_base_keeps_its_files_until_its_last_fork_is_deleted() {
+    let env = Env::new();
+    let deleted = || rec(json!({"k":"meta","change":{"inline":{"set":{"deleted":true},"unset":[]}}}));
+    let p = env.create("p0", None).await;
+    let (p, _) = env.commit(p, vec![item("p1"), item("p2")]).await;
+    let c = env.create("c0", Some(("p0", 3))).await;
+    let (c, _) = env.commit(c, vec![item("c1")]).await;
+    let (p, _) = env.commit(p, vec![deleted()]).await;
+    drop(p);
+    assert_eq!((env.store.summary("p0").await.unwrap(), env.store.title("p0").await.unwrap()), (None, None));
+    assert_eq!((env.store.deleted("p0").await.unwrap(), env.store.deleted("c0").await.unwrap()), (Some(true), Some(false)));
+    assert!(env.store.summary("c0").await.unwrap().is_some());
+    let purge = || env.store.purge_deleted(tokens().maintenance_io, env.data.clone());
+    assert!(purge().await.unwrap().is_empty(), "the fork reads the base");
+    assert!(env.dir("p0").join(log_name(0)).is_file());
+    let fork = lineage(&[("c0", None), ("p0", Some(3))]);
+    assert_eq!(iids(&env.store.history_page(fork, None, None, 10).await.unwrap().0), ["c1", "p2", "p1"]);
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    assert_eq!(open_index(other.path()).unwrap().deleted("p0").await.unwrap(), Some(true), "a rebuild keeps the mark");
+
+    let (c, _) = env.commit(c, vec![deleted()]).await;
+    drop(c);
+    assert_eq!(purge().await.unwrap(), ["c0", "p0"]);
+    assert!(!env.dir("p0").exists() && !env.dir("c0").exists());
+    assert_eq!((env.store.deleted("p0").await.unwrap(), env.store.deleted("c0").await.unwrap()), (None, None));
+    let db = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+    let left: i64 = db
+        .query_row(
+            "SELECT (SELECT count(*) FROM history WHERE session IN ('p0','c0'))
+                  + (SELECT count(*) FROM message_rows WHERE session IN ('p0','c0'))
+                  + (SELECT count(*) FROM fork_edges)",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
+    assert!(purge().await.unwrap().is_empty());
+}
+
+/// A crash right after a purge unlinked the first log file, then a rebuild: the rebuilt
+/// index no longer holds the session, and the boot purge removes its folder, as it does a
+/// half-created one (empty, or holding only the first file's publish tmp). A complete
+/// session stays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_boot_purge_removes_folders_a_crash_left_without_their_first_log() {
+    let env = Env::new();
+    let deleted = rec(json!({"k":"meta","change":{"inline":{"set":{"deleted":true},"unset":[]}}}));
+    let gone = env.create("d0", None).await;
+    let (gone, _) = env.commit(gone, vec![item("d1"), deleted]).await;
+    drop(gone);
+    let kept = env.create("k0", None).await;
+    drop(kept);
+    // The purge's first step, then the crash.
+    std::fs::remove_file(env.dir("d0").join(log_name(0))).unwrap();
+    std::fs::create_dir_all(env.dir("e0")).unwrap();
+    std::fs::create_dir_all(env.dir("t0")).unwrap();
+    std::fs::write(crate::fsio::tmp_path(&env.dir("t0").join(log_name(0))), b"half").unwrap();
+
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    let rebuilt = open_index(other.path()).unwrap();
+    assert_eq!(rebuilt.deleted("d0").await.unwrap(), None, "the rebuild skips the folder");
+    let removed = rebuilt.purge_at_boot(tokens().maintenance_io, other.path().to_path_buf()).await.unwrap();
+    assert_eq!(removed, ["d0", "e0", "t0"]);
+    let left: Vec<String> = std::fs::read_dir(other.path().join("sessions"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(left, ["k0"]);
+    assert!(rebuilt.summary("k0").await.unwrap().is_some());
+    assert!(rebuilt.purge_at_boot(tokens().maintenance_io, other.path().to_path_buf()).await.unwrap().is_empty());
+
+    // Without a rebuild the index still holds the deleted row: the boot purge drops it too.
+    let removed = env.store.purge_at_boot(tokens().maintenance_io, env.data.clone()).await.unwrap();
+    assert_eq!(removed, ["d0", "e0", "t0"]);
+    assert_eq!(env.store.deleted("d0").await.unwrap(), None);
 }
 
 fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -1701,11 +1831,12 @@ async fn model_switches_anchor_on_a_compaction_entry_and_hold_any_model_id() {
     // The anchor ordinal of a replacement entry is its frame's; a plain row has none.
     let entry = |levels: Vec<LineageLevel>, iid: &str| {
         let (store, iid) = (env.store.clone(), iid.to_owned());
-        async move { store.compaction_entry(levels, None, iid).await.unwrap() }
+        async move { store.compaction_entry(levels, None, iid).await.unwrap().map(|e| (e.ordinal, e.cid)) }
     };
+    let k1 = Some((3, "k1".to_owned()));
     assert_eq!(
         (entry(base(), "sum").await, entry(base(), "ack").await, entry(base(), "a").await, entry(base(), "zz").await),
-        (Some(3), Some(3), None, None)
+        (k1.clone(), k1.clone(), None, None)
     );
     let all = |first: &[&str]| first.iter().map(|m| m.to_string()).chain([long.clone(), huge.clone()]).collect::<Vec<_>>();
     assert_eq!(divider_switches(&env.store, base()).await, [("k1".to_owned(), all(&["m2", "m1"]))]);
@@ -1719,7 +1850,7 @@ async fn model_switches_anchor_on_a_compaction_entry_and_hold_any_model_id() {
     let (child, _) = env.commit(child, vec![model_switch("sum", 3, "m4", 100)]).await;
     let fork = || lineage(&[("c0", None), ("s1", Some(9))]);
     assert_eq!(divider_switches(&env.store, fork()).await, [("k1".to_owned(), all(&["m2", "m4", "m1"]))]);
-    assert_eq!(entry(fork(), "sum").await, Some(3), "a fork finds its base's summary");
+    assert_eq!(entry(fork(), "sum").await, k1, "a fork finds its base's summary");
     assert_eq!(divider_switches(&env.store, base()).await, [("k1".to_owned(), all(&["m2", "m5", "m1"]))]);
     // A rebuild from the logs reads the same, the blob entry included.
     let expected = (divider_switches(&env.store, base()).await, divider_switches(&env.store, fork()).await);

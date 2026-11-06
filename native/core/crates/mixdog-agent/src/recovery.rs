@@ -56,7 +56,7 @@ pub(crate) fn without_latest_images(messages: &[AgentMessage]) -> Vec<AgentMessa
                         .iter()
                         .map(|p| match p {
                             ContentPart::Image(_) => {
-                                ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.to_owned(), false)
+                                ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.to_owned(), None)
                             }
                             other => other.clone(),
                         })
@@ -157,7 +157,7 @@ impl Run {
         for index in (0..self.messages.len()).rev() {
             if let Some(repaired) = without_thinking_replay(&self.messages[index], &owner) {
                 self.messages[index] = repaired;
-                self.env.sink.replace(&self.messages);
+                self.env.sink.replace(&self.messages, &crate::env::Rewrite::default());
                 return true;
             }
         }
@@ -207,7 +207,7 @@ mod tests {
         let image = || ContentPart::Image(ImageSource::Url("u".into()));
         let old = AgentMessage::user_content(Content::Parts(vec![image()]));
         let fresh = AgentMessage::user_content(Content::Parts(vec![
-            ContentPart::Text("look".into(), false),
+            ContentPart::Text("look".into(), None),
             image(),
         ]));
         let messages = vec![old.clone(), AgentMessage::assistant("a", Vec::new()), fresh];
@@ -217,8 +217,8 @@ mod tests {
         assert_eq!(
             stripped[2].message.content,
             Content::Parts(vec![
-                ContentPart::Text("look".into(), false),
-                ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.into(), false),
+                ContentPart::Text("look".into(), None),
+                ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.into(), None),
             ])
         );
     }
@@ -276,6 +276,6 @@ impl Run {
         for (message, stripped) in self.messages.iter_mut().zip(stripped) {
             message.message = stripped;
         }
-        self.env.sink.replace(&self.messages);
+        self.env.sink.replace(&self.messages, &crate::env::Rewrite::default());
     }
 }

@@ -1,0 +1,140 @@
+{
+ "same_turn_save_route_changed": {
+  "action": "replay",
+  "messages": [
+   {
+    "role": "user",
+    "content": "u1"
+   },
+   {
+    "role": "assistant",
+    "content": "a1"
+   },
+   {
+    "role": "user",
+    "content": "q"
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "toolCalls": [
+     {
+      "id": "c1",
+      "name": "read",
+      "arguments": {}
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "content": "Cancelled",
+    "toolCallId": "c1",
+    "toolKind": "error"
+   },
+   {
+    "role": "assistant",
+    "content": "pa",
+    "toolCalls": [
+     {
+      "id": "c2",
+      "name": "grep",
+      "arguments": {}
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "content": "Cancelled",
+    "toolCallId": "c2",
+    "toolKind": "error"
+   },
+   {
+    "role": "user",
+    "content": "[Request interrupted by process restart]"
+   }
+  ]
+ },
+ "streaming_tail_is_stamped": {
+  "action": "replay",
+  "messages": [
+   {
+    "role": "user",
+    "content": "u1"
+   },
+   {
+    "role": "user",
+    "content": "q"
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "toolCalls": [
+     {
+      "id": "c1",
+      "name": "read"
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "content": "ok",
+    "toolCallId": "c1",
+    "meta": {
+     "k": 1,
+     "sentRequestTail": true
+    }
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "reasoningContent": "why"
+   },
+   {
+    "role": "user",
+    "content": "[Request interrupted by process restart]"
+   }
+  ]
+ },
+ "full_transcript_of_the_same_turn": {
+  "action": "replay",
+  "messages": [
+   {
+    "role": "user",
+    "content": "summary"
+   },
+   {
+    "role": "user",
+    "content": "q"
+   }
+  ]
+ },
+ "sealed_turn_is_kept_as_is": {
+  "action": "replay",
+  "messages": [
+   {
+    "role": "user",
+    "content": "u1"
+   },
+   {
+    "role": "user",
+    "content": "q"
+   },
+   {
+    "role": "assistant",
+    "content": "done"
+   }
+  ]
+ },
+ "another_epoch_conflicts": {
+  "action": "conflict"
+ },
+ "boundary_past_the_base_conflicts": {
+  "action": "conflict"
+ },
+ "covered": {
+  "action": "covered"
+ },
+ "legacy_without_a_prefix_conflicts": {
+  "action": "conflict"
+ }
+}

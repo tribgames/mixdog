@@ -418,7 +418,7 @@ impl MediaText for MediaLowering {
                         _ => None,
                     };
                     if let Some(text) = replacement {
-                        *part = ContentPart::Text(text, false);
+                        *part = ContentPart::Text(text, None);
                     }
                 }
             }
@@ -752,7 +752,7 @@ mod tests {
         assert!(l.text_form(&office).is_err());
         let prepared = l.prepare_pdf_text(messages).await.unwrap();
         let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
-        assert_eq!(parts[0], ContentPart::Text("--- p.pdf (application/pdf, 13 bytes) ---\nPDFTEXT".into(), false));
+        assert_eq!(parts[0], ContentPart::Text("--- p.pdf (application/pdf, 13 bytes) ---\nPDFTEXT".into(), None));
         assert_eq!(parts[1], office, "an Office file keeps its part unless the route takes no documents");
         assert_eq!(l.text_form(&office).unwrap().unwrap(), "--- a.docx (application/vnd.openxmlformats-officedocument.wordprocessingml.document, 2 bytes) ---\nEXTRACTED");
         assert_eq!(l.text_form(&reference("doc", "text/plain", Some("d.txt"))).unwrap().unwrap(), "--- d.txt (text/plain, 5 bytes) ---\nhello");
@@ -771,7 +771,7 @@ mod tests {
         let messages = vec![Message::new(Role::User, Content::Parts(vec![broken, gone]))];
         let prepared = l.prepare_pdf_text(messages).await.unwrap();
         let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
-        assert_eq!(parts[0], ContentPart::Text("[file not sent inline: broken.docx (application/octet-stream, 2 bytes) — this type has no inline form; open it from disk with read]".into(), false));
+        assert_eq!(parts[0], ContentPart::Text("[file not sent inline: broken.docx (application/octet-stream, 2 bytes) — this type has no inline form; open it from disk with read]".into(), None));
         // A blob that is permanently gone is left alone by the prepare step and lowers to its placeholder.
         assert!(matches!(parts[1], ContentPart::File { .. }));
         assert_eq!(l.text_form(&parts[1]).unwrap().unwrap(), "[attachment unavailable: old.pdf]");

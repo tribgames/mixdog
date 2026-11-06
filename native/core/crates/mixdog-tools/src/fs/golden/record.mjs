@@ -6,6 +6,7 @@
 //
 //   node record.mjs --tree <Node product tree with node_modules> [--native-root <dir holding mixdog-patch>]
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -198,6 +199,13 @@ const cases = [
   apply('shattered-keys', { 'a.txt': 'one\n' }, '*** Begin Patch', { '*** Update File: a.txt': '@@', '-one': '+ONE', '*** End Patch': '' }),
   apply('shattered-array-value', {}, '*** Begin Patch', { '*** Add File: e.txt': ['+hello'], '*** End Patch': '' }),
   apply('shattered-array-spaced', {}, '*** Begin Patch', { '*** Add File: e.txt': [' +hello'], '*** End Patch': '' }),
+  // A source another process holds open: the rename fails at its unlink and the paths are put back.
+  ...(process.platform === 'win32'
+    ? [
+        applyIn('held-source-rename', { files: { 'a.txt': 'one\ntwo\n' }, hold: ['a.txt'] }, patch('*** Update File: a.txt', '*** Move to: b.txt', '@@', '-one', '+ONE')),
+        applyIn('held-source-rename-ordered', { files: { 'a.txt': 'one\ntwo\n', 'c.txt': 'keep\n' }, hold: ['a.txt'] }, patch('*** Update File: c.txt', '@@', '-keep', '+KEEP', '*** Update File: a.txt', '*** Move to: b.txt', '@@', '-one', '+ONE'), { sequence: true }),
+      ]
+    : []),
   apply('salvage-leading-blank', { 'a.txt': 'one\n' }, '\n\n*** Update File: a.txt\n@@\n-one\n+ONE\n'),
   apply('salvage-begin-patch-case', { 'a.txt': 'one\n' }, '***  begin patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n*** End Patch\n'),
   apply('salvage-implied-path', { 'a.txt': 'one\n' }, '*** Begin Patch\na.txt\n@@\n-one\n+ONE\n*** End Patch\n'),
@@ -355,6 +363,13 @@ for (const [index, c] of cases.entries()) {
     c.tool === 'apply_patch'
       ? { ...c.input, patch: c.input.patch.replaceAll('<OUT>', fwdOut), base_path: baseDir }
       : c.input;
+  // `hold`: files another process keeps open without delete sharing (Windows), so removing one fails busy.
+  let holder = null;
+  if (c.hold) {
+    const opens = c.hold.map((rel, i) => `$f${i}=[System.IO.File]::Open('${join(ws, rel)}','Open','Read','Read')`).join(';');
+    holder = spawn('powershell', ['-NoProfile', '-Command', `${opens}; Write-Host held; Start-Sleep 120`]);
+    await new Promise((resolveHeld) => holder.stdout.once('data', resolveHeld));
+  }
   let outcome;
   try {
     const raw = c.tool === 'apply_patch' ? await executePatchTool('apply_patch', input, ws) : await executeBuiltinTool(c.tool, input, ws);
@@ -363,8 +378,10 @@ for (const [index, c] of cases.entries()) {
   } catch (e) {
     outcome = { thrown: scrub(String(e?.message ?? e)) };
   }
+  holder?.kill();
   recorded.push({
     name: c.name,
+    ...(c.hold ? { hold: c.hold } : {}),
     tool: c.tool,
     files: c.files,
     ...(c.outside ? { outside: c.outside } : {}),

@@ -8,7 +8,14 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
+use mixdog_exthost::DEFAULT_PENDING_CAP;
+use mixdog_exthost::ExtDocumentText;
+use mixdog_exthost::ExtHostConfig;
+use mixdog_exthost::ExtHostPool;
+use mixdog_exthost::RenderBrowserConfig;
+use mixdog_exthost::worker_count;
 use mixdog_migrate::run::cli::MigrateArgs;
+use mixdog_migrate::session::context_blobs::OfficeExtractor;
 
 use clap::ArgGroup;
 use clap::Args;
@@ -123,8 +130,7 @@ fn main() -> ExitCode {
                 home: args.home,
                 desktop_profile: args.desktop_profile,
             };
-            // Blocking by design: the migration runs on this thread before any runtime starts.
-            ExitCode::from(mixdog_migrate::run::cli::main(&args, Arc::new(projector::StoreProjector)))
+            migrate(&args)
         }
         Command::ServerEnsure { argument } => {
             // Prints its own result lines; the status is 0 or 3.
@@ -132,6 +138,58 @@ fn main() -> ExitCode {
         }
         Command::Exec(args) => exec_command(args),
     }
+}
+
+/// Runs the migration on this thread, outside every async context: the runtime only carries the
+/// extension host, whose office extractor signs a recovered turn's context as Node does, and the
+/// migration drives it with the runtime's handle. The host stops when the migration returns.
+fn migrate(args: &MigrateArgs) -> ExitCode {
+    let roots = match mixdog_migrate::run::cli::roots(args) {
+        Ok(roots) => roots,
+        Err(status) => return ExitCode::from(status),
+    };
+    let js = match mixdog_app_server_daemon::js_runtime::resolve_current() {
+        Ok(js) => js,
+        Err(err) => {
+            eprintln!("mixdogd migrate: resolving the JS runtime: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            eprintln!("mixdogd migrate: starting the async runtime: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let pool = {
+        let _context = runtime.enter();
+        ExtHostPool::new(ExtHostConfig {
+            program: js.program,
+            args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
+            electron: js.electron,
+            workers: worker_count(None, std::thread::available_parallelism().map_or(1, |n| n.get())),
+            pending_cap: DEFAULT_PENDING_CAP,
+            // The inline test backend, as `serve` has it until WP-RT's executors replace it.
+            spawn_io: mixdog_rt::testing::tokens().spawn_io,
+            render_browser: RenderBrowserConfig {
+                command: None,
+                profile_root: roots.data.join("render-browser"),
+                no_sandbox: false,
+            },
+        })
+    };
+    let pool = match pool {
+        Ok(pool) => Arc::new(pool),
+        Err(err) => {
+            eprintln!("mixdogd migrate: starting the extension host: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let office = OfficeExtractor { docs: Arc::new(ExtDocumentText::new(pool.clone())), runtime: runtime.handle().clone() };
+    let status = mixdog_migrate::run::cli::main(roots, Arc::new(projector::StoreProjector), office);
+    runtime.block_on(pool.close());
+    ExitCode::from(status)
 }
 
 /// Refuses what Node refuses before anything starts. The run itself needs the composition root's

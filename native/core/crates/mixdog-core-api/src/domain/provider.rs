@@ -83,7 +83,7 @@ pub struct TextAttachment {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ContentPart {
-    Text(String, bool),
+    Text(String, Option<serde_json::Map<String, serde_json::Value>>),
     Image(ImageSource),
     File {
         source: BinarySource,

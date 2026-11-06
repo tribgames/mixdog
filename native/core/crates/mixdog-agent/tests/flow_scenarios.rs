@@ -983,3 +983,49 @@ async fn racing_requests_end_as_nodes_do() {
         same(&name, "", &got, &want);
     }
 }
+/// Closes recorded with their options, and a signal when one arrives.
+#[derive(Default)]
+struct RecordedCloses {
+    calls: Mutex<Vec<(String, String, bool, bool)>>,
+    arrived: tokio::sync::Notify,
+}
+#[async_trait]
+impl Sessions for RecordedCloses {
+    async fn rehydrate_agent_sessions(&self) -> bool {
+        false
+    }
+    async fn read_session_handoff(&self, _: &str) -> Option<String> {
+        None
+    }
+    async fn close_session(&self, id: &str, reason: &str, options: CloseOptions) -> bool {
+        lock(&self.calls).push((id.to_owned(), reason.to_owned(), options.tombstone, options.owner_close));
+        self.arrived.notify_one();
+        true
+    }
+    fn descendant_session_ids(&self, _: &str) -> Vec<String> {
+        Vec::new()
+    }
+    fn clear_statusline_route(&self, _: &str) {}
+}
+
+/// `job-start.mjs`: cancelling an agent job closes its worker session with reason
+/// `agent-task-cancel`, neither tombstoning it nor as an owner close (the host builds the turn's
+/// `Session "<id>" closed: closeSession (reason=agent-task-cancel)` text from that reason).
+#[tokio::test]
+async fn cancelling_an_agent_job_closes_its_worker_session_with_the_cancel_reason() {
+    let rig = rig(&json!({}), None);
+    let closes = Arc::new(RecordedCloses::default());
+    let starter = JobStarter::new(rig.shared.board.clone(), closes.clone(), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let meta = JobMeta { session_id: Some("sess_w1".into()), ..JobMeta::default() };
+    starter
+        .start_job("agent", meta, Default::default(), |_, _| async { std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>().await })
+        .expect("started");
+    let id = rig.shared.board.list_jobs(&Scope::default()).first().map(|j| j.task_id.clone()).expect("job");
+    rig.shared.board.cancel(&id, "user cancelled", CancelNotice::Default);
+    closes.arrived.notified().await;
+    assert_eq!(*lock(&closes.calls), [("sess_w1".to_owned(), "agent-task-cancel".to_owned(), false, false)]);
+    assert_eq!(
+        mixdog_agent::cancel::close_session_reason("sess_w1", "agent-task-cancel"),
+        "Session \"sess_w1\" closed: closeSession (reason=agent-task-cancel)"
+    );
+}

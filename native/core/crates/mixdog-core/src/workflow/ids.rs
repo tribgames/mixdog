@@ -104,6 +104,16 @@ pub(crate) fn workflow_id_of(value: Option<&Value>) -> Option<String> {
 
 /// `workflowIdFromName`: the readable slug of the name, else `workflow-<10 hex of sha256>`.
 pub(crate) fn workflow_id_from_name(value: &str) -> String {
+    internal_id_from_name(value, "workflow")
+}
+
+/// `agentIdFromName`: the same slug, `agent-<10 hex>` when nothing readable is left.
+pub(crate) fn agent_id_from_name(value: &str) -> String {
+    internal_id_from_name(value, "agent")
+}
+
+/// `internalIdFromName(value, fallbackPrefix)`.
+fn internal_id_from_name(value: &str, fallback_prefix: &str) -> String {
     let name = js_trim(value);
     let decomposed: String = name.nfkd().collect();
     let marks = JsRegex::new_static(r"\p{M}+", "gu");
@@ -134,7 +144,7 @@ pub(crate) fn workflow_id_from_name(value: &str) -> String {
     }
     let digest = Sha256::digest(name.as_bytes());
     let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!("workflow-{}", &hex[..10])
+    format!("{fallback_prefix}-{}", &hex[..10])
 }
 
 /// `availableWorkflowId(baseId, isTaken)`: `base`, else `base-2`, `base-3`, …; empty for a

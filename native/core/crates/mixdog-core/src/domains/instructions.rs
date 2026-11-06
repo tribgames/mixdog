@@ -224,7 +224,7 @@ fn normalize_text(text: &str) -> String {
 }
 
 /// `decodeInstructionFile`: the text, or why the bytes cannot serve.
-fn decode_file(bytes: &[u8]) -> Result<String, &'static str> {
+pub(crate) fn decode_file(bytes: &[u8]) -> Result<String, &'static str> {
     if bytes.len() > FILE_MAX_BYTES {
         return Err("too-large");
     }

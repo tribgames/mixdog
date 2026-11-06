@@ -440,8 +440,8 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
     let mut rendered: Vec<ContentPart> = Vec::new();
     for part in parts {
         match part {
-            ToolPart::Text(text) => rendered.push(ContentPart::Text(text, false)),
-            ToolPart::Json(value) => rendered.push(ContentPart::Text(value.to_string(), false)),
+            ToolPart::Text(text) => rendered.push(ContentPart::Text(text, None)),
+            ToolPart::Json(value) => rendered.push(ContentPart::Text(value.to_string(), None)),
             ToolPart::Image { mime, data } => {
                 text_only = false;
                 let source = match data {
@@ -618,8 +618,10 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
             {
                 content = Content::Text(updated);
             }
+            let mut message = AgentMessage::tool_result(&call.id, content, ToolKind::Normal);
+            message.ui_diff = output.meta.as_ref().and_then(|m| m.get("uiDiff")).and_then(|d| d.as_str()).map(str::to_owned);
             Executed {
-                message: AgentMessage::tool_result(&call.id, content, ToolKind::Normal),
+                message,
                 failed: false,
                 arg_failure: false,
                 conflict: false,

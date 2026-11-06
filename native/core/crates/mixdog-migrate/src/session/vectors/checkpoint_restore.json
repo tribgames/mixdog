@@ -1,0 +1,194 @@
+{
+ "blob": "pasted notes\nline 2",
+ "durable": {
+  "id": "sess_r",
+  "provider": "anthropic",
+  "model": "m1",
+  "transcriptEpoch": "e1",
+  "activeTurnCheckpoint": {
+   "turnToken": "t1"
+  },
+  "compaction": {
+   "lastStage": "idle",
+   "boundaryTokens": 90
+  },
+  "contextPressureUnanchoredAfterRestart": true,
+  "contextPressureUnanchoredReason": "checkpoint_context_mismatch",
+  "messages": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "look"
+     },
+     {
+      "type": "text",
+      "attachmentRef": "a1a983f00114dd876bb2569b92ed238d425f1a4fe5cfce5c758ee7dc7759001c",
+      "textKind": "file",
+      "filename": "notes.txt"
+     },
+     {
+      "type": "image",
+      "attachmentRef": "abababababababababababababababababababababababababababababababab",
+      "mimeType": "image/png",
+      "width": 100,
+      "height": 50
+     }
+    ]
+   },
+   {
+    "role": "assistant",
+    "content": "a1"
+   }
+  ]
+ },
+ "checkpoint": {
+  "version": 1,
+  "sessionId": "sess_r",
+  "turnToken": "t1",
+  "startedAt": 4000,
+  "base": {
+   "epoch": "e1",
+   "length": 2
+  },
+  "boundary": 2,
+  "turnMessages": [
+   {
+    "role": "user",
+    "content": "q"
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "toolCalls": [
+     {
+      "id": "c1",
+      "name": "read",
+      "arguments": {
+       "path": "x"
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "content": "body",
+    "toolCallId": "c1"
+   }
+  ],
+  "interruption": {
+   "responseStarted": true,
+   "phase": "tools"
+  },
+  "contextState": {
+   "version": 1,
+   "kind": "provider",
+   "usedTokens": 1234,
+   "inputTokens": 1180,
+   "outputTokens": 34,
+   "committedPrefixCount": 2,
+   "committedPrefixSignature": "1038a77cb089311418fa4e805c998c19a04ff2ba9b4d6b901f4688138e9b5604",
+   "turnMessageCount": 2,
+   "turnPrefixSignature": "c40ae4ce3488dc686196eb374525f314548b543231a13f938691fd5e147dd110",
+   "provider": "anthropic",
+   "model": "m1",
+   "toolSchemaSignature": "tools-sig",
+   "requestReserveTokens": 12,
+   "boundary": "request",
+   "updatedAt": 5000,
+   "compaction": {
+    "boundaryTokens": 100,
+    "triggerTokens": 200
+   },
+   "prefixBaseline": {
+    "hash": "p1",
+    "count": 3
+   }
+  }
+ },
+ "anchored": true,
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "look"
+    },
+    {
+     "type": "text",
+     "attachmentRef": "a1a983f00114dd876bb2569b92ed238d425f1a4fe5cfce5c758ee7dc7759001c",
+     "textKind": "file",
+     "filename": "notes.txt"
+    },
+    {
+     "type": "image",
+     "attachmentRef": "abababababababababababababababababababababababababababababababab",
+     "mimeType": "image/png",
+     "width": 100,
+     "height": 50
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": "a1"
+  },
+  {
+   "role": "user",
+   "content": "q"
+  },
+  {
+   "role": "assistant",
+   "content": "",
+   "toolCalls": [
+    {
+     "id": "c1",
+     "name": "read",
+     "arguments": {
+      "path": "x"
+     }
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "content": "body",
+   "toolCallId": "c1"
+  },
+  {
+   "role": "user",
+   "content": "[Request interrupted by process restart]"
+  }
+ ],
+ "header": {
+  "id": "sess_r",
+  "provider": "anthropic",
+  "model": "m1",
+  "transcriptEpoch": "e1",
+  "compaction": {
+   "lastStage": "idle",
+   "boundaryTokens": 100,
+   "triggerTokens": 200
+  },
+  "contextPressureBaselineTokens": 1234,
+  "contextPressureBaselineOutputTokens": 34,
+  "contextPressureBaselineMessageCount": 4,
+  "contextPressureBaselinePrefixSignature": "0c33b0a587958de4154a1d0f8a03d309f620b3e1d814d32cf421260cb426645d",
+  "contextPressureBaselineProvider": "anthropic",
+  "contextPressureBaselineModel": "m1",
+  "contextPressureBaselineToolSignature": "tools-sig",
+  "contextPressureBaselineRequestReserveTokens": 12,
+  "contextPressureBaselineBoundary": "request",
+  "contextPressureBaselineUpdatedAt": 5000,
+  "contextPressureBaselineSource": "checkpoint_provider",
+  "lastContextTokens": 1180,
+  "lastContextTokensUpdatedAt": 5000,
+  "lastContextTokensStaleAfterCompact": false,
+  "providerPrefixBaseline": {
+   "hash": "p1",
+   "count": 3
+  }
+ }
+}

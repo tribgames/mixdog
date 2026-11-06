@@ -9,12 +9,15 @@
 //! `Unavailable`. The desktop-hosted features (browser, computer) and the desktop's own
 //! preparation of git and office go through [`SetupDesktop`].
 
+mod definitions;
 mod mcp;
 mod requests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
 
+pub use definitions::DefinitionSetup;
+pub use definitions::OtherDefinitions;
 pub use mcp::McpSetup;
 pub use requests::SetupRequests;
 pub use requests::SetupUiSurface;
@@ -64,6 +67,11 @@ pub trait SetupCallers: Send + Sync {
     /// call is refused as a background run.
     async fn acting_agent(&self, _thread: &ThreadId) -> Result<String, CoreError> {
         Ok(String::new())
+    }
+    /// Whether the session runs in agent mode (`resolveSessionMode(..).mode`): Mixy's or a
+    /// contact's chat, not a coding task. A bot created from Mixy's agent-mode chat is a bot.
+    async fn agent_mode(&self, _thread: &ThreadId) -> bool {
+        false
     }
     /// `mixyDisplayName()`: the representative agent's name in messages.
     async fn mixy_name(&self) -> String {

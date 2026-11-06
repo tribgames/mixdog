@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::error::GoalError;
 use super::js::{Goal, clean, put, put_num, string};
-use super::runtime::{Inner, TitleJob};
+use super::runtime::{Inner, TimerKind, TitleJob};
 use super::session_title::{SESSION_TITLE_TIMEOUT_MS, compact_session_title};
 
 impl Inner {
@@ -35,7 +35,7 @@ impl Inner {
             let superseded = |inner: &Arc<Inner>| {
                 inner.is_closed() || cancel.is_cancelled() || slot.mem().title_job.as_ref().map(|j| j.id) != Some(job_id)
             };
-            let timer = inner.env.timers.after(SESSION_TITLE_TIMEOUT_MS as f64, {
+            let timer = inner.env.timers.after(TimerKind::Title, SESSION_TITLE_TIMEOUT_MS as f64, {
                 let cancel = cancel.clone();
                 Box::new(move || cancel.cancel())
             });

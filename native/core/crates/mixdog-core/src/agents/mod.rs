@@ -8,6 +8,8 @@
 //! of its status pulse is a speed device and is not ported. Not ported either: the avatar of a
 //! row (`normalizeAgentAvatar`), and preset-name routes in the config (`routeFromPreset`).
 
+mod avatar;
+mod edit;
 mod files;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
@@ -21,7 +23,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_ai::service::admin_route::normalize_workflow_route;
 use mixdog_core_api::CoreError;
+use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
+use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -36,6 +40,7 @@ use self::files::Lane;
 use crate::config::AgentRoutes;
 use crate::config::ConfigError;
 use crate::config::RouteHome;
+use crate::domains::ai_admin::agent_route_service::agent_editor_id;
 use crate::domains::ai_admin::hidden_agents::hidden_agents;
 use crate::domains::support::on_lane;
 use crate::rooms::RoomError;
@@ -52,6 +57,40 @@ pub enum AgentsError {
     /// The routines of Mixy could not be read.
     #[error("{0}")]
     Evidence(String),
+    /// Node's `throw new Error(..)` of the editor: the text is Node's.
+    #[error("{0}")]
+    Refused(String),
+}
+
+/// What a change of the definitions sets going outside the files.
+#[async_trait]
+pub trait AgentEffects: Send + Sync {
+    /// `announceBotChange`: every runtime takes the saved, archived or restored agent from its
+    /// next turn (`publishAgentProfileChange`).
+    async fn agents_changed(&self);
+    /// `reloadRoutines`: re-arms the one-shots that came due while an agent was archived; the
+    /// message of a failure.
+    async fn reload_routines(&self) -> Result<(), String>;
+}
+
+/// The write side: where it runs and what a change sets going.
+#[derive(Clone)]
+struct Writes {
+    lane: DurabilityIo,
+    effects: Arc<dyn AgentEffects>,
+    /// `new Date().toISOString()`: names the backup folder of an absorbed save.
+    now: Arc<dyn Fn() -> String + Send + Sync>,
+}
+
+/// One id's saves, archives and restores run one at a time (`withLifecycle`).
+async fn lifecycle(data: &std::path::Path, id: &str) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+    static LOCKS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = std::sync::OnceLock::new();
+    if id.is_empty() {
+        return None;
+    }
+    let key = format!("{}\0{id}", data.display());
+    let lock = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(key).or_default().clone();
+    Some(lock.lock_owned().await)
 }
 
 /// What only the sessions and the automation store know.
@@ -105,6 +144,7 @@ pub struct AgentDefinitions {
     /// `resolveRoute(config, {})`: the live Main route; this port normalises it.
     main_route: Arc<dyn Fn() -> Value + Send + Sync>,
     task_workspace: PathBuf,
+    writes: Option<Writes>,
 }
 
 impl AgentDefinitions {
@@ -120,7 +160,120 @@ impl AgentDefinitions {
         task_workspace: impl Into<PathBuf>,
     ) -> Self {
         let folders = Folders { shipped: shipped_root.into(), data: data_dir.into(), hidden: Arc::new(hidden_agents()) };
-        Self { folders, lane, routes, evidence, main_route, task_workspace: task_workspace.into() }
+        Self { folders, lane, routes, evidence, main_route, task_workspace: task_workspace.into(), writes: None }
+    }
+
+    /// Lets the definitions be saved, archived and restored; without it they only read.
+    #[must_use]
+    pub fn with_writes(mut self, lane: DurabilityIo, effects: Arc<dyn AgentEffects>, now: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
+        self.writes = Some(Writes { lane, effects, now });
+        self
+    }
+
+    fn writes(&self) -> Result<Writes, AgentsError> {
+        self.writes.clone().ok_or_else(|| AgentsError::Refused("agent definitions cannot be changed here".into()))
+    }
+
+    async fn write_job<R: Send + 'static>(
+        &self,
+        writes: &Writes,
+        work: impl FnOnce(&Folders, &mixdog_rt::InLane<DurabilityIo>) -> R + Send + 'static,
+    ) -> Result<R, AgentsError> {
+        let folders = self.folders.clone();
+        on_lane(writes.lane, &CancellationToken::new(), move |lane| work(&folders, lane)).await.map_err(AgentsError::Lane)
+    }
+
+    /// `getAgentDefinition`: the definition as the editor shows it.
+    pub async fn get(&self, agent_id: &str) -> Result<Value, AgentsError> {
+        let folders = self.folders.clone();
+        let id = edit::view_id(&folders, agent_id).map_err(AgentsError::Refused)?;
+        let Some(definition) = self.load(&id).await? else {
+            return Err(AgentsError::Refused(format!("agent \"{agent_id}\" not found")));
+        };
+        let wanted = id.clone();
+        let facts = self.job(move |folders, lane| edit::view_facts(folders, lane, &wanted)).await?;
+        let own = self.own_route(&id).await?;
+        let mut view = Map::new();
+        let mut put = |key: &str, value: Value| {
+            view.insert(key.into(), value);
+        };
+        put("id", json!(id));
+        put("name", json!(definition.name));
+        put("description", json!(definition.description));
+        put("body", json!(definition.body));
+        put("custom", json!(!FIXED_SLOTS.iter().any(|slot| slot.0 == id)));
+        put("userOverride", json!(facts.user_override));
+        if let Some(path) = &facts.path {
+            put("path", json!(path));
+        }
+        put("route", own.clone().or_else(|| self.main()).unwrap_or(Value::Null));
+        put("routeConfigured", json!(own.is_some()));
+        put("kind", json!(definition.kind));
+        put("disabled", json!(self.routes.is_disabled(&id)));
+        put("avatar", facts.avatar);
+        put("persona", json!(facts.persona));
+        put("revision", json!(facts.revision));
+        Ok(Value::Object(view))
+    }
+
+    /// `saveAgentDefinition(payload)`: creates or edits one agent. The payload takes `id`, `name`,
+    /// `description`, `body` and, only when creating, `kind` (`bot` or `agent`).
+    pub async fn save(&self, payload: &Map<String, Value>) -> Result<Value, AgentsError> {
+        let writes = self.writes()?;
+        if !crate::workflow::ids::truthy(payload.get("body")) || mixdog_js::js_trim(&crate::workflow::ids::js_string(&payload["body"])).is_empty() {
+            return Err(AgentsError::Refused("AGENT.md body must not be empty".into()));
+        }
+        let planned = payload.clone();
+        let plan = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned)).await?.map_err(AgentsError::Refused)?;
+        let _turn = lifecycle(&self.folders.data, &plan.id).await;
+        // The id's turn: what a change ahead of this one left is what is saved over.
+        let (planned, now) = (payload.clone(), writes.now.clone());
+        let plan = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned)).await?.map_err(AgentsError::Refused)?;
+        let (given, id) = (payload.clone(), plan.id.clone());
+        let done = self
+            .write_job(&writes, move |folders, lane| edit::save_files(folders, lane, &plan, &given, &*now))
+            .await?
+            .map_err(AgentsError::Refused)?;
+        if done.reclaimed {
+            // Made anew under an archived agent's id: no stale route or switch-off carries over.
+            self.routes.set_disabled(&id, false).await?;
+            self.routes.clear_route(&id).await?;
+        } else if !done.existed && self.routes.is_disabled(&id) {
+            self.routes.set_disabled(&id, false).await?;
+        }
+        writes.effects.agents_changed().await;
+        self.get(&id).await
+    }
+
+    /// `deleteAgentDefinition(agentId)`: a built-in override is reset; a custom agent is archived
+    /// with its chat and routines.
+    pub async fn delete(&self, agent_id: &str) -> Result<Value, AgentsError> {
+        let writes = self.writes()?;
+        let _turn = lifecycle(&self.folders.data, &agent_editor_id(agent_id)).await;
+        let wanted = agent_id.to_owned();
+        let plan = self.job(move |folders, lane| edit::plan_delete(folders, lane, &wanted)).await?.map_err(AgentsError::Refused)?;
+        let id = plan.id.clone();
+        self.write_job(&writes, move |_, lane| edit::delete_files(lane, &plan)).await?.map_err(AgentsError::Refused)?;
+        let reverted = FIXED_SLOTS.iter().any(|slot| slot.0 == id) && self.load(&id).await?.is_some();
+        writes.effects.agents_changed().await;
+        Ok(json!({ "id": id, "deleted": true, "revertedToBuiltIn": reverted }))
+    }
+
+    /// `restoreAgentDefinition(agentId)`: an archived agent back as it was.
+    pub async fn restore(&self, agent_id: &str) -> Result<Value, AgentsError> {
+        let writes = self.writes()?;
+        let _turn = lifecycle(&self.folders.data, &agent_editor_id(agent_id)).await;
+        let wanted = agent_id.to_owned();
+        let plan = self.job(move |folders, lane| edit::plan_restore(folders, lane, &wanted)).await?.map_err(AgentsError::Refused)?;
+        let id = plan.id.clone();
+        self.write_job(&writes, move |_, _| edit::restore_files(&plan)).await?.map_err(AgentsError::Refused)?;
+        writes.effects.agents_changed().await;
+        if let Err(message) = writes.effects.reload_routines().await {
+            return Err(AgentsError::Refused(format!(
+                "agent \"{id}\" was restored, but its schedules could not be re-armed ({message}); they are re-armed by the next schedule reload or restart"
+            )));
+        }
+        self.get(&id).await
     }
 
     async fn job<R: Send + 'static>(&self, work: impl FnOnce(&Folders, &Lane) -> R + Send + 'static) -> Result<R, AgentsError> {
@@ -159,12 +312,14 @@ impl AgentDefinitions {
 
     /// The agent's own route (`ownRoute`), `None` when it has none.
     async fn own_route(&self, id: &str) -> Result<Option<Value>, AgentsError> {
-        let route = self.routes.own_route(id).await?;
+        // The editor's `ownRoute`: a store bot's own route, else the config's. Mixy's id `lead`
+        // is no store bot there, so it reads the config.
+        let route = if id == LEAD_ID { self.routes.config_route(id).unwrap_or_else(|| json!({})) } else { self.routes.own_route(id).await? };
         if route.as_object().is_none_or(|map| map.is_empty()) {
             return Ok(None);
         }
         // A config route passes `normalizeWorkflowRoute`; a bot's own route is read as stored.
-        if self.routes.home(id).await? == RouteHome::Config {
+        if id == LEAD_ID || self.routes.home(id).await? == RouteHome::Config {
             return Ok(normalize_workflow_route(&route, &json!({}), false).ok().flatten());
         }
         Ok(Some(route))

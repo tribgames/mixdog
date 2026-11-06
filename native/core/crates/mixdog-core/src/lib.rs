@@ -1,6 +1,7 @@
 //! The core: sessions, feeds, ops, approvals, config, state, notify, rooms and the domain
 //! registry (SPEC §3.2). Module owners add their own `pub mod` line below.
 
+pub mod agents;
 pub mod approvals;
 mod attachments;
 pub mod config;

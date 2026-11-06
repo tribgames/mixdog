@@ -346,7 +346,12 @@ mod tests {
                 }
                 cards += 1;
                 let got: Vec<Value> = items.iter().map(|i| Value::Object(tool_row(i).expect("tool"))).collect();
-                assert_eq!(Value::Array(got), step["items"], "{name}: items after {}", step["id"]);
+                // `expanded` is the TUI's own fold state; a typed item has no home for it.
+                let mut want = step["items"].clone();
+                for item in want.as_array_mut().expect("items") {
+                    item.as_object_mut().expect("item").shift_remove("expanded");
+                }
+                assert_eq!(Value::Array(got), want, "{name}: items after {}", step["id"]);
             }
         }
         assert!(cards >= 10);

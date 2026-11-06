@@ -2,6 +2,10 @@
 //! daemon to wind down through its own `/upgrade` route (non-forced: drain preserving
 //! work, exit when idle; `force:true` once after the user confirmed the abort), and read
 //! its busy work from `/health`. Exit is confirmed by the OS, not here.
+//!
+//! A call has no timer (LR §3.1 `waitExit`, §5.4; SPEC removes timing-as-truth): it ends
+//! when the daemon answers or when the OS closes its loopback socket, as its exit does. A
+//! daemon that never answers is the wind-down's to settle, by the user's decision.
 
 use std::io::Read;
 use std::io::Write;
@@ -9,7 +13,6 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::path::Path;
-use std::time::Duration;
 
 use serde_json::Value;
 use serde_json::json;
@@ -17,11 +20,6 @@ use serde_json::json;
 /// 1.4.5 `SESSION_PROTOCOL` / `SESSION_REVISION` (`v145:src/standalone/session-wire.mjs`).
 pub const LEGACY_SESSION_PROTOCOL: u64 = 1;
 pub const LEGACY_SESSION_REVISION: u64 = 6;
-/// Connect timeout of the loopback request (transport configuration).
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-/// Longest single read or write of that request, so a daemon that stops answering
-/// ends the call instead of holding the migration.
-const IO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The session endpoint of a 1.4.5 daemon (legacy discovery `endpoints.session`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,11 +47,7 @@ pub struct Answer {
 
 fn request(endpoint: &LegacyEndpoint, method: &str, path: &str, body: Option<&Value>) -> Result<Answer, String> {
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, endpoint.port));
-    let mut stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(|e| e.to_string())?;
-    stream
-        .set_read_timeout(Some(IO_TIMEOUT))
-        .and_then(|()| stream.set_write_timeout(Some(IO_TIMEOUT)))
-        .map_err(|e| e.to_string())?;
+    let mut stream = TcpStream::connect(addr).map_err(|e| e.to_string())?;
     let payload = body.map(|b| b.to_string()).unwrap_or_default();
     let head = format!(
         "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nx-mixdog-daemon-token: {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
@@ -135,7 +129,6 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let server = std::thread::spawn(move || {
             let (mut s, _) = listener.accept().unwrap();
-            s.set_read_timeout(Some(IO_TIMEOUT)).unwrap();
             let mut buf = vec![0u8; 4096];
             let mut got = Vec::new();
             while !got.windows(4).any(|w| w == b"\r\n\r\n") || !got.ends_with(b"}") {
