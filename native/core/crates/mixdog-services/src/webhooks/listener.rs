@@ -36,6 +36,8 @@ use crate::channels::running::WorkGuard;
 const PORT_SPAN: u16 = 7;
 /// Node's default `maxHeaderSize`.
 const MAX_HEAD_BYTES: usize = 16 * 1024;
+/// Node's default `server.maxHeadersCount` (hyper's own default is 100).
+const MAX_HEADERS_COUNT: usize = 2000;
 /// Node's default `headersTimeout`.
 pub(crate) const HEADERS_TIMEOUT: Duration = Duration::from_secs(60);
 /// Node's default `requestTimeout`: the body must arrive within five minutes.
@@ -111,6 +113,7 @@ async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: Cancellati
         .timer(TokioTimer::new())
         .header_read_timeout(HEADERS_TIMEOUT)
         .max_buf_size(MAX_HEAD_BYTES)
+        .max_headers(MAX_HEADERS_COUNT)
         .serve_connection(TokioIo::new(Lingering(Some(stream))), handler);
     tokio::pin!(connection);
     tokio::select! {

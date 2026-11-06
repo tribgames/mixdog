@@ -102,6 +102,11 @@ pub fn write_header(options: &ThreadSessionOptions, header: &mut Header) {
     }
 }
 
+/// `approvalMode: "implicit"`: the session has no approval surface.
+pub fn approval_implicit(header: &Header) -> bool {
+    header.get("approvalMode").and_then(Value::as_str) == Some("implicit")
+}
+
 /// Whether the session's memory is switched off (`MIXDOG_FEATURE_MEMORY=0`): its memory
 /// module never starts, so nothing is ingested when it closes.
 pub fn memory_off(header: &Header) -> bool {

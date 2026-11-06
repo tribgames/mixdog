@@ -900,6 +900,12 @@
             "null"
           ]
         },
+        "promptCacheScope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "providerState": true,
         "requestKind": {
           "type": [
@@ -945,6 +951,12 @@
           ]
         },
         "verbosity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "xaiResponsesCacheScope": {
           "type": [
             "string",
             "null"

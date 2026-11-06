@@ -95,11 +95,12 @@ fn sonnet_caps() -> ModelCaps {
         effort_levels: vec!["low".into(), "medium".into(), "high".into()],
         max_output_tokens: Some(16384),
         fast_mode: false,
+        context_window: None,
         thinking_display_updates: false,
     }
 }
 
-fn config(base_url: &str) -> AnthropicConfig {
+pub(super) fn config(base_url: &str) -> AnthropicConfig {
     let mut config = AnthropicConfig::new(Arc::new(|model: &str| {
         (model == "claude-sonnet-4-6").then(sonnet_caps)
     }));
@@ -120,7 +121,7 @@ fn tools() -> Vec<ToolDefinition> {
     }]
 }
 
-fn text_message(role: Role, text: &str) -> Message {
+pub(super) fn text_message(role: Role, text: &str) -> Message {
     Message::new(role, Content::Text(text.into()))
 }
 
@@ -147,7 +148,7 @@ fn with_result() -> Vec<Message> {
     messages
 }
 
-fn request(messages: Vec<Message>, options: RequestOptions) -> ModelRequest {
+pub(super) fn request(messages: Vec<Message>, options: RequestOptions) -> ModelRequest {
     ModelRequest {
         model: "claude-sonnet-4-6".into(),
         messages,
@@ -220,7 +221,7 @@ fn oauth_codec_without_thinking() -> AnthropicCodec {
 // Scripted transport
 // ---------------------------------------------------------------------------
 
-struct Scripted {
+pub(super) struct Scripted {
     status: u16,
     headers: Vec<(String, String)>,
     chunks: Vec<Vec<u8>>,
@@ -229,7 +230,7 @@ struct Scripted {
 }
 
 impl Scripted {
-    fn body(status: u16, body: &str) -> Self {
+    pub(super) fn body(status: u16, body: &str) -> Self {
         Self {
             status,
             headers: Vec::new(),
@@ -255,20 +256,20 @@ impl BodyStream for ScriptedBody {
 }
 
 #[derive(Default)]
-struct ScriptedHttp {
+pub(super) struct ScriptedHttp {
     script: Mutex<VecDeque<Scripted>>,
     sent: Mutex<Vec<mixdog_core_api::domain::provider::WireRequest>>,
 }
 
 impl ScriptedHttp {
-    fn new(script: impl IntoIterator<Item = Scripted>) -> Arc<Self> {
+    pub(super) fn new(script: impl IntoIterator<Item = Scripted>) -> Arc<Self> {
         Arc::new(Self {
             script: Mutex::new(script.into_iter().collect()),
             sent: Mutex::default(),
         })
     }
 
-    fn sent(&self) -> Vec<mixdog_core_api::domain::provider::WireRequest> {
+    pub(super) fn sent(&self) -> Vec<mixdog_core_api::domain::provider::WireRequest> {
         self.sent.lock().expect("sent").clone()
     }
 }
@@ -292,7 +293,7 @@ impl HttpSend for ScriptedHttp {
     }
 }
 
-struct FixedKey;
+pub(super) struct FixedKey;
 
 #[async_trait]
 impl ApiKeySource for FixedKey {
@@ -305,7 +306,7 @@ impl ApiKeySource for FixedKey {
 }
 
 /// A real shared credential file in a temp directory.
-struct MemoryStore {
+pub(super) struct MemoryStore {
     _dir: tempfile::TempDir,
     path: PathBuf,
     file: CredentialFile,
@@ -325,7 +326,7 @@ impl MemoryStore {
         }
     }
 
-    fn signed_in() -> Arc<Self> {
+    pub(super) fn signed_in() -> Arc<Self> {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("anthropic-oauth-credentials.json");
         let tokens = mixdog_rt::testing::tokens();
@@ -366,11 +367,11 @@ fn api_adapter(http: Arc<ScriptedHttp>) -> AnthropicAdapter {
     AnthropicAdapter::api_key(config("http://127.0.0.1:1"), http, Arc::new(FixedKey), cpu_bulk())
 }
 
-fn cpu_bulk() -> mixdog_rt::CpuBulk {
+pub(super) fn cpu_bulk() -> mixdog_rt::CpuBulk {
     mixdog_rt::testing::tokens().cpu_bulk
 }
 
-fn oauth_adapter(http: Arc<ScriptedHttp>, store: Arc<MemoryStore>) -> AnthropicAdapter {
+pub(super) fn oauth_adapter(http: Arc<ScriptedHttp>, store: Arc<MemoryStore>) -> AnthropicAdapter {
     let session = Arc::new(OAuthSession::new(store.file.clone(), http.clone()));
     AnthropicAdapter::oauth(config("https://api.anthropic.com"), http, session, false, cpu_bulk())
 }

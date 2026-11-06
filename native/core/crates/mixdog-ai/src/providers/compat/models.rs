@@ -65,13 +65,12 @@ pub struct CompatModelInfo {
     pub output_modalities: Option<Vec<String>>,
 }
 
-fn positive(value: Option<&JsonValue>) -> Option<u32> {
-    let n = value?.as_f64()?;
-    (n.is_finite() && n >= 1.0).then(|| n.min(f64::from(u32::MAX)) as u32)
-}
-
-fn first_positive(item: &JsonValue, keys: &[&str]) -> Option<u32> {
-    keys.iter().find_map(|key| positive(item.get(key)))
+/// `Number(a ?? b ?? c)` kept when positive: the first key a row states
+/// decides, even when it is zero, negative or not a number.
+pub(super) fn stated_limit(candidates: &[Option<&JsonValue>]) -> Option<u32> {
+    let stated = candidates.iter().flatten().find(|v| !v.is_null())?;
+    let n = mixdog_js::to_number(stated);
+    (n.is_finite() && n > 0.0).then(|| n.min(f64::from(u32::MAX)) as u32)
 }
 
 /// Effort levels and reasoning support an endpoint declares for a row.
@@ -186,24 +185,23 @@ pub fn parse_models(body: &JsonValue) -> Vec<CompatModelInfo> {
         .filter_map(|item| {
             let id = item.get("id")?.as_str().filter(|id| !id.is_empty())?.to_owned();
             let (reasoning_levels, supports_reasoning) = effort_info(item);
-            let output_tokens = first_positive(
-                item,
-                &["max_output_tokens", "output_tokens", "maxOutputTokens"],
-            )
-            .or_else(|| positive(item.get("top_provider").and_then(|t| t.get("max_completion_tokens"))));
-            let context_window = first_positive(
-                item,
-                &[
-                    "context_window",
-                    "max_context_window",
-                    "max_input_tokens",
-                    "max_model_len",
-                    "context_length",
-                    "max_context_length",
-                ],
-            )
-            .or_else(|| positive(item.get("top_provider").and_then(|t| t.get("context_length"))))
-            .or_else(|| positive(item.get("contextWindow")));
+            let top = item.get("top_provider");
+            let output_tokens = stated_limit(&[
+                item.get("max_output_tokens"),
+                item.get("output_tokens"),
+                item.get("maxOutputTokens"),
+                top.and_then(|t| t.get("max_completion_tokens")),
+            ]);
+            let context_window = stated_limit(&[
+                item.get("context_window"),
+                item.get("max_context_window"),
+                item.get("max_input_tokens"),
+                item.get("max_model_len"),
+                item.get("context_length"),
+                item.get("max_context_length"),
+                top.and_then(|t| t.get("context_length")),
+                item.get("contextWindow"),
+            ]);
             let alias_target = item.get("alias_target").and_then(|a| {
                 a.as_str()
                     .or_else(|| a.get("slug").and_then(JsonValue::as_str))

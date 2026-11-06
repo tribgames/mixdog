@@ -1,21 +1,17 @@
 //! `provider-accounts.json` on disk, with Node's damage handling
-//! (`atomic-file.mjs`): a damaged file is moved aside to
+//! (`atomic-file.mjs`, through `mixdog-statefile`): a damaged file is moved aside to
 //! `<file>.corrupt-<ms>` and the last good copy `<file>.bak` (kept by every
 //! write) is restored; a roster a newer build wrote is left untouched, reads
-//! see no accounts and writes refuse. Every function here is the body of a
-//! lane job.
+//! see no accounts and writes refuse.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "every std::fs call in this module is the body of a lane job"
-)]
-
-use std::fs;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_statefile::Invalid;
+use mixdog_statefile::Opts;
+use mixdog_statefile::Peek;
+use mixdog_statefile::StateError;
 use serde_json::Value;
 use serde_json::json;
 
@@ -23,29 +19,20 @@ use super::AccountError;
 use super::MAX_ACCOUNTS;
 use super::is_account_provider;
 use super::valid_account_id;
-use crate::oauth::LOCK_TIMEOUT;
-use crate::oauth::publish_bytes;
-use crate::oauth::with_lock_within;
+use crate::oauth::CredentialIo;
 
 pub(crate) fn empty_roster() -> Value {
     json!({ "version": 1, "providers": {} })
 }
 
-enum Parsed {
-    Absent,
-    Ok(Value, Vec<u8>),
-    /// A newer build's roster.
-    Unsupported,
-    Damaged(String),
-}
-
-fn validate(value: &Value) -> Result<(), Parsed> {
-    let damaged = |why: &str| Parsed::Damaged(why.to_owned());
+/// `validate` of `provider-accounts.mjs`: damage, or a newer build's roster.
+fn validate(value: &Value) -> Result<(), Invalid> {
+    let damaged = |why: &str| Invalid::Damaged(why.to_owned());
     let version = value.get("version");
     if let Some(v) = version.and_then(Value::as_u64)
         && v > 1
     {
-        return Err(Parsed::Unsupported);
+        return Err(Invalid::Unsupported("Provider account settings are newer than this build.".to_owned()));
     }
     if version.and_then(Value::as_u64) != Some(1) {
         return Err(damaged("Provider account settings are unreadable."));
@@ -80,120 +67,67 @@ fn validate(value: &Value) -> Result<(), Parsed> {
     Ok(())
 }
 
-fn parse(content: Option<Vec<u8>>) -> Parsed {
-    let Some(content) = content else {
-        return Parsed::Absent;
-    };
-    let text = content.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&content);
-    match serde_json::from_slice::<Value>(text) {
-        Ok(value) => match validate(&value) {
-            Ok(()) => Parsed::Ok(value, content),
-            Err(other) => other,
-        },
-        Err(err) => Parsed::Damaged(err.to_string()),
-    }
-}
-
-fn read_content(path: &Path) -> io::Result<Option<Vec<u8>>> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(err) => Err(err),
-    }
-}
-
-fn sibling(path: &Path, suffix: &str) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(suffix);
-    PathBuf::from(name)
-}
-
-/// The first `<file>.corrupt-<ms>` that does not exist yet.
-fn quarantine_path(path: &Path) -> PathBuf {
-    let mut stamp = chrono::Utc::now().timestamp_millis();
-    while sibling(path, &format!(".corrupt-{stamp}")).exists() {
-        stamp += 1;
-    }
-    sibling(path, &format!(".corrupt-{stamp}"))
-}
-
-/// Caller holds the lock. The file is re-read, so one another process has
-/// repaired meanwhile is kept.
-fn recover_locked(path: &Path) -> io::Result<Parsed> {
-    let current = parse(read_content(path)?);
-    let Parsed::Damaged(why) = &current else {
-        return Ok(current);
-    };
-    let backup = parse(read_content(&sibling(path, ".bak"))?);
-    let aside = quarantine_path(path);
-    fs::rename(path, &aside)?;
-    tracing::warn!(path = %path.display(), reason = %why, aside = %aside.display(), "provider accounts file is damaged");
-    match backup {
-        Parsed::Ok(value, bytes) => {
-            publish_bytes(path, &bytes)?;
-            Ok(Parsed::Ok(value, bytes))
-        }
-        _ => Ok(Parsed::Absent),
-    }
+/// Node's token-file options: `{ mode: 0o600, secret, fsyncDir, backup }`.
+fn write_opts() -> Opts {
+    Opts { secret: true, fsync_dir: true, backup: true, ..Opts::default() }
 }
 
 /// The roster, or the empty one when missing, unsupported, or damaged with no
-/// good copy. Never throws for damage. While another writer holds the lock
-/// for the whole wait (`readJsonStateSync`, `LOCK_BUSY_CODES`), a damaged file
-/// is left in place and the answer is the empty roster.
-pub(crate) fn read_roster(path: &Path) -> io::Result<Value> {
-    match parse(read_content(path)?) {
-        Parsed::Ok(value, _) => Ok(value),
-        Parsed::Absent | Parsed::Unsupported => Ok(empty_roster()),
-        Parsed::Damaged(why) => match with_lock_within(path, LOCK_TIMEOUT, || recover_locked(path))? {
-            Some(Parsed::Ok(value, _)) => Ok(value),
-            Some(_) => Ok(empty_roster()),
-            None => {
-                tracing::warn!(path = %path.display(), reason = %why, "provider accounts file is damaged: left in place while another writer holds its lock");
-                Ok(empty_roster())
-            }
-        },
+/// good copy. Never throws for damage. The first read is a read-lane job; a damaged
+/// file is recovered under its lock on the durability lane, and while another writer
+/// holds the lock for the whole wait it is left in place and the answer is the empty
+/// roster.
+pub(crate) async fn read_roster(io: &CredentialIo, path: PathBuf) -> io::Result<Value> {
+    let first = path.clone();
+    let peeked = io.read_job(move |lane| mixdog_statefile::peek(lane, &first, Some(&validate))).await?;
+    match peeked {
+        Peek::Value(value) => Ok(value),
+        Peek::Absent | Peek::Unsupported => Ok(empty_roster()),
+        Peek::Damaged(_) => {
+            let recovered = io
+                .write_job(move |lane| {
+                    mixdog_statefile::read_json(lane, &path, Some(&validate), &Opts { secret: true, ..Opts::default() })
+                })
+                .await?;
+            Ok(recovered.unwrap_or_else(empty_roster))
+        }
     }
 }
 
-fn holds_no_data(content: &[u8]) -> bool {
-    content.iter().all(|b| matches!(b, 0 | b' ' | b'\t' | b'\n' | b'\r'))
-}
-
-/// Read-modify-write under the file's lock. The replaced version is kept as
-/// `<file>.bak` (damaged bytes never are). `mutate` returns the roster to
-/// store, which must validate.
+/// Read-modify-write under the file's lock (a durability-lane job body). A roster that parses
+/// yet fails validation is recovered first, then the update runs: the replaced version is kept
+/// as `<file>.bak` (damaged bytes never are). `mutate` changes the roster, which must validate.
 pub(crate) fn update_roster(
+    lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>,
     path: &Path,
     mutate: impl FnOnce(&mut Value) -> Result<(), AccountError>,
 ) -> io::Result<Result<Value, AccountError>> {
-    // `ELOCKTIMEOUT`: a write cannot go on without the lock.
-    with_lock_within(path, LOCK_TIMEOUT, || {
-        let previous = read_content(path)?;
-        let mut roster = match parse(previous.clone()) {
-            Parsed::Absent => empty_roster(),
-            Parsed::Ok(value, _) => value,
-            Parsed::Unsupported => {
-                return Ok(Err(AccountError::Unsupported(
-                    "Provider account settings are newer than this build.".into(),
-                )));
+    mixdog_statefile::read_json(lane, path, Some(&validate), &Opts { secret: true, ..Opts::default() })?;
+    let updated = mixdog_statefile::update_json(
+        lane,
+        path,
+        |current| {
+            let mut roster = current.unwrap_or_else(empty_roster);
+            match validate(&roster) {
+                Err(Invalid::Unsupported(_)) => {
+                    return Err(AccountError::Unsupported("Provider account settings are newer than this build.".into()));
+                }
+                Err(Invalid::Damaged(why)) => return Err(AccountError::Rejected(why)),
+                Ok(()) => {}
             }
-            Parsed::Damaged(_) => match recover_locked(path)? {
-                Parsed::Ok(value, _) => value,
-                _ => empty_roster(),
-            },
-        };
-        if let Err(err) = mutate(&mut roster) {
-            return Ok(Err(err));
-        }
-        if let Err(Parsed::Damaged(why)) = validate(&roster) {
-            return Ok(Err(AccountError::Rejected(why)));
-        }
-        if let Some(previous) = previous.filter(|p| !holds_no_data(p) && matches!(parse(Some(p.clone())), Parsed::Ok(..))) {
-            publish_bytes(&sibling(path, ".bak"), &previous)?;
-        }
-        publish_bytes(path, &serde_json::to_vec_pretty(&roster).map_err(io::Error::other)?)?;
-        Ok(Ok(roster))
-    })?
-    .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "atomic lock timeout"))
+            mutate(&mut roster)?;
+            if let Err(Invalid::Damaged(why) | Invalid::Unsupported(why)) = validate(&roster) {
+                return Err(AccountError::Rejected(why));
+            }
+            Ok(Some(roster))
+        },
+        &write_opts(),
+    );
+    match updated {
+        Ok(roster) => Ok(Ok(roster.unwrap_or_else(empty_roster))),
+        Err(StateError::Mutator(error)) => Ok(Err(error)),
+        Err(StateError::Io(error)) => Err(error),
+        // `ELOCKTIMEOUT`: a write cannot go on without the lock.
+        Err(StateError::Lock(error)) => Err(io::Error::new(io::ErrorKind::TimedOut, error.to_string())),
+    }
 }

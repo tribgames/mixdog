@@ -29,6 +29,7 @@ use super::keys::ProviderKey;
 use super::providers::OAUTH_PROVIDER_NAMES;
 use super::providers::ProviderBuilder;
 use crate::accounts::AccountStore;
+use crate::catalog::ListingLookup;
 use crate::oauth::CredentialFile;
 use crate::oauth::Pace;
 use crate::providers::compat::login::opencode_go::OpenCodeGoAuth;
@@ -39,6 +40,7 @@ use crate::providers::anthropic::AnthropicConfig;
 use crate::providers::anthropic::CapsLookup;
 use crate::providers::anthropic::OAuthSession;
 use crate::providers::compat::adapter::CompatAdapter;
+use crate::providers::compat::adapter::RouteInputs;
 use crate::providers::compat::chat::CompatChatCodec;
 use crate::providers::compat::chat::CompatConfig;
 use crate::providers::compat::creds::MimoCredentials;
@@ -112,6 +114,9 @@ pub struct BuilderEnv {
     pub grok_client_version: Option<String>,
     pub cursor_client_version: Option<String>,
     pub antigravity_client_version: String,
+    /// The tables the adapters' listing steps (enrichment, sanitizer) read;
+    /// the catalog service publishes into the same handle.
+    pub listing: ListingLookup,
     /// Process environment (`GOOGLE_APPLICATION_CREDENTIALS`, project and
     /// location variables, custom `apiKeyEnv`).
     pub env: Arc<dyn super::keys::Environment>,
@@ -451,6 +456,8 @@ impl DefaultProviderBuilder {
             config.base_url = url.trim_end_matches('/').to_owned();
         }
         config.disable_beta_headers = flag(cfg, "disableBetaHeaders").unwrap_or(false);
+        config.extra_headers = string_pairs(cfg, "extraHeaders");
+        config.listing = self.env.listing.clone();
         let http = self.env.http.clone();
         if name == "anthropic" {
             let keys = self.key_source(name, cfg);
@@ -484,6 +491,7 @@ impl DefaultProviderBuilder {
                 dial: self.env.dial.clone(),
                 credentials,
                 context: self.env.openai_context.clone(),
+                listing: self.env.listing.clone(),
             },
         )))
     }
@@ -545,12 +553,21 @@ impl DefaultProviderBuilder {
             other => return Err(format!("unknown enabled provider: {other}")),
         };
         let codec = self.compat_codec(profile, cfg, base_url, login_headers);
-        Ok(adapter(CompatAdapter::new(codec, http, Some(key))))
+        let model_wires = cfg
+            .get("modelWires")
+            .and_then(Value::as_object)
+            .map(|map| map.iter().filter_map(|(m, w)| Some((m.clone(), Wire::parse(w.as_str()?)?))).collect())
+            .unwrap_or_default();
+        let routing = RouteInputs { model_wires, catalog: None };
+        Ok(adapter(CompatAdapter::new(codec, http, Some(key)).with_routing(routing)))
     }
 
     async fn build_gemini(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         let key = self.env.keys.resolve(name, &key_config(cfg)).await;
-        Ok(adapter(google::gemini(key, self.env.http.clone(), self.env.google_traits.clone())))
+        Ok(adapter(
+            google::gemini(key, self.env.http.clone(), self.env.google_traits.clone())
+                .with_listing_lookup(self.env.listing.clone()),
+        ))
     }
 
     fn gcloud_dir(&self) -> PathBuf {
@@ -570,7 +587,7 @@ impl DefaultProviderBuilder {
         let named = self.env.env.var("CLOUDSDK_ACTIVE_CONFIG_NAME").map(|v| v.trim().to_owned()).unwrap_or_default();
         self.env
             .io
-            .read_job(move || Ok(read_gcloud_project(&dir, named)))
+            .read_job(move |_| Ok(read_gcloud_project(&dir, named)))
             .await
             .ok()
             .flatten()
@@ -587,7 +604,7 @@ impl DefaultProviderBuilder {
             None => self.gcloud_dir().join("application_default_credentials.json"),
         };
         let shown = path.display().to_string();
-        let read = self.env.io.read_job(move || read_text(&path)).await;
+        let read = self.env.io.read_job(move |_| read_text(&path)).await;
         match read {
             Ok(raw) => Ok(AdcRead::Found { raw, path: shown }),
             Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
@@ -833,7 +850,13 @@ impl ProviderBuilder for DefaultProviderBuilder {
             "grok-oauth" => {
                 let credential = Arc::new(GrokCredential::new(self.env.http.clone(), self.file(name)?));
                 let retry = CompatProfile::xai().retry_policy();
-                Ok(adapter(grok::adapter(self.env.http.clone(), credential, self.env.grok_client_version.clone(), retry)))
+                Ok(adapter(grok::adapter(
+                    self.env.http.clone(),
+                    credential,
+                    self.env.grok_client_version.clone(),
+                    retry,
+                    self.env.listing.clone(),
+                )))
             }
             "cursor-oauth" | "cursor-api" => self.build_cursor(name, cfg).await,
             "devin-oauth" => Ok(adapter(DevinAdapter::new(

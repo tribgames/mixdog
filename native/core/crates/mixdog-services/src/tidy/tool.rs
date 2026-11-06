@@ -339,7 +339,7 @@ impl TidyTool {
             }
         }
         let host = self.host.write_host();
-        let outcome = apply_structural_fixes(host.as_ref(), run.cwd, &by_file, run.session_id).await;
+        let outcome = apply_structural_fixes(self.processes.durability(), host.as_ref(), run.cwd, &by_file, run.session_id).await;
         structural["applied"] = json!(outcome.applied);
         if !outcome.rejected.is_empty() {
             structural["rejected"] = json!(outcome.rejected);
@@ -376,7 +376,7 @@ impl TidyTool {
             languages: d.detected.languages.iter().map(|(l, n)| json!({"id": l, "files": n})).collect(),
             language_source: d.detected.source.into(),
             policy: policy_json(&resolution.policy),
-            shadows: Some(detect_engine_shadows(&self.processes, &resolution.engines, &env_map(), None).await),
+            shadows: Some(detect_engine_shadows(&self.processes, &resolution.engines, &env_map()).await),
             scope: if run.scope.is_empty() { Value::Null } else { json!(run.scope) },
             engines: resolution.engines,
             notes,
@@ -438,7 +438,7 @@ impl TidyTool {
         }
         let function_length = summarize_function_lengths(self.host.outline_source().as_ref(), run.cwd, &d.detected.files, &run.cancel.cloned().unwrap_or_default()).await;
         let working_tree = self.split_run_findings(run, &results, &structural).await;
-        let shadows = detect_engine_shadows(&self.processes, &resolution.engines, &env_map(), None).await;
+        let shadows = detect_engine_shadows(&self.processes, &resolution.engines, &env_map()).await;
         let mut report = build_tidy_report(ReportInput {
             action: action.into(),
             languages,
@@ -566,7 +566,6 @@ impl TidyTool {
 #[cfg(test)]
 mod tests {
     use super::super::apply::tests::Recording;
-    use super::super::process::which;
     use super::*;
     use crate::local_provider::assets::Fetched;
 
@@ -647,7 +646,7 @@ mod tests {
         let install = body(&t.execute(&json!({"action": "install", "engines": ["rustfmt"]}), cwd.path(), None, None).await);
         assert_eq!(install["ok"], false);
         assert!(install["errors"][0]["error"].as_str().unwrap().contains("toolchain engine"));
-        if which("git", None, None).is_some() {
+        if t.processes.which("git", None).await.is_some() {
             std::process::Command::new("git").args(["init", "-q"]).current_dir(cwd.path()).output().unwrap();
             std::fs::write(cwd.path().join("a.py"), "x = 1\n").unwrap();
             let scan = body(&t.execute(&json!({"action": "scan", "paths": ["."]}), cwd.path(), None, None).await);

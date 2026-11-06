@@ -2,6 +2,8 @@
 //! under the repository's whole-repository write lock and revalidates only what it needs from
 //! git; refusals are the typed ones of [`crate::worktree::errors`].
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -58,6 +60,8 @@ pub struct GitWorktree {
     pub branch: Option<String>,
     pub detached: bool,
     pub prunable: bool,
+    /// The lock reason (empty for a lock without one); `None` when not locked.
+    pub locked: Option<String>,
 }
 
 pub fn parse_worktree_list(text: &str) -> Vec<GitWorktree> {
@@ -76,6 +80,7 @@ pub fn parse_worktree_list(text: &str) -> Vec<GitWorktree> {
                 branch: None,
                 detached: false,
                 prunable: false,
+                locked: None,
             });
         } else if let Some(row) = current.as_mut() {
             if let Some(head) = field.strip_prefix("HEAD ") {
@@ -86,6 +91,8 @@ pub fn parse_worktree_list(text: &str) -> Vec<GitWorktree> {
                 row.detached = true;
             } else if field.starts_with("prunable") {
                 row.prunable = true;
+            } else if field == "locked" || field.starts_with("locked ") {
+                row.locked = Some(field.strip_prefix("locked ").unwrap_or("").to_owned());
             }
         }
     }
@@ -141,6 +148,8 @@ pub struct Worktrees {
     data_dir: PathBuf,
     ledger: Arc<SnapshotLedger>,
     settings: Option<Arc<dyn SettingsSource>>,
+    activity: Option<Arc<crate::worktree::activity::Activity>>,
+    cleanups: Vec<Arc<dyn crate::worktree::removal::RootCleanup>>,
 }
 
 fn now_ms() -> i64 {
@@ -177,7 +186,7 @@ fn tracked_warnings(tracked: &crate::worktree::disk::Tracked) -> Vec<String> {
     if tracked.submodules { vec!["submodules".to_owned()] } else { Vec::new() }
 }
 
-fn is_snapshot(record: &WorktreeRecord) -> bool {
+pub(crate) fn is_snapshot(record: &WorktreeRecord) -> bool {
     record.extra.get("kind").and_then(Value::as_str) == Some("snapshot")
 }
 
@@ -187,9 +196,31 @@ impl Worktrees {
             registry: Arc::new(Registry::new(&data_dir)),
             ledger: SnapshotLedger::new(),
             settings: None,
+            activity: None,
+            cleanups: Vec::new(),
             scm,
             data_dir,
         }
+    }
+
+    /// A host cleanup that runs when a folder is removed (desktop terminals, caches keyed by it).
+    pub fn with_root_cleanup(mut self, cleanup: Arc<dyn crate::worktree::removal::RootCleanup>) -> Self {
+        self.cleanups.push(cleanup);
+        self
+    }
+
+    pub(crate) fn cleanups(&self) -> &[Arc<dyn crate::worktree::removal::RootCleanup>] {
+        &self.cleanups
+    }
+
+    /// The workspace admission a snapshot's folder is held against before its removal.
+    pub fn with_activity(mut self, activity: Arc<crate::worktree::activity::Activity>) -> Self {
+        self.activity = Some(activity);
+        self
+    }
+
+    pub(crate) fn activity(&self) -> Option<&Arc<crate::worktree::activity::Activity>> {
+        self.activity.as_ref()
     }
 
     /// Reads the worktree settings (branch prefix, size threshold) from `source` at use time;
@@ -199,7 +230,7 @@ impl Worktrees {
         self
     }
 
-    async fn current_settings(&self) -> WorktreeSettings {
+    pub(crate) async fn current_settings(&self) -> WorktreeSettings {
         match &self.settings {
             Some(source) => source.worktree_settings().await,
             None => WorktreeSettings::default(),
@@ -239,7 +270,7 @@ impl Worktrees {
         &self.registry
     }
 
-    async fn with_registry<R: Send + 'static>(
+    pub(crate) async fn with_registry<R: Send + 'static>(
         &self,
         cancel: &CancellationToken,
         job: impl FnOnce(&Registry) -> Result<R, ScmFailure> + Send + 'static,

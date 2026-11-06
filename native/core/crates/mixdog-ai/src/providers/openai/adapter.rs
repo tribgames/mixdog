@@ -29,6 +29,7 @@ use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
+use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
@@ -52,6 +53,7 @@ use super::config::WireContext;
 use super::config::request_scope;
 use super::effort::EffortProjection;
 use super::effort_retry::without_effort_updates;
+use super::models::OpenAiModels;
 use super::delta;
 use super::delta::Chain;
 use super::pool::Checkout;
@@ -59,6 +61,7 @@ use super::pool::Compat;
 use super::pool::WsPool;
 use super::switch;
 use super::switch::TransportMode;
+use crate::catalog::ListingLookup;
 use crate::transport::link::BodyStream;
 use crate::transport::link::HttpSend;
 use crate::transport::link::WsDial;
@@ -195,6 +198,7 @@ pub struct OpenAiAdapter {
     http_codec: Option<OpenAiCodec>,
     pool: Arc<WsPool>,
     mode: TransportMode,
+    models: OpenAiModels,
 }
 
 /// The seams and sources an adapter runs on.
@@ -204,6 +208,9 @@ pub struct AdapterLinks {
     pub credentials: Arc<dyn CredentialSource>,
     /// The same context the codec's config was built with.
     pub context: Arc<SessionContext>,
+    /// The catalog tables the model listing's enrichment and sanitizer read
+    /// (the handle `CatalogService::with_listing_lookup` publishes into).
+    pub listing: ListingLookup,
 }
 
 impl OpenAiAdapter {
@@ -211,6 +218,12 @@ impl OpenAiAdapter {
     /// between them is a decision above the adapter.
     pub fn new(id: ProviderId, codec: OpenAiCodec, links: AdapterLinks) -> Self {
         let http_codec = (codec.transport() == TransportKind::WebSocket).then(|| codec.with_transport(TransportKind::Http1));
+        let models = OpenAiModels::new(
+            codec.with_transport(TransportKind::Http1),
+            links.http.clone(),
+            links.credentials.clone(),
+            links.listing,
+        );
         Self {
             id,
             codec,
@@ -223,6 +236,7 @@ impl OpenAiAdapter {
             http_codec,
             pool: Arc::new(WsPool::default()),
             mode: TransportMode::default(),
+            models,
         }
     }
 
@@ -429,6 +443,10 @@ impl ProviderAdapter for OpenAiAdapter {
 
     fn keepalive(&self) -> &KeepaliveSchedule {
         &self.keepalive
+    }
+
+    fn models(&self) -> Option<&dyn ModelListing> {
+        Some(&self.models)
     }
 
     /// One attempt. On a WebSocket codec in `auto` mode the attempt may move

@@ -210,7 +210,11 @@ pub struct ProxyRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyRouteContext {
+    /// An agent/tool session, or a send carrying tools.
     pub agent: bool,
+    /// A session that predates the wire table (`model-proxy-provider.mjs:193`).
+    #[serde(default)]
+    pub legacy: bool,
 }
 
 /// What the remote runtime asks of the PC's providers (`ModelProxyProvider`,
@@ -235,6 +239,67 @@ pub struct ProxyBudget {
     pub semantic_ms: u64,
 }
 
+/// One value of a picker parameter (``ParameterValue``).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyParameterValue {
+    pub value: String,
+    pub label: String,
+    #[ts(type = "number | null")]
+    pub context_window: Option<u64>,
+}
+
+/// A selectable non-effort, non-fast model parameter (``ParameterOption``).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyParameterOption {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub options: Vec<ProxyParameterValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyServiceTier {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}
+
+/// A declared effort ladder (``ReasoningOption``).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyReasoningOption {
+    #[serde(rename = "type")]
+    #[ts(rename = "type")]
+    pub kind: String,
+    pub values: Vec<String>,
+}
+
+/// A custom provider's reasoning wire contract (``CustomReasoning``).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyCustomReasoning {
+    pub wire_format: String,
+    pub wire_values: BTreeMap<String, String>,
+    pub replay: bool,
+}
+
+/// What the model picker shows beyond limits and capabilities (``PickerFields``).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyPicker {
+    pub release_date: Option<String>,
+    pub access_programs: Option<Vec<String>>,
+    pub model_parameter_options: Vec<ProxyParameterOption>,
+    pub parameter_variants: Vec<BTreeMap<String, String>>,
+    pub fast_efforts: Vec<String>,
+    pub service_tiers: Vec<ProxyServiceTier>,
+    pub additional_speed_tiers: Vec<String>,
+    pub reasoning_options: Vec<ProxyReasoningOption>,
+    pub custom_reasoning: Option<ProxyCustomReasoning>,
+}
 /// A model the PC's provider lists, with the first-response budget of its catalog entry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
@@ -251,6 +316,14 @@ pub struct ProxyModel {
     pub supports_images: Option<bool>,
     pub hidden: bool,
     pub raw: Option<JsonValue>,
+    /// The kind of model the listing states (`chat`, `embedding`, ...).
+    pub mode: Option<String>,
+    /// When the provider created the model (epoch seconds, as listed).
+    #[ts(type = "number | null")]
+    pub created: Option<i64>,
+    /// The model a routing alias resolves to.
+    pub alias_target: Option<String>,
+    pub picker: ProxyPicker,
     pub first_response_budget: Option<ProxyBudget>,
 }
 
@@ -270,16 +343,19 @@ pub enum ProxyRouteSource {
     Override,
     Catalog,
     Endpoints,
-    Agent,
+    Family,
     Default,
+    Legacy,
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyWireRoute {
     pub wire: ProxyWire,
     pub source: ProxyRouteSource,
+    /// `<provider>:<wire>`.
+    pub profile_id: String,
 }
 
 /// The adapter traits of a PC provider its stand-in needs.
@@ -327,6 +403,10 @@ pub enum ProxyAnswer {
     /// `None` for a single-wire adapter or a model no offered wire serves.
     Route { route: Option<ProxyWireRoute> },
     ProviderConfig { providers: BTreeMap<String, ProxyProviderInfo>, ready: bool },
+    /// `modelProxy/run` reports a failed call as its result: the error vocabulary of the server has
+    /// no place for a [`ProxyFailure`]. The connection relays it to the server as the JSON-RPC error
+    /// of `model/proxy/execute` whose data is the failure.
+    Failed { failure: ProxyFailure },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -493,6 +573,7 @@ pub struct ProxyFailure {
     pub transport: Option<ProxyFault>,
     pub message: String,
     pub partial_usage: Option<ProxyUsage>,
+    pub partial_model: Option<String>,
     pub verification_url: Option<String>,
     pub rejected_tool: Option<String>,
     pub account_blocked: bool,

@@ -49,8 +49,8 @@ mod tests {
         registry.connect_local(1, "desktop-1", LocalKind::Desktop);
         registry.connect_relay(2, "peer-a");
         registry.connect_relay(3, "peer-b");
-        registry.attach_peer("peer-a", "Pixel", "Safari");
-        registry.attach_peer("peer-b", "cred-b", "Mixdog Desktop");
+        registry.attach_peer("peer-a", "cred-a", "Pixel", "Safari");
+        registry.attach_peer("peer-b", "cred-b", "cred-b", "Mixdog Desktop");
         let info = |id| devices.describe(ConnectionId(id));
         assert_eq!(info(1), DeviceInfo { device: "desktop-1".into(), kind: ConnectionKind::Desktop });
         assert_eq!(info(2), DeviceInfo { device: "Pixel".into(), kind: ConnectionKind::Phone });

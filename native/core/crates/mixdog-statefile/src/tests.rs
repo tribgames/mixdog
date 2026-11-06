@@ -28,29 +28,231 @@ fn a_quarantine_name_never_overwrites_a_kept_copy() {
     assert_eq!(crate::json::quarantine_path_from(&file, 9), dir.path().join("f.json.corrupt-9"));
 }
 
+fn within(timeout: Duration) -> LockOpts {
+    LockOpts { timeout: Some(timeout), ..LockOpts::default() }
+}
+
+/// A lock another live process holds, in the record Node writes.
+fn hold_like_node(file: &std::path::Path) {
+    fs::write(lock_path(file), format!("{} {} other-token\n", std::process::id(), 1)).unwrap();
+}
+
 #[test]
 fn a_held_lock_times_out_with_nodes_codes_and_is_free_afterwards() {
     let dir = tempfile::tempdir().unwrap();
-    let lock = dir.path().join("f.json.lock");
-    let holder = fs::OpenOptions::new().create(true).truncate(false).write(true).open(&lock).unwrap();
-    holder.lock().unwrap();
     let file = dir.path().join("f.json");
+    hold_like_node(&file);
 
     let started = Instant::now();
     let busy = on_lane({
         let file = file.clone();
-        move |lane| with_lock(lane, &file, Some(Duration::from_millis(150)), || ()).unwrap_err()
+        move |lane| with_lock(lane, &file, &within(Duration::from_millis(150)), || ()).unwrap_err()
     });
     assert_eq!(busy.code(), Some("ELOCKTIMEOUT"));
     assert!(started.elapsed() >= Duration::from_millis(150));
+    assert!(busy.to_string().contains("holder pid="), "{busy}");
     let once = on_lane({
         let file = file.clone();
-        move |lane| with_lock(lane, &file, Some(Duration::ZERO), || ()).unwrap_err()
+        move |lane| with_lock(lane, &file, &within(Duration::ZERO), || ()).unwrap_err()
     });
     assert_eq!(once.code(), Some("ELOCKCONTENDED"));
 
-    holder.unlock().unwrap();
-    assert_eq!(on_lane(move |lane| with_lock(lane, &file, Some(Duration::ZERO), || 7).unwrap()), 7);
+    fs::remove_file(lock_path(&file)).unwrap();
+    let taken = on_lane({
+        let file = file.clone();
+        move |lane| with_lock(lane, &file, &within(Duration::ZERO), || 7).unwrap()
+    });
+    assert_eq!(taken, 7);
+    assert!(!lock_path(&file).exists(), "released: the lock file is unlinked as Node's is");
+}
+
+/// The pid of a process that has exited.
+fn dead_pid() -> u32 {
+    #[cfg(windows)]
+    let mut child = std::process::Command::new("cmd").args(["/c", "exit"]).spawn().unwrap();
+    #[cfg(unix)]
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    pid
+}
+
+#[test]
+fn a_lock_of_a_dead_owner_is_reclaimed_and_a_live_one_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.json");
+    fs::write(lock_path(&file), format!("{} 1 tok\n", dead_pid())).unwrap();
+    let got = on_lane({
+        let file = file.clone();
+        move |lane| with_lock(lane, &file, &within(Duration::ZERO), || 1).unwrap()
+    });
+    assert_eq!(got, 1);
+
+    // No owner record: reclaimable only once older than the stale window.
+    fs::write(lock_path(&file), "").unwrap();
+    let young = on_lane({
+        let file = file.clone();
+        move |lane| with_lock(lane, &file, &within(Duration::ZERO), || ()).unwrap_err()
+    });
+    assert_eq!(young.code(), Some("ELOCKCONTENDED"));
+    let strict = LockOpts { timeout: Some(Duration::ZERO), stale: Some(Duration::ZERO), strict_owner: true };
+    assert!(on_lane({
+        let file = file.clone();
+        move |lane| with_lock(lane, &file, &strict, || ()).is_err()
+    }));
+    let stale = LockOpts { timeout: Some(Duration::ZERO), stale: Some(Duration::ZERO), strict_owner: false };
+    on_lane(move |lane| with_lock(lane, &file, &stale, || ()).unwrap());
+}
+
+#[test]
+fn a_nested_request_for_a_held_lock_does_not_wait_on_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.json");
+    let inner = on_lane(move |lane| {
+        with_lock(lane, &file, &within(Duration::from_secs(5)), || {
+            with_lock(lane, &file, &within(Duration::ZERO), || 3).unwrap()
+        })
+        .unwrap()
+    });
+    assert_eq!(inner, 3);
+}
+
+#[test]
+fn a_panicking_body_still_releases_the_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.json");
+    let panicked = std::thread::spawn({
+        let file = file.clone();
+        move || on_lane(move |lane| with_lock(lane, &file, &within(Duration::ZERO), || -> () { panic!("body") }))
+    })
+    .join();
+    assert!(panicked.is_err());
+    assert!(!lock_path(&file).exists());
+}
+
+/// Node (`file-lock.mjs`) and this port take the same lock file, so each excludes the other.
+#[test]
+fn node_and_this_port_exclude_each_other() {
+    use std::io::BufRead;
+    use std::process::Command;
+    use std::process::Stdio;
+
+    let module = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src/runtime/shared/file-lock.mjs");
+    if !module.exists() {
+        return;
+    }
+    let url = format!("file:///{}", module.canonicalize().unwrap().display().to_string().trim_start_matches(r"\\?\").replace('\\', "/"));
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.json");
+    let lock = lock_path(&file);
+    let holder = dir.path().join("hold.mjs");
+    fs::write(
+        &holder,
+        format!(
+            "import {{ withFileLockSync }} from '{url}';\n\
+             withFileLockSync(process.argv[2], () => {{ console.log('held'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500); }});\n"
+        ),
+    )
+    .unwrap();
+    let taker = dir.path().join("take.mjs");
+    fs::write(
+        &taker,
+        format!(
+            "import {{ withFileLockSync }} from '{url}';\n\
+             try {{ withFileLockSync(process.argv[2], () => console.log('took'), {{ timeoutMs: 0 }}); }} catch (e) {{ console.log(e.code); }}\n"
+        ),
+    )
+    .unwrap();
+
+    // Node holds, this port is refused.
+    let mut node = Command::new("node").arg(&holder).arg(&lock).stdout(Stdio::piped()).spawn().unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(node.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "held");
+    let refused = on_lane({
+        let file = file.clone();
+        move |lane| with_lock(lane, &file, &within(Duration::ZERO), || ()).unwrap_err()
+    });
+    assert_eq!(refused.code(), Some("ELOCKCONTENDED"));
+    node.wait().unwrap();
+
+    // This port holds, Node is refused; after release Node takes it.
+    let outside = on_lane({
+        let (file, taker) = (file.clone(), taker.clone());
+        move |lane| {
+            with_lock(lane, &file, &within(Duration::from_secs(5)), || {
+                let out = Command::new("node").arg(&taker).arg(lock_path(&file)).output().unwrap();
+                String::from_utf8(out.stdout).unwrap()
+            })
+            .unwrap()
+        }
+    });
+    assert_eq!(outside.trim(), "ELOCKCONTENDED");
+    let out = Command::new("node").arg(&taker).arg(&lock).output().unwrap();
+    assert_eq!(String::from_utf8(out.stdout).unwrap().trim(), "took");
+}
+
+#[test]
+fn recovery_restores_with_a_flush_whatever_the_callers_fsync_choice() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.json");
+    fs::write(&file, "{\"a\":").unwrap();
+    fs::write(dir.path().join("f.json.bak"), "{\"a\":1}\n").unwrap();
+    crate::trace::take();
+    let restored = on_lane({
+        let file = file.clone();
+        move |lane| read_json(lane, &file, None, &Opts { fsync: false, ..Opts::default() }).unwrap()
+    });
+    assert_eq!(restored, Some(json!({ "a": 1 })));
+    let trace = crate::trace::take();
+    let create = trace.iter().position(|e| e.starts_with("create f.json.mixdog-tmp-")).expect("restore wrote a temp");
+    assert!(trace[create + 1].starts_with("fsync f.json.mixdog-tmp-"), "{trace:?}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "{\"a\":1}\n");
+}
+
+#[test]
+fn valid_node_json_is_never_taken_for_damage() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.json");
+    let deep = format!("{{\"n\":1e400,\"d\":{}0{},\"s\":\"x\\ud83d\"}}", "[".repeat(5000), "]".repeat(5000));
+    fs::write(&file, &deep).unwrap();
+    let read = on_lane({
+        let file = file.clone();
+        move |lane| read_json(lane, &file, None, &Opts::default()).unwrap().unwrap()
+    });
+    assert_eq!(read["n"], serde_json::Value::Null);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1, "nothing quarantined or restored");
+
+    // A rewrite is what Node writes: the lone surrogate stays its escape.
+    let small = dir.path().join("g.json");
+    fs::write(&small, "{\"s\":\"x\\ud83d\",\"big\":12345678901234567890}").unwrap();
+    on_lane({
+        let small = small.clone();
+        move |lane| {
+            update_json::<_, ()>(lane, &small, Ok, &Opts::default()).unwrap();
+            update_json::<_, ()>(lane, &small, |cur| Ok(cur.map(|v| json!({ "again": v }))), &Opts::default()).unwrap();
+        }
+    });
+    assert_eq!(
+        fs::read_to_string(&small).unwrap(),
+        "{\n  \"again\": {\n    \"s\": \"x\\ud83d\",\n    \"big\": 12345678901234567000\n  }\n}\n"
+    );
+}
+
+#[test]
+fn private_directories_are_created_owner_only_with_their_ancestors() {
+    let dir = tempfile::tempdir().unwrap();
+    let nested = dir.path().join("a").join("b").join("c");
+    let (inner_ok, outer_ok) = on_lane({
+        let nested = nested.clone();
+        move |lane| {
+            create_private_dir_all(lane, &nested).unwrap();
+            create_private_dir_all(lane, &nested).unwrap();
+            (is_owner_only(lane, &nested).unwrap(), is_owner_only(lane, nested.parent().unwrap().parent().unwrap()).unwrap())
+        }
+    });
+    assert!(inner_ok && outer_ok);
+    assert!(nested.is_dir());
 }
 
 #[test]
@@ -88,6 +290,30 @@ fn concurrent_updates_through_the_lock_lose_nothing() {
 }
 
 #[test]
+fn threads_that_release_and_ask_again_cannot_starve_the_others() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.json");
+    let threads: Vec<_> = (0..4)
+        .map(|_| {
+            let file = file.clone();
+            std::thread::spawn(move || {
+                for _ in 0..40 {
+                    let file = file.clone();
+                    // The default wait (2 s) is enough for a fair line; a lock polled by every
+                    // thread lets the releasing thread win again and again.
+                    on_lane(move |lane| {
+                        with_lock(lane, &file, &LockOpts::default(), || std::thread::sleep(Duration::from_millis(5))).unwrap();
+                    });
+                }
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+}
+
+#[test]
 fn a_file_that_cannot_be_read_is_an_error_not_an_empty_state() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("f.json");
@@ -106,7 +332,10 @@ fn a_secret_write_is_owner_only_and_leaves_no_temp_file() {
         move |lane| write_json(lane, &path, &json!({ "k": 1 }), &opts).unwrap()
     });
     assert_eq!(written, Published::Written);
-    assert!(is_owner_only(&path).unwrap());
+    assert!(on_lane({
+        let path = path.clone();
+        move |lane| is_owner_only(lane, &path).unwrap()
+    }));
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 

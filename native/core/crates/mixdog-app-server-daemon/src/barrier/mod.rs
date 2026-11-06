@@ -18,6 +18,8 @@ use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use mixdog_core_api::domain::ownership::Ownership;
+use mixdog_rt::InLane;
+use mixdog_statefile::WriteLane;
 use serde::Serialize;
 
 use crate::ownership::CoreOwnership;
@@ -258,11 +260,22 @@ impl HeldClaim {
 
     /// LR §3.2 steps 2–3: the barrier record, then `B` becomes the barrier by
     /// atomic rename-replace, so it never disappears.
-    pub(crate) fn install(self, record: &BarrierRecord) -> io::Result<()> {
+    pub(crate) fn install<L: WriteLane>(
+        self,
+        lane: &InLane<L>,
+        record: &BarrierRecord,
+    ) -> io::Result<()> {
         let dir = self.own.data_dir();
-        publish_durable(dir, RECORD_STAGING_FILE, RECORD_FILE, &record.to_bytes())?;
+        publish_durable(
+            lane,
+            dir,
+            RECORD_STAGING_FILE,
+            RECORD_FILE,
+            &record.to_bytes(),
+        )?;
         hook(Step::RecordWritten);
         publish_durable(
+            lane,
             dir,
             BARRIER_STAGING_FILE,
             CLAIM_LOCK_FILE,
@@ -401,11 +414,44 @@ fn reclaim(
 }
 
 /// Replaces `target` with `content` durably: staged, synced, renamed, directory synced.
-fn publish_durable(dir: &DataDir, staging: &str, target: &str, content: &[u8]) -> io::Result<()> {
+fn publish_durable<L: WriteLane>(
+    lane: &InLane<L>,
+    dir: &DataDir,
+    staging: &str,
+    target: &str,
+    content: &[u8],
+) -> io::Result<()> {
     dir.remove_if_exists(staging)?;
     dir.create_new(staging, content)?;
+    replace_durable(lane, dir, staging, target)
+}
+
+/// Unix: `renameat` on the data-dir handle, like every access there
+/// ([`DataDir`]); no refusal of a rename-replace over a file clears by waiting.
+#[cfg(unix)]
+fn replace_durable<L: WriteLane>(
+    _lane: &InLane<L>,
+    dir: &DataDir,
+    staging: &str,
+    target: &str,
+) -> io::Result<()> {
     dir.rename(staging, target)?;
     dir.sync()
+}
+
+/// Windows: an antivirus or indexer handle on the target refuses the rename for
+/// moments; 1.4.5's `renameWithRetrySync` waits that out, and so does this.
+/// That rename is not write-through, so the directory is flushed after it.
+#[cfg(windows)]
+fn replace_durable<L: WriteLane>(
+    lane: &InLane<L>,
+    dir: &DataDir,
+    staging: &str,
+    target: &str,
+) -> io::Result<()> {
+    let path = dir.path();
+    mixdog_statefile::rename_with_retry(lane, &path.join(staging), &path.join(target))?;
+    mixdog_statefile::sync_dir(lane, path)
 }
 
 /// LR §3.2 step 1, under the OS lock and only after a `clear` verdict judged

@@ -177,9 +177,16 @@ pub struct CursorDecoder {
     reasoning_started: bool,
     text_started: bool,
     terminal: bool,
+    /// The catalog model a pinned suffix id bills as, reported with the usage.
+    pricing_model: Option<String>,
 }
 
 impl CursorDecoder {
+    pub fn with_pricing_model(mut self, pricing_model: Option<String>) -> Self {
+        self.pricing_model = pricing_model;
+        self
+    }
+
     pub fn new(blobs: BlobStore, tools: Vec<McpToolDefinition>, cloud_rule: Option<String>) -> Self {
         Self {
             frames: FrameReader::new(MAX_CONNECT_FRAME_BYTES),
@@ -199,6 +206,7 @@ impl CursorDecoder {
             reasoning_started: false,
             text_started: false,
             terminal: false,
+            pricing_model: None,
         }
     }
 
@@ -666,12 +674,18 @@ impl CursorDecoder {
             cache_write_tokens: 0,
             cache_write_1h_tokens: 0,
             reasoning_tokens: 0,
-            raw: Some(json!({
-                "completion_tokens": self.output_tokens,
-                "input_tokens_known": false,
-                "cache_tokens_known": false,
-                "context_tokens": self.context_tokens,
-            })),
+            raw: Some({
+                let mut raw = json!({
+                    "completion_tokens": self.output_tokens,
+                    "input_tokens_known": false,
+                    "cache_tokens_known": false,
+                    "context_tokens": self.context_tokens,
+                });
+                if let Some(pricing) = &self.pricing_model {
+                    raw["pricingModel"] = json!(pricing);
+                }
+                raw
+            }),
         }));
         events.push(StreamEvent::Completed {
             stop: Some(if tool_use { StopReason::ToolUse } else { StopReason::EndTurn }),

@@ -1,0 +1,606 @@
+{
+  "cases": {
+    "apiBadShape": {
+      "error": "[grok-oauth] unexpected /models response shape (no data[])",
+      "expected": null,
+      "requests": [
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "api",
+          "url": "https://api.x.ai/v1/models"
+        },
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access",
+            "user-agent": "xai-grok-build/1.0.70",
+            "x-grok-client-identifier": "grok-shell",
+            "x-grok-client-version": "1.0.70"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "proxy",
+          "url": "https://cli-chat-proxy.grok.com/v1/models"
+        }
+      ],
+      "script": {
+        "apiBody": {},
+        "proxy": []
+      }
+    },
+    "apiUnavailable": {
+      "error": "models 503",
+      "expected": null,
+      "requests": [
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "api",
+          "url": "https://api.x.ai/v1/models"
+        },
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access",
+            "user-agent": "xai-grok-build/1.0.70",
+            "x-grok-client-identifier": "grok-shell",
+            "x-grok-client-version": "1.0.70"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "proxy",
+          "url": "https://cli-chat-proxy.grok.com/v1/models"
+        }
+      ],
+      "script": {
+        "apiStatus": 503,
+        "proxy": [
+          {
+            "id": "grok-4.6"
+          }
+        ]
+      }
+    },
+    "efforts": {
+      "error": null,
+      "expected": [
+        {
+          "contextWindow": 500000,
+          "created": null,
+          "display": "Grok 4.7 Fast",
+          "family": "grok",
+          "id": "grok-4.7-build-fast",
+          "latest": false,
+          "name": "grok-4.7-build-fast",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ]
+            }
+          ],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 262144,
+          "created": null,
+          "display": "Grok 9 Meta",
+          "family": "grok",
+          "id": "grok-9-meta",
+          "latest": false,
+          "name": "grok-9-meta",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "medium",
+            "max"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "medium",
+                "max"
+              ]
+            }
+          ],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 500000,
+          "created": null,
+          "display": "Grok 4.5 Non Reasoning",
+          "family": "grok-static",
+          "id": "grok-4.5-non-reasoning-0309",
+          "latest": false,
+          "name": "grok-4.5-non-reasoning-0309",
+          "provider": "grok-oauth",
+          "reasoningLevels": [],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "display": "Grok 4.5 Multi Agent",
+          "family": "grok",
+          "id": "grok-4.5-multi-agent-0309",
+          "latest": false,
+          "name": "grok-4.5-multi-agent-0309",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "xhigh"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "xhigh"
+              ]
+            }
+          ],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "display": "Grok 9 Caps",
+          "family": "grok",
+          "id": "grok-9-caps",
+          "latest": false,
+          "name": "grok-9-caps",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "none",
+            "low",
+            "high"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "low",
+                "high"
+              ]
+            }
+          ],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "display": "Grok 9 Bare",
+          "family": "grok",
+          "id": "grok-9-bare",
+          "latest": false,
+          "name": "grok-9-bare",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "display": "Grok Build 0.1",
+          "family": "grok-static",
+          "id": "grok-build-0.1",
+          "latest": false,
+          "name": "grok-build-0.1",
+          "provider": "grok-oauth",
+          "reasoningLevels": [],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "display": "Custom Display",
+          "family": "grok",
+          "id": "grok-display",
+          "latest": false,
+          "name": "grok-display",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "display": "Native Name",
+          "family": "grok",
+          "id": "grok-custom",
+          "latest": false,
+          "name": "grok-custom",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 0,
+          "created": 30,
+          "display": "Grok 4.6",
+          "family": "grok",
+          "id": "grok-4.6",
+          "latest": true,
+          "name": "grok-4.6",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "tier": "version"
+        }
+      ],
+      "requests": [
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "api",
+          "url": "https://api.x.ai/v1/models"
+        },
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access",
+            "user-agent": "xai-grok-build/1.0.70",
+            "x-grok-client-identifier": "grok-shell",
+            "x-grok-client-version": "1.0.70"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "proxy",
+          "url": "https://cli-chat-proxy.grok.com/v1/models"
+        }
+      ],
+      "script": {
+        "api": [
+          {
+            "context_length": 500000,
+            "id": "grok-4.5-non-reasoning-0309"
+          },
+          {
+            "id": "grok-4.5-multi-agent-0309",
+            "reasoningEfforts": [
+              "LOW",
+              {
+                "value": "xhigh"
+              },
+              "low",
+              "invalid"
+            ]
+          },
+          {
+            "capabilities": {
+              "reasoning_effort": [
+                "none",
+                "low",
+                "high",
+                "unknown"
+              ]
+            },
+            "id": "grok-9-caps"
+          },
+          {
+            "id": "grok-9-bare"
+          },
+          {
+            "id": "grok-build-0.1"
+          },
+          {
+            "display": "Custom Display",
+            "id": "grok-display"
+          },
+          {
+            "id": "grok-custom",
+            "name": "Native Name"
+          },
+          {
+            "created": 30,
+            "id": "grok-4.6"
+          }
+        ],
+        "proxy": [
+          {
+            "context_window": 500000,
+            "id": "grok-4.7-build-fast",
+            "name": "Grok 4.7 Fast",
+            "reasoning_efforts": [
+              {
+                "value": "xhigh"
+              },
+              {
+                "value": "high"
+              },
+              {
+                "value": "medium"
+              },
+              {
+                "value": "low"
+              }
+            ]
+          },
+          {
+            "_meta": {
+              "reasoningEfforts": [
+                "max",
+                "medium"
+              ]
+            },
+            "context_window": 262144,
+            "id": "grok-9-meta"
+          }
+        ]
+      }
+    },
+    "merge": {
+      "error": null,
+      "expected": [
+        {
+          "contextWindow": 400000,
+          "created": 20,
+          "display": "Proxy Name",
+          "family": "grok",
+          "id": "grok-4.3",
+          "latest": true,
+          "name": "grok-4.3",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "display": "Grok 4.7 Build Fast",
+          "family": "grok",
+          "id": "grok-4.7-build-fast",
+          "latest": false,
+          "name": "grok-4.7-build-fast",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 0,
+          "created": 10,
+          "display": "Grok 4.20",
+          "family": "grok",
+          "id": "grok-4.20",
+          "latest": false,
+          "name": "grok-4.20",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "tier": "version"
+        }
+      ],
+      "requests": [
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "api",
+          "url": "https://api.x.ai/v1/models"
+        },
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access",
+            "user-agent": "xai-grok-build/1.0.70",
+            "x-grok-client-identifier": "grok-shell",
+            "x-grok-client-version": "1.0.70"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "proxy",
+          "url": "https://cli-chat-proxy.grok.com/v1/models"
+        }
+      ],
+      "script": {
+        "api": [
+          {
+            "context_length": 1000000,
+            "created": 20,
+            "id": "grok-4.3"
+          },
+          {
+            "created": 10,
+            "id": "grok-4.20"
+          },
+          {
+            "created": 99,
+            "id": "grok-image-1"
+          },
+          {
+            "id": "grok-video-1"
+          },
+          {
+            "id": ""
+          },
+          {
+            "created": 5
+          }
+        ],
+        "proxy": [
+          {
+            "context_window": 400000,
+            "created": 1,
+            "id": "grok-4.3",
+            "name": "Proxy Name"
+          },
+          {
+            "created": 100,
+            "id": "grok-4.7-build-fast"
+          }
+        ]
+      }
+    },
+    "proxyBadShape": {
+      "error": null,
+      "expected": [
+        {
+          "contextWindow": 0,
+          "created": 7,
+          "display": "Grok 4.6",
+          "family": "grok",
+          "id": "grok-4.6",
+          "latest": true,
+          "name": "grok-4.6",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "tier": "version"
+        }
+      ],
+      "requests": [
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "api",
+          "url": "https://api.x.ai/v1/models"
+        },
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access",
+            "user-agent": "xai-grok-build/1.0.70",
+            "x-grok-client-identifier": "grok-shell",
+            "x-grok-client-version": "1.0.70"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "proxy",
+          "url": "https://cli-chat-proxy.grok.com/v1/models"
+        }
+      ],
+      "script": {
+        "api": [
+          {
+            "created": 7,
+            "id": "grok-4.6"
+          }
+        ],
+        "proxyBody": {}
+      }
+    },
+    "proxyUnavailable": {
+      "error": null,
+      "expected": [
+        {
+          "contextWindow": 0,
+          "created": null,
+          "display": "Grok 4.6",
+          "family": "grok",
+          "id": "grok-4.6",
+          "latest": false,
+          "name": "grok-4.6",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "tier": "version"
+        },
+        {
+          "contextWindow": 0,
+          "created": null,
+          "display": "Grok 4.2",
+          "family": "grok",
+          "id": "grok-4.2",
+          "latest": false,
+          "name": "grok-4.2",
+          "provider": "grok-oauth",
+          "reasoningLevels": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "tier": "version"
+        }
+      ],
+      "requests": [
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "api",
+          "url": "https://api.x.ai/v1/models"
+        },
+        {
+          "headers": {
+            "authorization": "Bearer fixture-grok-access",
+            "user-agent": "xai-grok-build/1.0.70",
+            "x-grok-client-identifier": "grok-shell",
+            "x-grok-client-version": "1.0.70"
+          },
+          "method": "GET",
+          "redirect": "error",
+          "side": "proxy",
+          "url": "https://cli-chat-proxy.grok.com/v1/models"
+        }
+      ],
+      "script": {
+        "api": [
+          {
+            "id": "grok-4.6"
+          },
+          {
+            "id": "grok-4.2"
+          }
+        ],
+        "proxyStatus": 503
+      }
+    }
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-listing-misc.mjs"
+}

@@ -50,7 +50,13 @@ impl From<QueueError> for ProviderError {
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn remove_blocking(path: PathBuf) -> std::io::Result<()> {
+    std::fs::remove_file(path)
+}
+
 /// The model's weights and partial file as they are on disk; a link or a non-regular file is refused.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn model_files_blocking(path: &std::path::Path) -> Result<Value, ProviderError> {
     let mut files = Vec::new();
     for file in [path.to_path_buf(), PathBuf::from(format!("{}.part", path.display()))] {
@@ -476,7 +482,7 @@ impl LocalProvider {
                 for f in current.as_array().into_iter().flatten() {
                     let p = f["path"].as_str().unwrap_or("");
                     let path = PathBuf::from(p);
-                    probe(this.durability, move || std::fs::remove_file(path)).await?.map_err(|e| ProviderError::Failed(e.to_string()))?;
+                    probe(this.durability, move || remove_blocking(path)).await?.map_err(|e| ProviderError::Failed(e.to_string()))?;
                     deleted.push(p.to_owned());
                     this.signal.notify();
                 }

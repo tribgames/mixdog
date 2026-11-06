@@ -41,6 +41,7 @@ pub use feed::ScopedFeed;
 pub use feed::ScopedFeeds;
 pub use handle::CoreHandle;
 pub use handle::CoreState;
+pub use host::ConnectionNotifier;
 pub use host::HostCapability;
 pub use host::HostChannel;
 pub use host::HostError;

@@ -1,0 +1,1178 @@
+{
+  "_doc": "Recorded from src/runtime/agent/orchestrator/providers/wire-route.mjs resolveWireRoute. `results` lists the answer for every combination of `dimensions` (nested in key order, the last varies fastest): wire letter (c chat, m messages, r responses, g gemini) then source letter (p pinned, o override, c catalog, e endpoints, f family, d default, l legacy, u unknown); `-` is not routable. `custom-chat` is customWireProfile({protocolWire:chat, wires:[chat,responses]}), `custom-responses` customWireProfile({protocolWire:responses}).",
+  "commandCode": [
+    {
+      "declared": "undeclared",
+      "item": {
+        "id": "claude-sonnet-5"
+      },
+      "model": "claude-sonnet-5",
+      "wire": "chat"
+    },
+    {
+      "declared": "undeclared",
+      "item": {
+        "id": "anthropic/claude-sonnet-5"
+      },
+      "model": "anthropic/claude-sonnet-5",
+      "wire": "chat"
+    },
+    {
+      "declared": "undeclared",
+      "item": {
+        "id": "gpt-5.5"
+      },
+      "model": "gpt-5.5",
+      "wire": "chat"
+    },
+    {
+      "declared": "undeclared",
+      "item": {
+        "id": "openai/gpt-5.5"
+      },
+      "model": "openai/gpt-5.5",
+      "wire": "chat"
+    },
+    {
+      "declared": "undeclared",
+      "item": {
+        "id": "muse-spark-1.3"
+      },
+      "model": "muse-spark-1.3",
+      "wire": "chat"
+    },
+    {
+      "declared": "undeclared",
+      "item": {
+        "id": "grok-4.7"
+      },
+      "model": "grok-4.7",
+      "wire": "chat"
+    },
+    {
+      "declared": "undeclared",
+      "item": {
+        "id": "glm-5"
+      },
+      "model": "glm-5",
+      "wire": "chat"
+    },
+    {
+      "declared": "undeclared",
+      "item": {
+        "id": "deepseek/deepseek-v4-flash"
+      },
+      "model": "deepseek/deepseek-v4-flash",
+      "wire": "chat"
+    },
+    {
+      "declared": "none",
+      "item": {
+        "id": "claude-sonnet-5",
+        "supported_endpoints": []
+      },
+      "model": "claude-sonnet-5",
+      "wire": null
+    },
+    {
+      "declared": "none",
+      "item": {
+        "id": "anthropic/claude-sonnet-5",
+        "supported_endpoints": []
+      },
+      "model": "anthropic/claude-sonnet-5",
+      "wire": null
+    },
+    {
+      "declared": "none",
+      "item": {
+        "id": "gpt-5.5",
+        "supported_endpoints": []
+      },
+      "model": "gpt-5.5",
+      "wire": null
+    },
+    {
+      "declared": "none",
+      "item": {
+        "id": "openai/gpt-5.5",
+        "supported_endpoints": []
+      },
+      "model": "openai/gpt-5.5",
+      "wire": null
+    },
+    {
+      "declared": "none",
+      "item": {
+        "id": "muse-spark-1.3",
+        "supported_endpoints": []
+      },
+      "model": "muse-spark-1.3",
+      "wire": null
+    },
+    {
+      "declared": "none",
+      "item": {
+        "id": "grok-4.7",
+        "supported_endpoints": []
+      },
+      "model": "grok-4.7",
+      "wire": null
+    },
+    {
+      "declared": "none",
+      "item": {
+        "id": "glm-5",
+        "supported_endpoints": []
+      },
+      "model": "glm-5",
+      "wire": null
+    },
+    {
+      "declared": "none",
+      "item": {
+        "id": "deepseek/deepseek-v4-flash",
+        "supported_endpoints": []
+      },
+      "model": "deepseek/deepseek-v4-flash",
+      "wire": null
+    },
+    {
+      "declared": "chat",
+      "item": {
+        "id": "claude-sonnet-5",
+        "supported_endpoints": [
+          "/chat/completions"
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "wire": "chat"
+    },
+    {
+      "declared": "chat",
+      "item": {
+        "id": "anthropic/claude-sonnet-5",
+        "supported_endpoints": [
+          "/chat/completions"
+        ]
+      },
+      "model": "anthropic/claude-sonnet-5",
+      "wire": "chat"
+    },
+    {
+      "declared": "chat",
+      "item": {
+        "id": "gpt-5.5",
+        "supported_endpoints": [
+          "/chat/completions"
+        ]
+      },
+      "model": "gpt-5.5",
+      "wire": "chat"
+    },
+    {
+      "declared": "chat",
+      "item": {
+        "id": "openai/gpt-5.5",
+        "supported_endpoints": [
+          "/chat/completions"
+        ]
+      },
+      "model": "openai/gpt-5.5",
+      "wire": "chat"
+    },
+    {
+      "declared": "chat",
+      "item": {
+        "id": "muse-spark-1.3",
+        "supported_endpoints": [
+          "/chat/completions"
+        ]
+      },
+      "model": "muse-spark-1.3",
+      "wire": "chat"
+    },
+    {
+      "declared": "chat",
+      "item": {
+        "id": "grok-4.7",
+        "supported_endpoints": [
+          "/chat/completions"
+        ]
+      },
+      "model": "grok-4.7",
+      "wire": "chat"
+    },
+    {
+      "declared": "chat",
+      "item": {
+        "id": "glm-5",
+        "supported_endpoints": [
+          "/chat/completions"
+        ]
+      },
+      "model": "glm-5",
+      "wire": "chat"
+    },
+    {
+      "declared": "chat",
+      "item": {
+        "id": "deepseek/deepseek-v4-flash",
+        "supported_endpoints": [
+          "/chat/completions"
+        ]
+      },
+      "model": "deepseek/deepseek-v4-flash",
+      "wire": "chat"
+    },
+    {
+      "declared": "messages",
+      "item": {
+        "id": "claude-sonnet-5",
+        "supported_endpoints": [
+          "/provider/v1/messages"
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages",
+      "item": {
+        "id": "anthropic/claude-sonnet-5",
+        "supported_endpoints": [
+          "/provider/v1/messages"
+        ]
+      },
+      "model": "anthropic/claude-sonnet-5",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages",
+      "item": {
+        "id": "gpt-5.5",
+        "supported_endpoints": [
+          "/provider/v1/messages"
+        ]
+      },
+      "model": "gpt-5.5",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages",
+      "item": {
+        "id": "openai/gpt-5.5",
+        "supported_endpoints": [
+          "/provider/v1/messages"
+        ]
+      },
+      "model": "openai/gpt-5.5",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages",
+      "item": {
+        "id": "muse-spark-1.3",
+        "supported_endpoints": [
+          "/provider/v1/messages"
+        ]
+      },
+      "model": "muse-spark-1.3",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages",
+      "item": {
+        "id": "grok-4.7",
+        "supported_endpoints": [
+          "/provider/v1/messages"
+        ]
+      },
+      "model": "grok-4.7",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages",
+      "item": {
+        "id": "glm-5",
+        "supported_endpoints": [
+          "/provider/v1/messages"
+        ]
+      },
+      "model": "glm-5",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages",
+      "item": {
+        "id": "deepseek/deepseek-v4-flash",
+        "supported_endpoints": [
+          "/provider/v1/messages"
+        ]
+      },
+      "model": "deepseek/deepseek-v4-flash",
+      "wire": "messages"
+    },
+    {
+      "declared": "responses",
+      "item": {
+        "id": "claude-sonnet-5",
+        "supported_endpoints": [
+          "v1/responses"
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "wire": "responses"
+    },
+    {
+      "declared": "responses",
+      "item": {
+        "id": "anthropic/claude-sonnet-5",
+        "supported_endpoints": [
+          "v1/responses"
+        ]
+      },
+      "model": "anthropic/claude-sonnet-5",
+      "wire": "responses"
+    },
+    {
+      "declared": "responses",
+      "item": {
+        "id": "gpt-5.5",
+        "supported_endpoints": [
+          "v1/responses"
+        ]
+      },
+      "model": "gpt-5.5",
+      "wire": "responses"
+    },
+    {
+      "declared": "responses",
+      "item": {
+        "id": "openai/gpt-5.5",
+        "supported_endpoints": [
+          "v1/responses"
+        ]
+      },
+      "model": "openai/gpt-5.5",
+      "wire": "responses"
+    },
+    {
+      "declared": "responses",
+      "item": {
+        "id": "muse-spark-1.3",
+        "supported_endpoints": [
+          "v1/responses"
+        ]
+      },
+      "model": "muse-spark-1.3",
+      "wire": "responses"
+    },
+    {
+      "declared": "responses",
+      "item": {
+        "id": "grok-4.7",
+        "supported_endpoints": [
+          "v1/responses"
+        ]
+      },
+      "model": "grok-4.7",
+      "wire": "responses"
+    },
+    {
+      "declared": "responses",
+      "item": {
+        "id": "glm-5",
+        "supported_endpoints": [
+          "v1/responses"
+        ]
+      },
+      "model": "glm-5",
+      "wire": "responses"
+    },
+    {
+      "declared": "responses",
+      "item": {
+        "id": "deepseek/deepseek-v4-flash",
+        "supported_endpoints": [
+          "v1/responses"
+        ]
+      },
+      "model": "deepseek/deepseek-v4-flash",
+      "wire": "responses"
+    },
+    {
+      "declared": "chat_responses",
+      "item": {
+        "id": "claude-sonnet-5",
+        "supported_endpoints": [
+          "/chat/completions",
+          "/responses"
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "wire": "chat"
+    },
+    {
+      "declared": "chat_responses",
+      "item": {
+        "id": "anthropic/claude-sonnet-5",
+        "supported_endpoints": [
+          "/chat/completions",
+          "/responses"
+        ]
+      },
+      "model": "anthropic/claude-sonnet-5",
+      "wire": "chat"
+    },
+    {
+      "declared": "chat_responses",
+      "item": {
+        "id": "gpt-5.5",
+        "supported_endpoints": [
+          "/chat/completions",
+          "/responses"
+        ]
+      },
+      "model": "gpt-5.5",
+      "wire": "responses"
+    },
+    {
+      "declared": "chat_responses",
+      "item": {
+        "id": "openai/gpt-5.5",
+        "supported_endpoints": [
+          "/chat/completions",
+          "/responses"
+        ]
+      },
+      "model": "openai/gpt-5.5",
+      "wire": "responses"
+    },
+    {
+      "declared": "chat_responses",
+      "item": {
+        "id": "muse-spark-1.3",
+        "supported_endpoints": [
+          "/chat/completions",
+          "/responses"
+        ]
+      },
+      "model": "muse-spark-1.3",
+      "wire": "responses"
+    },
+    {
+      "declared": "chat_responses",
+      "item": {
+        "id": "grok-4.7",
+        "supported_endpoints": [
+          "/chat/completions",
+          "/responses"
+        ]
+      },
+      "model": "grok-4.7",
+      "wire": "responses"
+    },
+    {
+      "declared": "chat_responses",
+      "item": {
+        "id": "glm-5",
+        "supported_endpoints": [
+          "/chat/completions",
+          "/responses"
+        ]
+      },
+      "model": "glm-5",
+      "wire": "chat"
+    },
+    {
+      "declared": "chat_responses",
+      "item": {
+        "id": "deepseek/deepseek-v4-flash",
+        "supported_endpoints": [
+          "/chat/completions",
+          "/responses"
+        ]
+      },
+      "model": "deepseek/deepseek-v4-flash",
+      "wire": "chat"
+    },
+    {
+      "declared": "messages_responses",
+      "item": {
+        "id": "claude-sonnet-5",
+        "supported_endpoints": [
+          "/messages",
+          "/responses"
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages_responses",
+      "item": {
+        "id": "anthropic/claude-sonnet-5",
+        "supported_endpoints": [
+          "/messages",
+          "/responses"
+        ]
+      },
+      "model": "anthropic/claude-sonnet-5",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages_responses",
+      "item": {
+        "id": "gpt-5.5",
+        "supported_endpoints": [
+          "/messages",
+          "/responses"
+        ]
+      },
+      "model": "gpt-5.5",
+      "wire": "responses"
+    },
+    {
+      "declared": "messages_responses",
+      "item": {
+        "id": "openai/gpt-5.5",
+        "supported_endpoints": [
+          "/messages",
+          "/responses"
+        ]
+      },
+      "model": "openai/gpt-5.5",
+      "wire": "responses"
+    },
+    {
+      "declared": "messages_responses",
+      "item": {
+        "id": "muse-spark-1.3",
+        "supported_endpoints": [
+          "/messages",
+          "/responses"
+        ]
+      },
+      "model": "muse-spark-1.3",
+      "wire": "responses"
+    },
+    {
+      "declared": "messages_responses",
+      "item": {
+        "id": "grok-4.7",
+        "supported_endpoints": [
+          "/messages",
+          "/responses"
+        ]
+      },
+      "model": "grok-4.7",
+      "wire": "responses"
+    },
+    {
+      "declared": "messages_responses",
+      "item": {
+        "id": "glm-5",
+        "supported_endpoints": [
+          "/messages",
+          "/responses"
+        ]
+      },
+      "model": "glm-5",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages_responses",
+      "item": {
+        "id": "deepseek/deepseek-v4-flash",
+        "supported_endpoints": [
+          "/messages",
+          "/responses"
+        ]
+      },
+      "model": "deepseek/deepseek-v4-flash",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages_chat",
+      "item": {
+        "id": "claude-sonnet-5",
+        "supported_endpoints": [
+          "/messages",
+          "/chat/completions"
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages_chat",
+      "item": {
+        "id": "anthropic/claude-sonnet-5",
+        "supported_endpoints": [
+          "/messages",
+          "/chat/completions"
+        ]
+      },
+      "model": "anthropic/claude-sonnet-5",
+      "wire": "messages"
+    },
+    {
+      "declared": "messages_chat",
+      "item": {
+        "id": "gpt-5.5",
+        "supported_endpoints": [
+          "/messages",
+          "/chat/completions"
+        ]
+      },
+      "model": "gpt-5.5",
+      "wire": "chat"
+    },
+    {
+      "declared": "messages_chat",
+      "item": {
+        "id": "openai/gpt-5.5",
+        "supported_endpoints": [
+          "/messages",
+          "/chat/completions"
+        ]
+      },
+      "model": "openai/gpt-5.5",
+      "wire": "chat"
+    },
+    {
+      "declared": "messages_chat",
+      "item": {
+        "id": "muse-spark-1.3",
+        "supported_endpoints": [
+          "/messages",
+          "/chat/completions"
+        ]
+      },
+      "model": "muse-spark-1.3",
+      "wire": "chat"
+    },
+    {
+      "declared": "messages_chat",
+      "item": {
+        "id": "grok-4.7",
+        "supported_endpoints": [
+          "/messages",
+          "/chat/completions"
+        ]
+      },
+      "model": "grok-4.7",
+      "wire": "chat"
+    },
+    {
+      "declared": "messages_chat",
+      "item": {
+        "id": "glm-5",
+        "supported_endpoints": [
+          "/messages",
+          "/chat/completions"
+        ]
+      },
+      "model": "glm-5",
+      "wire": "chat"
+    },
+    {
+      "declared": "messages_chat",
+      "item": {
+        "id": "deepseek/deepseek-v4-flash",
+        "supported_endpoints": [
+          "/messages",
+          "/chat/completions"
+        ]
+      },
+      "model": "deepseek/deepseek-v4-flash",
+      "wire": "chat"
+    },
+    {
+      "declared": "unknown_path",
+      "item": {
+        "id": "claude-sonnet-5",
+        "supported_endpoints": [
+          "/embeddings"
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "wire": null
+    },
+    {
+      "declared": "unknown_path",
+      "item": {
+        "id": "anthropic/claude-sonnet-5",
+        "supported_endpoints": [
+          "/embeddings"
+        ]
+      },
+      "model": "anthropic/claude-sonnet-5",
+      "wire": null
+    },
+    {
+      "declared": "unknown_path",
+      "item": {
+        "id": "gpt-5.5",
+        "supported_endpoints": [
+          "/embeddings"
+        ]
+      },
+      "model": "gpt-5.5",
+      "wire": null
+    },
+    {
+      "declared": "unknown_path",
+      "item": {
+        "id": "openai/gpt-5.5",
+        "supported_endpoints": [
+          "/embeddings"
+        ]
+      },
+      "model": "openai/gpt-5.5",
+      "wire": null
+    },
+    {
+      "declared": "unknown_path",
+      "item": {
+        "id": "muse-spark-1.3",
+        "supported_endpoints": [
+          "/embeddings"
+        ]
+      },
+      "model": "muse-spark-1.3",
+      "wire": null
+    },
+    {
+      "declared": "unknown_path",
+      "item": {
+        "id": "grok-4.7",
+        "supported_endpoints": [
+          "/embeddings"
+        ]
+      },
+      "model": "grok-4.7",
+      "wire": null
+    },
+    {
+      "declared": "unknown_path",
+      "item": {
+        "id": "glm-5",
+        "supported_endpoints": [
+          "/embeddings"
+        ]
+      },
+      "model": "glm-5",
+      "wire": null
+    },
+    {
+      "declared": "unknown_path",
+      "item": {
+        "id": "deepseek/deepseek-v4-flash",
+        "supported_endpoints": [
+          "/embeddings"
+        ]
+      },
+      "model": "deepseek/deepseek-v4-flash",
+      "wire": null
+    }
+  ],
+  "grids": [
+    {
+      "dimensions": {
+        "agent": [
+          false,
+          true
+        ],
+        "catalogWire": [
+          null,
+          "chat",
+          "messages",
+          "gemini"
+        ],
+        "endpoints": [
+          null,
+          [],
+          [
+            "chat"
+          ],
+          [
+            "messages"
+          ],
+          [
+            "chat",
+            "responses"
+          ],
+          [
+            "messages",
+            "responses"
+          ]
+        ],
+        "known": [
+          true,
+          false
+        ],
+        "legacy": [
+          false,
+          true
+        ],
+        "override": [
+          null,
+          "chat",
+          "messages"
+        ]
+      },
+      "name": "context",
+      "order": [
+        "override",
+        "catalogWire",
+        "endpoints",
+        "known",
+        "agent",
+        "legacy"
+      ],
+      "rows": [
+        {
+          "model": "anthropic/claude-opus-4.8",
+          "provider": "openrouter",
+          "results": "mf,cl,mf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mf,mf,mf,mf,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,mf,mf,mf,mf,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,mf,cl,mf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mf,mf,mf,mf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,mf,mf,mf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,mf,mf,mf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,mf,mf,mf,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu"
+        },
+        {
+          "model": "~anthropic/claude-opus-latest",
+          "provider": "openrouter",
+          "results": "mf,cl,mf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mf,mf,mf,mf,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,mf,mf,mf,mf,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,mf,cl,mf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mf,mf,mf,mf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,mf,mf,mf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,mf,mf,mf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,mf,mf,mf,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu"
+        },
+        {
+          "model": "openai/gpt-6.1-sol",
+          "provider": "openrouter",
+          "results": "rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,rf,rf,rf,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,rf,rf,rf,rf,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,rf,rf,rf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rf,rf,rf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rf,rf,rf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rf,rf,rf,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu"
+        },
+        {
+          "model": "openai/o3",
+          "provider": "openrouter",
+          "results": "rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,rf,rf,rf,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,rf,rf,rf,rf,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,rf,rf,rf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rf,rf,rf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rf,rf,rf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rf,rf,rf,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu"
+        },
+        {
+          "model": "~openai/gpt-sol-latest",
+          "provider": "openrouter",
+          "results": "rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,rf,rf,rf,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,rf,rf,rf,rf,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,rf,rf,rf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rf,rf,rf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rf,rf,rf,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rf,rf,rf,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu"
+        },
+        {
+          "model": "openrouter/auto",
+          "provider": "openrouter",
+          "results": "cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu"
+        },
+        {
+          "model": "google/gemini-4-argon",
+          "provider": "openrouter",
+          "results": "cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu"
+        },
+        {
+          "model": "claude-haiku-5-5",
+          "provider": "opencode-go",
+          "results": "mf,cl,mf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mf,mf,mf,mf,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,mf,mf,mf,mf,ru,ru,ru,ru,mc,ml,mc,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,ml,mc,ml,ru,ru,ru,ru,gc,cl,gc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mf,mf,mf,mf,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,mf,mf,mf,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,mf,mf,mf,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,mf,mf,mf,ru,ru,ru,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,ru,mo,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,ru,mo,ru"
+        },
+        {
+          "model": "minimax-m3",
+          "provider": "opencode-go",
+          "results": "mf,ml,mf,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cd,cd,cd,cu,cu,cu,cu,mf,ml,mf,ml,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,mf,ml,mf,ml,ru,ru,ru,ru,mc,ml,mc,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cd,cd,cd,cu,cu,cu,cu,mc,ml,mc,ml,ru,ru,ru,ru,gc,ml,gc,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cd,cd,cd,cu,cu,cu,cu,mf,ml,mf,ml,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,co,co,co,co,cu,co,cu,mf,ml,mf,ml,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,ml,mf,ml,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,co,co,co,co,cu,co,cu,mc,ml,mc,ml,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,co,co,co,co,cu,co,cu,mf,ml,mf,ml,ru,ru,ru,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cd,cd,cd,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cd,cd,cd,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cd,cd,cd,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru"
+        },
+        {
+          "model": "Qwen3.7-max",
+          "provider": "opencode-go",
+          "results": "mf,ml,mf,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cd,cd,cd,cu,cu,cu,cu,mf,ml,mf,ml,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,mf,ml,mf,ml,ru,ru,ru,ru,mc,ml,mc,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cd,cd,cd,cu,cu,cu,cu,mc,ml,mc,ml,ru,ru,ru,ru,gc,ml,gc,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cd,cd,cd,cu,cu,cu,cu,mf,ml,mf,ml,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,co,co,co,co,cu,co,cu,mf,ml,mf,ml,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,ml,mf,ml,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,co,co,co,co,cu,co,cu,mc,ml,mc,ml,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,co,co,co,co,cu,co,cu,mf,ml,mf,ml,ru,ru,ru,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cd,cd,cd,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cd,cd,cd,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cd,cd,cd,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru"
+        },
+        {
+          "model": "gpt-6-luna",
+          "provider": "opencode-go",
+          "results": "rf,rl,rf,rl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,rl,rf,rl,cu,cu,cu,cu,rf,rl,rf,rl,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,rf,rl,rf,rl,ru,ru,ru,ru,mc,ml,mc,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,rl,rf,rl,cu,cu,cu,cu,mc,ml,mc,ml,ru,ru,ru,ru,gc,rl,gc,rl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,rl,rf,rl,cu,cu,cu,cu,rf,rl,rf,rl,ru,ru,ru,ru,co,rl,co,rl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,rl,co,rl,co,cu,co,cu,rf,rl,rf,rl,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rl,rf,rl,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,rl,co,rl,co,cu,co,cu,mc,ml,mc,ml,ru,ru,ru,ru,co,rl,co,rl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,rl,co,rl,co,cu,co,cu,rf,rl,rf,rl,ru,ru,ru,ru,mo,rl,mo,rl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,rl,rf,rl,cu,cu,cu,cu,mo,rl,mo,rl,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,rl,mo,rl,mo,ru,mo,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,rl,rf,rl,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,rl,mo,rl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,rl,rf,rl,cu,cu,cu,cu,mo,rl,mo,rl,mo,ru,mo,ru"
+        },
+        {
+          "model": "Grok-4.7",
+          "provider": "opencode-go",
+          "results": "rf,rl,rf,rl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,rl,rf,rl,cu,cu,cu,cu,rf,rl,rf,rl,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,rf,rl,rf,rl,ru,ru,ru,ru,mc,ml,mc,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,rl,rf,rl,cu,cu,cu,cu,mc,ml,mc,ml,ru,ru,ru,ru,gc,rl,gc,rl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,rl,rf,rl,cu,cu,cu,cu,rf,rl,rf,rl,ru,ru,ru,ru,co,rl,co,rl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,rl,co,rl,co,cu,co,cu,rf,rl,rf,rl,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rl,rf,rl,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,rl,co,rl,co,cu,co,cu,mc,ml,mc,ml,ru,ru,ru,ru,co,rl,co,rl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,rl,co,rl,co,cu,co,cu,rf,rl,rf,rl,ru,ru,ru,ru,mo,rl,mo,rl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,rl,rf,rl,cu,cu,cu,cu,mo,rl,mo,rl,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,rl,mo,rl,mo,ru,mo,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,rl,rf,rl,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,rl,mo,rl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,rl,rf,rl,cu,cu,cu,cu,mo,rl,mo,rl,mo,ru,mo,ru"
+        },
+        {
+          "model": "muse-spark-1.3",
+          "provider": "opencode-go",
+          "results": "rf,rl,rf,rl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,rl,rf,rl,cu,cu,cu,cu,rf,rl,rf,rl,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,rf,rl,rf,rl,ru,ru,ru,ru,mc,ml,mc,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,rl,rf,rl,cu,cu,cu,cu,mc,ml,mc,ml,ru,ru,ru,ru,gc,rl,gc,rl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,rf,rl,rf,rl,cu,cu,cu,cu,rf,rl,rf,rl,ru,ru,ru,ru,co,rl,co,rl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,rl,co,rl,co,cu,co,cu,rf,rl,rf,rl,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,rl,rf,rl,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,rl,co,rl,co,cu,co,cu,mc,ml,mc,ml,ru,ru,ru,ru,co,rl,co,rl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,co,co,co,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,rl,co,rl,co,cu,co,cu,rf,rl,rf,rl,ru,ru,ru,ru,mo,rl,mo,rl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,rl,rf,rl,cu,cu,cu,cu,mo,rl,mo,rl,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,rl,mo,rl,mo,ru,mo,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,rl,rf,rl,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,rl,mo,rl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,ce,ce,ce,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,rf,rl,rf,rl,cu,cu,cu,cu,mo,rl,mo,rl,mo,ru,mo,ru"
+        },
+        {
+          "model": "gemini-4-argon",
+          "provider": "opencode-go",
+          "results": "gf,cl,gf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,mc,ml,mc,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,ml,mc,ml,ru,ru,ru,ru,gc,cl,gc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,ru,mo,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,ru,mo,ru"
+        },
+        {
+          "model": "glm-5.2",
+          "provider": "opencode-go",
+          "results": "cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,mc,ml,mc,ml,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,ml,mc,ml,ru,ru,ru,ru,gc,cl,gc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,co,ml,co,ml,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,ru,mo,ru,mo,ml,mo,ml,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,ru,mo,ru,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,ru,mo,ru"
+        },
+        {
+          "model": "claude-sonnet-5",
+          "provider": "command-code-oauth",
+          "results": "mf,cl,mf,cl,mu,mu,mu,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mf,ml,mf,ml,mu,mu,mu,mu,cc,cl,cc,cl,mu,mu,mu,mu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,mf,ml,mf,ml,mu,mu,mu,mu,mc,cl,mc,cl,mu,mu,mu,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,mf,cl,mf,cl,mu,mu,mu,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mf,ml,mf,ml,mu,mu,mu,mu,co,cl,co,cl,co,mu,co,mu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,ml,mf,ml,mu,mu,mu,mu,co,cl,co,cl,co,mu,co,mu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,ml,mf,ml,mu,mu,mu,mu,co,cl,co,cl,co,mu,co,mu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,mu,co,mu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,ml,mf,ml,mu,mu,mu,mu,mo,cl,mo,cl,mo,mu,mo,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,mu,mo,mu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,mu,mo,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,mu,mo,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu"
+        },
+        {
+          "model": "anthropic/claude-sonnet-5",
+          "provider": "command-code-oauth",
+          "results": "mf,cl,mf,cl,mu,mu,mu,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mf,ml,mf,ml,mu,mu,mu,mu,cc,cl,cc,cl,mu,mu,mu,mu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,mf,ml,mf,ml,mu,mu,mu,mu,mc,cl,mc,cl,mu,mu,mu,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,mf,cl,mf,cl,mu,mu,mu,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mf,ml,mf,ml,mu,mu,mu,mu,co,cl,co,cl,co,mu,co,mu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,ml,mf,ml,mu,mu,mu,mu,co,cl,co,cl,co,mu,co,mu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,ml,mf,ml,mu,mu,mu,mu,co,cl,co,cl,co,mu,co,mu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,mu,co,mu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mf,ml,mf,ml,mu,mu,mu,mu,mo,cl,mo,cl,mo,mu,mo,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,mu,mo,mu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,mu,mo,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,mu,mo,mu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu"
+        },
+        {
+          "model": "gpt-5.5",
+          "provider": "command-code-oauth",
+          "results": "rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu"
+        },
+        {
+          "model": "openai/gpt-5.5",
+          "provider": "command-code-oauth",
+          "results": "rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu"
+        },
+        {
+          "model": "muse-spark-1.3",
+          "provider": "command-code-oauth",
+          "results": "rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu"
+        },
+        {
+          "model": "grok-4.7",
+          "provider": "command-code-oauth",
+          "results": "rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,rf,cl,rf,cl,cu,cu,cu,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,rf,ml,rf,ml,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,rf,cl,rf,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu"
+        },
+        {
+          "model": "glm-5",
+          "provider": "command-code-oauth",
+          "results": "cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu"
+        },
+        {
+          "model": "deepseek/deepseek-v4-flash",
+          "provider": "command-code-oauth",
+          "results": "cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,mc,ml,mc,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,ml,mc,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,ml,me,ml,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu,cd,cl,cd,cl,cu,cu,cu,cu,mo,ml,mo,ml,mo,mu,mo,mu"
+        },
+        {
+          "model": "deepseek-v4-pro",
+          "provider": "deepseek",
+          "results": "cd,cl,mf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,cd,cl,mf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu"
+        },
+        {
+          "model": "DeepSeek-V4-Flash",
+          "provider": "deepseek",
+          "results": "cd,cl,mf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,cd,cl,mf,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu"
+        },
+        {
+          "model": "other-model",
+          "provider": "deepseek",
+          "results": "cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,cc,cl,cc,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,mc,cl,mc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,ce,cl,ce,cl,cu,cu,cu,cu,mc,mc,mc,mc,mu,mu,mu,mu,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,ce,cl,ce,cl,cu,cu,cu,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,mc,mc,mc,mc,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,co,cl,co,cl,co,cu,co,cu,me,me,me,me,mu,mu,mu,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,cc,cl,cc,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,mo,cl,mo,cl,mo,cu,mo,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu,ce,cl,ce,cl,cu,cu,cu,cu,mo,mo,mo,mo,mo,mu,mo,mu"
+        },
+        {
+          "model": "m1",
+          "provider": "custom-chat",
+          "results": "cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru"
+        },
+        {
+          "model": "anthropic/claude-x",
+          "provider": "custom-chat",
+          "results": "cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,-,-,-,-,-,-,-,-,co,cl,co,cl,co,cu,co,cu,re,re,re,re,ru,ru,ru,ru,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cc,cl,cc,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru,cd,cl,cd,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,ce,cl,ce,cl,cu,cu,cu,cu,-,-,-,-,-,-,-,-,cd,cl,cd,cl,cu,cu,cu,cu,re,re,re,re,ru,ru,ru,ru"
+        },
+        {
+          "model": "m1",
+          "provider": "custom-responses",
+          "results": "rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru"
+        },
+        {
+          "model": "anthropic/claude-x",
+          "provider": "custom-responses",
+          "results": "rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru,rd,rl,rd,rl,ru,ru,ru,ru,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,-,re,rl,re,rl,ru,ru,ru,ru,re,rl,re,rl,ru,ru,ru,ru"
+        }
+      ]
+    },
+    {
+      "dimensions": {
+        "agent": [
+          true
+        ],
+        "endpoints": [
+          null,
+          [
+            "chat",
+            "responses"
+          ]
+        ],
+        "exclude": [
+          [],
+          [
+            "chat"
+          ],
+          [
+            "messages"
+          ],
+          [
+            "responses"
+          ],
+          [
+            "chat",
+            "messages"
+          ]
+        ],
+        "keep": [
+          null,
+          "chat",
+          "messages",
+          "responses",
+          "gemini"
+        ],
+        "known": [
+          true,
+          false
+        ]
+      },
+      "name": "keep-and-exclude",
+      "order": [
+        "keep",
+        "exclude",
+        "known",
+        "endpoints",
+        "agent"
+      ],
+      "rows": [
+        {
+          "model": "anthropic/claude-opus-4.8",
+          "provider": "openrouter",
+          "results": "mf,cd,cu,cu,mf,re,mu,ru,cd,cd,cu,cu,mf,ce,cu,cu,re,re,ru,ru,cp,cp,cp,cp,mf,re,cp,cp,cp,cp,cp,cp,cp,cp,cp,cp,re,re,cp,cp,mp,cd,mp,mp,mp,re,mp,mp,cd,cd,mp,mp,mp,ce,mp,mp,re,re,mp,mp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,mf,ce,rp,rp,rp,rp,rp,rp,mf,cd,cu,cu,mf,re,mu,ru,cd,cd,cu,cu,mf,ce,cu,cu,re,re,ru,ru"
+        },
+        {
+          "model": "~anthropic/claude-opus-latest",
+          "provider": "openrouter",
+          "results": "mf,cd,cu,cu,mf,re,mu,ru,cd,cd,cu,cu,mf,ce,cu,cu,re,re,ru,ru,cp,cp,cp,cp,mf,re,cp,cp,cp,cp,cp,cp,cp,cp,cp,cp,re,re,cp,cp,mp,cd,mp,mp,mp,re,mp,mp,cd,cd,mp,mp,mp,ce,mp,mp,re,re,mp,mp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,mf,ce,rp,rp,rp,rp,rp,rp,mf,cd,cu,cu,mf,re,mu,ru,cd,cd,cu,cu,mf,ce,cu,cu,re,re,ru,ru"
+        },
+        {
+          "model": "claude-haiku-5-5",
+          "provider": "opencode-go",
+          "results": "mf,cd,cu,cu,mf,re,ru,ru,cd,cd,cu,cu,mf,ce,cu,cu,re,re,ru,ru,cp,cp,cp,cp,mf,re,cp,cp,cp,cp,cp,cp,cp,cp,cp,cp,re,re,cp,cp,mp,cd,mp,mp,mp,re,mp,mp,cd,cd,mp,mp,mp,ce,mp,mp,re,re,mp,mp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,mf,ce,rp,rp,rp,rp,rp,rp,gp,cd,gp,gp,gp,re,gp,gp,gp,cd,gp,gp,gp,ce,gp,gp,gp,re,gp,gp"
+        },
+        {
+          "model": "minimax-m3",
+          "provider": "opencode-go",
+          "results": "mf,cd,cu,cu,mf,re,ru,ru,cd,cd,cu,cu,mf,ce,cu,cu,re,re,ru,ru,cp,cp,cp,cp,mf,re,cp,cp,cp,cp,cp,cp,cp,cp,cp,cp,re,re,cp,cp,mp,cd,mp,mp,mp,re,mp,mp,cd,cd,mp,mp,mp,ce,mp,mp,re,re,mp,mp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,mf,ce,rp,rp,rp,rp,rp,rp,gp,cd,gp,gp,gp,re,gp,gp,gp,cd,gp,gp,gp,ce,gp,gp,gp,re,gp,gp"
+        },
+        {
+          "model": "claude-sonnet-5",
+          "provider": "command-code-oauth",
+          "results": "mf,cd,mu,cu,mf,re,mu,ru,cd,cd,cu,cu,mf,ce,mu,cu,re,re,ru,ru,cp,cp,cp,cp,mf,re,cp,cp,cp,cp,cp,cp,cp,cp,cp,cp,re,re,cp,cp,mp,cd,mp,mp,mp,re,mp,mp,cd,cd,mp,mp,mp,ce,mp,mp,re,re,mp,mp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,mf,ce,rp,rp,rp,rp,rp,rp,mf,cd,mu,cu,mf,re,mu,ru,cd,cd,cu,cu,mf,ce,mu,cu,re,re,ru,ru"
+        },
+        {
+          "model": "anthropic/claude-sonnet-5",
+          "provider": "command-code-oauth",
+          "results": "mf,cd,mu,cu,mf,re,mu,ru,cd,cd,cu,cu,mf,ce,mu,cu,re,re,ru,ru,cp,cp,cp,cp,mf,re,cp,cp,cp,cp,cp,cp,cp,cp,cp,cp,re,re,cp,cp,mp,cd,mp,mp,mp,re,mp,mp,cd,cd,mp,mp,mp,ce,mp,mp,re,re,mp,mp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,mf,ce,rp,rp,rp,rp,rp,rp,mf,cd,mu,cu,mf,re,mu,ru,cd,cd,cu,cu,mf,ce,mu,cu,re,re,ru,ru"
+        },
+        {
+          "model": "deepseek-v4-pro",
+          "provider": "deepseek",
+          "results": "mf,ce,cu,cu,mf,-,mu,-,cd,ce,cu,cu,mf,ce,cu,cu,-,-,-,-,cp,cp,cp,cp,mf,-,cp,cp,cp,cp,cp,cp,cp,cp,cp,cp,-,-,cp,cp,mp,ce,mp,mp,mp,-,mp,mp,cd,ce,mp,mp,mp,ce,mp,mp,-,-,mp,mp,mf,ce,cu,cu,mf,-,mu,-,cd,ce,cu,cu,mf,ce,cu,cu,-,-,-,-,mf,ce,cu,cu,mf,-,mu,-,cd,ce,cu,cu,mf,ce,cu,cu,-,-,-,-"
+        },
+        {
+          "model": "DeepSeek-V4-Flash",
+          "provider": "deepseek",
+          "results": "mf,ce,cu,cu,mf,-,mu,-,cd,ce,cu,cu,mf,ce,cu,cu,-,-,-,-,cp,cp,cp,cp,mf,-,cp,cp,cp,cp,cp,cp,cp,cp,cp,cp,-,-,cp,cp,mp,ce,mp,mp,mp,-,mp,mp,cd,ce,mp,mp,mp,ce,mp,mp,-,-,mp,mp,mf,ce,cu,cu,mf,-,mu,-,cd,ce,cu,cu,mf,ce,cu,cu,-,-,-,-,mf,ce,cu,cu,mf,-,mu,-,cd,ce,cu,cu,mf,ce,cu,cu,-,-,-,-"
+        },
+        {
+          "model": "m1",
+          "provider": "custom-chat",
+          "results": "cd,cd,cu,cu,re,re,ru,ru,cd,cd,cu,cu,cd,ce,cu,cu,re,re,ru,ru,cp,cp,cp,cp,re,re,cp,cp,cp,cp,cp,cp,cp,cp,cp,cp,re,re,cp,cp,cd,cd,cu,cu,re,re,ru,ru,cd,cd,cu,cu,cd,ce,cu,cu,re,re,ru,ru,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,cd,ce,rp,rp,rp,rp,rp,rp,cd,cd,cu,cu,re,re,ru,ru,cd,cd,cu,cu,cd,ce,cu,cu,re,re,ru,ru"
+        },
+        {
+          "model": "anthropic/claude-x",
+          "provider": "custom-chat",
+          "results": "cd,cd,cu,cu,re,re,ru,ru,cd,cd,cu,cu,cd,ce,cu,cu,re,re,ru,ru,cp,cp,cp,cp,re,re,cp,cp,cp,cp,cp,cp,cp,cp,cp,cp,re,re,cp,cp,cd,cd,cu,cu,re,re,ru,ru,cd,cd,cu,cu,cd,ce,cu,cu,re,re,ru,ru,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,cd,ce,rp,rp,rp,rp,rp,rp,cd,cd,cu,cu,re,re,ru,ru,cd,cd,cu,cu,cd,ce,cu,cu,re,re,ru,ru"
+        },
+        {
+          "model": "m1",
+          "provider": "custom-responses",
+          "results": "rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,-,-,-,-,rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,-,-,-,-,rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,-,-,-,-,rd,re,ru,ru,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,-,-,rp,rp,rp,rp,rp,rp,rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,-,-,-,-,rd,re,ru,ru"
+        },
+        {
+          "model": "anthropic/claude-x",
+          "provider": "custom-responses",
+          "results": "rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,-,-,-,-,rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,-,-,-,-,rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,-,-,-,-,rd,re,ru,ru,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,rp,-,-,rp,rp,rp,rp,rp,rp,rd,re,ru,ru,rd,re,ru,ru,rd,re,ru,ru,-,-,-,-,rd,re,ru,ru"
+        }
+      ]
+    }
+  ],
+  "openCodeGo": {
+    "dimensions": {
+      "agent": [
+        false,
+        true
+      ],
+      "legacy": [
+        false,
+        true
+      ],
+      "override": [
+        null,
+        "chat",
+        "messages",
+        "responses",
+        "gemini"
+      ]
+    },
+    "order": [
+      "override",
+      "agent",
+      "legacy"
+    ],
+    "packages": {
+      "claude-haiku-5-5": null,
+      "go-chat": "@ai-sdk/openai-compatible",
+      "go-gemini": "@ai-sdk/google",
+      "go-messages": "@ai-sdk/anthropic",
+      "go-no-package": null,
+      "go-other-package": "@x/y",
+      "go-responses": "@ai-sdk/openai",
+      "gpt-6-luna": "@ai-sdk/openai-compatible",
+      "minimax-m3": "@ai-sdk/openai"
+    },
+    "rows": [
+      {
+        "model": "go-chat",
+        "results": "cc,cl,cc,cl,co,cl,co,cl,cc,cl,cc,cl,cc,cl,cc,cl,cc,cl,cc,cl"
+      },
+      {
+        "model": "go-responses",
+        "results": "rc,rl,rc,rl,rc,rl,rc,rl,rc,rl,rc,rl,ro,rl,ro,rl,rc,rl,rc,rl"
+      },
+      {
+        "model": "go-messages",
+        "results": "mc,ml,mc,ml,mc,ml,mc,ml,mo,ml,mo,ml,mc,ml,mc,ml,mc,ml,mc,ml"
+      },
+      {
+        "model": "go-gemini",
+        "results": "gc,gc,gc,gc,gc,gc,gc,gc,gc,gc,gc,gc,gc,gc,gc,gc,go,go,go,go"
+      },
+      {
+        "model": "go-other-package",
+        "results": "cd,cl,cd,cl,co,cl,co,cl,mo,cl,mo,cl,ro,cl,ro,cl,go,cl,go,cl"
+      },
+      {
+        "model": "go-no-package",
+        "results": "cd,cl,cd,cl,co,cl,co,cl,mo,cl,mo,cl,ro,cl,ro,cl,go,cl,go,cl"
+      },
+      {
+        "model": "gpt-6-luna",
+        "results": "cc,cl,cc,cl,co,cl,co,cl,cc,cl,cc,cl,cc,cl,cc,cl,cc,cl,cc,cl"
+      },
+      {
+        "model": "claude-haiku-5-5",
+        "results": "mf,cl,mf,cl,co,cl,co,cl,mo,cl,mo,cl,ro,cl,ro,cl,go,cl,go,cl"
+      },
+      {
+        "model": "minimax-m3",
+        "results": "rc,rl,rc,rl,rc,rl,rc,rl,rc,rl,rc,rl,ro,rl,ro,rl,rc,rl,rc,rl"
+      },
+      {
+        "model": "unlisted-model",
+        "results": "cd,cl,cd,cl,co,cl,co,cl,mo,cl,mo,cl,ro,cl,ro,cl,go,cl,go,cl"
+      }
+    ]
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-wire-route.mjs"
+}

@@ -11,10 +11,14 @@ use serde_json::{Value, json};
 
 use super::jobs::MediaJobs;
 use super::store::{MediaError, MediaStore};
+use crate::tidy::process::{Processes, RunOptions};
+
+const OPENER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub struct MediaService {
     store: Arc<MediaStore>,
     jobs: Arc<MediaJobs>,
+    processes: Processes,
 }
 
 fn domain(code: &str) -> CoreError {
@@ -44,58 +48,77 @@ pub fn open_command(path: &Path, reveal: bool, platform: &str) -> (&'static str,
     }
 }
 
-fn open_with_os(path: &Path, reveal: bool) -> bool {
+/// Hands the path to the OS opener under the shared process manager; whether it could be
+/// started is the answer, not how it exits (`explorer.exe` exits 1 after opening).
+async fn open_with_os(processes: &Processes, path: &Path, reveal: bool) -> bool {
     let platform = if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "linux" };
     let (program, args) = open_command(path, reveal, platform);
-    std::process::Command::new(program).args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().is_ok()
+    let cwd = std::env::temp_dir();
+    let mut options = RunOptions::new(&cwd);
+    options.timeout = OPENER_TIMEOUT;
+    processes.run(program, &args, options).await.error_code.is_empty()
 }
 
 impl MediaService {
-    pub fn new(store: Arc<MediaStore>, jobs: Arc<MediaJobs>) -> Self {
-        Self { store, jobs }
+    pub fn new(store: Arc<MediaStore>, jobs: Arc<MediaJobs>, processes: Processes) -> Self {
+        Self { store, jobs, processes }
     }
 
     async fn dispatch(&self, method: &str, request: &Value) -> Result<Value, CoreError> {
         let args = request.get("params").filter(|p| p.is_object()).cloned().unwrap_or_else(|| json!({}));
         let text = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("");
         let id = text("id");
+        // Every store call reads or writes files: it runs as one job on the store's lane.
+        let store = &self.store;
+        let owned = args.clone();
+        let owned_id = id.to_owned();
         match method {
-            "media/getMediaDefault" => Ok(self.store.get_default(args.get("kind"))),
-            "media/getMediaPins" => Ok(self.store.get_pins()),
-            "media/setMediaDefault" => Ok(self.store.set_default(&args)?),
-            "media/setMediaPin" => Ok(self.store.set_pin(&args)?),
+            "media/getMediaDefault" => Ok(store.run(move |s| s.get_default(owned.get("kind"))).await?),
+            "media/getMediaPins" => Ok(store.run(|s| s.get_pins()).await?),
+            "media/setMediaDefault" => Ok(store.run(move |s| s.set_default(&owned)).await??),
+            "media/setMediaPin" => Ok(store.run(move |s| s.set_pin(&owned)).await??),
             "media/getMediaJob" => Ok(self.jobs.get(id).unwrap_or(Value::Null)),
             "media/listMediaLanes" => Ok(self.jobs.lanes().await),
             "media/startMediaJob" => self.jobs.start(&args).await.map_err(|f| domain(f.code.as_deref().unwrap_or("MEDIA_FAILED"))),
             "media/cancelMediaJob" => Ok(self.jobs.cancel(id)),
-            "media/listMediaAssets" => Ok(self.store.list_assets(
-                args.get("limit").and_then(Value::as_f64),
-                args.get("offset").and_then(Value::as_f64),
-                args.get("kind").and_then(Value::as_str).filter(|k| !k.is_empty()),
-                text("boardId"),
-            )?),
-            "media/listMediaBoards" => Ok(self.store.list_boards()?),
-            "media/readMediaAsset" => Ok(self.store.read_asset(id)?.unwrap_or(Value::Null)),
-            "media/resolveMediaFile" => Ok(self.store.resolve_file(id)?.unwrap_or(Value::Null)),
-            "media/deleteMediaAsset" => Ok(self.store.delete_asset(id)?),
-            "media/deleteMediaAssets" => Ok(self.store.delete_assets(&args)?),
-            "media/createMediaBoard" => Ok(self.store.create_board(args.get("name"))?),
-            "media/renameMediaBoard" => Ok(self.store.rename_board(args.get("id"), args.get("name"))?),
-            "media/deleteMediaBoard" => Ok(self.store.delete_board(args.get("id"))?),
-            "media/setMediaAssetBoard" => Ok(self.store.set_asset_board(args.get("ids").or(args.get("id")).unwrap_or(&Value::Null), args.get("boardId").unwrap_or(&Value::Null))?),
+            "media/listMediaAssets" => Ok(store
+                .run(move |s| {
+                    s.list_assets(
+                        owned.get("limit").and_then(Value::as_f64),
+                        owned.get("offset").and_then(Value::as_f64),
+                        owned.get("kind").and_then(Value::as_str).filter(|k| !k.is_empty()),
+                        owned.get("boardId").and_then(Value::as_str).unwrap_or(""),
+                    )
+                })
+                .await??),
+            "media/listMediaBoards" => Ok(store.run(|s| s.list_boards()).await??),
+            "media/readMediaAsset" => Ok(store.run(move |s| s.read_asset(&owned_id)).await??.unwrap_or(Value::Null)),
+            "media/resolveMediaFile" => Ok(store.run(move |s| s.resolve_file(&owned_id)).await??.unwrap_or(Value::Null)),
+            "media/deleteMediaAsset" => Ok(store.run(move |s| s.delete_asset(&owned_id)).await??),
+            "media/deleteMediaAssets" => Ok(store.run(move |s| s.delete_assets(&owned)).await??),
+            "media/createMediaBoard" => Ok(store.run(move |s| s.create_board(owned.get("name"))).await??),
+            "media/renameMediaBoard" => Ok(store.run(move |s| s.rename_board(owned.get("id"), owned.get("name"))).await??),
+            "media/deleteMediaBoard" => Ok(store.run(move |s| s.delete_board(owned.get("id"))).await??),
+            "media/setMediaAssetBoard" => Ok(store
+                .run(move |s| s.set_asset_board(owned.get("ids").or(owned.get("id")).unwrap_or(&Value::Null), owned.get("boardId").unwrap_or(&Value::Null)))
+                .await??),
             // Rendition caches retired; Chromium-made thumbnails are not kept.
             "media/cacheMediaThumbnail" => Ok(json!({"id": id, "available": false})),
             "media/openMediaAsset" => {
-                let opened = self.store.asset_path(id)?.is_some_and(|p| open_with_os(&p, false));
+                let found = store.run(move |s| s.asset_path(&owned_id)).await??;
+                let opened = match found {
+                    Some(path) => open_with_os(&self.processes, &path, false).await,
+                    None => false,
+                };
                 Ok(json!({"id": id, "opened": opened}))
             }
             "media/openMediaFolder" => {
                 if id.is_empty() {
-                    let root = self.store.assets_root();
-                    return Ok(json!({"path": root.to_string_lossy(), "opened": open_with_os(&root, false)}));
+                    let root = store.run(|s| s.assets_root()).await?;
+                    return Ok(json!({"path": root.to_string_lossy(), "opened": open_with_os(&self.processes, &root, false).await}));
                 }
-                match self.store.asset_path(id)? {
-                    Some(path) => Ok(json!({"id": id, "path": path.parent().map(|p| p.to_string_lossy()), "opened": open_with_os(&path, true)})),
+                match store.run(move |s| s.asset_path(&owned_id)).await?? {
+                    Some(path) => Ok(json!({"id": id, "path": path.parent().map(|p| p.to_string_lossy()), "opened": open_with_os(&self.processes, &path, true).await})),
                     None => Ok(json!({"id": id, "path": "", "opened": false})),
                 }
             }

@@ -117,6 +117,7 @@ fn parse_registry(value: &Value) -> Result<Vec<Value>, RegistryError> {
     Ok(models.clone())
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn read_blocking(path: &Path) -> Result<Vec<Value>, RegistryError> {
     if !path.exists() {
         return Ok(Vec::new());
@@ -132,6 +133,7 @@ fn read_blocking(path: &Path) -> Result<Vec<Value>, RegistryError> {
     })
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn write_blocking(path: &Path, models: &[Value]) -> Result<(), RegistryError> {
     // A newer build's index makes the write refuse instead of replacing it.
     if let Ok(bytes) = std::fs::read(path) {
@@ -177,7 +179,7 @@ pub struct RegisteredModels {
     lane: DurabilityIo,
     models: Mutex<Vec<Value>>,
     /// One writer at a time: a write is a read-modify-write of the file.
-    writes: tokio::sync::Mutex<()>,
+    writes: tokio::sync::Semaphore,
 }
 
 impl RegisteredModels {
@@ -185,7 +187,7 @@ impl RegisteredModels {
     pub fn new(data_dir: &Path, lane: DurabilityIo) -> Self {
         let path = data_dir.join("local-provider").join("registered-models.json");
         let models = read_blocking(&path).unwrap_or_default();
-        Self { path, lane, models: Mutex::new(models), writes: tokio::sync::Mutex::new(()) }
+        Self { path, lane, models: Mutex::new(models), writes: tokio::sync::Semaphore::new(1) }
     }
 
     pub fn list(&self) -> Vec<Value> {
@@ -194,7 +196,7 @@ impl RegisteredModels {
 
     /// Reads the index file again; an unreadable one keeps what is held.
     pub async fn reload(&self) {
-        let _writer = self.writes.lock().await;
+        let _writer = self.writes.acquire().await;
         let path = self.path.clone();
         if let Ok(models) = probe(self.lane, move || read_blocking(&path).unwrap_or_default()).await {
             *self.models.lock().unwrap() = models;
@@ -204,7 +206,7 @@ impl RegisteredModels {
     /// Registers the model; an identical id is returned as is, with another context size it fails.
     pub async fn register(&self, entry: &Value) -> Result<Value, RegistryError> {
         validate_model(entry)?;
-        let _writer = self.writes.lock().await;
+        let _writer = self.writes.acquire().await;
         let (path, entry) = (self.path.clone(), entry.clone());
         let (out, models) = probe(self.lane, move || register_blocking(&path, &entry)).await.map_err(|e| RegistryError::Io(e.to_string()))??;
         *self.models.lock().unwrap() = models;
@@ -212,7 +214,7 @@ impl RegisteredModels {
     }
 
     pub async fn forget(&self, model_id: &str) -> Result<(), RegistryError> {
-        let _writer = self.writes.lock().await;
+        let _writer = self.writes.acquire().await;
         let (path, id) = (self.path.clone(), model_id.to_owned());
         let models = probe(self.lane, move || forget_blocking(&path, &id)).await.map_err(|e| RegistryError::Io(e.to_string()))??;
         *self.models.lock().unwrap() = models;

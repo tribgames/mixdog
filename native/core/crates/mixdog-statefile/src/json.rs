@@ -17,6 +17,7 @@ use serde_json::Value;
 use crate::IoLane;
 use crate::WriteLane;
 use crate::lock::LockError;
+use crate::lock::LockOpts;
 use crate::lock::lock_path;
 use crate::lock::locked;
 use crate::publish::Opts;
@@ -87,11 +88,13 @@ enum Parsed {
     Damaged(String),
 }
 
-/// The JSON of `content`: invalid UTF-8 decodes lossily and a leading byte order mark (what
-/// Windows editors and PowerShell 5 write) is skipped.
-pub fn parse_json_text(content: &[u8]) -> Result<Value, serde_json::Error> {
+/// `JSON.parse` of `content`: invalid UTF-8 decodes lossily and a leading byte order mark (what
+/// Windows editors and PowerShell 5 write) is skipped. Lone surrogate escapes, unbounded
+/// nesting and out-of-range numbers are accepted as V8 accepts them (see
+/// [`mixdog_js::json_parse`]); the value is written back with [`json_bytes`].
+pub fn parse_json_text(content: &[u8]) -> Result<Value, mixdog_js::JsonSyntaxError> {
     let text = String::from_utf8_lossy(content);
-    serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(&text))
+    mixdog_js::json_parse(text.strip_prefix('\u{feff}').unwrap_or(&text))
 }
 
 /// Whether `content` parses (a JSON write's backup takes only such a version).
@@ -140,7 +143,12 @@ fn report_damaged(path: &Path, reason: &str, outcome: &str) {
 /// meanwhile is kept. `keep_without_backup` leaves a damaged file in place when there is no
 /// good copy: for a file other readers treat "missing" as permissive (a deny list), moving it
 /// would fail open. `restore_backup` false never restores `.bak`.
-fn recover(path: &Path, validate: Option<Validate>, opts: &Opts) -> io::Result<Option<Value>> {
+fn recover<L: WriteLane>(
+    lane: &InLane<L>,
+    path: &Path,
+    validate: Option<Validate>,
+    opts: &Opts,
+) -> io::Result<Option<Value>> {
     let reason = match parse(read_content(path)?, validate) {
         Parsed::Ok { value, .. } => return Ok(Some(value)),
         Parsed::Absent | Parsed::Unsupported => return Ok(None),
@@ -155,7 +163,7 @@ fn recover(path: &Path, validate: Option<Validate>, opts: &Opts) -> io::Result<O
     crate::publish::rename_with_retry(path, &aside)?;
     match backup {
         Parsed::Ok { value, content } => {
-            publish(path, &content, &opts.plain())?;
+            publish(lane, path, &content, &opts.restore_opts())?;
             report_damaged(path, &reason, &format!("kept as {}; restored the last good copy", aside.display()));
             Ok(Some(value))
         }
@@ -181,7 +189,7 @@ pub fn peek<L: IoLane>(_lane: &InLane<L>, path: &Path, validate: Option<Validate
 /// its lock; while another holder keeps the lock for the whole wait the file is left in place.
 /// Other failures, an unreadable file among them, are errors.
 pub fn read_json<L: WriteLane>(
-    _lane: &InLane<L>,
+    lane: &InLane<L>,
     path: &Path,
     validate: Option<Validate>,
     opts: &Opts,
@@ -191,7 +199,7 @@ pub fn read_json<L: WriteLane>(
         Parsed::Absent | Parsed::Unsupported => return Ok(None),
         Parsed::Damaged(reason) => reason,
     };
-    match locked(&lock_path(path), opts.lock_timeout, || recover(path, validate, opts)) {
+    match locked(&lock_path(path), &opts.lock_opts(), || recover(lane, path, validate, opts)) {
         Ok(recovered) => recovered,
         Err(LockError::Io(error)) => Err(error),
         Err(_busy) => {
@@ -203,43 +211,45 @@ pub fn read_json<L: WriteLane>(
 
 /// `writeFileAtomicSync`. Create-only answers [`Published::Exists`] when the target exists.
 pub fn write_file<L: WriteLane>(
-    _lane: &InLane<L>,
+    lane: &InLane<L>,
     path: &Path,
     data: &[u8],
     opts: &Opts,
 ) -> Result<Published, StateError> {
     if opts.lock {
-        return Ok(locked(&lock_path(path), opts.lock_timeout, || publish(path, data, opts))??);
+        return Ok(locked(&lock_path(path), &opts.lock_opts(), || publish(lane, path, data, opts))??);
     }
-    Ok(publish(path, data, opts)?)
+    Ok(publish(lane, path, data, opts)?)
 }
 
-fn json_bytes(value: &Value, opts: &Opts) -> Vec<u8> {
-    let mut text = mixdog_js::json_stringify_indent(value, if opts.compact { 0 } else { 2 });
+/// `JSON.stringify(value, null, 2)` and a newline (compact: no indentation), written as a parsed
+/// document is: a lone surrogate the parser kept is its escape again.
+pub fn json_bytes(value: &Value, opts: &Opts) -> Vec<u8> {
+    let mut text = mixdog_js::json_stringify_indent_parsed(value, if opts.compact { 0 } else { 2 });
     text.push('\n');
     text.into_bytes()
 }
 
-fn publish_json(path: &Path, value: &Value, opts: &Opts) -> io::Result<Published> {
+fn publish_json<L: WriteLane>(lane: &InLane<L>, path: &Path, value: &Value, opts: &Opts) -> io::Result<Published> {
     // A JSON write's backup takes only a replaced version that still parses.
     let mut opts = opts.clone();
     if opts.backup && opts.backup_accepts.is_none() {
         opts.backup_accepts = Some(is_json_content);
     }
-    publish(path, &json_bytes(value, &opts), &opts)
+    publish(lane, path, &json_bytes(value, &opts), &opts)
 }
 
 /// `writeJsonAtomicSync`: `JSON.stringify(value, null, 2)` and a newline.
 pub fn write_json<L: WriteLane>(
-    _lane: &InLane<L>,
+    lane: &InLane<L>,
     path: &Path,
     value: &Value,
     opts: &Opts,
 ) -> Result<Published, StateError> {
     if opts.lock {
-        return Ok(locked(&lock_path(path), opts.lock_timeout, || publish_json(path, value, opts))??);
+        return Ok(locked(&lock_path(path), &opts.lock_opts(), || publish_json(lane, path, value, opts))??);
     }
-    Ok(publish_json(path, value, opts)?)
+    Ok(publish_json(lane, path, value, opts)?)
 }
 
 /// `updateJsonAtomicSync`: under the file's lock, read (a damaged file is kept aside, never
@@ -247,21 +257,21 @@ pub fn write_json<L: WriteLane>(
 /// `None`), run `mutator`, and write what it returns. `Ok(None)` from the mutator writes
 /// nothing. The answer is the new value, or the value read when nothing was written.
 pub fn update_json<L: WriteLane, E>(
-    _lane: &InLane<L>,
+    lane: &InLane<L>,
     path: &Path,
     mutator: impl FnOnce(Option<Value>) -> Result<Option<Value>, E>,
     opts: &Opts,
 ) -> Result<Option<Value>, StateError<E>> {
-    locked(&lock_path(path), opts.lock_timeout, || {
+    locked(&lock_path(path), &opts.lock_opts(), || {
         let current = match parse(read_content(path)?, None) {
             Parsed::Ok { value, .. } => Some(value),
             Parsed::Absent | Parsed::Unsupported => None,
-            Parsed::Damaged(_) => recover(path, None, opts)?,
+            Parsed::Damaged(_) => recover(lane, path, None, opts)?,
         };
         match mutator(current.clone()).map_err(StateError::Mutator)? {
             None => Ok(current),
             Some(next) => {
-                publish_json(path, &next, opts)?;
+                publish_json(lane, path, &next, opts)?;
                 Ok(Some(next))
             }
         }
@@ -280,8 +290,8 @@ pub fn rename_with_retry<L: WriteLane>(_lane: &InLane<L>, src: &Path, dst: &Path
 pub fn with_lock<L: WriteLane, R>(
     _lane: &InLane<L>,
     path: &Path,
-    timeout: Option<std::time::Duration>,
+    opts: &LockOpts,
     body: impl FnOnce() -> R,
 ) -> Result<R, LockError> {
-    locked(&lock_path(path), timeout, body)
+    locked(&lock_path(path), opts, body)
 }

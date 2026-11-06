@@ -7,6 +7,8 @@
 //!
 //! Everything here is blocking file I/O: call it on the maintenance lane.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;

@@ -1,0 +1,369 @@
+{
+ "source": "openai-codex-model.mjs _normalizeCodexModel; openai-oauth-catalog.mjs fetchCodexCatalog; openai-ws.mjs listModels (stubbed fetch)",
+ "rows": [
+  {
+   "slug": "gpt-5.5",
+   "display_name": "GPT-5.5",
+   "context_window": 272000,
+   "max_context_window": 272000,
+   "max_output_tokens": 128000,
+   "supported_reasoning_levels": [
+    {
+     "effort": "low",
+     "description": "l"
+    },
+    {
+     "effort": "medium",
+     "description": "m"
+    },
+    {
+     "effort": "high",
+     "description": "h"
+    }
+   ],
+   "default_reasoning_level": "medium",
+   "visibility": "list",
+   "priority": 1,
+   "supports_reasoning_summaries": true,
+   "support_verbosity": true,
+   "default_verbosity": "low",
+   "service_tiers": [
+    {
+     "id": " priority ",
+     "name": "Fast",
+     "description": " 1.5x speed "
+    },
+    {
+     "id": "",
+     "name": "nameless"
+    },
+    {
+     "id": "flex"
+    }
+   ],
+   "default_service_tier": "priority",
+   "additional_speed_tiers": [
+    "ultrafast",
+    " ",
+    7
+   ],
+   "available_access_programs": {
+    "cyber": [
+     "standard",
+     " daybreak_blue "
+    ]
+   }
+  },
+  {
+   "slug": "gpt-5.6-sol",
+   "display_name": "GPT-5.6 Sol",
+   "max_context_window": 500000,
+   "output_tokens": 64000,
+   "supported_reasoning_levels": [
+    {
+     "effort": "max"
+    }
+   ],
+   "visibility": "list",
+   "priority": 2
+  },
+  {
+   "slug": "gpt-hidden",
+   "visibility": "hide",
+   "priority": 9
+  },
+  {
+   "slug": "gpt-blue-only",
+   "display_name": "Blue",
+   "available_access_programs": {
+    "cyber": [
+     "daybreak_blue"
+    ]
+   }
+  },
+  {
+   "id": "bare-id"
+  },
+  {
+   "slug": "gpt-empty-programs",
+   "available_access_programs": {
+    "cyber": []
+   }
+  },
+  {
+   "display_name": "no id at all"
+  }
+ ],
+ "normalized": [
+  {
+   "id": "gpt-5.5",
+   "name": "GPT-5.5",
+   "display": "GPT-5.5",
+   "family": "gpt-5.5",
+   "provider": "openai-oauth",
+   "contextWindow": 272000,
+   "maxContextWindow": 272000,
+   "outputTokens": 128000,
+   "autoCompactTokenLimit": null,
+   "effectiveContextWindowPercent": null,
+   "tier": "version",
+   "latest": false,
+   "priority": 1,
+   "visibility": "list",
+   "description": "",
+   "reasoningLevels": [
+    "low",
+    "medium",
+    "high"
+   ],
+   "reasoningOptions": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "medium",
+      "high"
+     ]
+    }
+   ],
+   "defaultEffort": "medium",
+   "supportVerbosity": true,
+   "defaultVerbosity": "low",
+   "supportsReasoningSummaries": true,
+   "serviceTiers": [
+    {
+     "id": "priority",
+     "name": "Fast",
+     "description": "1.5x speed"
+    },
+    {
+     "id": "flex",
+     "name": "",
+     "description": ""
+    }
+   ],
+   "defaultServiceTier": "priority",
+   "additionalSpeedTiers": [
+    "ultrafast",
+    "7"
+   ],
+   "accessPrograms": [
+    "standard",
+    "daybreak_blue"
+   ]
+  },
+  {
+   "id": "gpt-5.6-sol",
+   "name": "GPT-5.6 Sol",
+   "display": "GPT-5.6 Sol",
+   "family": "gpt-5",
+   "provider": "openai-oauth",
+   "contextWindow": 500000,
+   "maxContextWindow": 1000000,
+   "outputTokens": 64000,
+   "autoCompactTokenLimit": null,
+   "effectiveContextWindowPercent": null,
+   "tier": "version",
+   "latest": false,
+   "priority": 2,
+   "visibility": "list",
+   "description": "",
+   "reasoningLevels": [
+    "max"
+   ],
+   "reasoningOptions": [
+    {
+     "type": "effort",
+     "values": [
+      "max"
+     ]
+    }
+   ],
+   "defaultEffort": null,
+   "supportVerbosity": false,
+   "defaultVerbosity": null,
+   "supportsReasoningSummaries": false,
+   "serviceTiers": [],
+   "defaultServiceTier": null,
+   "additionalSpeedTiers": []
+  },
+  {
+   "id": "gpt-hidden",
+   "name": "gpt-hidden",
+   "display": "gpt-hidden",
+   "family": "gpt",
+   "provider": "openai-oauth",
+   "contextWindow": null,
+   "maxContextWindow": null,
+   "outputTokens": 32768,
+   "autoCompactTokenLimit": null,
+   "effectiveContextWindowPercent": null,
+   "tier": "version",
+   "latest": false,
+   "priority": 9,
+   "visibility": "hide",
+   "description": "",
+   "reasoningLevels": [],
+   "reasoningOptions": [],
+   "defaultEffort": null,
+   "supportVerbosity": false,
+   "defaultVerbosity": null,
+   "supportsReasoningSummaries": false,
+   "serviceTiers": [],
+   "defaultServiceTier": null,
+   "additionalSpeedTiers": [],
+   "hidden": true
+  },
+  {
+   "id": "gpt-blue-only",
+   "name": "Blue",
+   "display": "Blue",
+   "family": "gpt",
+   "provider": "openai-oauth",
+   "contextWindow": null,
+   "maxContextWindow": null,
+   "outputTokens": 32768,
+   "autoCompactTokenLimit": null,
+   "effectiveContextWindowPercent": null,
+   "tier": "version",
+   "latest": false,
+   "priority": null,
+   "visibility": null,
+   "description": "",
+   "reasoningLevels": [],
+   "reasoningOptions": [],
+   "defaultEffort": null,
+   "supportVerbosity": false,
+   "defaultVerbosity": null,
+   "supportsReasoningSummaries": false,
+   "serviceTiers": [],
+   "defaultServiceTier": null,
+   "additionalSpeedTiers": [],
+   "accessPrograms": [
+    "daybreak_blue"
+   ],
+   "hidden": true
+  },
+  {
+   "id": "bare-id",
+   "name": "bare-id",
+   "display": "bare-id",
+   "family": "gpt",
+   "provider": "openai-oauth",
+   "contextWindow": null,
+   "maxContextWindow": null,
+   "outputTokens": 32768,
+   "autoCompactTokenLimit": null,
+   "effectiveContextWindowPercent": null,
+   "tier": "version",
+   "latest": false,
+   "priority": null,
+   "visibility": null,
+   "description": "",
+   "reasoningLevels": [],
+   "reasoningOptions": [],
+   "defaultEffort": null,
+   "supportVerbosity": false,
+   "defaultVerbosity": null,
+   "supportsReasoningSummaries": false,
+   "serviceTiers": [],
+   "defaultServiceTier": null,
+   "additionalSpeedTiers": []
+  },
+  {
+   "id": "gpt-empty-programs",
+   "name": "gpt-empty-programs",
+   "display": "gpt-empty-programs",
+   "family": "gpt",
+   "provider": "openai-oauth",
+   "contextWindow": null,
+   "maxContextWindow": null,
+   "outputTokens": 32768,
+   "autoCompactTokenLimit": null,
+   "effectiveContextWindowPercent": null,
+   "tier": "version",
+   "latest": false,
+   "priority": null,
+   "visibility": null,
+   "description": "",
+   "reasoningLevels": [],
+   "reasoningOptions": [],
+   "defaultEffort": null,
+   "supportVerbosity": false,
+   "defaultVerbosity": null,
+   "supportsReasoningSummaries": false,
+   "serviceTiers": [],
+   "defaultServiceTier": null,
+   "additionalSpeedTiers": [],
+   "accessPrograms": []
+  },
+  {
+   "name": "no id at all",
+   "display": "no id at all",
+   "family": "gpt",
+   "provider": "openai-oauth",
+   "contextWindow": null,
+   "maxContextWindow": null,
+   "outputTokens": 32768,
+   "autoCompactTokenLimit": null,
+   "effectiveContextWindowPercent": null,
+   "tier": "version",
+   "latest": false,
+   "priority": null,
+   "visibility": null,
+   "description": "",
+   "reasoningLevels": [],
+   "reasoningOptions": [],
+   "defaultEffort": null,
+   "supportVerbosity": false,
+   "defaultVerbosity": null,
+   "supportsReasoningSummaries": false,
+   "serviceTiers": [],
+   "defaultServiceTier": null,
+   "additionalSpeedTiers": []
+  }
+ ],
+ "requests": [
+  {
+   "url": "https://chatgpt.com/backend-api/codex/models?client_version=0.166.0",
+   "method": "GET",
+   "headers": {
+    "Authorization": "Bearer tok-1",
+    "OpenAI-Beta": "responses=experimental",
+    "originator": "codex_cli_rs",
+    "chatgpt-account-id": "acct-1"
+   }
+  },
+  {
+   "url": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
+   "method": "GET",
+   "headers": {}
+  },
+  {
+   "url": "https://models.dev/api.json",
+   "method": "GET",
+   "headers": {}
+  },
+  {
+   "url": "https://api.openai.com/v1/models",
+   "method": "GET",
+   "headers": {
+    "Authorization": "Bearer sk-test"
+   }
+  }
+ ],
+ "apiKeyRows": [
+  {
+   "id": "gpt-5.5",
+   "object": "model",
+   "created": 1700000000,
+   "owned_by": "openai"
+  },
+  {
+   "id": "o3",
+   "object": "model",
+   "created": 1690000000,
+   "owned_by": "openai"
+  }
+ ]
+}

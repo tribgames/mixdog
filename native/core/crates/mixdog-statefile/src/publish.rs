@@ -10,9 +10,13 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use mixdog_rt::InLane;
+
+use crate::WriteLane;
 use crate::access::Access;
 use crate::access::create_new;
 use crate::access::sync_dir;
+use crate::lock::LockOpts;
 use crate::lock::backoff_ms;
 use crate::trace::record;
 
@@ -40,6 +44,10 @@ pub struct Opts {
     pub lock: bool,
     /// Lock wait; `None` is [`crate::default_timeout`].
     pub lock_timeout: Option<Duration>,
+    /// How long a lock naming no owner lives before it is reclaimable (default 30 s).
+    pub lock_stale: Option<Duration>,
+    /// A lock naming no owner is never reclaimed.
+    pub lock_strict_owner: bool,
     /// Restore `<file>.bak` over a damaged file (default true).
     pub restore_backup: bool,
     /// Leave a damaged file in place when there is no good backup.
@@ -59,6 +67,8 @@ impl Default for Opts {
             compact: false,
             lock: false,
             lock_timeout: None,
+            lock_stale: None,
+            lock_strict_owner: false,
             restore_backup: true,
             keep_without_backup: false,
         }
@@ -70,9 +80,19 @@ impl Opts {
         if self.secret { Access::OwnerOnly } else { Access::Inherit }
     }
 
-    /// What a restore or a backup copy is published with: the file's own access, no backup.
-    pub(crate) fn plain(&self) -> Opts {
+    pub(crate) fn lock_opts(&self) -> LockOpts {
+        LockOpts { timeout: self.lock_timeout, stale: self.lock_stale, strict_owner: self.lock_strict_owner }
+    }
+
+    /// `backupWriteOpts`: a backup copy keeps the file's mode, access and fsync choice.
+    pub(crate) fn backup_opts(&self) -> Opts {
         Opts { secret: self.secret, mode: self.mode, fsync: self.fsync, ..Opts::default() }
+    }
+
+    /// `restoreOpts`: a restored copy keeps the file's mode and access, and is always flushed:
+    /// the caller's `fsync: false` does not reach it.
+    pub(crate) fn restore_opts(&self) -> Opts {
+        Opts { secret: self.secret, mode: self.mode, ..Opts::default() }
     }
 }
 
@@ -123,9 +143,9 @@ fn fsync_refused(error: &io::Error, directory: bool) -> bool {
     }
 }
 
-fn write_durable(tmp: &Path, data: &[u8], opts: &Opts) -> io::Result<()> {
+fn write_durable<L: WriteLane>(lane: &InLane<L>, tmp: &Path, data: &[u8], opts: &Opts) -> io::Result<()> {
     record("create", &[tmp]);
-    let mut file = create_new(tmp, opts.access(), opts.mode)?;
+    let mut file = create_new(lane, tmp, opts.access(), opts.mode)?;
     file.write_all(data)?;
     if opts.fsync {
         record("fsync", &[tmp]);
@@ -138,9 +158,9 @@ fn write_durable(tmp: &Path, data: &[u8], opts: &Opts) -> io::Result<()> {
     Ok(())
 }
 
-fn fsync_dir(dir: &Path) -> io::Result<()> {
+fn fsync_dir<L: WriteLane>(lane: &InLane<L>, dir: &Path) -> io::Result<()> {
     record("open-dir", &[]);
-    let synced = sync_dir(dir).inspect(|()| record("fsync-dir", &[]));
+    let synced = sync_dir(lane, dir).inspect(|()| record("fsync-dir", &[]));
     match synced {
         Err(error) if !fsync_refused(&error, true) => Err(error),
         _ => Ok(()),
@@ -148,7 +168,7 @@ fn fsync_dir(dir: &Path) -> io::Result<()> {
 }
 
 /// Retried on the same codes Node retries (`RETRY_CODES`): permission, busy and exists.
-fn rename_retryable(error: &io::Error) -> bool {
+pub(crate) fn rename_retryable(error: &io::Error) -> bool {
     #[cfg(unix)]
     {
         error
@@ -243,27 +263,27 @@ pub(crate) fn backup_path(path: &Path) -> PathBuf {
 }
 
 /// `keepBackupSync`: the version being replaced, if it is worth keeping.
-fn keep_backup(path: &Path, opts: &Opts) -> io::Result<()> {
+fn keep_backup<L: WriteLane>(lane: &InLane<L>, path: &Path, opts: &Opts) -> io::Result<()> {
     let Some(previous) = read_or_null(path)? else { return Ok(()) };
     let keeps = match opts.backup_accepts {
         Some(accepts) => accepts(&previous),
         None => !holds_no_data(&previous),
     };
     if keeps {
-        publish(&bak_path(path), &previous, &opts.plain())?;
+        publish(lane, &bak_path(path), &previous, &opts.backup_opts())?;
     }
     Ok(())
 }
 
 /// `publishFileSync`.
-pub(crate) fn publish(path: &Path, data: &[u8], opts: &Opts) -> io::Result<Published> {
+pub(crate) fn publish<L: WriteLane>(lane: &InLane<L>, path: &Path, data: &[u8], opts: &Opts) -> io::Result<Published> {
     let dir = parent(path);
     fs::create_dir_all(dir)?;
     let tmp = temp_path(path);
     let result = (|| {
-        write_durable(&tmp, data, opts)?;
+        write_durable(lane, &tmp, data, opts)?;
         if opts.backup && !opts.create_only {
-            keep_backup(path, opts)?;
+            keep_backup(lane, path, opts)?;
         }
         if opts.create_only {
             // Atomic create-if-absent: the link fails when the target exists at link time, so
@@ -281,7 +301,7 @@ pub(crate) fn publish(path: &Path, data: &[u8], opts: &Opts) -> io::Result<Publi
             rename_with_retry(&tmp, path)?;
         }
         if opts.fsync_dir {
-            fsync_dir(dir)?;
+            fsync_dir(lane, dir)?;
         }
         Ok(Published::Written)
     })();

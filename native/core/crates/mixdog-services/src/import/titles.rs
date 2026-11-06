@@ -10,11 +10,13 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+#[allow(clippy::disallowed_types, reason = "Codex's foreign database, read in a maintenance-lane job")]
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use super::turns::title_from_text;
 
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a maintenance-lane job")]
 fn newest_state_db(home: &Path) -> Option<PathBuf> {
     let mut newest: Option<(u64, String)> = None;
     for entry in std::fs::read_dir(home).ok()?.flatten() {
@@ -32,6 +34,9 @@ fn newest_state_db(home: &Path) -> Option<PathBuf> {
     newest.map(|(_, name)| home.join(name))
 }
 
+// Codex's own state database is read-only foreign data: mixdog-store::sqlite serves only the
+// index it owns, so this one connection is opened here, inside a maintenance-lane job.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "reads Codex's foreign database; runs as a maintenance-lane job")]
 fn read_state_titles(home: &Path, titles: &mut HashMap<String, String>) -> rusqlite::Result<()> {
     let Some(path) = newest_state_db(home) else { return Ok(()) };
     let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -64,6 +69,7 @@ fn read_state_titles(home: &Path, titles: &mut HashMap<String, String>) -> rusql
     Ok(())
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job")]
 fn read_index_titles(home: &Path, titles: &mut HashMap<String, String>) {
     let Ok(text) = std::fs::read_to_string(home.join("session_index.jsonl")) else { return };
     for line in text.split('\n').filter(|l| !mixdog_js::js_trim(l).is_empty()) {

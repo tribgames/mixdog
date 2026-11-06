@@ -75,6 +75,7 @@ fn lower_part(part: &ContentPart) -> Result<Option<JsonValue>, ProviderError> {
             source,
             mime_type,
             filename,
+            ..
         } => {
             let name = label(filename.as_deref(), mime_type);
             match source {

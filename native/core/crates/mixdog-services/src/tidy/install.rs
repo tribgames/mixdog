@@ -11,12 +11,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use mixdog_rt::DurabilityIo;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::catalog::engine_entry;
 use super::extract::extract_archive;
+#[cfg(windows)]
+use super::process::RunOptions;
 use super::process::Processes;
+use crate::lane::{io_on_lane, on_lane};
 use crate::local_provider::assets::{Fetcher, sha256_file};
 use crate::local_provider::catalog::file_has_data;
 
@@ -79,10 +83,39 @@ fn verified() -> &'static Mutex<HashMap<PathBuf, String>> {
     VERIFIED.get_or_init(Mutex::default)
 }
 
-fn stamp(path: &Path) -> Option<String> {
+async fn stamp(lane: DurabilityIo, path: &Path) -> Option<String> {
+    let path = path.to_owned();
+    on_lane(lane, move || stamp_blocking(&path)).await.ok().flatten()
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn stamp_blocking(path: &Path) -> Option<String> {
     let m = fs::metadata(path).ok()?;
     let mtime = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
     Some(format!("{}:{mtime}", m.len()))
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn read_text(path: &Path) -> std::io::Result<String> {
+    fs::read_to_string(path)
+}
+
+/// Writes `contents` beside `to` and renames it into place; the temp file does not survive a failure.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn write_replacing(tmp: &Path, to: &Path, contents: &str) {
+    if fs::write(tmp, contents).and_then(|()| fs::rename(tmp, to)).is_err() {
+        let _ = fs::remove_file(tmp);
+    }
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn remove_tree(path: &Path) {
+    let _ = fs::remove_dir_all(path);
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn create_dirs(path: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(path)
 }
 
 fn valid_sha256(value: &str) -> bool {
@@ -93,26 +126,33 @@ fn valid_sha256(value: &str) -> bool {
 /// record existed has none; there alone the content probe keeps a crash-torn binary from
 /// becoming the digest it is trusted by. A binary that cannot be read or hashed is not reused.
 pub async fn engine_binary_intact(processes: &Processes, dir: &Path, full: &Path) -> bool {
-    let Some(key) = stamp(full) else { return false };
+    let lane = processes.durability();
+    let Some(key) = stamp(lane, full).await else { return false };
     if verified().lock().unwrap().get(full) == Some(&key) {
         return true;
     }
     let digest_file = dir.join(ENGINE_DIGEST_FILE);
-    let mut recorded = match fs::read_to_string(&digest_file) {
+    let read = {
+        let digest_file = digest_file.clone();
+        io_on_lane(lane, move || read_text(&digest_file)).await
+    };
+    let mut recorded = match read {
         Ok(s) => Some(mixdog_js::js_trim(&s).to_lowercase()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(_) => return false,
     };
-    if recorded.is_none() && !file_has_data(full) {
-        return false;
+    if recorded.is_none() {
+        let probed = full.to_owned();
+        if !on_lane(lane, move || file_has_data(&probed)).await.unwrap_or(false) {
+            return false;
+        }
     }
-    let Ok(actual) = sha256_file(processes.durability(), full, &CancellationToken::new()).await else { return false };
+    let Ok(actual) = sha256_file(lane, full, &CancellationToken::new()).await else { return false };
     if recorded.is_none() {
         // Trust on first use: record the digest beside the binary.
         let tmp = digest_file.with_extension(format!("tmp-{}", std::process::id()));
-        if fs::write(&tmp, &actual).and_then(|()| fs::rename(&tmp, &digest_file)).is_err() {
-            let _ = fs::remove_file(&tmp);
-        }
+        let digest = actual.clone();
+        let _ = on_lane(lane, move || write_replacing(&tmp, &digest_file, &digest)).await;
         recorded = Some(actual.clone());
     }
     let recorded = recorded.expect("set above");
@@ -224,36 +264,108 @@ pub async fn plan_install(processes: &Processes, ids: &[String], manifest: &Valu
     plan
 }
 
-fn pid_alive(pid: u32) -> bool {
+async fn pid_alive(processes: &Processes, pid: u32) -> bool {
     #[cfg(unix)]
     {
+        let _ = processes;
         // SAFETY: signal 0 only probes for existence.
         let r = unsafe { libc::kill(pid as i32, 0) };
         r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
     #[cfg(windows)]
     {
-        std::process::Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/NH"]).output().is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+        let cwd = std::env::temp_dir();
+        let mut options = RunOptions::new(&cwd);
+        options.timeout = Duration::from_secs(10);
+        processes.run("tasklist", &["/FI".to_owned(), format!("PID eq {pid}"), "/NH".to_owned()], options).await.stdout.contains(&pid.to_string())
     }
+}
+
+/// The `.tmp-<pid>-<ms>-…` staging dirs under an engine root, as `(path, owner pid, started ms)`.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
+fn staging_dirs(engine_root: &Path) -> Vec<(PathBuf, u32, i64)> {
+    let Ok(rd) = fs::read_dir(engine_root) else { return Vec::new() };
+    rd.flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let rest = name.strip_prefix(".tmp-")?;
+            let mut parts = rest.splitn(3, '-');
+            let (pid, ms) = (parts.next().and_then(|p| p.parse::<u32>().ok())?, parts.next().and_then(|m| m.parse::<i64>().ok())?);
+            Some((entry.path(), pid, ms))
+        })
+        .collect()
 }
 
 /// Removes staging dirs a killed install left behind (dead owner, or ancient).
-fn reclaim_stale_staging(engine_root: &Path) {
-    let Ok(rd) = fs::read_dir(engine_root) else { return };
+async fn reclaim_stale_staging(processes: &Processes, engine_root: &Path) {
+    let lane = processes.durability();
+    let root = engine_root.to_owned();
+    let Ok(staged) = on_lane(lane, move || staging_dirs(&root)).await else { return };
     let now = crate::media::store::now_ms();
-    for entry in rd.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let Some(rest) = name.strip_prefix(".tmp-") else { continue };
-        let mut parts = rest.splitn(3, '-');
-        let (Some(pid), Some(ms)) = (parts.next().and_then(|p| p.parse::<u32>().ok()), parts.next().and_then(|m| m.parse::<i64>().ok())) else { continue };
-        let owner_gone = pid != std::process::id() && !pid_alive(pid);
+    let mut stale = Vec::new();
+    for (path, pid, ms) in staged {
+        let owner_gone = pid != std::process::id() && !pid_alive(processes, pid).await;
         if owner_gone || now - ms >= STALE_TMP_AGE_MS {
-            let _ = fs::remove_dir_all(entry.path());
+            stale.push(path);
         }
+    }
+    let _ = on_lane(lane, move || stale.iter().for_each(|p| remove_tree(p))).await;
+}
+
+/// The archive being written; every call is a lane job, the file passes through by value.
+#[allow(clippy::disallowed_types, reason = "touched only by durability-lane jobs")]
+struct Partial(fs::File);
+
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
+impl Partial {
+    fn create(path: &Path) -> std::io::Result<Self> {
+        fs::File::create(path).map(Self)
+    }
+
+    fn append(mut self, chunk: &[u8]) -> std::io::Result<Self> {
+        std::io::Write::write_all(&mut self.0, chunk)?;
+        Ok(self)
+    }
+
+    fn finish(self) -> std::io::Result<()> {
+        self.0.sync_all()
     }
 }
 
-async fn download_asset(target: &Target, archive_file: &Path, fetcher: &dyn Fetcher, cancel: &CancellationToken, on_progress: &Option<OnProgress>, stall: Duration) -> Result<(), String> {
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
+    fs::write(path, contents)
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn path_exists(path: &Path) -> bool {
+    path.exists()
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn rename_path(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::rename(from, to)
+}
+
+/// Sizes the archive, unpacks it into `stage` and makes the binary executable; the archive's
+/// byte count.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn stage_archive(target: &Target, archive_file: &Path, stage: &Path) -> Result<u64, String> {
+    let bytes = fs::metadata(archive_file).map_err(|e| e.to_string())?.len();
+    extract_archive(&target.archive, archive_file, stage, &target.bin_path).map_err(|e| e.to_string())?;
+    let staged_bin = stage.join(&target.bin_path);
+    if !staged_bin.exists() {
+        return Err(format!("{LABEL} {}: archive has no {}", target.id, target.bin_path));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&staged_bin, fs::Permissions::from_mode(0o755));
+    }
+    Ok(bytes)
+}
+
+async fn download_asset(lane: DurabilityIo, target: &Target, archive_file: &Path, fetcher: &dyn Fetcher, cancel: &CancellationToken, on_progress: &Option<OnProgress>, stall: Duration) -> Result<(), String> {
     let mut response = fetcher.get(&target.url, 0).await.map_err(|e| format!("{LABEL} {}: {e}", target.id))?;
     if !(200..300).contains(&response.status) {
         return Err(format!("{LABEL} {}: HTTP {} for {}", target.id, response.status, target.url));
@@ -262,7 +374,8 @@ async fn download_asset(target: &Target, archive_file: &Path, fetcher: &dyn Fetc
     if total > MAX_NATIVE_BINARY_DOWNLOAD_BYTES {
         return Err(format!("{LABEL} {}: download exceeds the size limit", target.id));
     }
-    let mut file = fs::File::create(archive_file).map_err(|e| e.to_string())?;
+    let created = archive_file.to_owned();
+    let mut file = io_on_lane(lane, move || Partial::create(&created)).await.map_err(|e| e.to_string())?;
     let mut downloaded = 0i64;
     loop {
         // Any bytes prove the connection is alive; silence for `stall` ends the install.
@@ -278,12 +391,12 @@ async fn download_asset(target: &Target, archive_file: &Path, fetcher: &dyn Fetc
         if downloaded > MAX_NATIVE_BINARY_DOWNLOAD_BYTES {
             return Err(format!("{LABEL} {}: download exceeds the size limit", target.id));
         }
-        std::io::Write::write_all(&mut file, &chunk).map_err(|e| e.to_string())?;
+        file = io_on_lane(lane, move || file.append(&chunk)).await.map_err(|e| e.to_string())?;
         if let Some(cb) = on_progress {
             cb(&target.id, downloaded, total);
         }
     }
-    file.sync_all().map_err(|e| e.to_string())
+    io_on_lane(lane, move || file.finish()).await.map_err(|e| e.to_string())
 }
 
 /// Downloads, verifies and extracts one engine into its versioned managed dir.
@@ -296,33 +409,32 @@ pub async fn install_engine(processes: &Processes, target: &Target, plugin_data:
     if engine_binary_intact(processes, &final_dir, &bin_full).await {
         return Ok(json!({"id": target.id, "version": target.version, "path": bin_full.to_string_lossy(), "bytes": 0, "status": "present"}));
     }
-    fs::create_dir_all(&engine_root).map_err(|e| e.to_string())?;
-    reclaim_stale_staging(&engine_root);
+    let lane = processes.durability();
+    let root = engine_root.clone();
+    io_on_lane(lane, move || create_dirs(&root)).await.map_err(|e| e.to_string())?;
+    reclaim_stale_staging(processes, &engine_root).await;
     let tmp = engine_root.join(format!(".tmp-{}-{}-{}", std::process::id(), crate::media::store::now_ms(), &uuid::Uuid::new_v4().simple().to_string()[..6]));
-    fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+    let made = tmp.clone();
+    io_on_lane(lane, move || create_dirs(&made)).await.map_err(|e| e.to_string())?;
     let result = async {
         let archive_file = tmp.join(format!("asset-{}", target.id));
-        download_asset(target, &archive_file, fetcher, cancel, &on_progress, stall.unwrap_or(DEFAULT_STALL_TIMEOUT)).await?;
+        download_asset(lane, target, &archive_file, fetcher, cancel, &on_progress, stall.unwrap_or(DEFAULT_STALL_TIMEOUT)).await?;
         verify_download_digest(processes, &archive_file, &target.sha256).await?;
-        let bytes = fs::metadata(&archive_file).map_err(|e| e.to_string())?.len();
         let stage = tmp.join("stage");
-        extract_archive(&target.archive, &archive_file, &stage, &target.bin_path).map_err(|e| e.to_string())?;
+        let (job_target, job_archive, job_stage) = (target.clone(), archive_file.clone(), stage.clone());
+        let bytes = on_lane(lane, move || stage_archive(&job_target, &job_archive, &job_stage)).await.map_err(|e| e.to_string())??;
         let staged_bin = stage.join(&target.bin_path);
-        if !staged_bin.exists() {
-            return Err(format!("{LABEL} {}: archive has no {}", target.id, target.bin_path));
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&staged_bin, fs::Permissions::from_mode(0o755));
-        }
-        let digest = sha256_file(processes.durability(), &staged_bin, cancel).await.map_err(|e| e.to_string())?;
-        fs::write(stage.join(ENGINE_DIGEST_FILE), digest).map_err(|e| e.to_string())?;
-        if final_dir.exists() && !engine_binary_intact(processes, &final_dir, &bin_full).await {
+        let digest = sha256_file(lane, &staged_bin, cancel).await.map_err(|e| e.to_string())?;
+        let digest_path = stage.join(ENGINE_DIGEST_FILE);
+        io_on_lane(lane, move || write_file(&digest_path, &digest)).await.map_err(|e| e.to_string())?;
+        let existing = final_dir.clone();
+        if on_lane(lane, move || path_exists(&existing)).await.unwrap_or(false) && !engine_binary_intact(processes, &final_dir, &bin_full).await {
             verified().lock().unwrap().remove(&bin_full);
-            let _ = fs::remove_dir_all(&final_dir);
+            let stale = final_dir.clone();
+            let _ = on_lane(lane, move || remove_tree(&stale)).await;
         }
-        if let Err(error) = fs::rename(&stage, &final_dir) {
+        let (from, to) = (stage.clone(), final_dir.clone());
+        if let Err(error) = io_on_lane(lane, move || rename_path(&from, &to)).await {
             // A concurrent install won the race only if the surviving copy verifies.
             if !engine_binary_intact(processes, &final_dir, &bin_full).await {
                 return Err(error.to_string());
@@ -331,7 +443,7 @@ pub async fn install_engine(processes: &Processes, target: &Target, plugin_data:
         Ok(json!({"id": target.id, "version": target.version, "path": bin_full.to_string_lossy(), "bytes": bytes, "status": "installed"}))
     }
     .await;
-    let _ = fs::remove_dir_all(&tmp);
+    let _ = on_lane(lane, move || remove_tree(&tmp)).await;
     result
 }
 

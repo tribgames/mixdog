@@ -127,7 +127,7 @@ impl ModelBroker {
             match decision.verdict {
                 Verdict::Retry { delay, .. } => {
                     if let Some(usage) = &failure.partial_usage {
-                        sink.abandoned(usage, None);
+                        sink.abandoned(usage, failure.partial_model.as_deref());
                     }
                     sink.discard();
                     if !pause(delay, cancel).await {

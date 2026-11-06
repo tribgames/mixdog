@@ -11,5 +11,6 @@ pub mod custom;
 pub mod google;
 pub mod grok;
 pub mod key_source;
+pub mod listing_row;
 pub mod local;
 pub mod openai;

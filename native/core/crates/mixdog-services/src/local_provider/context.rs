@@ -44,6 +44,7 @@ pub fn validate_local_context(limits: &ContextLimits, value: Option<i64>) -> Res
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn local_context_settings(limits: &ContextLimits, data_dir: &Path) -> Result<Value, ContextError> {
     // Absent, corrupt or out-of-range settings fall back to the model default; an I/O failure
     // still surfaces.
@@ -70,6 +71,7 @@ pub fn local_context_settings(limits: &ContextLimits, data_dir: &Path) -> Result
 }
 
 /// Saves the window; `None` returns the model to its default.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn save_local_context(limits: &ContextLimits, value: Option<i64>, data_dir: &Path) -> Result<(), ContextError> {
     validate_local_context(limits, value)?;
     let path = settings_path(limits.id, data_dir);

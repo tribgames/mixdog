@@ -1,0 +1,1408 @@
+{
+  "expected": {
+    "anthropic": [
+      {
+        "contextWindow": 1000000,
+        "display": "Claude Opus 5",
+        "family": "opus",
+        "id": "claude-opus-5-20260101",
+        "latest": false,
+        "outputTokens": 128000,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": false
+        },
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Claude Opus 5",
+        "family": "opus",
+        "id": "claude-opus-5",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "high"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.8",
+        "family": "opus",
+        "id": "claude-opus-4-8",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.6",
+        "family": "opus",
+        "id": "claude-opus-4-6",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.5",
+        "family": "opus",
+        "id": "claude-opus-4-5",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 900000,
+        "display": "Sonnet 4.6",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-6",
+        "latest": false,
+        "outputTokens": 64000,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "high"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Sonnet 4.5",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-5-20250929",
+        "latest": false,
+        "outputTokens": 64000,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": true,
+        "thinkingTypes": {
+          "enabled": true
+        },
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Claude Haiku 4.5",
+        "family": "haiku",
+        "id": "claude-haiku-4-5-20251001",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.20250514",
+        "family": "opus",
+        "id": "claude-opus-4-20250514",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Other",
+        "family": "other",
+        "id": "claude-3-7-sonnet-20250219",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": true,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Sonnet 5.5",
+        "family": "sonnet",
+        "id": "claude-sonnet-5-5-2026-01-01",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 750000,
+        "display": "Quasar 7",
+        "family": "quasar",
+        "id": "claude-quasar-7",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000,
+        "display": "By",
+        "family": "by",
+        "id": "claude-by-name",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 2000,
+        "display": "By model",
+        "family": "by",
+        "id": "claude-by-model",
+        "latest": false,
+        "outputTokens": 300,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 4000,
+        "display": "Camel",
+        "family": "camel",
+        "id": "claude-camel",
+        "latest": false,
+        "outputTokens": 500,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 32000,
+        "display": "Other",
+        "family": "other",
+        "id": "not-a-claude-id",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.7",
+        "family": "opus",
+        "id": "claude-opus-4-7",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Sonnet 4.8",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-8-20270101",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Fable 5.1",
+        "family": "fable",
+        "id": "claude-fable-5-1",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.60",
+        "family": "opus",
+        "id": "claude-opus-4-60",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      null
+    ],
+    "anthropic-oauth": [
+      {
+        "contextWindow": 1000000,
+        "display": "Claude Opus 5",
+        "family": "opus",
+        "id": "claude-opus-5-20260101",
+        "latest": false,
+        "outputTokens": 128000,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "releaseDate": "2026-01-01",
+        "supportsReasoning": true,
+        "thinkingTypes": {
+          "adaptive": true,
+          "enabled": false
+        },
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Claude Opus 5",
+        "family": "opus",
+        "id": "claude-opus-5",
+        "latest": true,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "high"
+            ]
+          }
+        ],
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.8",
+        "family": "opus",
+        "id": "claude-opus-4-8",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.6",
+        "family": "opus",
+        "id": "claude-opus-4-6",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ]
+          }
+        ],
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.5",
+        "family": "opus",
+        "id": "claude-opus-4-5",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ]
+          }
+        ],
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 900000,
+        "display": "Sonnet 4.6",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-6",
+        "latest": true,
+        "outputTokens": 64000,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "high"
+            ]
+          }
+        ],
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Sonnet 4.5",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-5-20250929",
+        "latest": false,
+        "outputTokens": 64000,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": "2025-09-29",
+        "supportsReasoning": true,
+        "thinkingTypes": {
+          "enabled": true
+        },
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Claude Haiku 4.5",
+        "family": "haiku",
+        "id": "claude-haiku-4-5-20251001",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": "2025-10-01",
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.20250514",
+        "family": "opus",
+        "id": "claude-opus-4-20250514",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": "2025-05-14",
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Other",
+        "family": "other",
+        "id": "claude-3-7-sonnet-20250219",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": "2025-02-19",
+        "supportsReasoning": true,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Sonnet 5.5",
+        "family": "sonnet",
+        "id": "claude-sonnet-5-5-2026-01-01",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 750000,
+        "display": "Quasar 7",
+        "family": "quasar",
+        "id": "claude-quasar-7",
+        "latest": true,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000,
+        "display": "By",
+        "family": "by",
+        "id": "claude-by-name",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      null,
+      {
+        "contextWindow": 200000,
+        "display": "Camel",
+        "family": "camel",
+        "id": "claude-camel",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 32000,
+        "display": "Other",
+        "family": "other",
+        "id": "not-a-claude-id",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.7",
+        "family": "opus",
+        "id": "claude-opus-4-7",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Sonnet 4.8",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-8-20270101",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": "2027-01-01",
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Fable 5.1",
+        "family": "fable",
+        "id": "claude-fable-5-1",
+        "latest": true,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.60",
+        "family": "opus",
+        "id": "claude-opus-4-60",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      null
+    ]
+  },
+  "listed": {
+    "anthropic": [
+      {
+        "contextWindow": 1000000,
+        "display": "Claude Opus 5",
+        "family": "opus",
+        "id": "claude-opus-5",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "high"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.8",
+        "family": "opus",
+        "id": "claude-opus-4-8",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.6",
+        "family": "opus",
+        "id": "claude-opus-4-6",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.5",
+        "family": "opus",
+        "id": "claude-opus-4-5",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 900000,
+        "display": "Sonnet 4.6",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-6",
+        "latest": false,
+        "outputTokens": 64000,
+        "provider": "anthropic",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "high"
+            ]
+          }
+        ],
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Sonnet 4.5",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-5-20250929",
+        "latest": false,
+        "outputTokens": 64000,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": true,
+        "thinkingTypes": {
+          "enabled": true
+        },
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Claude Haiku 4.5",
+        "family": "haiku",
+        "id": "claude-haiku-4-5-20251001",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.20250514",
+        "family": "opus",
+        "id": "claude-opus-4-20250514",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Sonnet 5.5",
+        "family": "sonnet",
+        "id": "claude-sonnet-5-5-2026-01-01",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 750000,
+        "display": "Quasar 7",
+        "family": "quasar",
+        "id": "claude-quasar-7",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000,
+        "display": "By",
+        "family": "by",
+        "id": "claude-by-name",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 2000,
+        "display": "By model",
+        "family": "by",
+        "id": "claude-by-model",
+        "latest": false,
+        "outputTokens": 300,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 4000,
+        "display": "Camel",
+        "family": "camel",
+        "id": "claude-camel",
+        "latest": false,
+        "outputTokens": 500,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 32000,
+        "display": "Other",
+        "family": "other",
+        "id": "not-a-claude-id",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.7",
+        "family": "opus",
+        "id": "claude-opus-4-7",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Sonnet 4.8",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-8-20270101",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Fable 5.1",
+        "family": "fable",
+        "id": "claude-fable-5-1",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.60",
+        "family": "opus",
+        "id": "claude-opus-4-60",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic",
+        "reasoningOptions": [],
+        "supportsReasoning": false,
+        "tier": "version"
+      }
+    ],
+    "anthropic-oauth": [
+      {
+        "contextWindow": 1000000,
+        "display": "Claude Opus 5",
+        "family": "opus",
+        "id": "claude-opus-5",
+        "latest": true,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "high"
+            ]
+          }
+        ],
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.8",
+        "family": "opus",
+        "id": "claude-opus-4-8",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ],
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.6",
+        "family": "opus",
+        "id": "claude-opus-4-6",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ]
+          }
+        ],
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.5",
+        "family": "opus",
+        "id": "claude-opus-4-5",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ]
+          }
+        ],
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 900000,
+        "display": "Sonnet 4.6",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-6",
+        "latest": true,
+        "outputTokens": 64000,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "high"
+            ]
+          }
+        ],
+        "releaseDate": null,
+        "supportsReasoning": true,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Sonnet 4.5",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-5-20250929",
+        "latest": false,
+        "outputTokens": 64000,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": "2025-09-29",
+        "supportsReasoning": true,
+        "thinkingTypes": {
+          "enabled": true
+        },
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Claude Haiku 4.5",
+        "family": "haiku",
+        "id": "claude-haiku-4-5-20251001",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": "2025-10-01",
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.20250514",
+        "family": "opus",
+        "id": "claude-opus-4-20250514",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": "2025-05-14",
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Sonnet 5.5",
+        "family": "sonnet",
+        "id": "claude-sonnet-5-5-2026-01-01",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 750000,
+        "display": "Quasar 7",
+        "family": "quasar",
+        "id": "claude-quasar-7",
+        "latest": true,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000,
+        "display": "By",
+        "family": "by",
+        "id": "claude-by-name",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Camel",
+        "family": "camel",
+        "id": "claude-camel",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 32000,
+        "display": "Other",
+        "family": "other",
+        "id": "not-a-claude-id",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "family"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Opus 4.7",
+        "family": "opus",
+        "id": "claude-opus-4-7",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Sonnet 4.8",
+        "family": "sonnet",
+        "id": "claude-sonnet-4-8-20270101",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": "2027-01-01",
+        "supportsReasoning": false,
+        "tier": "dated"
+      },
+      {
+        "contextWindow": 1000000,
+        "display": "Fable 5.1",
+        "family": "fable",
+        "id": "claude-fable-5-1",
+        "latest": true,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "version"
+      },
+      {
+        "contextWindow": 200000,
+        "display": "Opus 4.60",
+        "family": "opus",
+        "id": "claude-opus-4-60",
+        "latest": false,
+        "outputTokens": null,
+        "provider": "anthropic-oauth",
+        "reasoningOptions": [],
+        "releaseDate": null,
+        "supportsReasoning": false,
+        "tier": "version"
+      }
+    ]
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-anthropic-models.mjs",
+  "requests": {
+    "anthropic": [
+      {
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "fixture-key-not-a-credential"
+        },
+        "method": "GET",
+        "url": "https://gateway.example.invalid/v1/models"
+      }
+    ],
+    "anthropic-default-base": [
+      {
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "fixture-key-not-a-credential"
+        },
+        "method": "GET",
+        "url": "https://api.anthropic.com/v1/models"
+      }
+    ],
+    "anthropic-extra-headers": [
+      {
+        "headers": {
+          "anthropic-beta": "extra-beta",
+          "anthropic-version": "2099-01-01",
+          "x-api-key": "extra-key",
+          "x-gateway-tenant": "fixture-tenant"
+        },
+        "method": "GET",
+        "url": "https://gateway.example.invalid/v1/models"
+      }
+    ],
+    "anthropic-oauth": [
+      {
+        "headers": {
+          "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27",
+          "anthropic-dangerous-direct-browser-access": "true",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer fixture-access-token",
+          "user-agent": "claude-cli/2.1.317 (external, sdk-cli)",
+          "x-app": "cli"
+        },
+        "method": "GET",
+        "url": "https://api.anthropic.com/v1/models"
+      }
+    ],
+    "messages-extra-headers": {
+      "headers": {
+        "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+        "anthropic-version": "2099-01-01",
+        "x-api-key": "extra-key",
+        "x-gateway-tenant": "fixture-tenant"
+      },
+      "model": "claude-sonnet-4-6"
+    }
+  },
+  "roster": [
+    {
+      "capabilities": {
+        "effort": {
+          "high": {
+            "supported": true
+          },
+          "low": {
+            "supported": true
+          },
+          "max": {
+            "supported": true
+          },
+          "medium": {
+            "supported": true
+          },
+          "supported": true,
+          "xhigh": {
+            "supported": true
+          }
+        },
+        "thinking": {
+          "supported": true,
+          "types": {
+            "adaptive": {
+              "supported": true
+            },
+            "enabled": {
+              "supported": false
+            }
+          }
+        }
+      },
+      "display_name": "Claude Opus 5",
+      "id": "claude-opus-5-20260101",
+      "max_input_tokens": 1000000,
+      "max_tokens": 128000
+    },
+    {
+      "capabilities": {
+        "effort": {
+          "high": {
+            "supported": true
+          },
+          "low": {
+            "supported": true
+          },
+          "supported": true
+        }
+      },
+      "display_name": "Claude Opus 5",
+      "id": "claude-opus-5",
+      "max_input_tokens": 1000000
+    },
+    {
+      "capabilities": {
+        "effort": true,
+        "thinking": {
+          "supported": true
+        }
+      },
+      "id": "claude-opus-4-8"
+    },
+    {
+      "capabilities": {
+        "effort": {
+          "supported": true
+        }
+      },
+      "id": "claude-opus-4-6"
+    },
+    {
+      "capabilities": {
+        "effort": {
+          "supported": true
+        }
+      },
+      "id": "claude-opus-4-5"
+    },
+    {
+      "capabilities": {
+        "effort": {
+          "default": true,
+          "enabled": true,
+          "high": true,
+          "low": true,
+          "medium": false,
+          "supported": true
+        }
+      },
+      "context_window": 900000,
+      "id": "claude-sonnet-4-6",
+      "max_context_window": 800000,
+      "max_input_tokens": 700000,
+      "max_output_tokens": 64000
+    },
+    {
+      "capabilities": {
+        "thinking": {
+          "supported": true,
+          "types": {
+            "enabled": {
+              "supported": true
+            }
+          }
+        }
+      },
+      "id": "claude-sonnet-4-5-20250929",
+      "max_output_tokens": 1,
+      "max_tokens": 64000
+    },
+    {
+      "display_name": "Claude Haiku 4.5",
+      "id": "claude-haiku-4-5-20251001",
+      "max_input_tokens": 200000
+    },
+    {
+      "id": "claude-opus-4-20250514",
+      "max_input_tokens": 200000
+    },
+    {
+      "capabilities": {
+        "thinking": true
+      },
+      "id": "claude-3-7-sonnet-20250219",
+      "max_input_tokens": 200000
+    },
+    {
+      "id": "claude-sonnet-5-5-2026-01-01",
+      "max_input_tokens": 1000000
+    },
+    {
+      "capabilities": {
+        "effort": {
+          "low": {
+            "supported": false
+          },
+          "supported": false
+        }
+      },
+      "id": "claude-quasar-7",
+      "max_input_tokens": 750000
+    },
+    {
+      "max_input_tokens": 1000,
+      "name": "claude-by-name"
+    },
+    {
+      "displayName": "By model",
+      "inputTokenLimit": 2000,
+      "model": "claude-by-model",
+      "outputTokenLimit": 300
+    },
+    {
+      "display": "Camel",
+      "id": "claude-camel",
+      "input_token_limit": 4000,
+      "output_token_limit": 500
+    },
+    {
+      "id": "not-a-claude-id",
+      "max_input_tokens": 32000
+    },
+    {
+      "id": "claude-opus-4-7"
+    },
+    {
+      "id": "claude-sonnet-4-8-20270101"
+    },
+    {
+      "id": "claude-fable-5-1"
+    },
+    {
+      "id": "claude-opus-4-60"
+    },
+    {
+      "display_name": "no id at all"
+    }
+  ]
+}

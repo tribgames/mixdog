@@ -461,6 +461,7 @@ impl Shared {
                 .collect(),
             approvals_inbox: capabilities.approvals_inbox.unwrap_or(false),
             host: capabilities.host,
+            model_proxy: capabilities.model_proxy.unwrap_or(false),
             client,
         };
         if conn.initialize(session).is_err() {
@@ -487,6 +488,9 @@ impl Shared {
         // Eligibility starts only now, behind the response; what was published meanwhile is
         // delivered here, and an approvals-inbox connection gets every pending request.
         conn.finish_handshake();
+        if conn.session().is_some_and(|session| session.model_proxy) {
+            self.outgoing.serve_model_proxy(conn);
+        }
         self.outgoing.redeliver(conn);
         Inbound::Continue
     }

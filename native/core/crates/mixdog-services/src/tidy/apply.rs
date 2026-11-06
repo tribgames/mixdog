@@ -7,7 +7,10 @@
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use mixdog_rt::DurabilityIo;
 use serde_json::{Value, json};
+
+use crate::lane::io_on_lane;
 
 /// A write the turn review should show: exact bytes before and after.
 #[derive(Debug, Clone, PartialEq)]
@@ -105,9 +108,14 @@ pub struct StructuralResult {
     pub rejected: Vec<Value>,
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
+    std::fs::read(path)
+}
+
 /// Applies structural byte-range fixes, grouped per file. `matches_by_file` maps a repo-relative
 /// path to its matches; only matches carrying a `fix` participate.
-pub async fn apply_structural_fixes(host: &dyn WriteHost, cwd: &Path, matches_by_file: &[(String, Vec<Value>)], session_id: Option<&str>) -> StructuralResult {
+pub async fn apply_structural_fixes(lane: DurabilityIo, host: &dyn WriteHost, cwd: &Path, matches_by_file: &[(String, Vec<Value>)], session_id: Option<&str>) -> StructuralResult {
     let (mut applied, mut rejected, mut written) = (Vec::new(), Vec::new(), Vec::new());
     for (file, matches) in matches_by_file {
         let fixes: Vec<Value> = matches
@@ -141,7 +149,12 @@ pub async fn apply_structural_fixes(host: &dyn WriteHost, cwd: &Path, matches_by
             continue;
         }
         let outcome = async {
-            let current = std::fs::read(&full).map_err(|e| e.to_string())?;
+            let current = io_on_lane(lane, {
+                let full = full.clone();
+                move || read_file(&full)
+            })
+            .await
+            .map_err(|e| e.to_string())?;
             let next = apply_replacements(&current, &plan.replacements)?;
             host.atomic_write(&full, &next, session_id).await?;
             host.note_written(std::slice::from_ref(&full), session_id);
@@ -236,16 +249,19 @@ pub(crate) mod tests {
             ("missing.ts".to_owned(), vec![json!({"ruleId": "r", "fix": fix(0, 1, "z", "")})]),
             ("none.ts".to_owned(), vec![json!({"ruleId": "r"})]),
         ];
-        let out = apply_structural_fixes(&host, dir.path(), &matches, Some("s1")).await;
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let out = apply_structural_fixes(lane, &host, dir.path(), &matches, Some("s1")).await;
         assert_eq!(std::fs::read_to_string(dir.path().join("ok.ts")).unwrap(), "let a = 1;");
         assert_eq!(out.applied, vec![json!({"file": "ok.ts", "fixes": 1})]);
         assert_eq!(out.rejected.len(), 2);
         assert!(out.rejected[0]["reason"].as_str().unwrap().starts_with("overlapping fixes from r1, r2"));
         assert_eq!(std::fs::read_to_string(dir.path().join("clash.ts")).unwrap(), "0123456789", "a conflicting file is left whole");
-        let recorded = host.recorded.lock().unwrap();
-        assert_eq!((recorded.len(), recorded[0].before.clone(), recorded[0].after.clone()), (1, b"var a = 1;".to_vec(), b"let a = 1;".to_vec()));
+        {
+            let recorded = host.recorded.lock().unwrap();
+            assert_eq!((recorded.len(), recorded[0].before.clone(), recorded[0].after.clone()), (1, b"var a = 1;".to_vec(), b"let a = 1;".to_vec()));
+        }
         assert_eq!(host.noted.lock().unwrap().len(), 1);
-        let none = apply_structural_fixes(&Recording::default(), dir.path(), &[], None).await;
+        let none = apply_structural_fixes(lane, &Recording::default(), dir.path(), &[], None).await;
         assert!(none.applied.is_empty());
     }
 }

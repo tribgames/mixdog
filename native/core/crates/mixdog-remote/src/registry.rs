@@ -5,8 +5,10 @@
 //!
 //! One short critical section per call, no I/O, so an approval never waits on a relay leg.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard, PoisonError};
+
+use mixdog_js::slice_utf16;
 
 /// The `browser` a second PC's Mixdog desktop window reports in its pairing claim.
 pub const MIXDOG_DESKTOP_CLIENT_BROWSER: &str = "Mixdog Desktop";
@@ -35,14 +37,29 @@ pub enum LocalKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Described {
+    /// The display name.
     pub device: String,
+    /// The paired credential id; empty for a local connection.
+    pub credential: String,
     pub kind: LinkKind,
+}
+
+/// What a bridged phone said it is looking at (`ui/screenSessions/changed`): the whole effective
+/// set, empty while its page is hidden or the app backgrounded, and the browser id its direct
+/// Web Push subscription is keyed by.
+#[derive(Default)]
+struct Screen {
+    sessions: HashSet<String>,
+    browser_id: String,
 }
 
 enum Link {
     Local { device: String, kind: LocalKind },
-    Relay { peer_id: String },
+    Relay { peer_id: String, screen: Screen },
 }
+
+/// `setForeground`'s browser id is clipped to this many UTF-16 units.
+const BROWSER_ID_MAX: usize = 64;
 
 #[derive(Default)]
 struct Inner {
@@ -61,11 +78,14 @@ impl DeviceRegistry {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// A relay peer attached as a paired device. `device` is the device's display name (what
-    /// `client.deviceName()` returns in Node); `browser` is what the device reported in its claim.
-    pub fn attach_peer(&self, peer_id: &str, device: &str, browser: &str) {
+    /// A relay peer attached as the paired device `credential`. `device` is the device's display
+    /// name (what `client.deviceName()` returns in Node); `browser` is what the device reported
+    /// in its claim.
+    pub fn attach_peer(&self, peer_id: &str, credential: &str, device: &str, browser: &str) {
         let kind = if browser == MIXDOG_DESKTOP_CLIENT_BROWSER { LinkKind::RemoteDesktop } else { LinkKind::Phone };
-        self.inner().peers.insert(peer_id.to_owned(), Described { device: device.to_owned(), kind });
+        self.inner()
+            .peers
+            .insert(peer_id.to_owned(), Described { device: device.to_owned(), credential: credential.to_owned(), kind });
     }
 
     /// `client-close`, a revoke or the loss of the leg.
@@ -82,9 +102,47 @@ impl DeviceRegistry {
         self.inner().connections.insert(connection, Link::Local { device: device.to_owned(), kind });
     }
 
-    /// The server accepted the connection a relay peer's bridge opened.
+    /// The server accepted the connection a relay peer's bridge opened. It shows nothing until
+    /// the phone reports a set.
     pub fn connect_relay(&self, connection: u64, peer_id: &str) {
-        self.inner().connections.insert(connection, Link::Relay { peer_id: peer_id.to_owned() });
+        self.inner()
+            .connections
+            .insert(connection, Link::Relay { peer_id: peer_id.to_owned(), screen: Screen::default() });
+    }
+
+    /// `ui/screenSessions/changed` from `connection`: false when it is no relay connection (the
+    /// caller then treats it as the desktop's own report). The set replaces the last one; a
+    /// browser id is kept until the phone states another.
+    pub fn report_screen(&self, connection: u64, sessions: HashSet<String>, browser_id: Option<&str>) -> bool {
+        let mut inner = self.inner();
+        let Some(Link::Relay { screen, .. }) = inner.connections.get_mut(&connection) else { return false };
+        screen.sessions = sessions;
+        if let Some(id) = browser_id {
+            screen.browser_id = slice_utf16(id, BROWSER_ID_MAX);
+        }
+        true
+    }
+
+    /// Whether a connection of the paired credential still attached shows `thread_id`: the
+    /// question of native and relay Web Push.
+    pub fn credential_shows(&self, credential: &str, thread_id: &str) -> bool {
+        self.shown_by(|described, _| !credential.is_empty() && described.credential == credential, thread_id)
+    }
+
+    /// Whether an attached connection that reported `browser_id` shows `thread_id`: the question
+    /// of direct Web Push. Never answers for a credential.
+    pub fn browser_shows(&self, browser_id: &str, thread_id: &str) -> bool {
+        self.shown_by(|_, screen| !browser_id.is_empty() && screen.browser_id == browser_id, thread_id)
+    }
+
+    fn shown_by(&self, which: impl Fn(&Described, &Screen) -> bool, thread_id: &str) -> bool {
+        let inner = self.inner();
+        inner.connections.values().any(|link| match link {
+            Link::Relay { peer_id, screen } => {
+                screen.sessions.contains(thread_id) && inner.peers.get(peer_id).is_some_and(|described| which(described, screen))
+            }
+            Link::Local { .. } => false,
+        })
     }
 
     pub fn disconnect(&self, connection: u64) {
@@ -95,8 +153,10 @@ impl DeviceRegistry {
     pub fn describe(&self, connection: u64) -> Option<Described> {
         let inner = self.inner();
         match inner.connections.get(&connection)? {
-            Link::Local { device, kind } => Some(Described { device: device.clone(), kind: LinkKind::Local(*kind) }),
-            Link::Relay { peer_id } => inner.peers.get(peer_id).cloned(),
+            Link::Local { device, kind } => {
+                Some(Described { device: device.clone(), credential: String::new(), kind: LinkKind::Local(*kind) })
+            }
+            Link::Relay { peer_id, .. } => inner.peers.get(peer_id).cloned(),
         }
     }
 }

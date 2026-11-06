@@ -20,7 +20,10 @@ use mixdog_protocol::ProviderId;
 
 use crate::providers::compat::CompatProfile;
 use crate::providers::compat::profile::CredentialKind;
+use crate::providers::compat::profile::LegacyWire;
 use crate::providers::compat::profile::Wire;
+use crate::providers::compat::wire_route::route_for;
+use mixdog_core_api::domain::provider::{WireRoute, WireRouteContext, WireRouting};
 use crate::providers::compat::wire_route::WireFacts;
 use crate::providers::compat::wire_route::resolve_wire;
 
@@ -61,6 +64,8 @@ impl MultiWireAdapter {
         let mut profile = CompatProfile::plain("custom", "http://127.0.0.1/v1", CredentialKind::Keyless);
         profile.default_wire = protocol_wire;
         profile.wires.offered = offered(&served);
+        // Every existing session of a custom provider started on its protocol's wire.
+        profile.wires.legacy = LegacyWire::Fixed(protocol_wire);
         Self { id, engines, profile, model_wires }
     }
 
@@ -115,6 +120,23 @@ impl ProviderAdapter for MultiWireAdapter {
 
     fn models(&self) -> Option<&dyn ModelListing> {
         self.default_engine().models()
+    }
+
+    fn wire_routing(&self) -> Option<&dyn WireRouting> {
+        Some(self)
+    }
+}
+
+#[async_trait]
+impl WireRouting for MultiWireAdapter {
+    /// The config decides: the model's `modelWires` override, else the protocol's wire.
+    async fn resolve_wire_route(&self, model: &str, context: &WireRouteContext) -> Result<Option<WireRoute>, ProviderError> {
+        let facts = WireFacts {
+            override_wire: self.model_wires.get(model).copied(),
+            known: true,
+            ..WireFacts::default()
+        };
+        Ok(route_for(&self.profile, &self.id.to_string(), model, facts, context))
     }
 }
 

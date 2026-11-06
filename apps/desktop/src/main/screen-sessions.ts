@@ -19,11 +19,29 @@ const reported = new WeakMap<object, ReadonlySet<string>>();
 export function reportScreenSessions(window: object, value: unknown): void {
   const ids = Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id !== '') : [];
   reported.set(window, new Set(ids));
+  watchers.get(window)?.();
 }
 
 /** Forget what a window reported: its page is gone, so nothing is painted. */
 export function clearScreenSessions(window: object): void {
   reported.delete(window);
+  watchers.get(window)?.();
+}
+
+const watchers = new WeakMap<object, () => void>();
+
+/** Calls `listener` after every report or clear for `window` (one watcher per window); returns the stop. */
+export function watchScreenSessions(window: object, listener: () => void): () => void {
+  watchers.set(window, listener);
+  return () => {
+    if (watchers.get(window) === listener) watchers.delete(window);
+  };
+}
+
+/** The sessions `isSessionOnScreen` would answer true for: empty unless the window is up, in front and focused. */
+export function screenSessionIds(window: ScreenWindow | null | undefined): string[] {
+  if (!window || window.isDestroyed() || !window.isVisible() || window.isMinimized() || !window.isFocused()) return [];
+  return [...(reported.get(window) ?? [])];
 }
 
 interface ScreenWindowContents {

@@ -190,6 +190,7 @@ pub(super) fn caps_of(body: &Value) -> Option<ModelCaps> {
         effort_levels: ["low", "medium", "high", "max"].map(str::to_owned).to_vec(),
         max_output_tokens: body["max_tokens"].as_u64().map(|v| v as u32),
         fast_mode: false,
+        context_window: None,
         thinking_display_updates: body["thinking"]["display"] == "updates",
     })
 }

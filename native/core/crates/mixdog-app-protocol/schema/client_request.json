@@ -7640,6 +7640,12 @@
             "null"
           ]
         },
+        "promptCacheScope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "providerState": true,
         "requestKind": {
           "type": [
@@ -7685,6 +7691,12 @@
           ]
         },
         "verbosity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "xaiResponsesCacheScope": {
           "type": [
             "string",
             "null"
@@ -11679,7 +11691,7 @@
       "type": "object"
     },
     {
-      "description": "The only call that creates a thread subscription (P §6.3).",
+      "description": "The only call that creates a thread subscription (P §6.3). A relay phone subscribes through Node's relay-handled `setVisibleSessions` (`remote-relay-client-calls.ts`), which the inventory maps to this call and `thread/unsubscribe`.",
       "properties": {
         "id": {
           "$ref": "#/definitions/RequestId"

@@ -24,6 +24,7 @@ use crate::v2::feed::FeedSnapshotParams;
 use crate::v2::host::HostBrowserViewFramesParams;
 use crate::v2::host::CoreDrainParams;
 use crate::v2::host::HostNotificationShowParams;
+use crate::v2::host::ModelProxyCancelParams;
 use crate::v2::host::ModelProxyRunEventParams;
 use crate::v2::host::RemotePointerParams;
 use crate::v2::host::UiOpenRequestedParams;
@@ -155,6 +156,7 @@ crate::notification_definitions! {
     HostNotificationShow => "host/notification/show" (HostNotificationShowParams) @connection,
     HostBrowserViewFrames => "host/browser/viewFrames" (HostBrowserViewFramesParams) @connection,
     ModelProxyRunEvent => "modelProxy/run/event" (ModelProxyRunEventParams) @connection,
+    ModelProxyCancel => "model/proxy/cancel" (ModelProxyCancelParams) @connection,
     // ---- app feed (P §6.2, DS §2.4)
     AppSnapshot => "app/snapshot" (AppSnapshotParams) @app,
     ThreadStarted => "thread/started" (ThreadStartedParams) @app,
@@ -268,6 +270,10 @@ pub enum ClientNotification {
     #[serde(rename = "model/proxy/event")]
     #[ts(rename = "model/proxy/event")]
     ModelProxyEvent(crate::v2::host::ModelProxyEventParams),
+    /// Stops the `modelProxy/run` run `runId` of the sender.
+    #[serde(rename = "modelProxy/cancel")]
+    #[ts(rename = "modelProxy/cancel")]
+    ModelProxyRunCancel(crate::v2::host::ModelProxyRunCancelParams),
     /// The pane created the tab a `ui/openRequested` visualize open asked for.
     #[serde(rename = "ui/newTab/created")]
     #[ts(rename = "ui/newTab/created")]
@@ -276,6 +282,10 @@ pub enum ClientNotification {
     #[serde(rename = "ui/terminalRun/claimed")]
     #[ts(rename = "ui/terminalRun/claimed")]
     UiTerminalRunClaimed(crate::v2::host::UiTerminalRunClaimedParams),
+    /// The sessions the user is looking at (the desktop notifier's `isSessionOnScreen`).
+    #[serde(rename = "ui/screenSessions/changed")]
+    #[ts(rename = "ui/screenSessions/changed")]
+    UiScreenSessionsChanged(crate::v2::host::UiScreenSessionsChangedParams),
 }
 
 pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
@@ -330,6 +340,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
         delivery: None,
     },
     crate::common::NotificationSpec {
+        method: "modelProxy/cancel",
+        params: "ModelProxyRunCancelParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
         method: "ui/newTab/created",
         params: "UiNewTabCreatedParams",
         delivery: None,
@@ -337,6 +352,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "ui/terminalRun/claimed",
         params: "UiTerminalRunClaimedParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "ui/screenSessions/changed",
+        params: "UiScreenSessionsChangedParams",
         delivery: None,
     },
 ];

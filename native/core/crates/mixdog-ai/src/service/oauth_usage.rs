@@ -281,81 +281,33 @@ fn read_json_file(path: &std::path::Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-/// The file's bytes and parsed JSON; `None` when absent. A leading byte order
-/// mark does not make a file damaged; other I/O failures are errors.
-#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
-fn read_json_state(path: &std::path::Path) -> std::io::Result<Option<(Vec<u8>, Option<Value>)>> {
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let text = String::from_utf8_lossy(&bytes);
-    let value = serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(&text)).ok();
-    Ok(Some((bytes, value)))
-}
-
-/// `readForMutationSync`: absent is `None`; a file that does not parse is kept
-/// aside as `<file>.corrupt-<ms>` (never overwritten) and replaced by the last
-/// good copy `<file>.bak` when that one parses, else the read starts empty;
-/// any other I/O failure is an error, since an unreadable file is not an empty
-/// one. Runs under the file's lock.
-#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
-fn read_for_mutation(path: &std::path::Path) -> std::io::Result<Option<Value>> {
-    let Some((_, value)) = read_json_state(path)? else { return Ok(None) };
-    if let Some(value) = value {
-        return Ok(Some(value));
-    }
-    let mut backup_name = path.as_os_str().to_owned();
-    backup_name.push(".bak");
-    let backup = read_json_state(&PathBuf::from(backup_name))?.and_then(|(bytes, value)| value.map(|v| (bytes, v)));
-    let mut stamp = now_ms();
-    let aside = loop {
-        let mut name = path.as_os_str().to_owned();
-        name.push(format!(".corrupt-{stamp}"));
-        let candidate = PathBuf::from(name);
-        if !candidate.exists() {
-            break candidate;
-        }
-        stamp += 1;
-    };
-    std::fs::rename(path, &aside)?;
-    let outcome = if backup.is_some() { "restored the last good copy" } else { "starting empty" };
-    tracing::warn!("[state] {} is damaged; kept as {}; {outcome}", path.display(), aside.display());
-    match backup {
-        Some((bytes, value)) => {
-            crate::oauth::publish_bytes(path, &bytes)?;
-            Ok(Some(value))
-        }
-        None => Ok(None),
-    }
-}
-
-/// `updateJsonAtomicSync` for the usage cache: one writer per file at a time
-/// (the file's advisory lock, shared with every other process), the current
-/// content read under that lock, and the new content published through a
-/// uniquely named temp file and an atomic rename. Errors are returned; Node's
-/// callers drop them because usage display must never affect the request path.
-#[allow(clippy::disallowed_methods, reason = "body of a lane job")]
+/// `updateJsonAtomicSync` for the usage cache: one writer per file at a time (the file's
+/// lock, shared with every other process), the current content read under that lock (a file
+/// that does not parse is recovered as `mixdog-statefile` does), and the new content published
+/// atomically. Errors are returned; Node's callers drop them because usage display must never
+/// affect the request path.
 fn update_json_atomic(
+    lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>,
     path: &std::path::Path,
     mutate: impl FnOnce(Option<Value>) -> Value,
 ) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    crate::oauth::with_lock(path, || {
-        let next = mutate(read_for_mutation(path)?);
-        let mut text = serde_json::to_vec(&next).map_err(std::io::Error::other)?;
-        text.push(b'\n');
-        crate::oauth::publish_bytes(path, &text)
-    })
+    let opts = mixdog_statefile::Opts { compact: true, fsync_dir: true, ..mixdog_statefile::Opts::default() };
+    mixdog_statefile::update_json::<_, std::convert::Infallible>(lane, path, |current| Ok(Some(mutate(current))), &opts)
+        .map(drop)
+        .map_err(|error| match error {
+            mixdog_statefile::StateError::Io(error) => error,
+            other => std::io::Error::other(other.to_string()),
+        })
 }
 
 /// Rewrites the routes of the cache file through `edit`. A lane job body: callers on the
 /// request path go through [`OAuthUsage::update_disk_cache`].
-fn update_disk_cache(path: &std::path::Path, edit: impl FnOnce(&mut Obj)) -> std::io::Result<()> {
-    update_json_atomic(path, |current| {
+fn update_disk_cache(
+    lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>,
+    path: &std::path::Path,
+    edit: impl FnOnce(&mut Obj),
+) -> std::io::Result<()> {
+    update_json_atomic(lane, path, |current| {
         let mut routes = current
             .as_ref()
             .and_then(|c| c.get("routes"))
@@ -461,7 +413,7 @@ impl OAuthUsage {
     /// `edit`s the cache file's routes under the file lock, on the durability lane.
     async fn update_disk_cache(&self, edit: impl FnOnce(&mut Obj) + Send + 'static) -> std::io::Result<()> {
         let path = self.cache_path();
-        self.deps.io.write_job(move || update_disk_cache(&path, edit)).await
+        self.deps.io.write_job(move |lane| update_disk_cache(lane, &path, edit)).await
     }
 
     fn log(&self, message: &str) {
@@ -498,7 +450,7 @@ impl OAuthUsage {
             }
         }
         let path = self.cache_path();
-        let raw = self.deps.io.read_job(move || Ok(read_json_file(&path))).await.ok().flatten();
+        let raw = self.deps.io.read_job(move |_| Ok(read_json_file(&path))).await.ok().flatten();
         let routes = raw.as_ref().and_then(|r| r.get("routes")).and_then(Value::as_object).cloned().unwrap_or_default();
         fresh(routes.get(&key), disk_ttl, now)
             .or_else(|| fresh(routes.get(&provider_only), disk_ttl, now))

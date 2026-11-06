@@ -63,6 +63,7 @@ pub use mixdog_core_api::domain::provider::ParameterValue;
 pub use mixdog_core_api::domain::provider::PickerFields;
 pub use mixdog_core_api::domain::provider::ReasoningOption;
 pub use mixdog_core_api::domain::provider::ServiceTier;
+pub use mixdog_core_api::domain::provider::WireIds;
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,6 +87,9 @@ pub struct ModelRecord {
     /// The model a routing alias resolves to.
     #[serde(default)]
     pub alias_target: Option<String>,
+    /// The wire id(s) the picker id is sent under.
+    #[serde(default)]
+    pub wire: Option<WireIds>,
     /// Wire family the source assigns (for example `gemini`, `claude`).
     #[serde(default)]
     pub family: Option<String>,
@@ -123,6 +127,7 @@ impl ModelRecord {
             mode: None,
             created: None,
             alias_target: None,
+            wire: None,
             family: None,
             thinking: Thinking::Unspecified,
             npm: None,

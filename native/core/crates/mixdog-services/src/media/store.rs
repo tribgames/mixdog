@@ -8,9 +8,12 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+use mixdog_rt::DurabilityIo;
 use serde_json::{Map, Value, json};
+
+use crate::lane::on_lane;
 use unicode_normalization::UnicodeNormalization;
 
 pub const MEDIA_KINDS: [&str; 2] = ["image", "video"];
@@ -50,6 +53,8 @@ fn invalid(message: &str) -> MediaError {
 pub struct MediaStore {
     dir: PathBuf,
     lock: Mutex<()>,
+    /// Every store call of an async path runs on this lane (see [`MediaStore::run`]).
+    lane: DurabilityIo,
 }
 
 fn extension_for(mime: &str) -> &'static str {
@@ -109,6 +114,7 @@ pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8], backup: bool) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -133,6 +139,7 @@ fn backup_path(path: &Path) -> PathBuf {
 
 /// Reads a JSON state file. Absent → `None`. Damaged (unparsable or failing `valid`) → set
 /// aside, the backup restored when it is good, else `None`. Other failures propagate.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub(crate) fn read_state(path: &Path, valid: impl Fn(&Value) -> bool) -> Result<Option<Value>, MediaError> {
     let parse = |p: &Path| -> std::io::Result<Option<Value>> {
         match fs::read(p) {
@@ -162,8 +169,15 @@ fn has_array(key: &'static str) -> impl Fn(&Value) -> bool {
 }
 
 impl MediaStore {
-    pub fn new(data_dir: &Path) -> Self {
-        Self { dir: data_dir.join("media"), lock: Mutex::new(()) }
+    pub fn new(data_dir: &Path, lane: DurabilityIo) -> Self {
+        Self { dir: data_dir.join("media"), lock: Mutex::new(()), lane }
+    }
+
+    /// Runs one store operation as a job on the durability lane. The methods below read and
+    /// write files, so an async caller never calls them directly.
+    pub async fn run<T: Send + 'static>(self: &Arc<Self>, work: impl FnOnce(&MediaStore) -> T + Send + 'static) -> Result<T, MediaError> {
+        let this = self.clone();
+        Ok(on_lane(self.lane, move || work(&this)).await?)
     }
 
     fn assets_dir(&self) -> PathBuf {
@@ -276,6 +290,7 @@ impl MediaStore {
     }
 
     /// The asset's original as a file. `None` when unknown or its bytes are gone.
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     pub fn resolve_file(&self, id: &str) -> Result<Option<Value>, MediaError> {
         let Some(mut entry) = self.get_asset(id)? else { return Ok(None) };
         // A FIFO, device or socket behind an asset name would hang the reader.
@@ -288,6 +303,7 @@ impl MediaStore {
     }
 
     /// Base64 for the inline path; larger files belong on the file route.
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     pub fn read_asset(&self, id: &str) -> Result<Option<Value>, MediaError> {
         use base64::Engine;
         let Some(mut file) = self.resolve_file(id)? else { return Ok(None) };
@@ -299,10 +315,12 @@ impl MediaStore {
         Ok(Some(file))
     }
 
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     pub fn asset_path(&self, id: &str) -> Result<Option<PathBuf>, MediaError> {
         Ok(self.get_asset(id)?.and_then(|e| self.stored_asset_path(str_field(&e, "file"))).filter(|p| p.exists()))
     }
 
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     pub fn assets_root(&self) -> PathBuf {
         let _ = fs::create_dir_all(self.assets_dir());
         self.assets_dir()
@@ -319,6 +337,7 @@ impl MediaStore {
         Ok(json!({"id": id, "removed": removed}))
     }
 
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     fn discard(&self, entry: &Value) {
         if let Some(path) = self.stored_asset_path(str_field(entry, "file")) {
             let _ = fs::remove_file(path);
@@ -327,6 +346,7 @@ impl MediaStore {
 
     /// Bulk cleanup. Filters AND together; one selector (ids, before, missing, all) is required
     /// so an empty request can never wipe the gallery. `dry_run` answers the matching ids.
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     pub fn delete_assets(&self, p: &Value) -> Result<Value, MediaError> {
         let ids: Option<Vec<String>> = p.get("ids").and_then(Value::as_array).map(|a| a.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).collect());
         let before = p.get("before").and_then(Value::as_f64).filter(|v| v.is_finite() && *v > 0.0);
@@ -476,6 +496,7 @@ impl MediaStore {
 
     // ---- Remembered selection and user pins (`defaults.json`).
 
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     fn read_defaults(&self) -> Map<String, Value> {
         fs::read(self.defaults_path())
             .ok()
@@ -557,7 +578,7 @@ mod tests {
 
     fn store() -> (tempfile::TempDir, MediaStore) {
         let dir = tempfile::tempdir().unwrap();
-        let store = MediaStore::new(dir.path());
+        let store = MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io);
         (dir, store)
     }
 

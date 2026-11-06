@@ -203,18 +203,19 @@ impl SessionDirectory {
 #[async_trait::async_trait]
 impl mixdog_tools::exec::TaskNotifier for SessionDirectory {
     async fn finished(&self, owner: &ThreadId, task_id: &str, status: &str, notification: String) {
-        let msg = Inbox::TaskNotification {
+        let msg = |live| Inbox::TaskNotification {
             task_id: task_id.to_owned(),
             status: status.to_owned(),
-            text: notification,
+            text: notification.clone(),
+            live,
         };
         if let Some(handle) = self.inner.loaded(owner) {
-            let _ = handle.inbox.send(msg).await;
+            let _ = handle.inbox.send(msg(true)).await;
             return;
         }
         let ctx = CallContext::internal("task-notification");
         if let Ok(handle) = self.inner.open(owner, &ctx).await {
-            let _ = handle.inbox.send(msg).await;
+            let _ = handle.inbox.send(msg(false)).await;
         }
     }
 }

@@ -164,6 +164,14 @@ fn cancelled() -> ToolError {
     ToolError::new(ToolErrorCode::Cancelled, "Error: cancelled")
 }
 
+/// `formatMissingToolApprovalUiDenial(toolName, askReason)` (`tool-helpers.mjs:187`).
+fn missing_approval_ui_denial(name: &str, ask_reason: &str) -> String {
+    let reason = mixdog_js::js_trim(if ask_reason.is_empty() { "approval requested by hook" } else { ask_reason });
+    let name = if name.is_empty() { "tool" } else { name };
+    let reason = if reason.is_empty() { String::new() } else { format!(" ({reason})") };
+    format!("Error: tool \"{name}\" denied by hook: approval required but no approval UI is available{reason}")
+}
+
 fn remember_name(scope: ApprovalRemember) -> &'static str {
     match scope {
         ApprovalRemember::Once => "once",
@@ -469,6 +477,14 @@ impl ToolPolicy {
             // The run was stopped while it waited: nobody answered.
             ApprovalResolution::Interrupted { .. } | ApprovalResolution::Cancelled { .. } => {
                 return Err(cancelled());
+            }
+            // Nobody could be asked: denied before any decision exists, so none is recorded
+            // (`resolvePreToolAskApproval` without a hook, `tool-helpers.mjs:218`).
+            ApprovalResolution::Unavailable { .. } => {
+                return Err(ToolError::new(
+                    ToolErrorCode::DeniedByHook,
+                    missing_approval_ui_denial(spec.name, spec.reason),
+                ));
             }
         };
 
@@ -1072,6 +1088,27 @@ mod tests {
         let err = h.run(&h.policy(None), &bot(), "github", comment_args()).await.expect_err("cancelled");
         assert_eq!(err.code, ToolErrorCode::Cancelled);
         assert!(h.store.audit().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_session_without_an_approval_surface_is_denied_with_nodes_text_and_no_audit() {
+        let h = Harness::new(github());
+        h.answer(ApprovalResolution::Unavailable { at: 0 });
+        let err = h.run(&h.policy(None), &bot(), "github", comment_args()).await.expect_err("unavailable");
+        assert_eq!(err.code, ToolErrorCode::DeniedByHook);
+        assert_eq!(
+            err.message_for_model,
+            "Error: tool \"github\" denied by hook: approval required but no approval UI is available (This sends or posts outside Mixdog; it needs your approval.)"
+        );
+        assert!(h.store.audit().is_empty());
+        assert_eq!(
+            missing_approval_ui_denial("shell", ""),
+            "Error: tool \"shell\" denied by hook: approval required but no approval UI is available (approval requested by hook)"
+        );
+        assert_eq!(
+            missing_approval_ui_denial("", " \u{a0}"),
+            "Error: tool \"tool\" denied by hook: approval required but no approval UI is available"
+        );
     }
 
     #[tokio::test]

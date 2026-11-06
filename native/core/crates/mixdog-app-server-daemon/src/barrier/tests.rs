@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, reason = "test setup on temp data dirs")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "test setup on temp data dirs"
+)]
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -12,6 +16,7 @@ use crate::verdict::GateError;
 use crate::verdict::GateStep;
 use crate::verdict::OsProcessTable;
 use crate::verdict::tests::FakeTable;
+use crate::verdict::tests::LaneGate;
 use crate::verdict::tests::TempData;
 use crate::verdict::tests::idle_child_process;
 use crate::verdict::tests::record;
@@ -51,10 +56,7 @@ pub(crate) fn set_hook(f: impl FnMut(Step) + 'static) -> HookGuard {
 }
 
 /// The steps one [`Gate::step`] passes, with `at` run at each.
-fn steps_with(
-    gate: &mut crate::verdict::Gate,
-    mut at: impl FnMut(Step) + 'static,
-) -> (GateStep, Vec<Step>) {
+fn steps_with(gate: &mut LaneGate, mut at: impl FnMut(Step) + 'static) -> (GateStep, Vec<Step>) {
     let steps = Rc::new(RefCell::new(Vec::new()));
     let sink = steps.clone();
     let guard = set_hook(move |step| {
@@ -67,7 +69,7 @@ fn steps_with(
     (result, steps)
 }
 
-fn steps_of(gate: &mut crate::verdict::Gate) -> (GateStep, Vec<Step>) {
+fn steps_of(gate: &mut LaneGate) -> (GateStep, Vec<Step>) {
     steps_with(gate, |_| {})
 }
 
@@ -131,6 +133,57 @@ fn fresh_data_dir_gets_barrier_and_record() {
     );
     assert_eq!(temp.file(RECORD_FILE).unwrap(), record().to_bytes());
     assert!(temp.file(BARRIER_STAGING_FILE).is_none() && temp.file(RECORD_STAGING_FILE).is_none());
+    assert_eq!(own.revalidate(), Ok(()));
+}
+
+/// A handle without delete sharing on `B` (an antivirus or indexer scan)
+/// refuses the barrier's rename-replace for moments; the install waits it out.
+#[cfg(windows)]
+#[test]
+fn a_transient_sharing_violation_on_the_target_is_retried() {
+    use std::cell::Cell;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE;
+
+    const HOLD: Duration = Duration::from_millis(300);
+    let temp = TempData::new();
+    let (own, mut gate) = temp.gate(Box::new(FakeTable::default()));
+    let path = temp.data().join(CLAIM_LOCK_FILE);
+    let opened = Rc::new(Cell::new(None::<Instant>));
+    let waited = Rc::new(Cell::new(None::<Duration>));
+    let (opened_at, waited_for) = (opened.clone(), waited.clone());
+    let (result, steps) = steps_with(&mut gate, move |step| match step {
+        // B holds the core's content; the barrier replaces it next.
+        Step::RecordWritten => {
+            let scan = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .open(&path)
+                .expect("scan handle");
+            opened_at.set(Some(Instant::now()));
+            std::thread::spawn(move || {
+                std::thread::sleep(HOLD);
+                drop(scan);
+            });
+        }
+        Step::BarrierInstalled => {
+            waited_for.set(opened_at.get().map(|at| at.elapsed()));
+        }
+        _ => {}
+    });
+    assert!(matches!(result, GateStep::Clear));
+    assert_eq!(steps, ALL_STEPS);
+    let waited = waited.get().expect("the scan ran before the barrier");
+    assert!(waited >= HOLD, "renamed after {waited:?}, under the scan");
+    assert_eq!(
+        temp.file(CLAIM_LOCK_FILE).unwrap(),
+        barrier_bytes(own.instance_id())
+    );
+    assert!(temp.file(BARRIER_STAGING_FILE).is_none());
     assert_eq!(own.revalidate(), Ok(()));
 }
 
@@ -264,7 +317,7 @@ fn a_live_owner_is_judged_without_touching_the_claim_lock() {
 /// A gate whose hook writes `R` (or deletes it, for `None`) once, at `at`.
 fn change_record_at(
     temp: &TempData,
-    gate: &mut crate::verdict::Gate,
+    gate: &mut LaneGate,
     at: Step,
     record: Option<String>,
 ) -> (GateStep, Vec<Step>) {

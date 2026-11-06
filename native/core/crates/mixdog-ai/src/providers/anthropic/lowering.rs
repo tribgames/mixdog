@@ -134,6 +134,7 @@ fn part_to_block(part: &ContentPart) -> Value {
             source,
             mime_type,
             filename,
+            ..
         } => {
             use mixdog_core_api::domain::provider::BinarySource;
             match source {

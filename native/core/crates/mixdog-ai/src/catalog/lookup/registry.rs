@@ -235,15 +235,31 @@ fn muse_seed(id: &str) -> Option<Value> {
     muse_lineage(id)
 }
 
-const MIMO_SEEDS: [(&str, u64); 7] = [
-    ("mimo-v2.6-pro", 1_048_576),
-    ("mimo-v2.6-flash", 1_048_576),
-    ("mimo-v2.6-pro-ultraspeed", 1_048_576),
-    ("mimo-v2.5-pro", 1_048_576),
-    ("mimo-v2.5", 1_048_576),
-    ("mimo-v2-pro", 1_048_576),
-    ("mimo-v2-omni", 262_144),
+/// id, display name, context window.
+const MIMO_SEEDS: [(&str, &str, u64); 7] = [
+    ("mimo-v2.6-pro", "MiMo-V2.6-Pro", 1_048_576),
+    ("mimo-v2.6-flash", "MiMo-V2.6-Flash", 1_048_576),
+    ("mimo-v2.6-pro-ultraspeed", "MiMo-V2.6-Pro-Ultraspeed", 1_048_576),
+    ("mimo-v2.5-pro", "MiMo-V2.5-Pro", 1_048_576),
+    ("mimo-v2.5", "MiMo-V2.5", 1_048_576),
+    ("mimo-v2-pro", "MiMo-V2-Pro", 1_048_576),
+    ("mimo-v2-omni", "MiMo-V2-Omni", 262_144),
 ];
+
+/// `seedModelItems()`: the roster a provider shows when its listing is empty
+/// or cannot be read (id, display name); none for a provider without one.
+pub fn seed_roster(provider: &str) -> Vec<(&'static str, &'static str)> {
+    match provider_catalog_entry(provider).and_then(|e| e.seed) {
+        Some(Seed::Mimo) => MIMO_SEEDS.iter().map(|s| (s.0, s.1)).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The display name `providerSeedRow` gives a model (`museSeedRow(id).name`).
+pub fn seed_display_name(provider: &str, model: &str) -> Option<String> {
+    let entry = provider_catalog_entry(provider)?;
+    seed_row(&entry, model)?.get("name")?.as_str().map(str::to_owned)
+}
 
 /// `mimoSeedMetadata(model)`: the exact seed id, else the longest seed whose
 /// id is a lineage prefix of the model.
@@ -259,7 +275,7 @@ fn mimo_seed(model: &str) -> Option<Value> {
         }
     }
     let seed = seed?;
-    Some(json!({"contextWindow": seed.1, "outputTokens": 131_072, "supportsReasoning": true, "supportsVision": true}))
+    Some(json!({"contextWindow": seed.2, "outputTokens": 131_072, "supportsReasoning": true, "supportsVision": true}))
 }
 
 /// `providerSeedRow(provider, model)`.

@@ -2,6 +2,8 @@
 //! checksum, and the state markers of an operation in progress. Everything here is blocking
 //! and runs on the maintenance lane through [`on_lane`].
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;

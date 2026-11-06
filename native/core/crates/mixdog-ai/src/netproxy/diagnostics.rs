@@ -5,25 +5,33 @@
 
 use std::io;
 use std::time::Duration;
-use std::time::Instant;
 
 use mixdog_js::js_trim;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
+use bytes::Bytes;
+use futures::future::Either;
+use http_body_util::Empty;
+use hyper_util::rt::TokioIo;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
+use url::Position;
 use url::Url;
 
 use super::NetworkProxy;
-use super::clients::ClientError;
 use super::clients::RoutedClients;
 use super::route::ProxyConfigError;
 use super::route::RouteError;
 use super::route::proxy_variables_set;
 use super::setting::NetworkProxySetting;
 use super::setting::proxy_display;
-use super::tunnel::TlsFailure;
 use super::tunnel::TunnelError;
+use super::tunnel::Conn;
+use super::tunnel::connect_proxy;
+use super::tunnel::dial;
 use super::tunnel::open_proxy_tunnel;
+use super::tunnel::proxy_authorization;
 use super::tunnel::tls_code;
 use super::tunnel::tls_connect;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
@@ -127,14 +135,6 @@ pub async fn explain_proxy_route(policy: &NetworkProxy, origin: &str, setting: &
     Ok(Value::Object(facts))
 }
 
-/// The error code of a failed exchange, as the Node fetch failure chain names it.
-fn failure_code(error: &ClientError) -> &'static str {
-    match error {
-        ClientError::Route(RouteError::Config(_)) => ProxyConfigError::CODE,
-        ClientError::Route(RouteError::InvalidTarget(_)) | ClientError::Build(_) => "UNKNOWN",
-    }
-}
-
 fn io_code(error: &io::Error) -> Option<&'static str> {
     use io::ErrorKind as K;
     Some(match error.kind() {
@@ -150,140 +150,123 @@ fn io_code(error: &io::Error) -> Option<&'static str> {
     })
 }
 
-/// The first typed code in a `reqwest` failure's cause chain; a timeout is ETIMEDOUT.
-fn reqwest_code(error: &reqwest::Error) -> &'static str {
-    let mut cursor: Option<&(dyn std::error::Error + 'static)> = Some(error);
-    while let Some(current) = cursor {
-        if let Some(code) = current.downcast_ref::<io::Error>().and_then(io_code) {
-            return code;
-        }
-        cursor = current.source();
-    }
-    if error.is_timeout() { "ETIMEDOUT" } else { "UNKNOWN" }
-}
-
-/// The host a failed lookup would name: the proxy when routed through one,
-/// else the origin's own host. `None` for an IP literal.
-async fn lookup_failed(target_host: &str, port: u16) -> bool {
-    if target_host.parse::<std::net::IpAddr>().is_ok() {
-        return false;
-    }
-    tokio::net::lookup_host((target_host, port)).await.is_err()
-}
-
 /// Connect to `origin` through the current policy: any HTTP answer, whatever
 /// its status, shows the route works. `{ ok, ms, origin, status, route }`, or
 /// `{ ok: false, ms, origin, code, route }`: the failure is the proxy's or the
-/// network's, never retried directly.
+/// network's, never retried directly. One deadline covers the whole check, as
+/// Node's single timed fetch does.
 pub async fn check_proxy_connection(
     clients: &RoutedClients,
     origin: &str,
     setting: &NetworkProxySetting,
 ) -> Result<Value, RouteError> {
-    let policy = clients.policy();
-    let route = explain_proxy_route(policy, origin, setting).await?;
-    let started = Instant::now();
-    let finish = |outcome: Result<u16, String>| {
-        let mut out = Map::new();
-        out.insert("ok".into(), json!(outcome.is_ok()));
-        out.insert("ms".into(), json!((started.elapsed().as_secs_f64() * 1000.0).round() as u64));
-        out.insert("origin".into(), json!(origin));
-        match outcome {
-            Ok(status) => out.insert("status".into(), json!(status)),
-            Err(code) => out.insert("code".into(), json!(code)),
-        };
-        out.insert("route".into(), route.clone());
-        Value::Object(out)
+    let route = explain_proxy_route(clients.policy(), origin, setting).await?;
+    let started = tokio::time::Instant::now();
+    let outcome = match tokio::time::timeout(CHECK_TIMEOUT, head_request(clients.policy(), origin, setting)).await {
+        Ok(outcome) => outcome,
+        Err(_) => Err("ETIMEDOUT".to_owned()),
     };
-    let client = match clients.client_for(origin).await {
-        Ok(client) => client,
-        Err(error) => return Ok(finish(Err(failure_code(&error).to_owned()))),
+    let mut out = Map::new();
+    out.insert("ok".into(), json!(outcome.is_ok()));
+    out.insert("ms".into(), json!((started.elapsed().as_secs_f64() * 1000.0).round() as u64));
+    out.insert("origin".into(), json!(origin));
+    match outcome {
+        Ok(status) => out.insert("status".into(), json!(status)),
+        Err(code) => out.insert("code".into(), json!(code)),
     };
-    let decided = policy.route_with(origin, setting).await.ok();
-    let proxy = decided.as_ref().and_then(|route| route.proxy.as_deref());
-    let target = Url::parse(origin).ok().map(|url| {
-        (
-            url.host_str().unwrap_or_default().trim_matches(['[', ']']).to_owned(),
-            url.port_or_known_default().unwrap_or(443),
-            url.scheme() == "https",
-        )
-    });
-    let proxy_url = proxy.and_then(|url| Url::parse(url).ok());
-    let dial_host = match &proxy_url {
-        Some(url) => Some((url.host_str().unwrap_or_default().trim_matches(['[', ']']).to_owned(), url.port().unwrap_or(80))),
-        None => target.as_ref().map(|(host, port, _)| (host.clone(), *port)),
-    };
-    if let Some((host, port)) = dial_host {
-        if lookup_failed(&host, port).await {
-            return Ok(finish(Err("ENOTFOUND".into())));
-        }
-    }
-    if let (Some((host, port, https)), Some(proxy)) = (&target, proxy) {
-        // A SOCKS5 proxy tunnels every request, an HTTP proxy only an https one
-        // (an http request is forwarded to it): the tunnel is where a refusal is
-        // typed.
-        let tunnels = *https || proxy.starts_with("socks5:");
-        if tunnels {
-            match open_proxy_tunnel(proxy, host, *port, &KeepaliveSchedule::SPEC.tcp).await {
-                Ok(conn) => {
-                    if *https {
-                        if let Err(failure) = tls_connect(conn, host).await {
-                            return Ok(finish(Err(tls_failure_code(&failure))));
-                        }
-                    }
-                }
-                Err(error) => {
-                    if let Some(code) = tunnel_failure_code(&error, proxy) {
-                        return Ok(finish(Err(code)));
-                    }
-                }
-            }
-        }
-    } else if let Some((host, port, true)) = &target {
-        // Direct to an https origin: a certificate the platform does not trust
-        // is the origin's failure to name.
-        if let Ok(mut addrs) = tokio::net::lookup_host((host.as_str(), *port)).await {
-            if let Some(addr) = addrs.next() {
-                if let Ok(stream) = tokio::net::TcpStream::connect(addr).await {
-                    if let Err(failure) = tls_connect(stream, host).await {
-                        if tls_code(&failure) != "UNKNOWN" {
-                            return Ok(finish(Err(tls_code(&failure).to_owned())));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    let sent = client.head(origin).timeout(CHECK_TIMEOUT).send().await;
-    Ok(match sent {
-        // An http request through a proxy that wants credentials: undici refuses it as an invalid argument.
-        Ok(response) if response.status().as_u16() == 407 && proxy.is_some() && target.as_ref().is_some_and(|t| !t.2) => {
-            finish(Err("UND_ERR_INVALID_ARG".into()))
-        }
-        Ok(response) => finish(Ok(response.status().as_u16())),
-        Err(error) => finish(Err(reqwest_code(&error).to_owned())),
-    })
+    out.insert("route".into(), route);
+    Ok(Value::Object(out))
 }
 
-/// Node's code for a TLS failure reaching the proxy or the origin.
-fn tls_failure_code(failure: &TlsFailure) -> String {
-    tls_code(failure).to_owned()
+/// The one request of the check, over the one connection our own tunnel opens,
+/// so every failure on the way is the typed error of that connection.
+async fn head_request(policy: &NetworkProxy, origin: &str, setting: &NetworkProxySetting) -> Result<u16, String> {
+    let route = policy.route_with(origin, setting).await.map_err(|error| match error {
+        RouteError::Config(_) => ProxyConfigError::CODE.to_owned(),
+        RouteError::InvalidTarget(_) => "UNKNOWN".to_owned(),
+    })?;
+    let url = Url::parse(origin).map_err(|_| "UNKNOWN".to_owned())?;
+    let host = url.host_str().unwrap_or_default().trim_matches(['[', ']']).to_owned();
+    let port = url.port_or_known_default().unwrap_or(443);
+    let https = url.scheme() == "https";
+    let keepalive = &KeepaliveSchedule::SPEC.tcp;
+    let proxy = route.proxy.as_deref();
+    // A SOCKS5 proxy tunnels every request, an HTTP proxy only an https one: an
+    // http request is handed to it to forward.
+    let forwarded = proxy.is_some_and(|proxy| !https && !proxy.starts_with("socks5:"));
+    let conn = match proxy {
+        Some(proxy) if forwarded => connect_proxy(proxy, keepalive).await,
+        Some(proxy) => open_proxy_tunnel(proxy, &host, port, keepalive).await,
+        None => dial(&host, port, keepalive).await.map(Conn::Tcp),
+    }
+    .map_err(|error| tunnel_error_code(&error, proxy.unwrap_or_default()))?;
+    let status = if https {
+        let tls = tls_connect(conn, &host).await.map_err(|failure| tls_code(&failure).to_owned())?;
+        send_head(tls, &url, None).await?
+    } else {
+        let credentials = if forwarded { proxy.and_then(proxy_authorization) } else { None };
+        send_head(conn, &url, forwarded.then_some(credentials)).await?
+    };
+    // An http request through a proxy that wants credentials: undici refuses it as an invalid argument.
+    if status == 407 && forwarded { Err("UND_ERR_INVALID_ARG".into()) } else { Ok(status) }
 }
 
-/// The code undici's fetch path gives a failed tunnel; `None` where the plain
-/// request reports the failure better (the proxy could not be reached).
-fn tunnel_failure_code(error: &TunnelError, proxy: &str) -> Option<String> {
+/// A HEAD for `url` over `stream`. `forwarded` is `Some` when the stream is a
+/// proxy's, which gets the absolute URL and the proxy credentials, if any.
+async fn send_head<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: S,
+    url: &Url,
+    forwarded: Option<Option<String>>,
+) -> Result<u16, String> {
+    let (mut sender, connection) = hyper::client::conn::http1::handshake::<_, Empty<Bytes>>(TokioIo::new(stream))
+        .await
+        .map_err(|error| hyper_code(&error))?;
+    let target = if forwarded.is_some() { url.as_str() } else { "/" };
+    let mut request =
+        hyper::Request::builder().method("HEAD").uri(target).header("host", &url[Position::BeforeHost..Position::AfterPort]);
+    if let Some(Some(credentials)) = forwarded {
+        request = request.header("proxy-authorization", credentials);
+    }
+    let request = request.body(Empty::new()).map_err(|_| "UNKNOWN".to_owned())?;
+    let exchange = sender.send_request(request);
+    futures::pin_mut!(exchange, connection);
+    match futures::future::select(exchange, connection).await {
+        Either::Left((response, _)) => response.map(|response| response.status().as_u16()).map_err(|error| hyper_code(&error)),
+        Either::Right((Err(error), _)) => Err(hyper_code(&error)),
+        // The peer answered and closed: the connection ends in the poll that hands the answer over.
+        Either::Right((Ok(()), exchange)) => {
+            exchange.await.map(|response| response.status().as_u16()).map_err(|error| hyper_code(&error))
+        }
+    }
+}
+
+/// The first typed code in a hyper failure's cause chain; a connection the peer
+/// closed is undici's socket error.
+fn hyper_code(error: &hyper::Error) -> String {
+    let mut cursor: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(current) = cursor {
+        if let Some(code) = current.downcast_ref::<io::Error>().and_then(io_code) {
+            return code.to_owned();
+        }
+        cursor = current.source();
+    }
+    if error.is_incomplete_message() || error.is_closed() { "UND_ERR_SOCKET" } else { "UNKNOWN" }.to_owned()
+}
+
+/// The code undici's fetch path gives a failed connection to the proxy or through its tunnel.
+fn tunnel_error_code(error: &TunnelError, proxy: &str) -> String {
     match error {
-        TunnelError::Refused { code, .. } => Some(code.clone()),
-        TunnelError::Dropped(_) if proxy.starts_with("socks5:") => Some("UND_ERR_SOCKET".into()),
-        TunnelError::Dropped(_) => Some("UND_ERR_PRX_CONN".into()),
-        TunnelError::Tls(failure) => Some(match failure.certificate() {
+        TunnelError::Refused { code, .. } => code.clone(),
+        TunnelError::Dropped(_) if proxy.starts_with("socks5:") => "UND_ERR_SOCKET".into(),
+        TunnelError::Dropped(_) => "UND_ERR_PRX_CONN".into(),
+        TunnelError::Tls(failure) => match failure.certificate() {
             Some(rustls::CertificateError::NotValidForName | rustls::CertificateError::NotValidForNameContext { .. }) => {
                 "UND_ERR_PRX_TLS".to_owned()
             }
             _ => tls_code(failure).to_owned(),
-        }),
-        TunnelError::TimedOut => Some("UND_ERR_HEADERS_TIMEOUT".into()),
-        TunnelError::Dns | TunnelError::Connect(_) | TunnelError::Io(_) => None,
+        },
+        TunnelError::TimedOut => "UND_ERR_HEADERS_TIMEOUT".into(),
+        TunnelError::Dns => "ENOTFOUND".into(),
+        TunnelError::Connect(error) | TunnelError::Io(error) => io_code(error).unwrap_or("UNKNOWN").to_owned(),
     }
 }

@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_js::{JsRegex, js_trim, utf16_len};
+use mixdog_rt::DurabilityIo;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -134,11 +135,13 @@ pub struct RunRequest {
     pub module_path: Option<String>,
     pub spawn: Arc<dyn Spawn>,
     pub files_per_spawn: usize,
+    /// The lane a runner's own file work (a report it reads, a scratch directory) runs on.
+    pub lane: DurabilityIo,
 }
 
 impl RunRequest {
-    pub fn new(cwd: &Path, bin: &str, files: Vec<String>, spawn: Arc<dyn Spawn>) -> Self {
-        Self { files, cwd: cwd.to_owned(), bin: bin.to_owned(), args: Vec::new(), timeout: DEFAULT_ENGINE_TIMEOUT, cancel: None, module_path: None, spawn, files_per_spawn: FILES_PER_SPAWN }
+    pub fn new(cwd: &Path, bin: &str, files: Vec<String>, spawn: Arc<dyn Spawn>, lane: DurabilityIo) -> Self {
+        Self { files, cwd: cwd.to_owned(), bin: bin.to_owned(), args: Vec::new(), timeout: DEFAULT_ENGINE_TIMEOUT, cancel: None, module_path: None, spawn, files_per_spawn: FILES_PER_SPAWN, lane }
     }
 }
 
@@ -420,7 +423,7 @@ mod tests {
     #[tokio::test]
     async fn list_formatters_chunk_the_files_and_report_listed_ones_as_fixable() {
         let spawn = Arc::new(Scripted(Default::default(), ProcessResult { stdout: "a.sh\n".into(), ..Default::default() }));
-        let mut req = RunRequest::new(Path::new("/r"), "shfmt", (0..3).map(|n| format!("f{n}.sh")).collect(), spawn.clone());
+        let mut req = RunRequest::new(Path::new("/r"), "shfmt", (0..3).map(|n| format!("f{n}.sh")).collect(), spawn.clone(), mixdog_rt::testing::tokens().durability_io);
         req.files_per_spawn = 2;
         let runner = ListFormatter { id: "shfmt", list_args: &["-l"], write_args: &["-w"] };
         let out = runner.check(&req).await;

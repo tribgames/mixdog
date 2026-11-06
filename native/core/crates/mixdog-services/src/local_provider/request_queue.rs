@@ -59,7 +59,8 @@ struct State {
 }
 
 struct Inner {
-    serial: tokio::sync::Mutex<()>,
+    // One permit: the semaphore is never closed, so an acquire only waits its turn.
+    serial: tokio::sync::Semaphore,
     state: Mutex<State>,
     unloader: Arc<dyn Unload>,
     max_queue: usize,
@@ -78,7 +79,7 @@ impl RequestQueue {
     pub fn with_signal(unloader: Arc<dyn Unload>, idle_ttl_seconds: u64, max_queue: Option<usize>, signal: ChangeSignal) -> Self {
         Self(Arc::new(Inner {
             signal,
-            serial: tokio::sync::Mutex::new(()),
+            serial: tokio::sync::Semaphore::new(1),
             state: Mutex::new(State { ttl: idle_ttl_seconds, ..State::default() }),
             unloader,
             max_queue: max_queue.unwrap_or(DEFAULT_MAX_QUEUE),
@@ -111,7 +112,7 @@ impl RequestQueue {
                     return;
                 }
             }
-            let _lane = this.0.serial.lock().await;
+            let _lane = this.0.serial.acquire().await;
             let outcome = this.0.unloader.unload().await;
             this.0.state.lock().unwrap().last_unload_error = outcome.err();
             this.0.signal.notify();
@@ -151,7 +152,7 @@ impl RequestQueue {
             this.0.signal.notify();
         };
         let lane = tokio::select! {
-            lane = self.0.serial.lock() => lane,
+            lane = self.0.serial.acquire() => lane,
             _ = token.cancelled() => {
                 finish(self);
                 return Err(QueueError::Aborted);
@@ -190,7 +191,7 @@ impl RequestQueue {
         }
         self.0.signal.notify();
         let outcome = self.0.unloader.unload().await;
-        let _ = self.0.serial.lock().await;
+        let _ = self.0.serial.acquire().await;
         let mut state = self.0.state.lock().unwrap();
         Self::clear_idle(&mut state);
         state.stopping = false;

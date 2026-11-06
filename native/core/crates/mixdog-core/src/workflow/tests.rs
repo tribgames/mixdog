@@ -30,7 +30,7 @@ fn fixtures() -> std::path::PathBuf {
 }
 
 struct Host {
-    main: Value,
+    main: Mutex<Value>,
     custom_agents: Vec<String>,
     capable: bool,
     adopted: Mutex<Vec<Value>>,
@@ -42,9 +42,13 @@ impl WorkflowHost for Host {
         Ok(Value::Null)
     }
     fn main_route(&self) -> Value {
-        self.main.clone()
+        self.main.lock().unwrap().clone()
     }
     async fn adopt_lead_route(&self, selection: Value) {
+        // The session resolves the selection into the live route (`modelParameters` included).
+        let mut route = selection.clone();
+        route.as_object_mut().unwrap().entry("modelParameters").or_insert(json!({}));
+        *self.main.lock().unwrap() = route;
         self.adopted.lock().unwrap().push(selection);
     }
     async fn custom_agent_ids(&self) -> Vec<String> {
@@ -83,6 +87,20 @@ fn scrub(value: &Value, data: &str) -> Value {
         Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), scrub(item, data))).collect()),
         other => other.clone(),
     }
+}
+
+/// Node's live config keeps the empty `modelParameters` of a Lead preset it adopted until the
+/// next reload; `Config` holds the stored form, which drops it. The save's own answer carries
+/// it (`adopted_status`); a later call's answer is compared without it.
+fn without_empty_params(mut reply: Value) -> Value {
+    if let Some(routes) = reply.pointer_mut("/result/workflowRoutes").and_then(Value::as_object_mut) {
+        for route in routes.values_mut().filter_map(Value::as_object_mut) {
+            if route.get("modelParameters") == Some(&json!({})) {
+                route.remove("modelParameters");
+            }
+        }
+    }
+    reply
 }
 
 fn method_name(name: &str) -> &'static str {
@@ -128,7 +146,7 @@ async fn methods_match_node() {
         std::fs::write(&config_path, serde_json::to_vec(&json!({ "agent": scenario["config"] })).unwrap()).unwrap();
         let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         let host = Arc::new(Host {
-            main: scenario["main"].as_object().map_or(json!({ "provider": "openai", "model": "main-model" }), |m| Value::Object(m.clone())),
+            main: Mutex::new(scenario["main"].as_object().map_or(json!({ "provider": "openai", "model": "main-model" }), |m| Value::Object(m.clone()))),
             custom_agents: scenario["customAgents"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect(),
             capable: scenario["webSearch"]["capable"] == json!(true),
             adopted: Mutex::default(),
@@ -155,7 +173,7 @@ async fn methods_match_node() {
                 Some(e) => json!({ "error": e }),
                 None => json!({ "result": step["result"] }),
             };
-            assert_eq!(got, want, "{name} #{i} {method} {}", step["params"]);
+            assert_eq!(without_empty_params(got), without_empty_params(want), "{name} #{i} {method} {}", step["params"]);
             assert_eq!(scrub(&Value::Object(config.agent()), &data.to_string_lossy()), step["config"], "{name} #{i} {method} config");
             let files: BTreeMap<String, String> = serde_json::from_value(step["files"].clone()).unwrap();
             assert_eq!(files_of(&data), files, "{name} #{i} {method} files");

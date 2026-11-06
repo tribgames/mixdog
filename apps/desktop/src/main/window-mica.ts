@@ -30,7 +30,11 @@ export type MicaReport = (event: string, details: Record<string, unknown>) => vo
 export function micaLibraryPath(environment: { isPackaged: boolean; resourcesPath: string; appPath: string }): string {
   return environment.isPackaged
     ? join(environment.resourcesPath, 'native-tools', MICA_LIBRARY_FILE)
-    : join(environment.appPath, '..', '..', 'native', 'mixdog-window', 'target', 'release', MICA_LIBRARY_FILE);
+    : join(
+        process.env.CARGO_TARGET_DIR ?? join(environment.appPath, '..', '..', 'native', 'mixdog-window', 'target'),
+        'release',
+        MICA_LIBRARY_FILE
+      );
 }
 
 function errorMessage(error: unknown): string {

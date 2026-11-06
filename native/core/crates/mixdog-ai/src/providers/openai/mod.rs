@@ -13,6 +13,7 @@ pub mod effort_retry;
 pub mod error;
 pub mod input;
 pub mod login;
+pub mod models;
 pub mod oauth;
 pub mod policy;
 pub mod pool;

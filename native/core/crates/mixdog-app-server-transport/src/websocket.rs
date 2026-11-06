@@ -45,6 +45,15 @@ use crate::socket::SocketClosed;
 use crate::socket::SocketRead;
 use crate::socket::SocketWrite;
 
+/// The header a bridge sets on the SSH listener to say which paired phone the socket carries
+/// (`remote::bridge`); the connection is then a `Relay { peer_id }` connection.
+pub const RELAY_PEER_HEADER: &str = "Mixdog-Relay-Peer";
+
+/// `^[0-9a-f-]{8,64}$`, the shape of a relay routing id.
+fn is_routing_id(value: &str) -> bool {
+    (8..=64).contains(&value.len()) && value.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'-'))
+}
+
 /// Connections upgraded but not yet taken by the server's accept loop.
 const ACCEPT_QUEUE: usize = 16;
 
@@ -268,6 +277,21 @@ fn screen_upgrade(
     }
     if pending.over_limit() {
         return Err(refusal(StatusCode::SERVICE_UNAVAILABLE, "connectionLimit"));
+    }
+    // Only the SSH listener is where a bridge brings phones; on the loopback listener the
+    // header means nothing. A header that is present but not a single routing id is refused,
+    // not ignored: ignoring it would leave the phone with the tunnel's wider rights.
+    if context.origin == ConnectionOrigin::SshTunnel {
+        let mut values = request.headers().get_all(RELAY_PEER_HEADER).iter();
+        if let Some(value) = values.next() {
+            let peer = value.to_str().ok().filter(|peer| is_routing_id(peer));
+            match (peer, values.next()) {
+                (Some(peer), None) => {
+                    pending.narrow_to_relay(peer.to_owned());
+                }
+                _ => return Err(refusal(StatusCode::BAD_REQUEST, "invalidRelayPeer")),
+            }
+        }
     }
     Ok(response)
 }

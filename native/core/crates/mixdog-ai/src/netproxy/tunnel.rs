@@ -175,6 +175,55 @@ fn credentials(url: &Url) -> Option<(String, String)> {
 }
 
 
+/// A TCP connection to `host:port`, the first address the name resolves to
+/// that answers. `host` has no brackets.
+pub async fn dial(host: &str, port: u16, keepalive: &TcpKeepalive) -> Result<TcpStream, TunnelError> {
+    let addrs = tokio::net::lookup_host((host, port)).await.map_err(|_| TunnelError::Dns)?;
+    let mut failure = None;
+    for addr in addrs {
+        match tcp::connect(addr, keepalive).await {
+            Ok(connected) => return Ok(connected),
+            Err(error) => failure = Some(error),
+        }
+    }
+    Err(failure.map_or(TunnelError::Dns, TunnelError::Connect))
+}
+
+fn proxy_endpoint(proxy: &Url) -> (String, u16) {
+    let default_port = match proxy.scheme() {
+        "socks5" => 1080,
+        "https" => 443,
+        _ => 80,
+    };
+    let host = proxy.host_str().unwrap_or_default().trim_start_matches('[').trim_end_matches(']').to_owned();
+    (host, proxy.port().unwrap_or(default_port))
+}
+
+/// The proxy's own connection: TLS inside when the proxy is `https:`.
+async fn reach_proxy(proxy: &Url, proxy_host: &str, stream: TcpStream) -> Result<Conn, TunnelError> {
+    if proxy.scheme() == "https" {
+        Ok(Conn::Tls(Box::new(tls_connect(stream, proxy_host).await.map_err(TunnelError::Tls)?)))
+    } else {
+        Ok(Conn::Tcp(stream))
+    }
+}
+
+/// A connection to the proxy itself, for a request it is to forward.
+pub async fn connect_proxy(proxy_url: &str, keepalive: &TcpKeepalive) -> Result<Conn, TunnelError> {
+    let proxy = Url::parse(proxy_url).map_err(|_| TunnelError::Dns)?;
+    let (proxy_host, proxy_port) = proxy_endpoint(&proxy);
+    let stream = dial(&proxy_host, proxy_port, keepalive).await?;
+    tokio::time::timeout(TUNNEL_TIMEOUT, reach_proxy(&proxy, &proxy_host, stream))
+        .await
+        .map_err(|_| TunnelError::TimedOut)?
+}
+
+/// The `Proxy-Authorization` value for the credentials in a proxy URL.
+pub fn proxy_authorization(proxy_url: &str) -> Option<String> {
+    let (user, password) = credentials(&Url::parse(proxy_url).ok()?)?;
+    Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"))))
+}
+
 /// A socket tunneled through `proxy_url` to `host:port` (the proxy resolves
 /// `host`). `host` has no brackets. An `https:` proxy is reached over TLS.
 pub async fn open_proxy_tunnel(
@@ -184,35 +233,10 @@ pub async fn open_proxy_tunnel(
     keepalive: &TcpKeepalive,
 ) -> Result<Conn, TunnelError> {
     let proxy = Url::parse(proxy_url).map_err(|_| TunnelError::Dns)?;
-    let default_port = match proxy.scheme() {
-        "socks5" => 1080,
-        "https" => 443,
-        _ => 80,
-    };
-    let proxy_host = proxy.host_str().unwrap_or_default().trim_start_matches('[').trim_end_matches(']').to_owned();
-    let proxy_port = proxy.port().unwrap_or(default_port);
-    let addrs = tokio::net::lookup_host((proxy_host.as_str(), proxy_port)).await.map_err(|_| TunnelError::Dns)?;
-    let mut failure = None;
-    let mut stream = None;
-    for addr in addrs {
-        match tcp::connect(addr, keepalive).await {
-            Ok(connected) => {
-                stream = Some(connected);
-                break;
-            }
-            Err(error) => failure = Some(error),
-        }
-    }
-    let stream = match stream {
-        Some(stream) => stream,
-        None => return Err(failure.map_or(TunnelError::Dns, TunnelError::Connect)),
-    };
+    let (proxy_host, proxy_port) = proxy_endpoint(&proxy);
+    let stream = dial(&proxy_host, proxy_port, keepalive).await?;
     let handshake = async {
-        let mut conn = if proxy.scheme() == "https" {
-            Conn::Tls(Box::new(tls_connect(stream, &proxy_host).await.map_err(TunnelError::Tls)?))
-        } else {
-            Conn::Tcp(stream)
-        };
+        let mut conn = reach_proxy(&proxy, &proxy_host, stream).await?;
         if proxy.scheme() == "socks5" {
             socks5(&mut conn, &proxy, proxy_url, host, port).await?;
         } else {
@@ -222,7 +246,6 @@ pub async fn open_proxy_tunnel(
     };
     tokio::time::timeout(TUNNEL_TIMEOUT, handshake).await.map_err(|_| TunnelError::TimedOut)?
 }
-
 async fn connect_request(
     stream: &mut Conn,
     proxy: &Url,

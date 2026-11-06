@@ -208,6 +208,14 @@ impl Pending {
         self.registration.hub.entries().len() > self.registration.hub.limits.max_connections as usize
     }
 
+    /// Scopes this socket as one paired phone's relay channel. Only the relay origin can be
+    /// taken this way, and only before the connection starts: the method table gives `Relay`
+    /// a subset of what `Local` and `Ssh` may call, so a peer can lower its own rights and
+    /// never raise them.
+    pub fn narrow_to_relay(&self, peer_id: String) -> bool {
+        self.shared.narrow(ConnectionOrigin::Relay { peer_id })
+    }
+
     /// Resolves when the heartbeat or a drain abandons this socket.
     pub fn abandoned(&self) -> WaitForCancellationFuture<'_> {
         self.shared.abort.cancelled()

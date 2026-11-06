@@ -132,6 +132,13 @@ pub enum ApprovalResolution {
         #[ts(type = "number")]
         at: i64,
     },
+    /// The session has no approval surface (`approvalMode: "implicit"`, headless exec): nobody
+    /// was asked and nothing was persisted.
+    #[serde(rename_all = "camelCase")]
+    Unavailable {
+        #[ts(type = "number")]
+        at: i64,
+    },
 }
 
 /// Open request payload carried with an approval (tool input, question set, card fields).

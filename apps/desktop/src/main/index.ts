@@ -78,6 +78,7 @@ import {
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier';
 import { isSessionOnScreen } from './screen-sessions';
+import { onProtocolAttached, publishScreenSessions } from './protocol/screen-sessions-publish';
 import { desktopIdentity } from './desktop-identity';
 import { notificationSoundPath, playWindowsNotificationSound, scaledNotificationSound } from './notification-sound';
 import {
@@ -2450,6 +2451,11 @@ function installLocalWindowFeatures(
   onGuest: (guest: Electron.WebContents) => void
 ): BrowserHost {
   mainWindow = window;
+  const stopScreenSessions = publishScreenSessions(
+    window,
+    (method, params) => localProtocol?.notify(method, params),
+    (listener) => (localProtocol ? onProtocolAttached(localProtocol, listener) : () => {})
+  );
   desktopPet?.attachAppWindow(window);
   if (!computerHost) {
     computerHost = createComputerHost({
@@ -2576,6 +2582,7 @@ function installLocalWindowFeatures(
   window.on('blur', () => idleReclaim?.onBlur());
   window.on('close', (event) => backgroundWindow.onClose(event, () => window.hide()));
   window.on('closed', () => {
+    stopScreenSessions();
     computerUseOverlay?.dispose();
     computerUseOverlay = null;
     // This window's host dies with it (macOS 'activate' builds a new one);

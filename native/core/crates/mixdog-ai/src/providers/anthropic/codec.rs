@@ -11,6 +11,8 @@ use mixdog_core_api::domain::provider::WireDecoder;
 use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_protocol::ProviderId;
 
+use crate::catalog::ListingLookup;
+
 use super::betas::beta_header;
 use super::body::BodyConfig;
 use super::body::CacheStrategy;
@@ -53,6 +55,27 @@ pub struct AnthropicConfig {
     /// The API-key route's `disableBetaHeaders`: no first-party-only request
     /// features, no server-side fallback, no mid-conversation effort updates.
     pub disable_beta_headers: bool,
+    /// The provider's configured `extraHeaders`, sent on the API-key route's
+    /// messages and listing requests. They replace a default header of the
+    /// same name (`anthropic-version`, `x-api-key`), except `anthropic-beta`
+    /// when the request names its own betas. The subscription route sends none.
+    pub extra_headers: Vec<(String, String)>,
+    /// The catalog tables the listing's enrichment and sanitizer read: the
+    /// handle the composition hands to `CatalogService::with_listing_lookup`.
+    pub listing: ListingLookup,
+}
+
+/// Layers `extra` over `headers`: a same-named header (any case) is replaced,
+/// and a request's own `anthropic-beta` is kept over an extra one.
+pub(super) fn layer_extra_headers(headers: &mut Vec<(String, String)>, extra: &[(String, String)]) {
+    for (name, value) in extra {
+        let same = |h: &(String, String)| h.0.eq_ignore_ascii_case(name);
+        if name.eq_ignore_ascii_case("anthropic-beta") && headers.iter().any(same) {
+            continue;
+        }
+        headers.retain(|h| !same(h));
+        headers.push((name.clone(), value.clone()));
+    }
 }
 
 impl AnthropicConfig {
@@ -64,6 +87,8 @@ impl AnthropicConfig {
             max_output_tokens: None,
             cli_version: DEFAULT_CLI_VERSION.to_owned(),
             disable_beta_headers: false,
+            extra_headers: Vec::new(),
+            listing: ListingLookup::new(),
         }
     }
 
@@ -148,6 +173,9 @@ impl WireCodec for AnthropicCodec {
             headers.push(("x-app".to_owned(), "cli".to_owned()));
         }
         headers.push(("content-type".to_owned(), "application/json".to_owned()));
+        if self.flavor == Flavor::ApiKey {
+            layer_extra_headers(&mut headers, &self.config.extra_headers);
+        }
         Ok(WireRequest {
             transport: TransportKind::Http1,
             method: "POST".to_owned(),

@@ -473,7 +473,7 @@ mod tests {
     async fn a_truncated_chunk_is_halved_until_every_file_is_covered() {
         let spawn = std::sync::Arc::new(Splitting(Default::default()));
         let files: Vec<String> = (0..5).map(|n| format!("f{n}.ts")).collect();
-        let req = RunRequest::new(Path::new(CWD), "biome", files, spawn.clone());
+        let req = RunRequest::new(Path::new(CWD), "biome", files, spawn.clone(), mixdog_rt::testing::tokens().durability_io);
         let out = Biome.check(&req).await;
         assert!(!out.truncated);
         assert_eq!(out.changed_files.len(), 5);

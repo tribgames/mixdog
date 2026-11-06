@@ -22,6 +22,8 @@ use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use mixdog_core_api::domain::ownership::Ownership;
+use mixdog_rt::InLane;
+use mixdog_statefile::WriteLane;
 pub use process::OsProcessTable;
 pub use process::ProcessIdentity;
 pub use process::ProcessInfo;
@@ -401,7 +403,10 @@ impl Gate {
         )
     }
 
-    pub fn step(&mut self) -> Result<GateStep, GateError> {
+    /// One pass of LR §3 steps 3–4. Runs as a write-lane job: a `clear` verdict
+    /// installs the barrier (durable renames that may wait out a sharing
+    /// violation). A [`Blocked`] it returns is waited on outside the lane.
+    pub fn step<L: WriteLane>(&mut self, lane: &InLane<L>) -> Result<GateStep, GateError> {
         self.blocked = None;
         loop {
             let dir_watch = DirWatch::arm(self.ownership.data_dir())?;
@@ -428,7 +433,7 @@ impl Gate {
                         match barrier::take(&self.ownership, take, record.as_deref(), &*self.procs)?
                         {
                             Taken::Held(held) => {
-                                held.install(&self.record)?;
+                                held.install(lane, &self.record)?;
                                 return Ok(GateStep::Clear);
                             }
                             Taken::Raced | Taken::RecordChanged => continue,

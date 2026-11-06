@@ -12,6 +12,9 @@
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::workflow::presets::normalize_preset;
+use crate::workflow::presets::stored_web_search_route;
+
 type Doc = Map<String, Value>;
 
 /// One field edit. `path` addresses a key inside the agent section.
@@ -212,16 +215,22 @@ pub fn stored_form(config: &Doc) -> Doc {
     let presets: Vec<Value> = routes
         .get("presets")
         .and_then(Value::as_array)
-        .map(|list| list.iter().filter(|p| p.get("id").and_then(Value::as_str) != Some("workflow-search")).cloned().collect())
+        .map(|list| {
+            list.iter()
+                .filter_map(normalize_preset)
+                .filter(|p| p.get("id").and_then(Value::as_str) != Some("workflow-search"))
+                .collect()
+        })
         .unwrap_or_default();
     next.insert("presets".into(), Value::Array(presets));
+    // Node stores the normalised route, `null` when it has none (`normalizeWebSearchRoute`).
+    next.insert("webSearchRoute".into(), stored_web_search_route(config.get("webSearchRoute").unwrap_or(&Value::Null)));
     let default = routes.get("default").filter(|v| is_truthy(v)).cloned().unwrap_or(Value::Null);
     next.insert("default".into(), default);
     for key in ["maintenance", "agents"] {
         next.insert(key.into(), routes.get(key).cloned().unwrap_or_else(|| Value::Object(Doc::new())));
     }
     for key in [
-        "webSearchRoute",
         "modelSettings",
         "onboarding",
         "workflow",
@@ -243,7 +252,7 @@ pub fn stored_form(config: &Doc) -> Doc {
     ] {
         if let Some(value) = config.get(key) {
             // Node stores `config.update || {}`, `onboarding || {}` and `recap || {}`.
-            if is_truthy(value) || matches!(key, "webSearchRoute") {
+            if is_truthy(value) {
                 next.insert(key.into(), value.clone());
             } else if matches!(key, "update" | "onboarding" | "recap") {
                 next.insert(key.into(), Value::Object(Doc::new()));

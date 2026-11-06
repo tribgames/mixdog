@@ -411,11 +411,105 @@ pub struct ClientModelConfig {
     pub info_model_uid: String,
     pub harness_uids: Vec<String>,
     pub is_model_router: bool,
+    /// The server sent a feature set, even an all-false one: the flags below
+    /// are then the model's, and the config's own `supports_images` is not.
+    pub has_features: bool,
     pub supports_tool_calls: bool,
     pub supports_thinking: bool,
     pub supports_parallel_tool_calls: bool,
     pub info_supports_images: bool,
     pub is_default_model_in_family: bool,
+    /// The server's own grouping of this uid with its effort siblings.
+    pub family: Option<ModelFamily>,
+    pub dimensions: Vec<ModelDimension>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ModelFamily {
+    pub label: String,
+    pub entries: Vec<FamilyEntry>,
+    pub is_default_model_in_family: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FamilyEntry {
+    pub key: String,
+    /// Absent when the entry states no value.
+    pub value: Option<FamilyValue>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FamilyValue {
+    pub order: i32,
+    pub name: String,
+}
+
+/// One labelled figure of the model's card (its price per `denominator`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ModelDimension {
+    pub label: String,
+    pub value: f64,
+    pub denominator: String,
+    pub kind: u64,
+}
+
+impl ModelFamily {
+    fn decode(bytes: &[u8]) -> Result<Self, PbError> {
+        let mut out = Self::default();
+        let mut r = Reader::new(bytes);
+        while let Some((n, v)) = r.next_field()? {
+            match n {
+                1 => out.label = v.text(),
+                2 => out.entries.push(FamilyEntry::decode(v.bytes())?),
+                3 => out.is_default_model_in_family = v.as_bool(),
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+}
+
+impl FamilyEntry {
+    fn decode(bytes: &[u8]) -> Result<Self, PbError> {
+        let mut out = Self::default();
+        let mut r = Reader::new(bytes);
+        while let Some((n, v)) = r.next_field()? {
+            match n {
+                1 => out.key = v.text(),
+                2 => {
+                    let mut value = FamilyValue::default();
+                    let mut f = Reader::new(v.bytes());
+                    while let Some((m, w)) = f.next_field()? {
+                        match m {
+                            1 => value.order = w.as_i32(),
+                            2 => value.name = w.text(),
+                            _ => {}
+                        }
+                    }
+                    out.value = Some(value);
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+}
+
+impl ModelDimension {
+    fn decode(bytes: &[u8]) -> Result<Self, PbError> {
+        let mut out = Self::default();
+        let mut r = Reader::new(bytes);
+        while let Some((n, v)) = r.next_field()? {
+            match n {
+                1 => out.label = v.text(),
+                2 => out.value = f64::from(v.as_f32()),
+                3 => out.denominator = v.text(),
+                6 => out.kind = v.as_u64(),
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
 }
 
 impl ClientModelConfig {
@@ -432,7 +526,9 @@ impl ClientModelConfig {
                 22 => out.model_uid = v.text(),
                 23 => out.decode_info(v.bytes())?,
                 27 => out.description = v.text(),
+                30 => out.family = Some(ModelFamily::decode(v.bytes())?),
                 31 => out.is_default_model_in_family = v.as_bool(),
+                32 => out.dimensions.push(ModelDimension::decode(v.bytes())?),
                 _ => {}
             }
         }
@@ -445,6 +541,7 @@ impl ClientModelConfig {
             match n {
                 4 => self.info_max_tokens = v.as_i32(),
                 6 => {
+                    self.has_features = true;
                     let mut f = Reader::new(v.bytes());
                     while let Some((m, w)) = f.next_field()? {
                         match m {

@@ -4,6 +4,8 @@
 #![cfg(windows)]
 #![allow(clippy::disallowed_methods, reason = "test fixtures lay out plugin folders and read the registry back")]
 
+mod support;
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -37,9 +39,9 @@ fn masked(base: &str, value: &Value) -> Value {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn every_registry_edit_answers_and_leaves_what_node_does() {
-    let golden: Value = serde_json::from_str(include_str!("golden/plugins.json")).unwrap();
-    let base = golden["base"].as_str().unwrap().to_owned();
-    let _ = std::fs::remove_dir_all(&base);
+    let scratch = tempfile::tempdir().unwrap();
+    let base = scratch.path().to_string_lossy().into_owned();
+    let golden: Value = serde_json::from_str(&support::relocate(include_str!("golden/plugins.json"), &base)).unwrap();
     for (name, files) in golden["fixtures"].as_object().unwrap() {
         let root = std::path::Path::new(&base).join("src").join(name);
         std::fs::create_dir_all(&root).unwrap();

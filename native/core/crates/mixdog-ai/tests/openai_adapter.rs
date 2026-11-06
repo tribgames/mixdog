@@ -12,6 +12,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use mixdog_ai::catalog::ListingLookup;
 use mixdog_ai::providers::openai::adapter::AdapterLinks;
 use mixdog_ai::providers::openai::adapter::Credential;
 use mixdog_ai::providers::openai::adapter::CredentialSource;
@@ -218,7 +219,7 @@ fn adapter(
     OpenAiAdapter::new(
         ProviderId::from("openai-oauth"),
         OpenAiCodec::new(config, transport),
-        AdapterLinks { http, dial, credentials, context },
+        AdapterLinks { http, dial, credentials, context, listing: ListingLookup::new() },
     )
 }
 

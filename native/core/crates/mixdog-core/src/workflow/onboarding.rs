@@ -19,7 +19,9 @@ use super::ids::Doc;
 use super::ids::clean;
 use super::ids::has_own;
 use super::ids::truthy;
+use super::presets::Effective;
 use super::presets::effective;
+use super::presets::effective_keeping;
 use super::presets::summarize_workflow_routes;
 
 /// `ONBOARDING_VERSION`.
@@ -57,7 +59,22 @@ fn with_starter_guide(previous: &Doc, mut onboarding: Doc) -> Doc {
 
 /// `getOnboardingStatus()`.
 pub(crate) fn status(agent: &Doc) -> Result<Value, String> {
-    let view = effective(agent);
+    status_of(effective(agent))
+}
+
+/// The status of the config a save adopted: the presets it wrote keep their saved form.
+pub(crate) fn adopted_status(before: &Doc, adopted: &Doc) -> Result<Value, String> {
+    let list = |doc: &Doc| doc.get("presets").and_then(Value::as_array).cloned().unwrap_or_default();
+    let old = list(before);
+    let written: Vec<String> = list(adopted)
+        .iter()
+        .filter(|preset| !old.contains(preset))
+        .map(|preset| clean(preset.get("id")))
+        .collect();
+    status_of(effective_keeping(adopted, &written))
+}
+
+fn status_of(view: Effective) -> Result<Value, String> {
     let routes = summarize_workflow_routes(&view)?;
     let version = view.onboarding.get("version").filter(|value| truthy(Some(*value))).cloned().unwrap_or(json!(0));
     let default = view.config.get("default").filter(|value| truthy(Some(*value))).cloned().unwrap_or(Value::Null);

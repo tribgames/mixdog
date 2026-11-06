@@ -12,8 +12,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use mixdog_rt::DurabilityIo;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
+
+use crate::lane::on_lane;
 
 use super::catalog::{engine_entry, engines};
 use super::install::{OnProgress, install_engines, managed_engine_dir, managed_tools_dir, manifest_asset, read_engines_manifest};
@@ -25,6 +28,7 @@ use crate::local_provider::assets::Fetcher;
 
 const HOST_MODULE_PROBE_TTL: Duration = Duration::from_secs(60);
 
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
 fn dir_bytes(dir: &Path) -> i64 {
     let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
     rd.flatten().map(|e| match e.metadata() {
@@ -35,21 +39,27 @@ fn dir_bytes(dir: &Path) -> i64 {
 }
 
 /// On-disk size of one installed managed engine version, 0 when absent.
-pub fn managed_engine_bytes(plugin_data: &Path, id: &str, version: &str) -> i64 {
+pub async fn managed_engine_bytes(lane: DurabilityIo, plugin_data: &Path, id: &str, version: &str) -> i64 {
     if plugin_data.as_os_str().is_empty() || version.is_empty() {
         return 0;
     }
     let dir = managed_engine_dir(plugin_data, id, version);
-    if dir.exists() { dir_bytes(&dir) } else { 0 }
+    on_lane(lane, move || existing_dir_bytes(&dir)).await.unwrap_or(0)
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn existing_dir_bytes(dir: &Path) -> i64 {
+    if dir.exists() { dir_bytes(dir) } else { 0 }
 }
 
 /// PSScriptAnalyzer is a PowerShell module: without a host there is nothing to install it into.
-fn power_shell_host(env: Option<&HashMap<String, String>>) -> bool {
-    engine_entry("psscriptanalyzer").is_some_and(|e| std::iter::once(&e.bin).chain(e.alt_bins.iter()).any(|n| which(n, env, None).is_some()))
+async fn power_shell_host(lane: DurabilityIo, env: Option<&HashMap<String, String>>) -> bool {
+    let env = env.cloned();
+    on_lane(lane, move || engine_entry("psscriptanalyzer").is_some_and(|e| std::iter::once(&e.bin).chain(e.alt_bins.iter()).any(|n| which(n, env.as_ref(), None).is_some()))).await.unwrap_or(false)
 }
 
-fn core_installable(id: &str, manifest: &Value, env: Option<&HashMap<String, String>>) -> bool {
-    TIDY_CORE_ENGINE_IDS.contains(&id) && manifest_asset(manifest, id).is_some() && (id != "psscriptanalyzer" || power_shell_host(env))
+async fn core_installable(lane: DurabilityIo, id: &str, manifest: &Value, env: Option<&HashMap<String, String>>) -> bool {
+    TIDY_CORE_ENGINE_IDS.contains(&id) && manifest_asset(manifest, id).is_some() && (id != "psscriptanalyzer" || power_shell_host(lane, env).await)
 }
 
 /// The engine resolver behind the status card: project-free resolution against the manifest,
@@ -128,29 +138,27 @@ impl EngineResolver for SystemEngineResolver {
             ..Default::default()
         })
         .await;
-        resolution
-            .engines
-            .iter()
-            .map(|e| {
-                let catalog = engine_entry(&e.id);
-                let source = match e.source.as_str() {
-                    "managed" => ResolvedSource::Managed,
-                    "missing" => ResolvedSource::Missing,
-                    _ => ResolvedSource::Host,
-                };
-                // The host probe has not answered: pending, neither installed nor missing.
-                let probing = catalog.is_some_and(|c| c.managed_module) && source == ResolvedSource::Missing && !e.command.is_empty() && !self.host_module_probed(&e.command);
-                ResolvedEngine {
-                    id: e.id.clone(),
-                    source,
-                    version: e.version.clone(),
-                    install_hint: Some(e.install_hint.clone()).filter(|h| !h.is_empty()),
-                    probing,
-                    installable: source == ResolvedSource::Missing && !probing && core_installable(&e.id, &self.manifest, self.env.as_ref()),
-                    bytes: if source == ResolvedSource::Managed { managed_engine_bytes(&self.plugin_data, &e.id, &e.version).max(0) as u64 } else { 0 },
-                }
-            })
-            .collect()
+        let mut out = Vec::with_capacity(resolution.engines.len());
+        for e in &resolution.engines {
+            let catalog = engine_entry(&e.id);
+            let source = match e.source.as_str() {
+                "managed" => ResolvedSource::Managed,
+                "missing" => ResolvedSource::Missing,
+                _ => ResolvedSource::Host,
+            };
+            // The host probe has not answered: pending, neither installed nor missing.
+            let probing = catalog.is_some_and(|c| c.managed_module) && source == ResolvedSource::Missing && !e.command.is_empty() && !self.host_module_probed(&e.command);
+            out.push(ResolvedEngine {
+                id: e.id.clone(),
+                source,
+                version: e.version.clone(),
+                install_hint: Some(e.install_hint.clone()).filter(|h| !h.is_empty()),
+                probing,
+                installable: source == ResolvedSource::Missing && !probing && core_installable(self.processes.durability(), &e.id, &self.manifest, self.env.as_ref()).await,
+                bytes: if source == ResolvedSource::Managed { managed_engine_bytes(self.processes.durability(), &self.plugin_data, &e.id, &e.version).await.max(0) as u64 } else { 0 },
+            });
+        }
+        out
     }
 }
 
@@ -205,7 +213,7 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
     for id in &wanted {
         let catalog = engine_entry(id).expect("core ids are catalog ids");
         let engine = resolved.engines.iter().find(|e| e.id == *id);
-        if *id == "psscriptanalyzer" && !power_shell_host(options.env.as_ref()) {
+        if *id == "psscriptanalyzer" && !power_shell_host(options.processes.durability(), options.env.as_ref()).await {
             let hint = if catalog.host_install_hint.is_empty() { catalog.install_hint.clone() } else { catalog.host_install_hint.clone() };
             job.settle(id, |e| {
                 e.status = "skipped".into();
@@ -214,7 +222,7 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
             continue;
         }
         if let Some(engine) = engine.filter(|e| !e.missing) {
-            let bytes = if engine.source == "managed" { managed_engine_bytes(options.plugin_data, id, &engine.version) } else { 0 };
+            let bytes = if engine.source == "managed" { managed_engine_bytes(options.processes.durability(), options.plugin_data, id, &engine.version).await } else { 0 };
             let version = engine.version.clone();
             job.settle(id, |e| {
                 e.status = "present".into();
@@ -245,7 +253,7 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
             let id = item["id"].as_str().unwrap_or("");
             let version = item["version"].as_str().unwrap_or("").to_owned();
             let present = item["status"] == "present";
-            let bytes = managed_engine_bytes(options.plugin_data, id, &version) as u64;
+            let bytes = managed_engine_bytes(options.processes.durability(), options.plugin_data, id, &version).await as u64;
             job.settle(id, |e| {
                 e.status = if present { "present" } else { "installed" }.into();
                 e.version = version;

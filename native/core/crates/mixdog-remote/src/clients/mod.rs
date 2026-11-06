@@ -2,7 +2,6 @@
 //! paired-device list the relay reports (`list-clients`, `revoke-client`).
 
 pub mod claims;
-pub mod foreground;
 pub mod table;
 
 use serde_json::{Map, Value, json};

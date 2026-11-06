@@ -366,7 +366,9 @@ async function prepareComputerNative() {
     { cwd: rootDir, maxBuffer: 64 * 1024 * 1024 }
   );
   await mkdir(outputDirectory, { recursive: true });
-  await cp(join(sourceRoot, 'target', triple, 'release', computerNativeFileName), output);
+  // CARGO_TARGET_DIR moves the build output off the checkout's drive; cargo (above) already honors it.
+  const targetRoot = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : join(sourceRoot, 'target');
+  await cp(join(targetRoot, triple, 'release', computerNativeFileName), output);
   await writeFile(cacheMarker, `${JSON.stringify(identity, null, 2)}\n`);
   return { binary: output, identity };
 }

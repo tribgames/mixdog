@@ -444,6 +444,8 @@ pub struct ModelSelection {
     pub model_id: String,
     pub parameters: Vec<(String, String)>,
     pub max_mode: bool,
+    /// The catalog model a pinned suffix id (`<base>-high`) bills as.
+    pub pricing_model: Option<String>,
 }
 
 pub struct RunBuild {

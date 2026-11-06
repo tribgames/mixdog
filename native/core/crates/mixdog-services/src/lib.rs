@@ -3,6 +3,7 @@ pub mod channels;
 pub mod connectors;
 pub mod effort_judge;
 pub mod import;
+pub(crate) mod lane;
 pub mod local_provider;
 pub mod media;
 pub mod memory;

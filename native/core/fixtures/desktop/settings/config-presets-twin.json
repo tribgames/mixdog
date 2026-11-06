@@ -1,0 +1,5315 @@
+{
+  "domain": "config-presets-twin",
+  "entries": [
+    {
+      "config": {
+        "default": null,
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "model": " m-2 ",
+          "provider": "gemini",
+          "toolType": "web_search"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "effort": "high",
+        "model": "m-2",
+        "provider": "gemini",
+        "toolType": "web_search"
+      }
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "fast": true,
+            "id": "id-10",
+            "name": "p10",
+            "provider": "",
+            "tools": "readonly"
+          },
+          {
+            "effort": " high ",
+            "extra": {
+              "keep": false
+            },
+            "fast": 1,
+            "id": " p11 ",
+            "model": " m-2 ",
+            "name": "Name 11",
+            "tools": null,
+            "type": 1
+          },
+          {
+            "extra": {
+              "keep": false
+            },
+            "fast": true,
+            "id": " p12 ",
+            "model": " m-2 ",
+            "modelParameters": {},
+            "name": " n12 ",
+            "provider": 7
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": "yes",
+          "model": null,
+          "provider": "gemini-api",
+          "toolType": " search "
+        }
+      },
+      "presets": [
+        {
+          "id": "p12",
+          "model": "m-2",
+          "name": "n12",
+          "provider": "7",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "id-20",
+        "presets": [
+          {
+            "fast": false,
+            "id": "id-20",
+            "model": "",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "provider": "openai-oauth"
+          },
+          {
+            "effort": 3,
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "id": "id-21",
+            "model": " m-2 ",
+            "modelParameters": {},
+            "name": "Name 21",
+            "provider": 7,
+            "tools": "mcp"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": " m-2 ",
+          "provider": "gemini",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "effort": "3",
+          "fallbacks": [
+            {
+              "model": "x",
+              "provider": "openai"
+            }
+          ],
+          "id": "id-21",
+          "model": "m-2",
+          "name": "Name 21",
+          "provider": "7",
+          "tools": "mcp",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "m-2",
+        "provider": "gemini"
+      }
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "autoEffort": true,
+            "effort": 3,
+            "extra": {
+              "keep": false
+            },
+            "id": "id-30",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": " n30 ",
+            "provider": "openai",
+            "tools": "mcp"
+          },
+          {
+            "id": "id-31",
+            "model": "big-model",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "p31",
+            "provider": "openai"
+          },
+          {
+            "effort": 3,
+            "id": "id-32",
+            "model": " m-2 ",
+            "name": "p32",
+            "provider": "cursor-api"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "",
+          "fast": true,
+          "provider": "xai",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "id-31",
+          "model": "big-model",
+          "name": "p31",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "effort": "3",
+          "id": "id-32",
+          "model": "m-2",
+          "name": "p32",
+          "provider": "cursor-api",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "fast": null,
+            "id": "p40",
+            "model": " m-2 ",
+            "name": "Name 40",
+            "provider": ""
+          },
+          {
+            "autoEffort": false,
+            "effort": "medium",
+            "id": "p41",
+            "model": "m-1",
+            "provider": "xai-api",
+            "type": "other"
+          },
+          {
+            "extra": {
+              "keep": false
+            },
+            "id": "id-42",
+            "model": null,
+            "name": " n42 ",
+            "provider": "xai",
+            "tools": 1
+          },
+          {
+            "autoEffort": 0,
+            "effort": "",
+            "extra": {
+              "keep": false
+            },
+            "fast": 1,
+            "id": "id-43",
+            "model": " m-2 ",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p43",
+            "provider": "anthropic-oauth"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {}
+      },
+      "presets": [
+        {
+          "autoEffort": false,
+          "effort": "medium",
+          "id": "p41",
+          "model": "m-1",
+          "name": "p41",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "id-43",
+          "model": "m-2",
+          "name": "p43",
+          "provider": "anthropic-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": 3,
+            "extra": {
+              "keep": false
+            },
+            "fast": null,
+            "id": "p50",
+            "model": 5,
+            "modelParameters": null,
+            "name": "Name 50",
+            "provider": "openai-oauth",
+            "type": "agent"
+          },
+          {
+            "id": "id-51",
+            "model": " m-2 ",
+            "name": "Name 51",
+            "provider": 7,
+            "tools": "full",
+            "type": 1
+          },
+          {
+            "effort": "",
+            "id": "id-52",
+            "model": null,
+            "name": "p52",
+            "provider": " openai ",
+            "tools": 1
+          },
+          {
+            "id": " p53 ",
+            "model": "big-model",
+            "modelParameters": null,
+            "name": "Name 53",
+            "provider": "cursor-api"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "fast": true,
+          "model": " m-2 ",
+          "provider": "openai-oauth"
+        }
+      },
+      "presets": [
+        {
+          "effort": "3",
+          "id": "p50",
+          "model": "5",
+          "name": "Name 50",
+          "provider": "openai-oauth",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "id-51",
+          "model": "m-2",
+          "name": "Name 51",
+          "provider": "7",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "p53",
+          "model": "big-model",
+          "name": "Name 53",
+          "provider": "cursor-api",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "effort": "2",
+        "fast": true,
+        "model": "m-2",
+        "provider": "openai-oauth"
+      }
+    },
+    {
+      "config": {
+        "default": "id-60",
+        "presets": [
+          {
+            "fast": null,
+            "id": "id-60",
+            "model": "m-1",
+            "modelParameters": {},
+            "name": "Name 60",
+            "provider": "openai-oauth",
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": true,
+          "model": " m-2 ",
+          "provider": "xai",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "id-60",
+          "model": "m-1",
+          "name": "Name 60",
+          "provider": "openai-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "fast": true,
+        "model": "m-2",
+        "provider": "xai"
+      }
+    },
+    {
+      "config": {
+        "default": "id-70",
+        "presets": [
+          {
+            "effort": "medium",
+            "extra": {
+              "keep": false
+            },
+            "id": "id-70",
+            "model": "big-model",
+            "name": "p70",
+            "provider": "xai-api",
+            "type": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "",
+          "model": " m-2 ",
+          "provider": "gemini"
+        }
+      },
+      "presets": [
+        {
+          "effort": "medium",
+          "id": "id-70",
+          "model": "big-model",
+          "name": "p70",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "m-2",
+        "provider": "gemini"
+      }
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "effort": "medium",
+            "extra": {
+              "keep": false
+            },
+            "fast": false,
+            "id": "id-80",
+            "model": null,
+            "provider": "gemini-api",
+            "tools": 1,
+            "type": "other"
+          },
+          {
+            "fallbacks": "x",
+            "fast": false,
+            "model": null,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "provider": "openai"
+          },
+          {
+            "effort": "medium",
+            "extra": {
+              "keep": false
+            },
+            "fallbacks": "x",
+            "fast": true,
+            "id": "p82",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "p82",
+            "provider": 7,
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": [
+          "a"
+        ]
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "id": " p100 ",
+            "model": " m-2 ",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "provider": "",
+            "type": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "fast": "yes",
+          "provider": "xai-api"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "id": "id-110",
+            "model": 5,
+            "name": " n110 ",
+            "provider": "xai-api"
+          },
+          {
+            "autoEffort": true,
+            "extra": {
+              "keep": false
+            },
+            "fast": null,
+            "model": "",
+            "name": " n111 ",
+            "provider": "openai",
+            "tools": "bogus"
+          },
+          {
+            "autoEffort": null,
+            "effort": "",
+            "extra": {
+              "keep": false
+            },
+            "fast": 1,
+            "id": "p112",
+            "model": "m-1",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "p112",
+            "provider": "xai-api",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": 3
+      },
+      "presets": [
+        {
+          "id": "id-110",
+          "model": "5",
+          "name": "n110",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "p112",
+          "model": "m-1",
+          "name": "p112",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "autoEffort": true,
+            "fast": null,
+            "model": null,
+            "name": "Name 120",
+            "provider": "anthropic-oauth",
+            "tools": "mcp"
+          },
+          {
+            "effort": 3,
+            "fast": null,
+            "id": "id-121",
+            "model": "big-model",
+            "provider": "",
+            "type": 1
+          },
+          {
+            "autoEffort": 0,
+            "effort": "",
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "fast": false,
+            "id": "id-122",
+            "name": "p122",
+            "provider": "anthropic-oauth",
+            "tools": "mcp",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "extra": 1,
+          "model": "",
+          "provider": " openai ",
+          "toolType": "web_search"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "autoEffort": 0,
+            "effort": "low",
+            "fast": false,
+            "id": "p130",
+            "name": "Name 130",
+            "provider": "xai"
+          },
+          {
+            "effort": " high ",
+            "extra": {
+              "keep": false
+            },
+            "fast": true,
+            "id": "p131",
+            "model": "",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": " n131 ",
+            "provider": "openai-api",
+            "tools": 1,
+            "type": 1
+          },
+          {
+            "autoEffort": null,
+            "effort": " high ",
+            "fast": null,
+            "id": "p132",
+            "model": 5,
+            "modelParameters": null,
+            "name": " n132 ",
+            "tools": 1,
+            "type": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": [
+          "a"
+        ]
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": "",
+            "fast": false,
+            "id": "id-140",
+            "model": " m-2 ",
+            "modelParameters": {},
+            "name": "Name 140",
+            "provider": "xai-api",
+            "type": 1
+          },
+          {
+            "autoEffort": 0,
+            "id": "id-141",
+            "model": "m-1",
+            "name": "Name 141",
+            "provider": 7,
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "",
+          "model": "big-model",
+          "provider": "openai-api",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "id-140",
+          "model": "m-2",
+          "name": "Name 140",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "id-141",
+          "model": "m-1",
+          "name": "Name 141",
+          "provider": "7",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "big-model",
+        "provider": "openai"
+      }
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "id": "id-150",
+            "model": "big-model",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "provider": ""
+          },
+          {
+            "effort": "",
+            "id": "id-151",
+            "modelParameters": null,
+            "name": "p151",
+            "provider": "xai",
+            "tools": 1
+          },
+          {
+            "extra": {
+              "keep": false
+            },
+            "id": " p152 ",
+            "model": 5,
+            "name": "Name 152",
+            "provider": "xai-api",
+            "tools": null,
+            "type": "agent"
+          },
+          {
+            "autoEffort": 0,
+            "effort": " high ",
+            "id": "id-153",
+            "model": " m-2 ",
+            "name": "p153",
+            "provider": "openai",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "extra": 1,
+          "fast": true,
+          "model": null,
+          "provider": "gemini",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "p152",
+          "model": "5",
+          "name": "Name 152",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "effort": "high",
+          "id": "id-153",
+          "model": "m-2",
+          "name": "p153",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "model": 5,
+          "provider": "gemini",
+          "toolType": "web_search"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "effort": "low",
+        "model": "5",
+        "provider": "gemini",
+        "toolType": "web_search"
+      }
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "autoEffort": null,
+            "fast": false,
+            "model": "big-model",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "Name 170"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": "yes",
+          "model": 5,
+          "provider": "openai",
+          "toolType": ""
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "5",
+        "provider": "openai"
+      }
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "autoEffort": false,
+            "model": "big-model",
+            "modelParameters": null,
+            "name": "p180",
+            "provider": 7
+          },
+          {
+            "extra": {
+              "keep": false
+            },
+            "id": " p181 ",
+            "model": " m-2 ",
+            "name": "Name 181",
+            "provider": "xai-api"
+          },
+          {
+            "autoEffort": true,
+            "fast": "yes",
+            "id": "id-182",
+            "model": "",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "provider": "openai-api",
+            "tools": "full"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": 3
+      },
+      "presets": [
+        {
+          "autoEffort": false,
+          "id": "p180",
+          "model": "big-model",
+          "name": "p180",
+          "provider": "7",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "p181",
+          "model": "m-2",
+          "name": "Name 181",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "id-190",
+        "presets": [
+          {
+            "id": "id-190",
+            "model": "",
+            "provider": "",
+            "type": "other"
+          },
+          {
+            "extra": {
+              "keep": false
+            },
+            "fast": true,
+            "id": " p191 ",
+            "model": "",
+            "modelParameters": {},
+            "name": "p191",
+            "provider": 7,
+            "tools": 1,
+            "type": "agent"
+          },
+          {
+            "autoEffort": false,
+            "fast": "yes",
+            "id": "id-192",
+            "model": " m-2 ",
+            "modelParameters": {},
+            "name": "Name 192",
+            "provider": "",
+            "type": "other"
+          },
+          {
+            "autoEffort": false,
+            "id": "p193",
+            "model": null,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "Name 193",
+            "provider": "xai",
+            "type": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "fast": true,
+          "model": " m-2 "
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "default",
+        "provider": "default"
+      }
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "autoEffort": null,
+            "id": "p200",
+            "modelParameters": null,
+            "name": " n200 "
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "fast": "yes",
+          "provider": "xai-api"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": "x"
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "model": null,
+            "modelParameters": null,
+            "name": " n220 ",
+            "tools": "mcp",
+            "type": "agent"
+          },
+          {
+            "autoEffort": null,
+            "effort": " high ",
+            "extra": {
+              "keep": false
+            },
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "id": " p221 ",
+            "model": "m-1",
+            "name": " n221 ",
+            "provider": 7,
+            "tools": "mcp",
+            "type": 1
+          },
+          {
+            "autoEffort": 0,
+            "extra": {
+              "keep": false
+            },
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "model": " m-2 ",
+            "name": " n222 ",
+            "provider": "anthropic-oauth",
+            "tools": null,
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "provider": " openai ",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "effort": "high",
+          "fallbacks": [
+            {
+              "model": "y"
+            }
+          ],
+          "id": "p221",
+          "model": "m-1",
+          "name": "n221",
+          "provider": "7",
+          "tools": "mcp",
+          "type": "agent"
+        },
+        {
+          "fallbacks": [
+            {
+              "model": "y"
+            }
+          ],
+          "id": "n222",
+          "model": "m-2",
+          "name": "n222",
+          "provider": "anthropic-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "autoEffort": 0,
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "fast": null,
+            "id": " p230 ",
+            "model": null,
+            "provider": 7
+          },
+          {
+            "autoEffort": null,
+            "id": "id-231",
+            "model": "",
+            "provider": "xai"
+          },
+          {
+            "autoEffort": true,
+            "effort": "",
+            "extra": {
+              "keep": false
+            },
+            "id": "p232",
+            "model": "m-1",
+            "modelParameters": null,
+            "name": " n232 "
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": "x"
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": "medium",
+            "extra": {
+              "keep": false
+            },
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "model": 5,
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": " n240 ",
+            "tools": "mcp"
+          },
+          {
+            "effort": "medium",
+            "model": 5,
+            "modelParameters": null,
+            "name": " n241 ",
+            "provider": 7,
+            "tools": 1,
+            "type": "other"
+          },
+          {
+            "autoEffort": false,
+            "extra": {
+              "keep": false
+            },
+            "fast": true,
+            "id": " p242 ",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "p242",
+            "provider": ""
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "extra": 1,
+          "model": "big-model",
+          "provider": "gemini",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "effort": "medium",
+          "id": "n241",
+          "model": "5",
+          "name": "n241",
+          "provider": "7",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "big-model",
+        "provider": "gemini"
+      }
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "provider": "cursor-api",
+          "toolType": "web_search"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": "medium",
+            "fallbacks": [],
+            "fast": null,
+            "id": "id-260",
+            "model": "m-1",
+            "modelParameters": null,
+            "name": "Name 260",
+            "provider": "openai"
+          },
+          {
+            "id": " p261 ",
+            "model": "",
+            "name": " n261 ",
+            "provider": 7,
+            "type": 1
+          },
+          {
+            "effort": "",
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "id": "p262",
+            "model": "",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p262",
+            "provider": " openai ",
+            "type": "agent"
+          },
+          {
+            "effort": " high ",
+            "fast": 1,
+            "id": "id-263",
+            "model": "big-model",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "Name 263",
+            "provider": "xai-api",
+            "tools": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": true,
+          "model": " m-2 ",
+          "toolType": " search "
+        }
+      },
+      "presets": [
+        {
+          "effort": "medium",
+          "id": "id-260",
+          "model": "m-1",
+          "name": "Name 260",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "effort": "high",
+          "id": "id-263",
+          "model": "big-model",
+          "name": "Name 263",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "default",
+        "provider": "default",
+        "toolType": "search"
+      }
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": 5,
+          "provider": "xai-api",
+          "toolType": " search "
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "5",
+        "provider": "xai",
+        "toolType": "search"
+      }
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "",
+          "extra": 1,
+          "model": ""
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "extra": 1,
+          "fast": null,
+          "model": null,
+          "provider": "anthropic"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "extra": {
+              "keep": false
+            },
+            "fast": false,
+            "id": "p300",
+            "model": "m-1",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "Name 300",
+            "provider": " openai "
+          },
+          {
+            "effort": "low",
+            "fast": "yes",
+            "id": " p301 ",
+            "modelParameters": {},
+            "name": " n301 ",
+            "provider": "gemini-api",
+            "tools": "readonly",
+            "type": "other"
+          },
+          {
+            "effort": "low",
+            "fallbacks": "x",
+            "fast": true,
+            "id": "p302",
+            "model": "m-1",
+            "modelParameters": {},
+            "name": "Name 302",
+            "provider": "openai-api",
+            "tools": 1
+          },
+          {
+            "extra": {
+              "keep": false
+            },
+            "fast": null,
+            "id": " p303 ",
+            "name": " n303 ",
+            "provider": 7,
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "provider": "openai-api",
+          "toolType": 4
+        }
+      },
+      "presets": [
+        {
+          "id": "p300",
+          "model": "m-1",
+          "name": "Name 300",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "effort": "low",
+          "fast": true,
+          "id": "p302",
+          "model": "m-1",
+          "name": "Name 302",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "",
+          "extra": 1,
+          "fast": null,
+          "model": " m-2 ",
+          "provider": ""
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "default",
+        "provider": "default"
+      }
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "fast": 1,
+            "id": "p320",
+            "model": "m-1",
+            "name": " n320 ",
+            "provider": "openai",
+            "tools": null,
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "toolType": "web_search"
+        }
+      },
+      "presets": [
+        {
+          "id": "p320",
+          "model": "m-1",
+          "name": "n320",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": "",
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "id": " p330 ",
+            "model": "",
+            "provider": "openai",
+            "tools": "mcp"
+          },
+          {
+            "autoEffort": false,
+            "id": "p331",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "Name 331",
+            "provider": "cursor-api",
+            "tools": null
+          },
+          {
+            "autoEffort": null,
+            "effort": 3,
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "id": " p332 ",
+            "model": 5,
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "Name 332",
+            "provider": "openai-api",
+            "tools": null,
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": "yes",
+          "model": ""
+        }
+      },
+      "presets": [
+        {
+          "effort": "3",
+          "fallbacks": [
+            {
+              "model": "x",
+              "provider": "openai"
+            }
+          ],
+          "id": "p332",
+          "model": "5",
+          "name": "Name 332",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "autoEffort": true,
+            "effort": " high ",
+            "extra": {
+              "keep": false
+            },
+            "model": "big-model",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "Name 340",
+            "provider": "openai-oauth",
+            "tools": "readonly",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": "m-1",
+          "provider": "openai"
+        }
+      },
+      "presets": [
+        {
+          "effort": "high",
+          "id": "Name 340",
+          "model": "big-model",
+          "name": "Name 340",
+          "provider": "openai-oauth",
+          "tools": "readonly",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "m-1",
+        "provider": "openai"
+      }
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "extra": 1,
+          "fast": "yes",
+          "model": ""
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "p360",
+        "presets": [
+          {
+            "effort": "",
+            "extra": {
+              "keep": false
+            },
+            "fast": false,
+            "id": "p360",
+            "model": null,
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "p360",
+            "type": "agent"
+          },
+          {
+            "effort": " high ",
+            "extra": {
+              "keep": false
+            },
+            "id": " p361 ",
+            "modelParameters": {},
+            "name": "Name 361",
+            "provider": "openai-api",
+            "tools": "full"
+          },
+          {
+            "extra": {
+              "keep": false
+            },
+            "id": " p362 ",
+            "model": null,
+            "provider": 7
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": 3
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "autoEffort": null,
+            "fast": "yes",
+            "id": "id-370",
+            "model": 5,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": " n370 ",
+            "tools": "mcp"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "",
+          "model": null
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": 5,
+          "provider": " openai ",
+          "toolType": " search "
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "5",
+        "provider": "openai",
+        "toolType": "search"
+      }
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "extra": {
+              "keep": false
+            },
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "id": "p390",
+            "model": "",
+            "name": "p390",
+            "type": "other"
+          },
+          {
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "id": "id-391",
+            "model": "m-1",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p391",
+            "provider": "anthropic",
+            "type": "agent"
+          },
+          {
+            "autoEffort": true,
+            "fast": null,
+            "model": null,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "provider": "openai"
+          },
+          {
+            "effort": "",
+            "id": "id-393",
+            "model": " m-2 ",
+            "provider": "openai-oauth",
+            "tools": null,
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": " m-2 ",
+          "provider": "anthropic-oauth"
+        }
+      },
+      "presets": [
+        {
+          "fallbacks": [
+            {
+              "model": "y"
+            }
+          ],
+          "id": "id-391",
+          "model": "m-1",
+          "name": "p391",
+          "provider": "anthropic",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "id-393",
+          "model": "m-2",
+          "name": "id-393",
+          "provider": "openai-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "m-2",
+        "provider": "anthropic-oauth"
+      }
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "autoEffort": false,
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "fast": null,
+            "model": 5,
+            "provider": "xai",
+            "tools": "readonly",
+            "type": "other"
+          },
+          {
+            "fast": null,
+            "id": " p401 ",
+            "model": null,
+            "name": " n401 ",
+            "provider": "xai-api"
+          },
+          {
+            "fallbacks": "x",
+            "id": "p402",
+            "name": " n402 ",
+            "provider": "",
+            "tools": "bogus",
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "",
+          "model": 5,
+          "provider": "anthropic-oauth"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "5",
+        "provider": "anthropic-oauth"
+      }
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "autoEffort": 0,
+            "id": "id-410",
+            "model": "",
+            "modelParameters": {},
+            "name": "p410",
+            "provider": " openai ",
+            "type": "other"
+          },
+          {
+            "effort": "medium",
+            "id": "p411",
+            "model": null,
+            "name": " n411 ",
+            "provider": "cursor-api",
+            "tools": "full"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": "big-model"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "default",
+        "provider": "default"
+      }
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "id": "id-420",
+            "model": null
+          },
+          {
+            "autoEffort": false,
+            "extra": {
+              "keep": false
+            },
+            "model": "big-model",
+            "name": "p421",
+            "provider": "anthropic-oauth",
+            "tools": null
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": [
+          "a"
+        ]
+      },
+      "presets": [
+        {
+          "autoEffort": false,
+          "id": "p421",
+          "model": "big-model",
+          "name": "p421",
+          "provider": "anthropic-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "fast": "yes",
+            "id": "p430",
+            "model": "",
+            "tools": "mcp",
+            "type": "agent"
+          },
+          {
+            "effort": "low",
+            "id": "id-431",
+            "model": "big-model",
+            "name": "p431",
+            "provider": " openai "
+          },
+          {
+            "fast": null,
+            "name": "Name 432",
+            "provider": "xai-api"
+          },
+          {
+            "effort": "",
+            "id": "p433",
+            "model": " m-2 ",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p433",
+            "provider": "anthropic",
+            "tools": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": null
+        }
+      },
+      "presets": [
+        {
+          "effort": "low",
+          "id": "id-431",
+          "model": "big-model",
+          "name": "p431",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "p433",
+          "model": "m-2",
+          "name": "p433",
+          "provider": "anthropic",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": "low",
+            "fast": "yes",
+            "id": "id-440",
+            "model": "",
+            "name": "Name 440",
+            "provider": "xai-api",
+            "tools": "bogus",
+            "type": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "",
+          "extra": 1,
+          "provider": "anthropic-oauth"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": true,
+          "model": "m-1",
+          "provider": "gemini-api"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "fast": true,
+        "model": "m-1",
+        "provider": "gemini"
+      }
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "model": 5,
+            "name": "Name 460",
+            "provider": "gemini",
+            "tools": "readonly"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "model": "m-1",
+          "provider": " openai "
+        }
+      },
+      "presets": [
+        {
+          "id": "Name 460",
+          "model": "5",
+          "name": "Name 460",
+          "provider": "gemini",
+          "tools": "readonly",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "effort": "high",
+        "model": "m-1",
+        "provider": "openai"
+      }
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": true,
+          "model": "",
+          "provider": 7,
+          "toolType": 4
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "extra": 1,
+          "fast": true,
+          "model": "",
+          "provider": "",
+          "toolType": 4
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": "",
+            "id": "p490",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "provider": "xai-api",
+            "tools": null,
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "fast": "yes",
+          "model": "m-1",
+          "provider": " openai ",
+          "toolType": ""
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "effort": "high",
+        "model": "m-1",
+        "provider": "openai"
+      }
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "fast": "yes",
+          "provider": "openai",
+          "toolType": " search "
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "fast": "yes",
+            "id": " p510 ",
+            "model": null,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": " n510 ",
+            "provider": "openai-api",
+            "type": 1
+          },
+          {
+            "id": "p511",
+            "model": 5,
+            "name": "p511",
+            "provider": "openai",
+            "tools": "full",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": null,
+          "provider": 7,
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "p511",
+          "model": "5",
+          "name": "p511",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "extra": 1,
+          "model": null,
+          "provider": "gemini",
+          "toolType": ""
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "fast": true,
+          "provider": "anthropic"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "model": "",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p540",
+            "provider": "gemini",
+            "tools": "bogus"
+          },
+          {
+            "effort": 3,
+            "model": null,
+            "provider": "xai",
+            "tools": "mcp",
+            "type": "other"
+          },
+          {
+            "id": "id-542",
+            "model": "big-model",
+            "name": " n542 ",
+            "provider": "openai-api",
+            "tools": "bogus",
+            "type": 1
+          },
+          {
+            "effort": "",
+            "fast": null,
+            "id": "p543",
+            "name": "Name 543",
+            "tools": "bogus"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "fast": false,
+          "model": "",
+          "provider": "gemini-api",
+          "toolType": 4
+        }
+      },
+      "presets": [
+        {
+          "id": "id-542",
+          "model": "big-model",
+          "name": "n542",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "fallbacks": [],
+            "fast": 1,
+            "id": "id-550",
+            "model": "big-model",
+            "name": " n550 ",
+            "provider": "",
+            "tools": 1,
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": null,
+          "model": " m-2 ",
+          "provider": "openai-api",
+          "toolType": 4
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "m-2",
+        "provider": "openai",
+        "toolType": "4"
+      }
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "fast": false,
+          "toolType": "web_search"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "id-570",
+        "presets": [
+          {
+            "autoEffort": true,
+            "id": "id-570",
+            "model": "m-1",
+            "name": "Name 570",
+            "provider": "openai",
+            "type": "other"
+          },
+          {
+            "id": " p571 ",
+            "model": "",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p571",
+            "tools": "mcp",
+            "type": "agent"
+          },
+          {
+            "autoEffort": true,
+            "effort": "medium",
+            "id": "id-572",
+            "name": "Name 572",
+            "provider": "gemini"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "extra": 1,
+          "fast": "yes",
+          "provider": "openai"
+        }
+      },
+      "presets": [
+        {
+          "id": "id-570",
+          "model": "m-1",
+          "name": "Name 570",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "autoEffort": null,
+            "effort": " high ",
+            "fast": 1,
+            "id": "p580",
+            "model": 5,
+            "name": "Name 580",
+            "tools": 1,
+            "type": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "fast": true,
+          "model": " m-2 ",
+          "provider": "cursor-api",
+          "toolType": ""
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "effort": "low",
+        "fast": true,
+        "model": "m-2",
+        "provider": "cursor-api"
+      }
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": 3,
+            "id": "p590",
+            "name": "p590",
+            "provider": "cursor-api",
+            "tools": null
+          },
+          {
+            "autoEffort": true,
+            "effort": " high ",
+            "extra": {
+              "keep": false
+            },
+            "id": "p591",
+            "model": "m-1",
+            "name": "Name 591",
+            "provider": "anthropic-oauth",
+            "tools": "full",
+            "type": 1
+          },
+          {
+            "id": " p592 ",
+            "model": " m-2 ",
+            "name": "Name 592",
+            "tools": null,
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "fast": null,
+          "provider": " openai "
+        }
+      },
+      "presets": [
+        {
+          "effort": "high",
+          "id": "p591",
+          "model": "m-1",
+          "name": "Name 591",
+          "provider": "anthropic-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": "x"
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": " high ",
+            "extra": {
+              "keep": false
+            },
+            "fast": false,
+            "name": "Name 610",
+            "provider": "openai",
+            "tools": "readonly",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "",
+          "extra": 1,
+          "provider": "cursor-api",
+          "toolType": "web_search"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "id-620",
+        "presets": [
+          {
+            "fast": "yes",
+            "id": "id-620",
+            "model": "big-model",
+            "name": "p620",
+            "tools": "bogus"
+          },
+          {
+            "fallbacks": [],
+            "fast": "yes",
+            "id": "p621",
+            "model": null,
+            "name": "Name 621",
+            "provider": "xai",
+            "tools": null
+          },
+          {
+            "effort": "",
+            "fast": null,
+            "model": null,
+            "name": "Name 622",
+            "type": "other"
+          },
+          {
+            "autoEffort": false,
+            "model": "m-1",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": " n623 ",
+            "provider": "anthropic-oauth",
+            "tools": "full"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "fast": null,
+          "model": " m-2 ",
+          "provider": "gemini",
+          "toolType": "web_search"
+        }
+      },
+      "presets": [
+        {
+          "autoEffort": false,
+          "id": "n623",
+          "model": "m-1",
+          "name": "n623",
+          "provider": "anthropic-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "effort": "low",
+        "model": "m-2",
+        "provider": "gemini",
+        "toolType": "web_search"
+      }
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "autoEffort": false,
+            "id": " p630 ",
+            "model": "m-1",
+            "name": "Name 630",
+            "provider": "xai-api",
+            "tools": "full"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "model": "",
+          "provider": "gemini"
+        }
+      },
+      "presets": [
+        {
+          "autoEffort": false,
+          "id": "p630",
+          "model": "m-1",
+          "name": "Name 630",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "autoEffort": 0,
+            "extra": {
+              "keep": false
+            },
+            "fast": "yes",
+            "id": "id-640",
+            "name": "p640",
+            "provider": "anthropic",
+            "type": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "effort": " high ",
+            "id": " p650 ",
+            "model": 5,
+            "name": " n650 ",
+            "provider": "",
+            "tools": "bogus",
+            "type": "agent"
+          },
+          {
+            "fast": false,
+            "id": "p651",
+            "model": "m-1",
+            "modelParameters": {},
+            "name": " n651 ",
+            "provider": "gemini-api",
+            "tools": 1,
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": null,
+          "model": "",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "p651",
+          "model": "m-1",
+          "name": "n651",
+          "provider": "gemini",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": "big-model",
+          "provider": 7,
+          "toolType": ""
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "big-model",
+        "provider": "7"
+      }
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "effort": "medium",
+            "model": null,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "Name 670",
+            "provider": "",
+            "tools": "bogus",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": [
+          "a"
+        ]
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "id-680",
+        "presets": [
+          {
+            "fallbacks": [],
+            "id": "id-680",
+            "model": null,
+            "name": "p680",
+            "provider": "cursor-api"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": "",
+          "provider": 7,
+          "toolType": "web_search"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": "low",
+            "extra": {
+              "keep": false
+            },
+            "model": null,
+            "name": "Name 690",
+            "tools": null
+          },
+          {
+            "autoEffort": null,
+            "effort": " high ",
+            "fast": true,
+            "id": "p691",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "p691",
+            "provider": "xai-api",
+            "tools": 1
+          },
+          {
+            "autoEffort": null,
+            "effort": "low",
+            "id": "id-692",
+            "model": "m-1",
+            "name": " n692 ",
+            "type": "other"
+          },
+          {
+            "fast": null,
+            "model": "",
+            "modelParameters": {},
+            "provider": "anthropic",
+            "tools": "readonly",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": "x"
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "",
+          "fast": true,
+          "model": "big-model",
+          "provider": " openai ",
+          "toolType": ""
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "fast": true,
+        "model": "big-model",
+        "provider": "openai"
+      }
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "fallbacks": "x",
+            "model": null,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "provider": 7,
+            "tools": "readonly",
+            "type": "agent"
+          },
+          {
+            "autoEffort": 0,
+            "effort": "",
+            "fast": null,
+            "id": "id-711",
+            "model": "",
+            "name": "Name 711",
+            "provider": "anthropic-oauth",
+            "type": "agent"
+          },
+          {
+            "fast": 1,
+            "id": "id-712",
+            "model": "big-model",
+            "name": "Name 712",
+            "provider": "gemini-api",
+            "tools": "full",
+            "type": "other"
+          },
+          {
+            "autoEffort": true,
+            "effort": "medium",
+            "id": "p713",
+            "model": "",
+            "name": " n713 ",
+            "type": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "extra": 1,
+          "model": null,
+          "provider": "gemini-api"
+        }
+      },
+      "presets": [
+        {
+          "id": "id-712",
+          "model": "big-model",
+          "name": "Name 712",
+          "provider": "gemini",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "id-720",
+        "presets": [
+          {
+            "autoEffort": null,
+            "effort": "medium",
+            "fast": true,
+            "id": "id-720",
+            "name": "p720",
+            "provider": " openai "
+          },
+          {
+            "effort": "",
+            "fast": false,
+            "id": "id-721",
+            "model": " m-2 ",
+            "name": " n721 "
+          },
+          {
+            "id": " p722 ",
+            "modelParameters": null,
+            "name": "Name 722",
+            "provider": "openai",
+            "tools": "mcp",
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": null,
+          "model": "",
+          "provider": "",
+          "toolType": 4
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "autoEffort": 0,
+            "effort": "low",
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "fast": true,
+            "id": "id-730",
+            "model": null,
+            "name": "Name 730",
+            "provider": "xai-api",
+            "tools": "bogus",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": "big-model",
+          "provider": "anthropic"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "big-model",
+        "provider": "anthropic"
+      }
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": "low",
+            "id": "id-740",
+            "model": null,
+            "name": " n740 ",
+            "provider": "gemini-api"
+          },
+          {
+            "autoEffort": true,
+            "effort": "",
+            "id": " p741 ",
+            "model": 5,
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": " n741 ",
+            "provider": "openai",
+            "tools": null,
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "extra": 1,
+          "fast": "yes",
+          "model": 5,
+          "provider": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "p741",
+          "model": "5",
+          "name": "n741",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "default",
+        "provider": "default"
+      }
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": true,
+          "model": "m-1",
+          "toolType": "web_search"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "default",
+        "provider": "default",
+        "toolType": "web_search"
+      }
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "effort": "",
+            "extra": {
+              "keep": false
+            },
+            "fast": true,
+            "model": 5,
+            "provider": "cursor-api",
+            "tools": null,
+            "type": 1
+          },
+          {
+            "effort": "",
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "id": " p761 "
+          },
+          {
+            "fast": false,
+            "id": "id-762",
+            "modelParameters": {},
+            "provider": "gemini-api"
+          },
+          {
+            "effort": " high ",
+            "extra": {
+              "keep": false
+            },
+            "id": "id-763",
+            "model": "big-model",
+            "modelParameters": {},
+            "name": " n763 ",
+            "provider": "anthropic-oauth"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": 3
+      },
+      "presets": [
+        {
+          "effort": "high",
+          "id": "id-763",
+          "model": "big-model",
+          "name": "n763",
+          "provider": "anthropic-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": [
+          "a"
+        ]
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": "medium",
+            "extra": {
+              "keep": false
+            },
+            "fast": 1,
+            "id": "p780",
+            "model": "big-model",
+            "provider": "xai-api"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "extra": 1,
+          "model": " m-2 ",
+          "provider": "anthropic",
+          "toolType": "web_search"
+        }
+      },
+      "presets": [
+        {
+          "effort": "medium",
+          "id": "p780",
+          "model": "big-model",
+          "name": "p780",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "effort": "high",
+        "model": "m-2",
+        "provider": "anthropic",
+        "toolType": "web_search"
+      }
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": false,
+          "model": "big-model",
+          "provider": "openai-api",
+          "toolType": ""
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "big-model",
+        "provider": "openai"
+      }
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "autoEffort": 0,
+            "fast": false,
+            "id": "id-800",
+            "model": 5,
+            "modelParameters": null,
+            "name": "Name 800",
+            "provider": "openai-api",
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "provider": "xai",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "id-800",
+          "model": "5",
+          "name": "Name 800",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "provider": "openai-api",
+          "toolType": 4
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "fast": true,
+            "id": "p820",
+            "model": 5,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": " n820 "
+          },
+          {
+            "autoEffort": null,
+            "effort": " high ",
+            "id": " p821 ",
+            "model": " m-2 ",
+            "name": "p821",
+            "provider": "openai-oauth",
+            "tools": null,
+            "type": 1
+          },
+          {
+            "autoEffort": null,
+            "id": "id-822",
+            "model": "",
+            "provider": 7,
+            "tools": "readonly"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "provider": "gemini",
+          "toolType": " search "
+        }
+      },
+      "presets": [
+        {
+          "effort": "high",
+          "id": "p821",
+          "model": "m-2",
+          "name": "p821",
+          "provider": "openai-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "effort": 3,
+            "id": "id-830",
+            "model": " m-2 ",
+            "name": "p830",
+            "provider": "openai",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": false,
+          "model": "big-model",
+          "provider": "anthropic-oauth",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "effort": "3",
+          "id": "id-830",
+          "model": "m-2",
+          "name": "p830",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "big-model",
+        "provider": "anthropic-oauth"
+      }
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "autoEffort": null,
+            "effort": "medium",
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "fast": 1,
+            "id": "id-840",
+            "model": 5,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": " n840 ",
+            "provider": "xai-api",
+            "type": "other"
+          },
+          {
+            "autoEffort": true,
+            "effort": "medium",
+            "id": "p841",
+            "model": "big-model",
+            "name": "Name 841",
+            "provider": "",
+            "tools": "bogus",
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": "x"
+      },
+      "presets": [
+        {
+          "effort": "medium",
+          "fallbacks": [
+            {
+              "model": "y"
+            }
+          ],
+          "id": "id-840",
+          "model": "5",
+          "name": "n840",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "effort": "medium",
+            "fallbacks": [],
+            "id": " p850 ",
+            "model": "m-1",
+            "name": "Name 850",
+            "provider": "gemini-api"
+          },
+          {
+            "autoEffort": true,
+            "fast": null,
+            "model": " m-2 ",
+            "name": "Name 851",
+            "provider": "cursor-api",
+            "tools": "readonly",
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "extra": 1,
+          "fast": null,
+          "model": null,
+          "toolType": " search "
+        }
+      },
+      "presets": [
+        {
+          "effort": "medium",
+          "id": "p850",
+          "model": "m-1",
+          "name": "Name 850",
+          "provider": "gemini",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "Name 851",
+          "model": "m-2",
+          "name": "Name 851",
+          "provider": "cursor-api",
+          "tools": "readonly",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "id": "id-860",
+            "name": "Name 860",
+            "provider": " openai "
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": null,
+          "provider": "openai-oauth"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "autoEffort": 0,
+            "effort": "medium",
+            "extra": {
+              "keep": false
+            },
+            "id": "id-870",
+            "model": " m-2 ",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "provider": "gemini",
+            "tools": "full",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": [
+          "a"
+        ]
+      },
+      "presets": [
+        {
+          "effort": "medium",
+          "id": "id-870",
+          "model": "m-2",
+          "name": "id-870",
+          "provider": "gemini",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "id": "p880",
+            "model": null,
+            "name": "Name 880",
+            "provider": " openai "
+          },
+          {
+            "id": "id-881",
+            "modelParameters": {},
+            "name": "Name 881",
+            "provider": "xai-api"
+          },
+          {
+            "autoEffort": false,
+            "effort": 3,
+            "model": " m-2 ",
+            "name": " n882 ",
+            "provider": " openai "
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "extra": 1,
+          "fast": true,
+          "model": "m-1",
+          "provider": "xai"
+        }
+      },
+      "presets": [
+        {
+          "autoEffort": false,
+          "effort": "3",
+          "id": "n882",
+          "model": "m-2",
+          "name": "n882",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "effort": "2",
+        "fast": true,
+        "model": "m-1",
+        "provider": "xai"
+      }
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "fast": false,
+            "id": "id-890",
+            "model": 5,
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "provider": 7,
+            "tools": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": null,
+          "model": "",
+          "provider": " openai ",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "id-890",
+          "model": "5",
+          "name": "id-890",
+          "provider": "7",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "extra": 1,
+          "fast": null,
+          "model": "",
+          "provider": "openai-oauth",
+          "toolType": "web_search"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": null
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": 5,
+          "provider": "anthropic-oauth"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "5",
+        "provider": "anthropic-oauth"
+      }
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "fast": 1,
+            "id": "p930",
+            "model": "big-model",
+            "name": "p930",
+            "provider": "xai-api",
+            "tools": "bogus",
+            "type": "other"
+          },
+          {
+            "effort": "",
+            "extra": {
+              "keep": false
+            },
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "model": "m-1",
+            "name": " n931 "
+          },
+          {
+            "fallbacks": [],
+            "id": " p932 ",
+            "model": "big-model",
+            "modelParameters": null,
+            "name": "Name 932",
+            "provider": "xai",
+            "tools": "readonly"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "extra": 1,
+          "model": "m-1",
+          "provider": " openai "
+        }
+      },
+      "presets": [
+        {
+          "fallbacks": [
+            {
+              "model": "x",
+              "provider": "openai"
+            }
+          ],
+          "id": "p930",
+          "model": "big-model",
+          "name": "p930",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "p932",
+          "model": "big-model",
+          "name": "Name 932",
+          "provider": "xai",
+          "tools": "readonly",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "effort": "2",
+        "model": "m-1",
+        "provider": "openai"
+      }
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "effort": 3,
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "fast": 1,
+            "id": " p940 ",
+            "model": "big-model",
+            "provider": "cursor-api"
+          },
+          {
+            "autoEffort": false,
+            "effort": "",
+            "extra": {
+              "keep": false
+            },
+            "fast": false,
+            "id": "p941",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "p941",
+            "provider": "xai",
+            "tools": "readonly",
+            "type": 1
+          },
+          {
+            "id": "id-942",
+            "modelParameters": {},
+            "name": " n942 ",
+            "provider": "",
+            "tools": "full",
+            "type": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "provider": "anthropic-oauth",
+          "toolType": "web_search"
+        }
+      },
+      "presets": [
+        {
+          "effort": "3",
+          "fallbacks": [
+            {
+              "model": "x",
+              "provider": "openai"
+            }
+          ],
+          "id": "p940",
+          "model": "big-model",
+          "name": "p940",
+          "provider": "cursor-api",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "provider": "gemini-api",
+          "toolType": " search "
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": 3
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "effort": 3,
+            "fast": "yes",
+            "id": " p970 ",
+            "name": "Name 970",
+            "provider": "cursor-api",
+            "tools": "mcp"
+          },
+          {
+            "id": " p971 ",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "p971",
+            "tools": "readonly",
+            "type": "other"
+          },
+          {
+            "autoEffort": true,
+            "effort": "medium",
+            "extra": {
+              "keep": false
+            },
+            "fast": "yes",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p972",
+            "provider": "openai",
+            "tools": "mcp"
+          },
+          {
+            "autoEffort": null,
+            "extra": {
+              "keep": false
+            },
+            "id": "id-973",
+            "model": 5,
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "Name 973",
+            "provider": "openai-api",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "id-973",
+          "model": "5",
+          "name": "Name 973",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": " high ",
+            "id": "p980",
+            "model": 5,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": " n980 ",
+            "provider": "cursor-api",
+            "tools": "readonly"
+          },
+          {
+            "autoEffort": 0,
+            "effort": " high ",
+            "model": 5,
+            "modelParameters": null,
+            "name": "p981",
+            "tools": "bogus"
+          },
+          {
+            "autoEffort": true,
+            "effort": 3,
+            "fast": null,
+            "id": " p982 ",
+            "model": "",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "provider": "gemini-api",
+            "tools": "full",
+            "type": "agent"
+          },
+          {
+            "autoEffort": null,
+            "effort": 3,
+            "fallbacks": "x",
+            "model": "big-model",
+            "name": "Name 983",
+            "provider": "gemini-api",
+            "tools": "readonly",
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "extra": 1,
+          "provider": "xai-api"
+        }
+      },
+      "presets": [
+        {
+          "effort": "high",
+          "id": "p980",
+          "model": "5",
+          "name": "n980",
+          "provider": "cursor-api",
+          "tools": "readonly",
+          "type": "agent"
+        },
+        {
+          "effort": "3",
+          "id": "Name 983",
+          "model": "big-model",
+          "name": "Name 983",
+          "provider": "gemini",
+          "tools": "readonly",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "autoEffort": true,
+            "effort": " high ",
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "model": 5,
+            "name": " n990 ",
+            "provider": "cursor-api",
+            "tools": "mcp"
+          },
+          {
+            "effort": "medium",
+            "fast": "yes",
+            "model": " m-2 ",
+            "name": "p991",
+            "provider": "openai-oauth"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {}
+      },
+      "presets": [
+        {
+          "effort": "high",
+          "fallbacks": [
+            {
+              "model": "y"
+            }
+          ],
+          "id": "n990",
+          "model": "5",
+          "name": "n990",
+          "provider": "cursor-api",
+          "tools": "mcp",
+          "type": "agent"
+        },
+        {
+          "effort": "medium",
+          "id": "p991",
+          "model": "m-2",
+          "name": "p991",
+          "provider": "openai-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "autoEffort": 0,
+            "id": "id-1000",
+            "model": "big-model",
+            "name": "Name 1000",
+            "provider": "openai-oauth",
+            "tools": "mcp"
+          },
+          {
+            "autoEffort": false,
+            "id": "id-1001",
+            "model": "",
+            "modelParameters": {},
+            "name": "Name 1001",
+            "provider": "cursor-api",
+            "type": "agent"
+          },
+          {
+            "autoEffort": 0,
+            "effort": 3,
+            "fast": "yes",
+            "id": "p1002",
+            "model": null,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p1002",
+            "provider": "",
+            "tools": 1,
+            "type": "agent"
+          },
+          {
+            "autoEffort": true,
+            "id": "p1003",
+            "model": "m-1",
+            "name": "Name 1003",
+            "provider": "openai",
+            "tools": null,
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "model": " m-2 ",
+          "provider": "gemini",
+          "toolType": "web_search"
+        }
+      },
+      "presets": [
+        {
+          "id": "id-1000",
+          "model": "big-model",
+          "name": "Name 1000",
+          "provider": "openai-oauth",
+          "tools": "mcp",
+          "type": "agent"
+        },
+        {
+          "id": "p1003",
+          "model": "m-1",
+          "name": "Name 1003",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "effort": "2",
+        "model": "m-2",
+        "provider": "gemini",
+        "toolType": "web_search"
+      }
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "autoEffort": true,
+            "effort": 3,
+            "fast": null,
+            "id": "id-1010",
+            "model": 5,
+            "modelParameters": {},
+            "name": "Name 1010",
+            "provider": "cursor-api",
+            "tools": "full",
+            "type": 1
+          },
+          {
+            "id": "p1011",
+            "name": "Name 1011",
+            "type": "other"
+          },
+          {
+            "autoEffort": 0,
+            "effort": "",
+            "fallbacks": [
+              {
+                "model": "x",
+                "provider": "openai"
+              }
+            ],
+            "fast": "yes",
+            "id": "p1012",
+            "model": 5,
+            "modelParameters": {},
+            "name": "p1012",
+            "provider": "openai-oauth",
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "fast": null,
+          "provider": 7
+        }
+      },
+      "presets": [
+        {
+          "effort": "3",
+          "id": "id-1010",
+          "model": "5",
+          "name": "Name 1010",
+          "provider": "cursor-api",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "fallbacks": [
+            {
+              "model": "x",
+              "provider": "openai"
+            }
+          ],
+          "id": "p1012",
+          "model": "5",
+          "name": "p1012",
+          "provider": "openai-oauth",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": " p1020 ",
+        "presets": [
+          {
+            "effort": "medium",
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "id": " p1020 ",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": " n1020 ",
+            "provider": "gemini-api",
+            "tools": null,
+            "type": "other"
+          },
+          {
+            "id": "id-1021",
+            "model": "m-1",
+            "modelParameters": null,
+            "name": "Name 1021",
+            "provider": "openai-oauth"
+          },
+          {
+            "autoEffort": false,
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "fast": false,
+            "id": "id-1022",
+            "model": " m-2 ",
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "p1022",
+            "provider": 7,
+            "tools": "full",
+            "type": 1
+          },
+          {
+            "autoEffort": null,
+            "fallbacks": "x",
+            "fast": false,
+            "id": " p1023 ",
+            "model": "big-model",
+            "name": " n1023 ",
+            "provider": "openai-api",
+            "tools": "readonly"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "model": 5,
+          "provider": "openai-api",
+          "toolType": ""
+        }
+      },
+      "presets": [
+        {
+          "id": "id-1021",
+          "model": "m-1",
+          "name": "Name 1021",
+          "provider": "openai-oauth",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "autoEffort": false,
+          "fallbacks": [
+            {
+              "model": "y"
+            }
+          ],
+          "id": "id-1022",
+          "model": "m-2",
+          "name": "p1022",
+          "provider": "7",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "p1023",
+          "model": "big-model",
+          "name": "n1023",
+          "provider": "openai",
+          "tools": "readonly",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "effort": "high",
+        "model": "5",
+        "provider": "openai"
+      }
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": "low",
+            "fast": "yes",
+            "id": "p1030",
+            "model": null,
+            "name": "Name 1030",
+            "provider": ""
+          },
+          {
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "fast": 1,
+            "id": " p1031 ",
+            "model": "big-model",
+            "name": "p1031",
+            "provider": "openai-oauth"
+          },
+          {
+            "autoEffort": false,
+            "model": "",
+            "name": " n1032 ",
+            "provider": "xai-api",
+            "type": 1
+          },
+          {
+            "id": "p1033",
+            "model": "big-model",
+            "provider": 7,
+            "tools": "mcp"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": "m-1",
+          "provider": ""
+        }
+      },
+      "presets": [
+        {
+          "fallbacks": [
+            {
+              "model": "y"
+            }
+          ],
+          "id": "p1031",
+          "model": "big-model",
+          "name": "p1031",
+          "provider": "openai-oauth",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "p1033",
+          "model": "big-model",
+          "name": "p1033",
+          "provider": "7",
+          "tools": "mcp",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "default",
+        "provider": "default"
+      }
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "effort": 3,
+            "id": " p1040 ",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p1040"
+          },
+          {
+            "effort": " high ",
+            "id": "id-1041",
+            "model": 5,
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": "Name 1041",
+            "provider": "gemini-api",
+            "tools": "full",
+            "type": "other"
+          },
+          {
+            "extra": {
+              "keep": false
+            },
+            "model": " m-2 ",
+            "modelParameters": {},
+            "name": "Name 1042",
+            "provider": "anthropic"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "fast": false,
+          "model": "m-1",
+          "provider": "xai-api"
+        }
+      },
+      "presets": [
+        {
+          "effort": "high",
+          "id": "id-1041",
+          "model": "5",
+          "name": "Name 1041",
+          "provider": "gemini",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "Name 1042",
+          "model": "m-2",
+          "name": "Name 1042",
+          "provider": "anthropic",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "effort": "high",
+        "model": "m-1",
+        "provider": "xai"
+      }
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "id": "p1050",
+            "model": "big-model",
+            "name": "Name 1050",
+            "provider": "cursor-api"
+          },
+          {
+            "autoEffort": false,
+            "effort": "medium",
+            "fast": null,
+            "id": " p1051 ",
+            "model": 5,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": " n1051 ",
+            "provider": "openai",
+            "type": "agent"
+          },
+          {
+            "effort": " high ",
+            "id": "p1052",
+            "name": "p1052",
+            "provider": "openai",
+            "tools": 1
+          },
+          {
+            "autoEffort": false,
+            "id": "p1053",
+            "model": 5,
+            "name": "Name 1053",
+            "type": "other"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        }
+      },
+      "presets": [
+        {
+          "id": "p1050",
+          "model": "big-model",
+          "name": "Name 1050",
+          "provider": "cursor-api",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "autoEffort": false,
+          "effort": "medium",
+          "id": "p1051",
+          "model": "5",
+          "name": "n1051",
+          "provider": "openai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [
+          {
+            "effort": "medium",
+            "extra": {
+              "keep": false
+            },
+            "id": " p1060 ",
+            "model": "big-model",
+            "modelParameters": {},
+            "name": " n1060 ",
+            "provider": "xai-api"
+          },
+          {
+            "extra": {
+              "keep": false
+            },
+            "fast": false,
+            "id": " p1061 ",
+            "model": "m-1",
+            "modelParameters": null,
+            "provider": "gemini",
+            "tools": null
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": "big-model",
+          "provider": " openai "
+        }
+      },
+      "presets": [
+        {
+          "effort": "medium",
+          "id": "p1060",
+          "model": "big-model",
+          "name": "n1060",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "p1061",
+          "model": "m-1",
+          "name": "p1061",
+          "provider": "gemini",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "model": "big-model",
+        "provider": "openai"
+      }
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": 3
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "autoEffort": false,
+            "fast": true,
+            "id": "id-1080",
+            "name": "Name 1080",
+            "provider": " openai "
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "extra": 1,
+          "fast": null,
+          "model": 5,
+          "provider": "xai",
+          "toolType": 4
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "5",
+        "provider": "xai",
+        "toolType": "4"
+      }
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": null,
+          "model": null,
+          "provider": "openai-api"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "fast": false,
+          "model": "m-1"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "model": "default",
+        "provider": "default"
+      }
+    },
+    {
+      "config": {
+        "default": "id-1110",
+        "presets": [
+          {
+            "effort": "medium",
+            "extra": {
+              "keep": false
+            },
+            "fast": true,
+            "id": "id-1110",
+            "model": 5,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "provider": "gemini-api",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": "low",
+          "model": null,
+          "provider": "gemini-api",
+          "toolType": 4
+        }
+      },
+      "presets": [
+        {
+          "effort": "medium",
+          "id": "id-1110",
+          "model": "5",
+          "name": "id-1110",
+          "provider": "gemini",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "presets": [
+          {
+            "extra": {
+              "keep": false
+            },
+            "fast": 1,
+            "id": "p1120",
+            "model": "",
+            "name": "Name 1120",
+            "provider": 7,
+            "type": "other"
+          },
+          {
+            "effort": " high ",
+            "id": " p1121 ",
+            "model": null,
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p1121",
+            "provider": "xai-api",
+            "tools": "mcp",
+            "type": "other"
+          },
+          {
+            "autoEffort": true,
+            "id": " p1122 ",
+            "model": 5,
+            "name": " n1122 ",
+            "provider": 7,
+            "tools": "mcp"
+          },
+          {
+            "effort": " high ",
+            "fast": true,
+            "id": "p1123",
+            "model": 5,
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "name": " n1123 "
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        }
+      },
+      "presets": [
+        {
+          "id": "p1122",
+          "model": "5",
+          "name": "n1122",
+          "provider": "7",
+          "tools": "mcp",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "autoEffort": false,
+            "fast": false,
+            "id": "id-1130",
+            "model": " m-2 ",
+            "name": " n1130 ",
+            "tools": "bogus"
+          },
+          {
+            "autoEffort": null,
+            "fast": null,
+            "id": " p1131 ",
+            "model": null,
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "type": "agent"
+          },
+          {
+            "autoEffort": true,
+            "effort": "medium",
+            "fallbacks": [],
+            "id": "p1132",
+            "name": " n1132 ",
+            "provider": "cursor-api",
+            "tools": "bogus"
+          },
+          {
+            "id": "p1133",
+            "model": "big-model",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "provider": "cursor-api",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        }
+      },
+      "presets": [
+        {
+          "id": "p1133",
+          "model": "big-model",
+          "name": "p1133",
+          "provider": "cursor-api",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "effort": 3,
+            "extra": {
+              "keep": false
+            },
+            "fast": null,
+            "model": "big-model",
+            "name": "Name 1140",
+            "provider": "xai-api",
+            "tools": "full",
+            "type": "other"
+          },
+          {
+            "model": " m-2 ",
+            "name": "Name 1141",
+            "provider": 7
+          },
+          {
+            "autoEffort": 0,
+            "effort": 3,
+            "fallbacks": [
+              {
+                "model": "y"
+              }
+            ],
+            "id": "id-1142",
+            "model": "big-model",
+            "name": "p1142",
+            "provider": 7
+          },
+          {
+            "effort": 3,
+            "extra": {
+              "keep": false
+            },
+            "fast": "yes",
+            "model": "m-1",
+            "modelParameters": {},
+            "name": "Name 1143",
+            "provider": "xai"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": 3
+      },
+      "presets": [
+        {
+          "effort": "3",
+          "id": "Name 1140",
+          "model": "big-model",
+          "name": "Name 1140",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "id": "Name 1141",
+          "model": "m-2",
+          "name": "Name 1141",
+          "provider": "7",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "effort": "3",
+          "fallbacks": [
+            {
+              "model": "y"
+            }
+          ],
+          "id": "id-1142",
+          "model": "big-model",
+          "name": "p1142",
+          "provider": "7",
+          "tools": "full",
+          "type": "agent"
+        },
+        {
+          "effort": "3",
+          "id": "Name 1143",
+          "model": "m-1",
+          "name": "Name 1143",
+          "provider": "xai",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": null,
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "extra": 1,
+          "fast": false,
+          "model": "m-1",
+          "provider": "openai-oauth"
+        }
+      },
+      "presets": null,
+      "webSearchRoute": {
+        "effort": "high",
+        "model": "m-1",
+        "provider": "openai-oauth"
+      }
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "extra": {
+              "keep": false
+            },
+            "fallbacks": [],
+            "id": "p1160",
+            "modelParameters": {
+              "temperature": 0.2
+            },
+            "name": "p1160",
+            "provider": "openai-api",
+            "tools": 1
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": 3
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "",
+        "presets": [
+          {
+            "effort": "medium",
+            "extra": {
+              "keep": false
+            },
+            "fast": null,
+            "id": "p1170",
+            "model": 5,
+            "modelParameters": {
+              "fast": false,
+              "top_p": 1
+            },
+            "provider": 7,
+            "tools": null,
+            "type": 1
+          },
+          {
+            "autoEffort": false,
+            "effort": "low",
+            "id": "id-1171",
+            "name": "Name 1171",
+            "provider": "openai-oauth",
+            "tools": "readonly"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": " high ",
+          "model": 5,
+          "provider": "gemini"
+        }
+      },
+      "presets": [
+        {
+          "effort": "medium",
+          "id": "p1170",
+          "model": "5",
+          "name": "p1170",
+          "provider": "7",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": {
+        "effort": "high",
+        "model": "5",
+        "provider": "gemini"
+      }
+    },
+    {
+      "config": {
+        "presets": [],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "effort": 2,
+          "model": "",
+          "provider": 7
+        }
+      },
+      "presets": null,
+      "webSearchRoute": null
+    },
+    {
+      "config": {
+        "default": "missing",
+        "presets": [
+          {
+            "id": "p1190",
+            "model": 5,
+            "provider": ""
+          },
+          {
+            "effort": "",
+            "fast": false,
+            "id": "p1191",
+            "model": " m-2 ",
+            "name": "Name 1191",
+            "provider": "gemini-api",
+            "tools": "bogus"
+          },
+          {
+            "fast": 1,
+            "id": "id-1192",
+            "model": "",
+            "name": " n1192 ",
+            "provider": "anthropic-oauth",
+            "type": "agent"
+          }
+        ],
+        "providers": {
+          "openai": {
+            "enabled": true
+          }
+        },
+        "webSearchRoute": {
+          "model": "",
+          "provider": " openai ",
+          "toolType": 4
+        }
+      },
+      "presets": [
+        {
+          "id": "p1191",
+          "model": "m-2",
+          "name": "Name 1191",
+          "provider": "gemini",
+          "tools": "full",
+          "type": "agent"
+        }
+      ],
+      "webSearchRoute": null
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-config-presets.mjs"
+}

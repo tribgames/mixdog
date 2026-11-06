@@ -26,6 +26,7 @@ fn is_uuid(text: &str) -> bool {
 
 /// Rollout file with this rollout id under the live, then the archived, sessions folder
 /// (walking lists a plain file instead of its compressed sibling).
+#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job")]
 pub fn find_rollout_by_id(home: &Path, rollout_id: &str) -> Option<Candidate> {
     for folder in ["sessions", "archived_sessions"] {
         let Ok(root) = real_path(&home.join(folder)) else { continue };

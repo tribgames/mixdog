@@ -5,7 +5,7 @@
 //! value ever reaches a shell parser.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -81,6 +81,12 @@ impl Processes {
         use mixdog_spawn::{LocalProcessManager, ProcessConfig};
         let tokens = mixdog_rt::testing::tokens();
         Self(Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())), tokens.durability_io)
+    }
+
+    /// [`which`] as a lane job: the PATH lookup lists directories.
+    pub async fn which(&self, name: &str, env: Option<&HashMap<String, String>>) -> Option<PathBuf> {
+        let (name, env) = (name.to_owned(), env.cloned());
+        crate::lane::on_lane(self.1, move || which(&name, env.as_ref(), None)).await.ok().flatten()
     }
 
     /// Spawns `bin` with `args` and collects its output. A failed spawn is reported, never

@@ -648,6 +648,30 @@ pub struct UiTerminalRunClaimedParams {
     pub request_id: String,
 }
 
+/// Client notification `ui/screenSessions/changed` (UI → core): the sessions the user is looking
+/// at right now. Node asks `isSessionOnScreen(sessionId)` (`screen-sessions.ts`) at each
+/// delivery: true only while the window is visible, not minimized and focused, and its page
+/// reports painting that session. The host applies those window conditions itself, so this is
+/// the effective set: empty while the window is hidden, minimized or unfocused, or its page is
+/// gone (reload, navigation, renderer crash). It is a full replacement, sent on every change of
+/// the set (a report from the page, focus, blur, minimize, hide, show) and once when the UI
+/// attaches. The core treats a session as on screen only while it is in the latest set, and
+/// treats a detached UI as an empty set. No response.
+///
+/// A paired phone sends the same notification over its relay connection, with its page
+/// visibility and app foreground applied. `browserId` is the id its direct Web Push
+/// subscription is keyed by (Node's `setForeground(visible, browserId)`): at most 64 UTF-16
+/// units, kept until the phone states another, and ignored on every connection that is not a
+/// relay connection.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct UiScreenSessionsChangedParams {
+    pub session_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_id: Option<String>,
+}
+
 /// Notification `core/drain` (`lifecycle-remote.md` §5.1 step 2): the core is draining; sent to
 /// every connected client with what is still running, and the token that authorizes an abort.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -712,4 +736,20 @@ pub struct ModelProxyRunParams {
 pub struct ModelProxyRunEventParams {
     pub run_id: String,
     pub event: crate::v2::model_proxy::ProxyEvent,
+}
+
+/// Server core → the connection running a `model/proxy/execute` request: the call was given up
+/// (cancelled, abandoned); stop spending on it. The connection's answer is no longer read.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelProxyCancelParams {
+    pub request_id: RequestId,
+}
+
+/// Electron → its local core: stop the `modelProxy/run` run `run_id` (the abort of a
+/// `model/proxy/cancel`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelProxyRunCancelParams {
+    pub run_id: String,
 }

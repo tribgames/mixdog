@@ -6,6 +6,8 @@
 //! Leases live at `<root>/.owners/<id>.json`, outside the checkout, so they never show up as
 //! untracked files in it.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -94,7 +96,7 @@ pub fn pid_alive_or_unknown(pid: Option<u32>) -> bool {
     }
 }
 
-fn lease_path(data_dir: &Path, record: &WorktreeRecord) -> PathBuf {
+pub(crate) fn lease_path(data_dir: &Path, record: &WorktreeRecord) -> PathBuf {
     managed_root(data_dir, Path::new(&record.repo_common_dir))
         .join(".owners")
         .join(format!("{}.json", record.id))

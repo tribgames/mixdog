@@ -15,6 +15,9 @@ pub struct ModelCaps {
     /// Declared output limit (`max_tokens`).
     pub max_output_tokens: Option<u32>,
     pub fast_mode: bool,
+    /// The context window the shared catalog (models.dev / LiteLLM) states for
+    /// the model; the listing prefers a window the row states itself.
+    pub context_window: Option<u64>,
     /// The model writes tool preambles as progress-update thinking blocks.
     pub thinking_display_updates: bool,
 }

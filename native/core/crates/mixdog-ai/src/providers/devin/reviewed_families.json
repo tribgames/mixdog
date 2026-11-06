@@ -1,0 +1,1022 @@
+[
+  {
+    "id": "claude-opus-5",
+    "members": [
+      "claude-opus-5-low",
+      "claude-opus-5-medium",
+      "claude-opus-5-high",
+      "claude-opus-5-xhigh",
+      "claude-opus-5-max"
+    ],
+    "name": "Claude Opus 5",
+    "routing": {
+      "high": "claude-opus-5-high",
+      "low": "claude-opus-5-low",
+      "max": "claude-opus-5-max",
+      "medium": "claude-opus-5-medium",
+      "xhigh": "claude-opus-5-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "claude-opus-5-fast",
+    "members": [
+      "claude-opus-5-low-fast",
+      "claude-opus-5-medium-fast",
+      "claude-opus-5-high-fast",
+      "claude-opus-5-xhigh-fast",
+      "claude-opus-5-max-fast"
+    ],
+    "name": "Claude Opus 5 Fast",
+    "routing": {
+      "high": "claude-opus-5-high-fast",
+      "low": "claude-opus-5-low-fast",
+      "max": "claude-opus-5-max-fast",
+      "medium": "claude-opus-5-medium-fast",
+      "xhigh": "claude-opus-5-xhigh-fast"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "claude-fable-5",
+    "members": [
+      "claude-5-fable-low",
+      "claude-5-fable-medium",
+      "claude-5-fable-high",
+      "claude-5-fable-xhigh",
+      "claude-5-fable-max"
+    ],
+    "name": "Claude Fable 5",
+    "routing": {
+      "high": "claude-5-fable-high",
+      "low": "claude-5-fable-low",
+      "max": "claude-5-fable-max",
+      "medium": "claude-5-fable-medium",
+      "xhigh": "claude-5-fable-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "claude-sonnet-5",
+    "members": [
+      "claude-sonnet-5-low",
+      "claude-sonnet-5-medium",
+      "claude-sonnet-5-high",
+      "claude-sonnet-5-xhigh",
+      "claude-sonnet-5-max"
+    ],
+    "name": "Claude Sonnet 5",
+    "routing": {
+      "high": "claude-sonnet-5-high",
+      "low": "claude-sonnet-5-low",
+      "max": "claude-sonnet-5-max",
+      "medium": "claude-sonnet-5-medium",
+      "xhigh": "claude-sonnet-5-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "claude-opus-4-7",
+    "members": [
+      "claude-opus-4-7-low",
+      "claude-opus-4-7-medium",
+      "claude-opus-4-7-high",
+      "claude-opus-4-7-xhigh",
+      "claude-opus-4-7-max"
+    ],
+    "name": "Claude Opus 4.7",
+    "routing": {
+      "high": "claude-opus-4-7-high",
+      "low": "claude-opus-4-7-low",
+      "max": "claude-opus-4-7-max",
+      "medium": "claude-opus-4-7-medium",
+      "xhigh": "claude-opus-4-7-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "claude-opus-4-7-fast",
+    "members": [
+      "claude-opus-4-7-low-fast",
+      "claude-opus-4-7-medium-fast",
+      "claude-opus-4-7-high-fast",
+      "claude-opus-4-7-xhigh-fast",
+      "claude-opus-4-7-max-fast"
+    ],
+    "name": "Claude Opus 4.7 Fast",
+    "routing": {
+      "high": "claude-opus-4-7-high-fast",
+      "low": "claude-opus-4-7-low-fast",
+      "max": "claude-opus-4-7-max-fast",
+      "medium": "claude-opus-4-7-medium-fast",
+      "xhigh": "claude-opus-4-7-xhigh-fast"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "claude-opus-4-8",
+    "members": [
+      "claude-opus-4-8-low",
+      "claude-opus-4-8-medium",
+      "claude-opus-4-8-high",
+      "claude-opus-4-8-xhigh",
+      "claude-opus-4-8-max"
+    ],
+    "name": "Claude Opus 4.8",
+    "routing": {
+      "high": "claude-opus-4-8-high",
+      "low": "claude-opus-4-8-low",
+      "max": "claude-opus-4-8-max",
+      "medium": "claude-opus-4-8-medium",
+      "xhigh": "claude-opus-4-8-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "claude-opus-4-8-fast",
+    "members": [
+      "claude-opus-4-8-low-fast",
+      "claude-opus-4-8-medium-fast",
+      "claude-opus-4-8-high-fast",
+      "claude-opus-4-8-xhigh-fast",
+      "claude-opus-4-8-max-fast"
+    ],
+    "name": "Claude Opus 4.8 Fast",
+    "routing": {
+      "high": "claude-opus-4-8-high-fast",
+      "low": "claude-opus-4-8-low-fast",
+      "max": "claude-opus-4-8-max-fast",
+      "medium": "claude-opus-4-8-medium-fast",
+      "xhigh": "claude-opus-4-8-xhigh-fast"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "gpt-5-2",
+    "members": [
+      "MODEL_GPT_5_2_NONE",
+      "MODEL_GPT_5_2_LOW",
+      "MODEL_GPT_5_2_MEDIUM",
+      "MODEL_GPT_5_2_HIGH",
+      "MODEL_GPT_5_2_XHIGH"
+    ],
+    "name": "GPT-5.2",
+    "routing": {
+      "high": "MODEL_GPT_5_2_HIGH",
+      "low": "MODEL_GPT_5_2_LOW",
+      "medium": "MODEL_GPT_5_2_MEDIUM",
+      "off": "MODEL_GPT_5_2_NONE",
+      "xhigh": "MODEL_GPT_5_2_XHIGH"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gpt-5-3-codex",
+    "members": [
+      "gpt-5-3-codex-low",
+      "gpt-5-3-codex-medium",
+      "gpt-5-3-codex-high",
+      "gpt-5-3-codex-xhigh"
+    ],
+    "name": "GPT-5.3 Codex",
+    "routing": {
+      "high": "gpt-5-3-codex-high",
+      "low": "gpt-5-3-codex-low",
+      "medium": "gpt-5-3-codex-medium",
+      "xhigh": "gpt-5-3-codex-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "gpt-5-3-codex-fast",
+    "members": [
+      "gpt-5-3-codex-low-priority",
+      "gpt-5-3-codex-medium-priority",
+      "gpt-5-3-codex-high-priority",
+      "gpt-5-3-codex-xhigh-priority"
+    ],
+    "name": "GPT-5.3 Codex Fast",
+    "routing": {
+      "high": "gpt-5-3-codex-high-priority",
+      "low": "gpt-5-3-codex-low-priority",
+      "medium": "gpt-5-3-codex-medium-priority",
+      "xhigh": "gpt-5-3-codex-xhigh-priority"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "gpt-5-4",
+    "members": [
+      "gpt-5-4-none",
+      "gpt-5-4-low",
+      "gpt-5-4-medium",
+      "gpt-5-4-high",
+      "gpt-5-4-xhigh"
+    ],
+    "name": "GPT-5.4",
+    "routing": {
+      "high": "gpt-5-4-high",
+      "low": "gpt-5-4-low",
+      "medium": "gpt-5-4-medium",
+      "off": "gpt-5-4-none",
+      "xhigh": "gpt-5-4-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gpt-5-4-fast",
+    "members": [
+      "gpt-5-4-none-priority",
+      "gpt-5-4-low-priority",
+      "gpt-5-4-medium-priority",
+      "gpt-5-4-high-priority",
+      "gpt-5-4-xhigh-priority"
+    ],
+    "name": "GPT-5.4 Fast",
+    "routing": {
+      "high": "gpt-5-4-high-priority",
+      "low": "gpt-5-4-low-priority",
+      "medium": "gpt-5-4-medium-priority",
+      "off": "gpt-5-4-none-priority",
+      "xhigh": "gpt-5-4-xhigh-priority"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gpt-5-4-mini",
+    "members": [
+      "gpt-5-4-mini-low",
+      "gpt-5-4-mini-medium",
+      "gpt-5-4-mini-high",
+      "gpt-5-4-mini-xhigh"
+    ],
+    "name": "GPT-5.4 Mini",
+    "routing": {
+      "high": "gpt-5-4-mini-high",
+      "low": "gpt-5-4-mini-low",
+      "medium": "gpt-5-4-mini-medium",
+      "xhigh": "gpt-5-4-mini-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "gpt-5-5",
+    "members": [
+      "gpt-5-5-none",
+      "gpt-5-5-low",
+      "gpt-5-5-medium",
+      "gpt-5-5-high",
+      "gpt-5-5-xhigh"
+    ],
+    "name": "GPT-5.5",
+    "routing": {
+      "high": "gpt-5-5-high",
+      "low": "gpt-5-5-low",
+      "medium": "gpt-5-5-medium",
+      "off": "gpt-5-5-none",
+      "xhigh": "gpt-5-5-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gpt-5-5-fast",
+    "members": [
+      "gpt-5-5-none-priority",
+      "gpt-5-5-low-priority",
+      "gpt-5-5-medium-priority",
+      "gpt-5-5-high-priority",
+      "gpt-5-5-xhigh-priority"
+    ],
+    "name": "GPT-5.5 Fast",
+    "routing": {
+      "high": "gpt-5-5-high-priority",
+      "low": "gpt-5-5-low-priority",
+      "medium": "gpt-5-5-medium-priority",
+      "off": "gpt-5-5-none-priority",
+      "xhigh": "gpt-5-5-xhigh-priority"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gpt-5-6-luna",
+    "members": [
+      "gpt-5-6-luna-none",
+      "gpt-5-6-luna-low",
+      "gpt-5-6-luna-medium",
+      "gpt-5-6-luna-high",
+      "gpt-5-6-luna-xhigh",
+      "gpt-5-6-luna-max"
+    ],
+    "name": "GPT-5.6 Luna",
+    "routing": {
+      "high": "gpt-5-6-luna-high",
+      "low": "gpt-5-6-luna-low",
+      "max": "gpt-5-6-luna-max",
+      "medium": "gpt-5-6-luna-medium",
+      "off": "gpt-5-6-luna-none",
+      "xhigh": "gpt-5-6-luna-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gpt-5-6-luna-fast",
+    "members": [
+      "gpt-5-6-luna-none-priority",
+      "gpt-5-6-luna-low-priority",
+      "gpt-5-6-luna-medium-priority",
+      "gpt-5-6-luna-high-priority",
+      "gpt-5-6-luna-xhigh-priority",
+      "gpt-5-6-luna-max-priority"
+    ],
+    "name": "GPT-5.6 Luna Fast",
+    "routing": {
+      "high": "gpt-5-6-luna-high-priority",
+      "low": "gpt-5-6-luna-low-priority",
+      "max": "gpt-5-6-luna-max-priority",
+      "medium": "gpt-5-6-luna-medium-priority",
+      "off": "gpt-5-6-luna-none-priority",
+      "xhigh": "gpt-5-6-luna-xhigh-priority"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gpt-5-6-sol",
+    "members": [
+      "gpt-5-6-sol-none",
+      "gpt-5-6-sol-low",
+      "gpt-5-6-sol-medium",
+      "gpt-5-6-sol-high",
+      "gpt-5-6-sol-xhigh",
+      "gpt-5-6-sol-max"
+    ],
+    "name": "GPT-5.6 Sol",
+    "routing": {
+      "high": "gpt-5-6-sol-high",
+      "low": "gpt-5-6-sol-low",
+      "max": "gpt-5-6-sol-max",
+      "medium": "gpt-5-6-sol-medium",
+      "off": "gpt-5-6-sol-none",
+      "xhigh": "gpt-5-6-sol-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gpt-5-6-sol-fast",
+    "members": [
+      "gpt-5-6-sol-none-priority",
+      "gpt-5-6-sol-low-priority",
+      "gpt-5-6-sol-medium-priority",
+      "gpt-5-6-sol-high-priority",
+      "gpt-5-6-sol-xhigh-priority",
+      "gpt-5-6-sol-max-priority"
+    ],
+    "name": "GPT-5.6 Sol Fast",
+    "routing": {
+      "high": "gpt-5-6-sol-high-priority",
+      "low": "gpt-5-6-sol-low-priority",
+      "max": "gpt-5-6-sol-max-priority",
+      "medium": "gpt-5-6-sol-medium-priority",
+      "off": "gpt-5-6-sol-none-priority",
+      "xhigh": "gpt-5-6-sol-xhigh-priority"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gpt-5-6-terra",
+    "members": [
+      "gpt-5-6-terra-none",
+      "gpt-5-6-terra-low",
+      "gpt-5-6-terra-medium",
+      "gpt-5-6-terra-high",
+      "gpt-5-6-terra-xhigh",
+      "gpt-5-6-terra-max"
+    ],
+    "name": "GPT-5.6 Terra",
+    "routing": {
+      "high": "gpt-5-6-terra-high",
+      "low": "gpt-5-6-terra-low",
+      "max": "gpt-5-6-terra-max",
+      "medium": "gpt-5-6-terra-medium",
+      "off": "gpt-5-6-terra-none",
+      "xhigh": "gpt-5-6-terra-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gpt-5-6-terra-fast",
+    "members": [
+      "gpt-5-6-terra-none-priority",
+      "gpt-5-6-terra-low-priority",
+      "gpt-5-6-terra-medium-priority",
+      "gpt-5-6-terra-high-priority",
+      "gpt-5-6-terra-xhigh-priority",
+      "gpt-5-6-terra-max-priority"
+    ],
+    "name": "GPT-5.6 Terra Fast",
+    "routing": {
+      "high": "gpt-5-6-terra-high-priority",
+      "low": "gpt-5-6-terra-low-priority",
+      "max": "gpt-5-6-terra-max-priority",
+      "medium": "gpt-5-6-terra-medium-priority",
+      "off": "gpt-5-6-terra-none-priority",
+      "xhigh": "gpt-5-6-terra-xhigh-priority"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "kimi-k3",
+    "members": [
+      "kimi-k3-low",
+      "kimi-k3-high",
+      "kimi-k3-max"
+    ],
+    "name": "Kimi K3",
+    "routing": {
+      "high": "kimi-k3-high",
+      "low": "kimi-k3-low",
+      "max": "kimi-k3-max"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "swe-1-7",
+    "members": [
+      "swe-1-7-medium",
+      "swe-1-7"
+    ],
+    "name": "SWE-1.7",
+    "routing": {
+      "max": "swe-1-7",
+      "medium": "swe-1-7-medium"
+    },
+    "thinking": {
+      "efforts": [
+        "medium",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "grok-4-5",
+    "members": [
+      "grok-4-5-low",
+      "grok-4-5-medium",
+      "grok-4-5-high"
+    ],
+    "name": "Grok 4.5",
+    "routing": {
+      "high": "grok-4-5-high",
+      "low": "grok-4-5-low",
+      "medium": "grok-4-5-medium"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "inkling",
+    "members": [
+      "inkling-none",
+      "inkling-low",
+      "inkling-medium",
+      "inkling-high",
+      "inkling-xhigh",
+      "inkling-max"
+    ],
+    "name": "Inkling",
+    "routing": {
+      "high": "inkling-high",
+      "low": "inkling-low",
+      "max": "inkling-max",
+      "medium": "inkling-medium",
+      "off": "inkling-none",
+      "xhigh": "inkling-xhigh"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "gemini-3-1-pro",
+    "members": [
+      "gemini-3-1-pro-low",
+      "gemini-3-1-pro-high"
+    ],
+    "name": "Gemini 3.1 Pro",
+    "routing": {
+      "high": "gemini-3-1-pro-high",
+      "low": "gemini-3-1-pro-low"
+    },
+    "thinking": {
+      "efforts": [
+        "low",
+        "high"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "gemini-3-5-flash",
+    "members": [
+      "gemini-3-5-flash-minimal",
+      "gemini-3-5-flash-low",
+      "gemini-3-5-flash-medium",
+      "gemini-3-5-flash-high"
+    ],
+    "name": "Gemini 3.5 Flash",
+    "routing": {
+      "high": "gemini-3-5-flash-high",
+      "low": "gemini-3-5-flash-low",
+      "medium": "gemini-3-5-flash-medium",
+      "minimal": "gemini-3-5-flash-minimal"
+    },
+    "thinking": {
+      "efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "gemini-3-6-flash",
+    "members": [
+      "gemini-3-6-flash-minimal",
+      "gemini-3-6-flash-low",
+      "gemini-3-6-flash-medium",
+      "gemini-3-6-flash-high"
+    ],
+    "name": "Gemini 3.6 Flash",
+    "routing": {
+      "high": "gemini-3-6-flash-high",
+      "low": "gemini-3-6-flash-low",
+      "medium": "gemini-3-6-flash-medium",
+      "minimal": "gemini-3-6-flash-minimal"
+    },
+    "thinking": {
+      "efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "gemini-3-flash",
+    "members": [
+      "MODEL_GOOGLE_GEMINI_3_0_FLASH_MINIMAL",
+      "MODEL_GOOGLE_GEMINI_3_0_FLASH_LOW",
+      "MODEL_GOOGLE_GEMINI_3_0_FLASH_MEDIUM",
+      "MODEL_GOOGLE_GEMINI_3_0_FLASH_HIGH"
+    ],
+    "name": "Gemini 3 Flash",
+    "routing": {
+      "high": "MODEL_GOOGLE_GEMINI_3_0_FLASH_HIGH",
+      "low": "MODEL_GOOGLE_GEMINI_3_0_FLASH_LOW",
+      "medium": "MODEL_GOOGLE_GEMINI_3_0_FLASH_MEDIUM",
+      "minimal": "MODEL_GOOGLE_GEMINI_3_0_FLASH_MINIMAL"
+    },
+    "thinking": {
+      "efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "glm-5-2",
+    "members": [
+      "glm-5-2",
+      "glm-5-2-none",
+      "glm-5-2-max"
+    ],
+    "name": "GLM-5.2",
+    "routing": {
+      "high": "glm-5-2",
+      "xhigh": "glm-5-2"
+    },
+    "thinking": {
+      "efforts": [
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "id": "glm-5-2-1m",
+    "members": [
+      "glm-5-2-none-1m",
+      "glm-5-2-1m",
+      "glm-5-2-max-1m"
+    ],
+    "name": "GLM-5.2 1M",
+    "routing": {
+      "high": "glm-5-2-1m",
+      "off": "glm-5-2-none-1m",
+      "xhigh": "glm-5-2-max-1m"
+    },
+    "thinking": {
+      "efforts": [
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "defaultMember": "gemini-3-7-flash-medium",
+    "id": "gemini-3-7-flash",
+    "members": [
+      "gemini-3-7-flash-medium",
+      "gemini-3-7-flash-minimal",
+      "gemini-3-7-flash-low",
+      "gemini-3-7-flash-high"
+    ],
+    "name": "Gemini 3.7 Flash",
+    "routing": {
+      "high": "gemini-3-7-flash-high",
+      "low": "gemini-3-7-flash-low",
+      "medium": "gemini-3-7-flash-medium",
+      "minimal": "gemini-3-7-flash-minimal"
+    },
+    "thinking": {
+      "defaultLevel": "medium",
+      "efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "defaultMember": "swe-1-7-lightning-medium",
+    "id": "swe-1-7-lightning",
+    "members": [
+      "swe-1-7-lightning-medium",
+      "swe-1-7-lightning"
+    ],
+    "name": "SWE-1.7 Lightning",
+    "routing": {
+      "max": "swe-1-7-lightning",
+      "medium": "swe-1-7-lightning-medium"
+    },
+    "thinking": {
+      "defaultLevel": "medium",
+      "efforts": [
+        "medium",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "defaultMember": "grok-4-6-medium",
+    "id": "grok-4-6",
+    "members": [
+      "grok-4-6-medium",
+      "grok-4-6-low",
+      "grok-4-6-high",
+      "grok-4-6-xhigh"
+    ],
+    "name": "Grok 4.6",
+    "routing": {
+      "high": "grok-4-6-high",
+      "low": "grok-4-6-low",
+      "medium": "grok-4-6-medium",
+      "xhigh": "grok-4-6-xhigh"
+    },
+    "thinking": {
+      "defaultLevel": "medium",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "defaultMember": "deepseek-v4-flash-high",
+    "id": "deepseek-v4-flash",
+    "members": [
+      "deepseek-v4-flash-high",
+      "deepseek-v4-flash-low",
+      "deepseek-v4-flash-max"
+    ],
+    "name": "DeepSeek V4 Flash",
+    "routing": {
+      "high": "deepseek-v4-flash-high",
+      "low": "deepseek-v4-flash-low",
+      "max": "deepseek-v4-flash-max"
+    },
+    "thinking": {
+      "defaultLevel": "high",
+      "efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "defaultMember": "deepseek-v4-pro-high",
+    "id": "deepseek-v4-pro",
+    "members": [
+      "deepseek-v4-pro-high",
+      "deepseek-v4-pro-low",
+      "deepseek-v4-pro-max"
+    ],
+    "name": "DeepSeek V4 Pro",
+    "routing": {
+      "high": "deepseek-v4-pro-high",
+      "low": "deepseek-v4-pro-low",
+      "max": "deepseek-v4-pro-max"
+    },
+    "thinking": {
+      "defaultLevel": "high",
+      "efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "mode": "effort",
+      "requiresEffort": true
+    }
+  },
+  {
+    "defaultMember": "nemotron-3-ultra-high",
+    "id": "nemotron-3-ultra",
+    "members": [
+      "nemotron-3-ultra-high",
+      "nemotron-3-ultra-none",
+      "nemotron-3-ultra-medium"
+    ],
+    "name": "Nemotron 3 Ultra",
+    "routing": {
+      "high": "nemotron-3-ultra-high",
+      "medium": "nemotron-3-ultra-medium",
+      "off": "nemotron-3-ultra-none"
+    },
+    "thinking": {
+      "defaultLevel": "high",
+      "efforts": [
+        "medium",
+        "high"
+      ],
+      "mode": "effort"
+    }
+  },
+  {
+    "id": "claude-haiku-4-5",
+    "members": [
+      "MODEL_PRIVATE_11"
+    ],
+    "name": "Claude Haiku 4.5",
+    "routing": {}
+  }
+]

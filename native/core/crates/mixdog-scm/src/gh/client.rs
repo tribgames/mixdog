@@ -2,6 +2,12 @@
 //! no token ever passes through this process. Writes to one remote repository are serialized
 //! in one queue and never retried; a failed write says the remote state is unknown.
 
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the std::fs calls here are bodies of lane jobs; the keyed queue's tokio Mutex is a fair async queue held across awaits"
+)]
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;

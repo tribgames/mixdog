@@ -303,7 +303,7 @@ export type ApprovalRemember = "once" | "session" | "agent" | "always";
 /**
  * Durable outcome of a server request (P §8.4).
  */
-export type ApprovalResolution = { "kind": "decided", decision: ToolApprovalDecision, device: string, connectionKind: ConnectionKind, at: number, } | { "kind": "timedOut", at: number, } | { "kind": "interrupted", at: number, } | { "kind": "cancelled", at: number, } | { "kind": "withdrawn", at: number, };
+export type ApprovalResolution = { "kind": "decided", decision: ToolApprovalDecision, device: string, connectionKind: ConnectionKind, at: number, } | { "kind": "timedOut", at: number, } | { "kind": "interrupted", at: number, } | { "kind": "cancelled", at: number, } | { "kind": "withdrawn", at: number, } | { "kind": "unavailable", at: number, };
 
 export type AttachmentKind = "image" | "file" | "text";
 
@@ -484,7 +484,7 @@ version: string, kind: ConnectionKind, build?: string, };
 /**
  * Client notifications (X11): they take no in-flight slot.
  */
-export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams };
+export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams };
 
 export type ClientPerfLogParams = { line: string, };
 
@@ -2759,7 +2759,7 @@ export type ProviderId = string;
 /**
  * The answer to a [`ProxyCall`].
  */
-export type ProxyAnswer = { "result": "sent", attempts: number, } | { "result": "models", models: Array<ProxyModel>, } | { "result": "usable", usable: boolean, } | { "result": "route", route: ProxyWireRoute | null, } | { "result": "providerConfig", providers: { [key in string]?: ProxyProviderInfo }, ready: boolean, };
+export type ProxyAnswer = { "result": "sent", attempts: number, } | { "result": "models", models: Array<ProxyModel>, } | { "result": "usable", usable: boolean, } | { "result": "route", route: ProxyWireRoute | null, } | { "result": "providerConfig", providers: { [key in string]?: ProxyProviderInfo }, ready: boolean, } | { "result": "failed", failure: ProxyFailure, };
 
 /**
  * A file part's bytes. The sender's attachment-store reference means nothing on the PC, so it
@@ -2780,6 +2780,8 @@ export type ProxyCall = { "method": "send", provider: string, request: ProxyRequ
 
 export type ProxyContent = string | Array<ProxyPart>;
 
+export type ProxyDelivery = "notSent" | "ambiguous" | "accepted";
+
 export type ProxyDocument = { "kind": "base64", mediaType: string, data: string, } | { "kind": "text", mediaType: string | null, data: string, } | { "kind": "content", content: JsonValue, };
 
 export type ProxyEffortProjection = { initialEffort: string, 
@@ -2788,10 +2790,20 @@ export type ProxyEffortProjection = { initialEffort: string,
  */
 updates: Array<[number, string]>, };
 
+export type ProxyErrorKind = "overloaded" | "rateLimited" | "quotaExhausted" | "entitlement" | "billing" | "auth" | "permission" | "contextOverflow" | "requestTooLarge" | "policy" | "serviceTierUnavailable" | "invalidRequest" | "imageRejected" | "replayRejected" | "toolSchemaRejected" | "transient" | "unknown";
+
 /**
  * One stream event of an attempt (`StreamEvent`).
  */
-export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "providerState", state: JsonValue, } | { "type": "completed", stop: ProxyStop | null, };
+export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "providerState", state: JsonValue, } | { "type": "completed", stop: ProxyStop | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
+
+/**
+ * A failed call as the sender's retry and recovery read it (the classified `ProviderError`);
+ * credential-shaped text in the message is redacted and nothing else of the PC leaves it.
+ */
+export type ProxyFailure = { outcome: ProxyOutcome, kind: ProxyErrorKind, code: string | null, status: number | null, retryAfterMs: number | null, resetAtMs: number | null, quotaScope: ProxyQuotaScope | null, reauthRequired: boolean, shouldRetry: boolean | null, textEmitted: boolean, toolDispatched: boolean, toolInputCut: boolean, delivery: ProxyDelivery, transport: ProxyFault | null, message: string, partialUsage: ProxyUsage | null, partialModel: string | null, verificationUrl: string | null, rejectedTool: string | null, accountBlocked: boolean, unsafeToRetry: boolean, quotaLimit: string | null, };
+
+export type ProxyFault = { "fault": "connect", osCode: number | null, } | { "fault": "dns" } | { "fault": "reset" } | { "fault": "closed" } | { "fault": "tls" } | { "fault": "h2GoAway", code: number, } | { "fault": "h2RstStream", code: number, } | { "fault": "wsClose", code: number | null, } | { "fault": "keepaliveExpired", transport: ProxyTransportKind, } | { "fault": "truncatedStream" } | { "fault": "io", osCode: number | null, };
 
 export type ProxyHostedTool = { "kind": "webSearch", toolType: string, allowedDomains: Array<string>, userLocation: ProxyLocation | null, maxUses: number | null, contextSize: string | null, includeSources: boolean, };
 
@@ -2808,13 +2820,22 @@ export type ProxyMessageSource = "steering" | "streamCutRecovery" | "tailReminde
 /**
  * A model the PC's provider lists, with the first-response budget of its catalog entry.
  */
-export type ProxyModel = { id: string, displayName: string | null, contextWindow: number | null, maxOutputTokens: number | null, supportsReasoning: boolean | null, reasoningLevels: Array<string>, defaultReasoningLevel: string | null, supportsImages: boolean | null, hidden: boolean, raw: JsonValue | null, firstResponseBudget: ProxyBudget | null, };
+export type ProxyModel = { id: string, displayName: string | null, contextWindow: number | null, maxOutputTokens: number | null, supportsReasoning: boolean | null, reasoningLevels: Array<string>, defaultReasoningLevel: string | null, supportsImages: boolean | null, hidden: boolean, raw: JsonValue | null, 
+/**
+ * The picker fields of the PC's catalog row (`PickerFields`), as JSON.
+ */
+picker: JsonValue | null, firstResponseBudget: ProxyBudget | null, };
 
 /**
  * `RequestOptions` field for field. The connection scope and the model's output ceiling are the
  * PC's to derive, so they are not carried.
  */
-export type ProxyOptions = { sessionId: string | null, effort: string | null, maxOutputTokensOverride: number | null, fast: boolean, toolChoice: string | null, verbosity: string | null, requestKind: string | null, iteration: number, promptCacheKey: string | null, modelParameters: JsonValue | null, thread: ProxyThread | null, parentSessionId: string | null, parallelToolCalls: boolean | null, temperature: number | null, effortProjection: ProxyEffortProjection | null, hostedTools: Array<ProxyHostedTool>, sharedCachePrefixCount: number | null, providerState: JsonValue | null, };
+export type ProxyOptions = { sessionId: string | null, effort: string | null, maxOutputTokensOverride: number | null, fast: boolean, toolChoice: string | null, verbosity: string | null, requestKind: string | null, iteration: number, promptCacheKey: string | null, promptCacheScope: string | null, xaiResponsesCacheScope: string | null, modelParameters: JsonValue | null, thread: ProxyThread | null, parentSessionId: string | null, parallelToolCalls: boolean | null, temperature: number | null, effortProjection: ProxyEffortProjection | null, hostedTools: Array<ProxyHostedTool>, sharedCachePrefixCount: number | null, providerState: JsonValue | null, };
+
+/**
+ * How the PC's broker ended a failed send.
+ */
+export type ProxyOutcome = { "outcome": "provider" } | { "outcome": "exhausted" } | { "outcome": "fallback", model: string, } | { "outcome": "admission" };
 
 export type ProxyPart = { "type": "text", text: string, } | { "type": "image", source: ProxyImage, } | { "type": "file", source: ProxyBinary, mimeType: string, filename: string | null, } | { "type": "document", source: ProxyDocument, title: string | null, };
 
@@ -2825,6 +2846,8 @@ export type ProxyPhase = "commentary" | "finalAnswer";
  */
 export type ProxyProviderInfo = { enabled: boolean, type?: string, name?: string, hiddenModels?: Array<string>, authState?: string, modelProxy: ProxyTraits, };
 
+export type ProxyQuotaScope = "minute" | "day" | "plan";
+
 export type ProxyReplay = { owner: string, items: JsonValue, };
 
 export type ProxyRequest = { model: string, messages: Array<ProxyMessage>, tools: Array<ProxyTool>, options: ProxyOptions, };
@@ -2833,7 +2856,7 @@ export type ProxyRole = "system" | "user" | "assistant" | "tool" | "developer";
 
 export type ProxyRouteContext = { agent: boolean, };
 
-export type ProxyRouteSource = "pinned" | "override" | "catalog" | "endpoints" | "agent" | "default" | "unknown";
+export type ProxyRouteSource = "pinned" | "override" | "catalog" | "endpoints" | "family" | "default" | "legacy" | "unknown";
 
 export type ProxyStop = { "kind": "endTurn" } | { "kind": "toolUse" } | { "kind": "maxTokens" } | { "kind": "stopSequence" } | { "kind": "contentFilter" } | { "kind": "refusal" } | { "kind": "continueTurn" } | { "kind": "other", value: string, };
 
@@ -2848,11 +2871,17 @@ export type ProxyToolCall = { id: string, name: string, arguments: JsonValue, na
  */
 export type ProxyTraits = { inputExcludesCache?: boolean, nativePdf?: boolean, consumesReadWindows?: boolean, takesImages?: boolean, firstResponseBudget?: ProxyBudget, };
 
+export type ProxyTransportKind = "http1" | "http2" | "webSocket";
+
 export type ProxyUsage = { inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheWriteTokens: number, cacheWrite1hTokens: number, reasoningTokens: number, raw: JsonValue | null, costTicks: number | null, };
 
 export type ProxyWire = "chat" | "responses" | "messages" | "gemini";
 
-export type ProxyWireRoute = { wire: ProxyWire, source: ProxyRouteSource, };
+export type ProxyWireRoute = { wire: ProxyWire, source: ProxyRouteSource, 
+/**
+ * `<provider>:<wire>`.
+ */
+profileId: string, };
 
 export type PtySize = { cols: number, rows: number, };
 
@@ -4107,6 +4136,25 @@ openRequestId?: string,
 tab?: string, reveal?: boolean, };
 
 /**
+ * Client notification `ui/screenSessions/changed` (UI → core): the sessions the user is looking
+ * at right now. Node asks `isSessionOnScreen(sessionId)` (`screen-sessions.ts`) at each
+ * delivery: true only while the window is visible, not minimized and focused, and its page
+ * reports painting that session. The host applies those window conditions itself, so this is
+ * the effective set: empty while the window is hidden, minimized or unfocused, or its page is
+ * gone (reload, navigation, renderer crash). It is a full replacement, sent on every change of
+ * the set (a report from the page, focus, blur, minimize, hide, show) and once when the UI
+ * attaches. The core treats a session as on screen only while it is in the latest set, and
+ * treats a detached UI as an empty set. No response.
+ *
+ * A paired phone sends the same notification over its relay connection, with its page
+ * visibility and app foreground applied. `browserId` is the id its direct Web Push
+ * subscription is keyed by (Node's `setForeground(visible, browserId)`): at most 64 UTF-16
+ * units, kept until the phone states another, and ignored on every connection that is not a
+ * relay connection.
+ */
+export type UiScreenSessionsChangedParams = { sessionIds: Array<string>, browserId?: string, };
+
+/**
  * Client notification `ui/terminalRun/claimed` (UI → core): a pane now shows the terminal of a
  * `ui/openRequested` terminal open that carried `requestId`.
  *
@@ -5312,7 +5360,8 @@ export const methodTable = {
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "v2::thread::ThreadResumeParams",
       "result": "v2::thread::ThreadResumeResponse",
@@ -5331,7 +5380,8 @@ export const methodTable = {
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "v2::thread::ThreadIdParams",
       "result": "v2::feed::EmptyResult",
@@ -15333,6 +15383,11 @@ export const methodTable = {
       "delivery": null,
       "method": "ui/terminalRun/claimed",
       "params": "UiTerminalRunClaimedParams"
+    },
+    {
+      "delivery": null,
+      "method": "ui/screenSessions/changed",
+      "params": "UiScreenSessionsChangedParams"
     }
   ],
   "serverNotifications": [

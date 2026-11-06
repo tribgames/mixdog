@@ -8,7 +8,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::Instant;
 
 use mixdog_js::JsRegex;
 use mixdog_js::js_trim;
@@ -23,11 +22,19 @@ use sha1::Sha1;
 
 use crate::plugins::manifest;
 use crate::scopes::resolve_path;
-use crate::state_file::read_json_state;
+use mixdog_statefile::Invalid;
+use mixdog_statefile::LockOpts;
+use mixdog_statefile::Opts;
+use mixdog_statefile::StateError;
+use mixdog_statefile::create_private_dir_all;
+use mixdog_statefile::read_json;
+use mixdog_statefile::update_json;
+use mixdog_statefile::with_lock;
 
 const REGISTRY_VERSION: u64 = 1;
 const MUTATION_LOCK_TIMEOUT: Duration = Duration::from_millis(130_000);
 const REGISTRY_LOCK_TIMEOUT: Duration = Duration::from_millis(2_000);
+const MUTATION_LOCK_STALE: Duration = Duration::from_millis(10 * 60_000);
 
 /// A refusal or failure, worded as Node words it.
 #[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]
@@ -220,35 +227,58 @@ impl PluginAdmin {
         self.base_dir().join("installed")
     }
 
-    /// The registry; a damaged one is handled as [`crate::state_file`] describes and a missing or
-    /// unrecoverable one starts empty. I/O errors are errors.
+    /// The registry; a damaged one is handled as [`mixdog_statefile::read_json`] describes and a
+    /// missing or unrecoverable one starts empty. I/O errors are errors.
     fn load_registry(&self, lane: &InLane<MaintenanceIo>) -> Result<Vec<Value>> {
-        let has_list = |v: &Value| if v.get("plugins").is_some_and(Value::is_array) { Ok(()) } else { Err("plugin registry has no plugin list".to_owned()) };
-        let value = read_json_state(lane, &self.registry_path(), &has_list).map_err(io)?;
+        let has_list = |v: &Value| {
+            if v.get("plugins").is_some_and(Value::is_array) { Ok(()) } else { Err(Invalid::Damaged("plugin registry has no plugin list".to_owned())) }
+        };
+        let opts = Opts { secret: true, ..Opts::default() };
+        let value = read_json(lane, &self.registry_path(), Some(&has_list), &opts).map_err(io)?;
         Ok(value.and_then(|v| v.get("plugins").and_then(Value::as_array).cloned()).unwrap_or_default())
     }
 
-    /// Runs `mutate` on the registry under its lock and writes the result (with a `.bak` of the
-    /// replaced version when that still parses).
+    /// `mutateRegistry`: runs `mutate` on the registry under its lock and writes the result (with
+    /// a `.bak` of the replaced version when that still parses). Valid JSON without a plugin list
+    /// is treated as an empty registry, as Node's update does.
     fn mutate_registry<T>(&self, lane: &InLane<MaintenanceIo>, mutate: impl FnOnce(&mut Vec<Value>) -> Result<T>) -> Result<T> {
         let path = self.registry_path();
-        std::fs::create_dir_all(path.parent().unwrap_or(Path::new("."))).map_err(io)?;
-        let result = with_lock(&lock_path(&path), REGISTRY_LOCK_TIMEOUT, || {
-            let mut plugins = self.load_registry(lane)?;
-            let result = mutate(&mut plugins)?;
-            let text = serde_json::to_string_pretty(&json!({"version": REGISTRY_VERSION, "plugins": plugins})).map_err(|e| PluginAdminError(e.to_string()))?;
-            write_json_atomic(&path, format!("{text}\n").as_bytes()).map_err(io)?;
-            Ok(result)
+        create_private_dir_all(lane, path.parent().unwrap_or(Path::new("."))).map_err(io)?;
+        let mut outcome = None;
+        let opts = Opts {
+            secret: true,
+            fsync_dir: true,
+            backup: true,
+            lock_timeout: Some(REGISTRY_LOCK_TIMEOUT),
+            ..Opts::default()
+        };
+        update_json(
+            lane,
+            &path,
+            |current| {
+                let mut plugins = current.and_then(|v| v.get("plugins").and_then(Value::as_array).cloned()).unwrap_or_default();
+                outcome = Some(mutate(&mut plugins)?);
+                Ok(Some(json!({"version": REGISTRY_VERSION, "plugins": plugins})))
+            },
+            &opts,
+        )
+        .map_err(|error| match error {
+            StateError::Mutator(error) => error,
+            StateError::Io(error) => io(error),
+            StateError::Lock(error) => PluginAdminError(error.to_string()),
         })?;
         (self.announce)();
-        Ok(result)
+        Ok(outcome.expect("the mutator ran"))
     }
 
-    fn with_plugin_mutation<T>(&self, id: &str, operation: impl FnOnce() -> Result<T>) -> Result<T> {
+    fn with_plugin_mutation<T>(&self, lane: &InLane<MaintenanceIo>, id: &str, operation: impl FnOnce() -> Result<T>) -> Result<T> {
         let root = self.install_root();
-        std::fs::create_dir_all(&root).map_err(io)?;
+        create_private_dir_all(lane, &root).map_err(io)?;
         let name = normalize_plugin_id(id);
-        with_lock(&root.join(format!(".{}.mutation.lock", if name.is_empty() { "plugin" } else { &name })), MUTATION_LOCK_TIMEOUT, operation)
+        // `<root>/.<id>.mutation.lock`: the lock path is the file's path plus `.lock`.
+        let file = root.join(format!(".{}.mutation", if name.is_empty() { "plugin" } else { &name }));
+        let opts = LockOpts { timeout: Some(MUTATION_LOCK_TIMEOUT), stale: Some(MUTATION_LOCK_STALE), strict_owner: false };
+        with_lock(lane, &file, &opts, operation).map_err(|error| PluginAdminError(error.to_string()))?
     }
 
     fn enrich_entry(&self, lane: &InLane<MaintenanceIo>, entry: &Value) -> Value {
@@ -296,12 +326,12 @@ impl PluginAdmin {
         self.git.run(&args, Duration::from_millis(120_000)).map_err(PluginAdminError)
     }
 
-    fn materialize(&self, source: &Source, id: &str) -> Result<(PathBuf, bool)> {
+    fn materialize(&self, lane: &InLane<MaintenanceIo>, source: &Source, id: &str) -> Result<(PathBuf, bool)> {
         if source.local {
             return Ok((source.path.clone().unwrap_or_default(), false));
         }
         let root = self.install_root().join(id);
-        std::fs::create_dir_all(root.parent().unwrap_or(Path::new("."))).map_err(io)?;
+        create_private_dir_all(lane, root.parent().unwrap_or(Path::new("."))).map_err(io)?;
         recover_managed_root(&root).map_err(io)?;
         cleanup_partials(&root);
         let mut temp = root.as_os_str().to_owned();
@@ -327,11 +357,11 @@ impl PluginAdmin {
         let matches = |plugin: &Value| plugin.get("id").and_then(Value::as_str) == Some(id.as_str()) || clean_field(plugin, "source") == js_trim(&source.display_source);
         let initial = self.load_registry(lane)?;
         let lock_id = initial.iter().find(|p| matches(p)).and_then(|p| p.get("id")).map(clean).filter(|s| !s.is_empty()).unwrap_or_else(|| id.clone());
-        self.with_plugin_mutation(&lock_id, || {
+        self.with_plugin_mutation(lane, &lock_id, || {
             if let Some(existing) = self.load_registry(lane)?.into_iter().find(|p| matches(p)) {
                 return self.update_locked(lane, &existing);
             }
-            let (root, managed) = self.materialize(&source, &id)?;
+            let (root, managed) = self.materialize(lane, &source, &id)?;
             let manifest_value = manifest(lane, &root).1;
             let given = name.map(clean).unwrap_or_default();
             let display = display_name_from_url(&source.display_source);
@@ -381,7 +411,7 @@ impl PluginAdmin {
         }
         let from = ["url", "source"].iter().map(|k| current.get(*k)).find(|v| v.is_some_and(truthy)).flatten().unwrap_or(&Value::Null);
         let source = normalize_source(lane, from)?;
-        let (root, managed) = self.materialize(&source, &id)?;
+        let (root, managed) = self.materialize(lane, &source, &id)?;
         self.mutate_registry(lane, |plugins| {
             let index = position(plugins)?;
             let mut entry = plugins[index].clone();
@@ -403,7 +433,7 @@ impl PluginAdmin {
         let key = Self::require_key(id_or_name)?;
         let initial = self.load_registry(lane)?;
         let id = plugin_index(&initial, &key).map(|i| initial[i]["id"].clone()).ok_or_else(|| PluginAdminError(format!("plugin not registered: {key}")))?;
-        self.with_plugin_mutation(&clean(&id), || {
+        self.with_plugin_mutation(lane, &clean(&id), || {
             let registry = self.load_registry(lane)?;
             let current = registry.iter().find(|p| p.get("id") == Some(&id)).ok_or_else(|| PluginAdminError(format!("plugin not registered: {key}")))?;
             self.update_locked(lane, current)
@@ -424,7 +454,7 @@ impl PluginAdmin {
         let key = Self::require_key(id_or_name)?;
         let initial = self.load_registry(lane)?;
         let id = plugin_index(&initial, &key).map(|i| initial[i]["id"].clone()).ok_or_else(|| PluginAdminError(format!("plugin not registered: {key}")))?;
-        self.with_plugin_mutation(&clean(&id), || {
+        self.with_plugin_mutation(lane, &clean(&id), || {
             let mut entry = self.mutate_registry(lane, |plugins| {
                 let index = plugins.iter().position(|p| p.get("id") == Some(&id)).ok_or_else(|| PluginAdminError(format!("plugin not registered: {key}")))?;
                 Ok(plugins.remove(index))
@@ -456,73 +486,6 @@ pub(crate) fn truthy(value: &Value) -> bool {
 /// Which registered plugin a key means: by id, name or title.
 fn plugin_index(plugins: &[Value], key: &str) -> Option<usize> {
     plugins.iter().position(|p| ["id", "name", "title"].iter().any(|f| p.get(*f).and_then(Value::as_str) == Some(key)))
-}
-
-fn lock_path(path: &Path) -> PathBuf {
-    let mut p = path.as_os_str().to_owned();
-    p.push(".lock");
-    PathBuf::from(p)
-}
-
-/// Runs `body` holding the exclusive lock of `lock`, polling until `timeout`.
-fn with_lock<T>(lock: &Path, timeout: Duration, body: impl FnOnce() -> Result<T>) -> Result<T> {
-    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(lock).map_err(io)?;
-    let deadline = Instant::now() + timeout;
-    let mut wait = 25;
-    loop {
-        match file.try_lock() {
-            Ok(()) => break,
-            Err(std::fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(wait));
-                wait = (wait * 2).min(200);
-            }
-            Err(std::fs::TryLockError::WouldBlock) => return fail(format!("lock timeout: {}", lock.display())),
-            Err(std::fs::TryLockError::Error(error)) => return Err(io(error)),
-        }
-    }
-    let result = body();
-    let _ = file.unlock();
-    result
-}
-
-/// `writeJsonAtomicSync(..., { secret, fsyncDir, backup })`: a temp file renamed over the target,
-/// the replaced version kept as `<file>.bak` while it still parses.
-fn write_json_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Ok(previous) = std::fs::read(path) {
-        let text = String::from_utf8_lossy(&previous);
-        if serde_json::from_str::<Value>(text.strip_prefix('\u{feff}').unwrap_or(&text)).is_ok() {
-            let mut backup = path.as_os_str().to_owned();
-            backup.push(".bak");
-            publish(Path::new(&backup), &previous)?;
-        }
-    }
-    publish(path, bytes)?;
-    #[cfg(unix)]
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
-    }
-    Ok(())
-}
-
-fn publish(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut name = path.file_name().map(|n| n.to_owned()).unwrap_or_default();
-    name.push(format!(".mixdog-tmp-{:016x}", rand::random::<u64>()));
-    let temp = path.with_file_name(name);
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let result = (|| {
-        let mut file = options.open(&temp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&temp, path)
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    result
 }
 
 fn ensure_inside(parent: &Path, child: &str) -> Result<()> {

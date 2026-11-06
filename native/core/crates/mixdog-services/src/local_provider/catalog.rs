@@ -25,6 +25,7 @@ pub const LOCAL_PROVIDER_BUILTIN_ID: &str = "localProvider";
 /// An install check for a downloaded binary or model: false when `path` is absent or its first
 /// bytes hold no data (empty, or NUL-filled by a crash that committed the size but not the
 /// bytes). A file that exists but cannot be read right now still counts as present.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
 pub fn file_has_data(path: &Path) -> bool {
     let mut file = match fs::File::open(path) {
         Ok(f) => f,
@@ -37,11 +38,13 @@ pub fn file_has_data(path: &Path) -> bool {
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn exact_file(path: &Path, size: i64) -> bool {
     fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() as i64 == size) && file_has_data(path)
 }
 
 /// Free bytes on the volume that holds `path` (or its nearest existing parent).
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn available_bytes(path: &Path) -> Option<i64> {
     let mut candidate = path.to_path_buf();
     loop {
@@ -73,6 +76,7 @@ fn free_space(path: &Path) -> Option<i64> {
     (ok != 0).then_some(free.min(i64::MAX as u64) as i64)
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn ensure_disk_space(path: &Path, required: i64) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|e| e.to_string())?;
     match available_bytes(path) {
@@ -83,6 +87,7 @@ pub fn ensure_disk_space(path: &Path, required: i64) -> Result<(), String> {
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn partial_asset_bytes(destination: &Path, size: i64) -> i64 {
     let mut name = destination.as_os_str().to_owned();
     name.push(".part");
@@ -172,6 +177,7 @@ impl Catalog {
             .and_then(|e| e["id"].as_str().map(str::to_owned))
     }
 
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     fn public_model(&self, entry: &Value, hardware: &Hardware) -> Value {
         let id = entry["id"].as_str().unwrap_or("");
         let state = self.state.get(id);

@@ -641,6 +641,49 @@
    ]
   },
   {
+   "name": "failed with partial usage from a served model",
+   "provider": "openai",
+   "model": "zz-test-model",
+   "end": {
+    "kind": "failed",
+    "usage": {
+     "inputTokens": 30,
+     "outputTokens": 1
+    },
+    "model": "zz-served-model"
+   },
+   "startedAt": 1700000000000,
+   "rows": [
+    {
+     "ts": 1700000001500,
+     "day": "2023-11-14",
+     "provider": "openai",
+     "model": "zz-served-model",
+     "kind": "api",
+     "sessionId": "session-1",
+     "sourceType": "lead",
+     "input": 30,
+     "output": 1,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": "{\"requestedModel\":\"zz-test-model\",\"pricingModel\":\"zz-served-model\",\"pricingProvider\":\"openai\",\"pricingSource\":null,\"unpricedReason\":\"model-not-found\"}",
+     "responseId": "",
+     "account": "",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "zz-test-model",
+     "requestedProvider": "",
+     "status": "failed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 1500,
+     "id": "<req>"
+    }
+   ]
+  },
+  {
    "name": "failed after an abandoned attempt",
    "provider": "anthropic",
    "model": "zz-claude",

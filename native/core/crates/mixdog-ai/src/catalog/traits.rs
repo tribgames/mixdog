@@ -59,7 +59,7 @@ impl ModelTraits for CatalogTraits {
     fn catalog_wire(&self, model: &str) -> Option<Wire> {
         self.record(model, |r| r.npm.clone())
             .flatten()
-            .map(|package| wire_of_package(Some(&package)))
+            .and_then(|package| wire_of_package(Some(&package)))
     }
 
     fn outputs_text(&self, model: &str) -> bool {

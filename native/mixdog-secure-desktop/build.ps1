@@ -40,11 +40,13 @@ $process.WaitForExit()
 if ($process.ExitCode -ne 0) { throw "cargo build failed (exit $($process.ExitCode))." }
 
 $profile = if ($isRelease) { 'release' } else { 'debug' }
+# CARGO_TARGET_DIR moves the build output out of the crate.
+$targetRoot = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $PSScriptRoot 'target' }
 $targetProfileDirectory = if ($cargoTarget) {
-    Join-Path $PSScriptRoot "target\$cargoTarget\$profile"
+    Join-Path $targetRoot "$cargoTarget\$profile"
 }
 else {
-    Join-Path $PSScriptRoot "target\$profile"
+    Join-Path $targetRoot $profile
 }
 $exe = Join-Path $targetProfileDirectory 'mixdog-secure-desktop.exe'
 if (-not (Test-Path -LiteralPath $exe)) {

@@ -49,13 +49,15 @@ fn gate_8_windows_pins_the_lock_barrier_dir_and_ancestors() {
     std::fs::create_dir_all(&nested).unwrap();
     let data = nested.join("data");
     let own = Arc::new(acquire(&data).unwrap());
-    let mut gate = crate::verdict::Gate::with_table(
-        own.clone(),
-        temp.runtime().join("daemon.json"),
-        crate::verdict::tests::record(),
-        Box::new(FakeTable::default()),
-    )
-    .unwrap();
+    let mut gate = crate::verdict::tests::LaneGate::from(
+        crate::verdict::Gate::with_table(
+            own.clone(),
+            temp.runtime().join("daemon.json"),
+            crate::verdict::tests::record(),
+            Box::new(FakeTable::default()),
+        )
+        .unwrap(),
+    );
     assert!(matches!(gate.step().unwrap(), GateStep::Clear));
 
     let elsewhere = temp.root.path().join("moved");

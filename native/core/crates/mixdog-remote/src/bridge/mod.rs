@@ -18,8 +18,8 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-/// The header the core reads to set `ConnectionOrigin::Relay { peer_id }`.
-pub const RELAY_PEER_HEADER: &str = "Mixdog-Relay-Peer";
+/// The header the core's SSH listener reads to set `ConnectionOrigin::Relay { peer_id }`.
+pub use mixdog_app_server_transport::websocket::RELAY_PEER_HEADER;
 /// Phones queued per peer before `from_phone` waits.
 const PEER_QUEUE: usize = 256;
 /// Normal closure, sent upstream for `client-close`.

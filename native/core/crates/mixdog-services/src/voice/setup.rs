@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use super::pipeline::VoicePipeline;
-use super::runtime::voice_runtime_info;
 
 /// Which managed components an install must fetch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,15 +92,15 @@ impl VoiceSetup {
     }
 
     /// Reads the managed runtime state without installing or cleaning up anything.
-    pub fn status(&self) -> Value {
-        let runtime = self.pipeline.runtime();
+    pub async fn status(&self) -> Value {
+        let runtime = self.pipeline.runtime().await;
         let settings = self.pipeline.settings();
         json!({
             "enabled": settings.enabled,
             "busy": self.busy.load(Ordering::SeqCst),
             "installed": runtime.installed,
             "modelId": runtime.model_id,
-            "info": voice_runtime_info(&runtime, self.pipeline.manifest()),
+            "info": self.pipeline.runtime_info(&runtime).await,
             "components": {
                 "whisper": runtime.binary && runtime.server_cmd.is_some(),
                 "model": runtime.model,
@@ -113,7 +112,7 @@ impl VoiceSetup {
     /// `enabled: None` flips the current state.
     pub async fn toggle(&self, enabled: Option<bool>) -> ToggleResult {
         let requested_at = self.off_generation.load(Ordering::SeqCst);
-        let runtime = self.pipeline.runtime();
+        let runtime = self.pipeline.runtime().await;
         let current = self.pipeline.settings().enabled;
         let target = enabled.unwrap_or(!current);
         if !target {
@@ -139,7 +138,7 @@ impl VoiceSetup {
             if let Err(error) = self.installer.install(missing).await {
                 return ToggleResult::Failed(format!("Voice setup failed: {error}"));
             }
-            if !self.pipeline.runtime().installed {
+            if !self.pipeline.runtime().await.installed {
                 return ToggleResult::Failed(
                     "Voice setup failed: voice runtime install did not complete (still missing a required component)".into(),
                 );
@@ -200,6 +199,7 @@ mod tests {
             Arc::new(Fixed(json!({}))),
             Arc::new(FakeEngine::default()),
             Arc::new(FakeTools::default()),
+            mixdog_rt::testing::tokens().durability_io,
         ));
         let store = Arc::new(Store(Mutex::default()));
         let installer = Arc::new(Installer { dir: dir.to_owned(), seen: Mutex::default(), off_during });
@@ -210,11 +210,11 @@ mod tests {
     async fn turning_on_installs_only_what_is_missing_then_persists() {
         let dir = tempfile::tempdir().unwrap();
         let (setup, store, installer) = setup(dir.path(), None);
-        assert_eq!(setup.status()["installed"], false);
+        assert_eq!(setup.status().await["installed"], false);
         assert_eq!(setup.toggle(Some(true)).await, ToggleResult::Enabled(true));
         assert_eq!(*installer.seen.lock().unwrap(), vec![Missing { whisper: true, model: true, ffmpeg: true }]);
         assert_eq!(*store.0.lock().unwrap(), vec![true]);
-        assert_eq!(setup.status()["components"], json!({"whisper": true, "model": true, "ffmpeg": true}));
+        assert_eq!(setup.status().await["components"], json!({"whisper": true, "model": true, "ffmpeg": true}));
     }
 
     #[tokio::test]
@@ -226,6 +226,6 @@ mod tests {
         // The nested OFF runs inside the install; the ON write must then be skipped.
         assert_eq!(setup.toggle(Some(true)).await, ToggleResult::Enabled(false));
         assert_eq!(*store.0.lock().unwrap(), vec![false]);
-        assert_eq!(setup.status()["busy"], false);
+        assert_eq!(setup.status().await["busy"], false);
     }
 }

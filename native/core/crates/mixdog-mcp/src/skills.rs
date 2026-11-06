@@ -54,6 +54,11 @@ pub enum SkillDocumentError {
     DescriptionTooLong,
     #[error("Skill trigger must be 1024 characters or fewer.")]
     WhenToUseTooLong,
+    #[error("Skill instructions are required.")]
+    InstructionsRequired,
+    /// Frontmatter the in-place writer does not rewrite (see `skill_frontmatter`).
+    #[error("SKILL.md frontmatter not supported for editing: {0}")]
+    Unsupported(&'static str),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -107,6 +112,17 @@ pub fn validate_name(value: &str) -> Result<(), SkillDocumentError> {
         return Err(SkillDocumentError::NameHyphens);
     }
     Ok(())
+}
+
+/// The frontmatter text of `markdown`, once it is known to parse as a YAML mapping.
+pub(crate) fn frontmatter_of(markdown: &str) -> Result<&str, SkillDocumentError> {
+    let (front, _) = split_frontmatter(markdown)?;
+    let yaml: serde_yaml::Value =
+        serde_yaml::from_str(front).map_err(|e| SkillDocumentError::InvalidYaml(e.to_string()))?;
+    if !yaml.is_mapping() {
+        return Err(SkillDocumentError::NotMapping);
+    }
+    Ok(front)
 }
 
 pub fn parse_document(markdown: &str) -> Result<SkillDocument, SkillDocumentError> {

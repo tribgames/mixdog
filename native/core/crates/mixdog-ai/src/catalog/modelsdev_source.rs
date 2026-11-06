@@ -33,7 +33,6 @@ use tokio_util::sync::CancellationToken;
 
 use super::modelsdev::ModelsDev;
 use crate::oauth::CredentialIo;
-use crate::oauth::write_atomic_locked;
 use crate::transport::http::HttpSend;
 
 pub const MODELS_DEV_URL: &str = "https://models.dev/api.json";
@@ -265,11 +264,12 @@ impl ModelsDevSource {
     /// The body is stored verbatim: it already parsed.
     async fn store_best_effort(&self, fetched_at: u64, body: Vec<u8>) {
         let path = self.path.clone();
-        let Ok(job) = self.io.write.submit(&CancellationToken::new(), move |_| {
+        let Ok(job) = self.io.write.submit(&CancellationToken::new(), move |lane| {
             let mut out = format!("{{\"fetchedAt\":{fetched_at},\"data\":").into_bytes();
             out.extend_from_slice(&body);
             out.extend_from_slice(b"}\n");
-            write_atomic_locked(&path, &out)
+            let opts = mixdog_statefile::Opts { lock: true, fsync_dir: true, ..mixdog_statefile::Opts::default() };
+            mixdog_statefile::write_file(lane, &path, &out, &opts).map(drop)
         }) else {
             return;
         };

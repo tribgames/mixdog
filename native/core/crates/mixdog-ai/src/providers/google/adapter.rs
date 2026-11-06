@@ -6,6 +6,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
@@ -38,6 +39,7 @@ use super::codec::Attach;
 use super::codec::GoogleCodec;
 use super::codec::Target;
 use super::models;
+use crate::catalog::ListingLookup;
 use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
@@ -52,6 +54,11 @@ pub struct GoogleAdapter {
     /// The account the codec's target was built for.
     identity: String,
     cache: Option<ExplicitCache>,
+    /// Antigravity's records that carry a `wire`: the one source of the route
+    /// table, from the last listing or the catalog's restored snapshot.
+    roster: Mutex<Vec<ModelRecord>>,
+    /// The metadata enrichment and picker sanitizer Gemini's listing ends with.
+    lookup: ListingLookup,
 }
 
 impl GoogleAdapter {
@@ -71,7 +78,53 @@ impl GoogleAdapter {
             auth,
             identity,
             cache: None,
+            roster: Mutex::default(),
+            lookup: ListingLookup::new(),
         }
+    }
+
+    /// Shares the catalog's listing tables (`CatalogService::listing_lookup`).
+    pub fn with_listing_lookup(mut self, lookup: ListingLookup) -> Self {
+        self.lookup = lookup;
+        self
+    }
+
+    /// Seeds the route table from the catalog's restored snapshot, before any
+    /// send and with no fetch. Records without a `wire` are not routes.
+    pub fn with_roster(self, records: &[ModelRecord]) -> Self {
+        self.set_roster(records);
+        self
+    }
+
+    fn set_roster(&self, records: &[ModelRecord]) {
+        let wired = records.iter().filter(|r| r.wire.is_some()).cloned().collect();
+        *self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = wired;
+    }
+
+    /// Antigravity names a tier family by one picker id; the wire id carries
+    /// the chosen effort. An effort the route consumes (or drops) leaves the
+    /// request, with its `thinkingLevel`.
+    fn routed(&self, request: Arc<ModelRequest>) -> Arc<ModelRequest> {
+        if !matches!(self.codec.target(), Target::Antigravity { .. }) {
+            return request;
+        }
+        let roster = self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (model, effort) = models::resolve_wire(&roster, &request.model, request.options.effort.as_deref());
+        drop(roster);
+        if model == request.model && effort == request.options.effort {
+            return request;
+        }
+        let mut routed = (*request).clone();
+        routed.model = model;
+        if effort != routed.options.effort {
+            if effort.is_none()
+                && let Some(Value::Object(params)) = routed.options.model_parameters.as_mut()
+            {
+                params.remove("thinkingLevel");
+            }
+            routed.options.effort = effort;
+        }
+        Arc::new(routed)
     }
 
     /// A request built for one account must not run under another's.
@@ -174,13 +227,20 @@ impl ModelListing for GoogleAdapter {
                     items.extend(page.models);
                     match page.next {
                         Some(next) => token = Some(next),
-                        None => return Ok(models::gemini_records(&items)),
+                        // `enrichModels`, then `sanitizeModelList`
+                        // (`gemini-model-catalog.mjs:121-124`).
+                        None => {
+                            let enriched = self.lookup.enrich_listed("gemini", models::gemini_records(&items));
+                            return Ok(self.lookup.sanitize_listed("gemini", enriched));
+                        }
                     }
                 }
             }
             Target::Antigravity { origin, project, client_version } => {
                 let body = self.fetch_listing(&models::antigravity_request(origin, project, client_version)).await?;
-                models::antigravity_records(&body, self.codec.traits())
+                let records = models::antigravity_records(&body, self.codec.traits())?;
+                self.set_roster(&records);
+                Ok(records)
             }
         }
     }
@@ -216,6 +276,7 @@ impl ProviderAdapter for GoogleAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let request = self.routed(request);
         // State changes reach the session only as stream events: Node persists
         // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
         // never from a failed send, so no error carries one.

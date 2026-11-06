@@ -83,7 +83,7 @@ async fn every_runner_asks_and_answers_what_node_recorded() {
         let responses: Vec<Value> = serde_json::from_str(&case["responses"].to_string().replace("{CWD}", &escaped)).unwrap();
         let engine = Arc::new(Engine { responses, log: Mutex::default() });
         let files: Vec<String> = case["files"].as_array().unwrap().iter().map(|f| f.as_str().unwrap().to_owned()).collect();
-        let mut req = RunRequest::new(&cwd, "engine", files, engine.clone());
+        let mut req = RunRequest::new(&cwd, "engine", files, engine.clone(), mixdog_rt::testing::tokens().durability_io);
         req.args = case["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_owned()).collect();
         req.timeout = Duration::from_millis(case["timeoutMs"].as_u64().unwrap_or(30_000));
         // Node's runners forward this knob to `runChunked` only in these three; the others always

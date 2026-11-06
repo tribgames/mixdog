@@ -91,6 +91,11 @@ const cases = [
   },
   { name: 'failed without usage', provider: 'openai', model: 'zz-test-model', end: { kind: 'failed' } },
   {
+    name: 'failed with partial usage from a served model',
+    provider: 'openai', model: 'zz-test-model',
+    end: { kind: 'failed', usage: { inputTokens: 30, outputTokens: 1 }, model: 'zz-served-model' },
+  },
+  {
     name: 'failed after an abandoned attempt',
     provider: 'anthropic', model: 'zz-claude', inputExcludesCache: true, ownerSessionId: 'lead-1',
     abandoned: [{ usage: { inputTokens: 40, outputTokens: 4 }, model: 'zz-claude' }],
@@ -124,6 +129,7 @@ for (const spec of cases) {
     }
     const error = new Error(kind);
     if (usage) error.partialUsage = { ...usage };
+    if (spec.end.model) error.partialModel = spec.end.model;
     if (kind === 'cancelled') {
       controller.abort();
       error.name = 'AbortError';

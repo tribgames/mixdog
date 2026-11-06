@@ -18,6 +18,7 @@ use mixdog_core_api::domain::provider::ParameterOption;
 use mixdog_core_api::domain::provider::ParameterValue;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ReasoningOption;
+use mixdog_core_api::domain::provider::WireIds;
 use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_js::JsRegex;
 use mixdog_js::js_trim;
@@ -468,6 +469,28 @@ struct Family {
     wires: Vec<(&'static str, Vec<String>)>,
 }
 
+/// `resolveAntigravityWireModel`: the wire id for a picker id and effort, and
+/// the effort that still travels as `thinkingLevel`, read from the records'
+/// `wire`. An id with no wire is sent as it is, effort unchanged. With one
+/// wire id, the effort rides along only if the record lists levels.
+pub fn resolve_wire(roster: &[ModelRecord], model: &str, effort: Option<&str>) -> (String, Option<String>) {
+    let Some((record, wire)) = roster.iter().find_map(|r| r.wire.as_ref().filter(|_| r.id == model).map(|w| (r, w))) else {
+        return (model.to_owned(), effort.map(str::to_owned));
+    };
+    match wire {
+        WireIds::Tiers(tiers) => {
+            let wanted = effort.unwrap_or("").to_lowercase();
+            let chosen = tiers
+                .iter()
+                .find(|(level, _)| *level == wanted)
+                .or_else(|| tiers.iter().find(|(level, _)| level == "high"))
+                .or(tiers.last());
+            (chosen.map(|(_, wire)| wire.clone()).unwrap_or_else(|| model.to_owned()), None)
+        }
+        WireIds::One(wire) => (wire.clone(), if record.reasoning_levels.is_empty() { None } else { effort.map(str::to_owned) }),
+    }
+}
+
 struct AntigravityRow {
     display: String,
     record: ModelRecord,
@@ -521,12 +544,13 @@ fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<A
             let efforts: Vec<&str> = EFFORT_ORDER.iter().copied().filter(|e| wires_of(e).is_some()).collect();
             let tiered = efforts.len() > 1;
             let pick = |slot: &str| pick_wire(wires_of(slot).expect("a slot of the family"), &family.base);
-            let (wire, id) = if tiered {
-                let map: Map<String, Value> = efforts.iter().map(|e| ((*e).to_owned(), json!(pick(e)))).collect();
-                (Value::Object(map), key)
+            let (wire, ids, id) = if tiered {
+                let tiers: Vec<(String, String)> = efforts.iter().map(|e| ((*e).to_owned(), pick(e))).collect();
+                let map: Map<String, Value> = tiers.iter().map(|(e, w)| (e.clone(), json!(w))).collect();
+                (Value::Object(map), WireIds::Tiers(tiers), key)
             } else {
                 let wire = pick(efforts.first().copied().unwrap_or(""));
-                (json!(wire), wire)
+                (json!(wire), WireIds::One(wire.clone()), wire)
             };
             let display = match efforts.first() {
                 Some(first) if !tiered => {
@@ -563,6 +587,7 @@ fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<A
             row.insert("wire".into(), wire);
             let json = Value::Object(row);
             let mut record = ModelRecord::new(id);
+            record.wire = Some(ids);
             record.display_name = Some(display.clone());
             record.context_window = Some(family.context_window as u64);
             record.max_output_tokens = (family.max_output > 0.0).then_some(family.max_output as u64);

@@ -2,6 +2,8 @@
 //! scope, computed once per inspector key. The summary is small and inline; the per-file
 //! patches stay here and are paged out to `review/diff/get` from this cache.
 
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
+
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 

@@ -26,7 +26,7 @@ pub trait AttachmentText: Send + Sync {
 }
 
 fn is_reference(part: &ContentPart) -> bool {
-    matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(_), .. })
+    matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(_), text: Some(_), .. })
 }
 
 /// The messages with every text-attachment reference replaced, in place, by its text part.

@@ -1,6 +1,8 @@
 //! Local provider: the serialized inference queue with idle unload, per-model context settings,
 //! shared model installations and the `localProvider/` service.
 
+#![cfg_attr(test, allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup"))]
+
 pub mod assets;
 pub mod catalog;
 pub mod change;
@@ -9,6 +11,7 @@ pub mod gguf;
 pub mod hardware;
 pub mod hugging_face;
 pub mod installations;
+pub mod installed_models;
 pub mod model_state;
 pub mod provider;
 pub mod registered_models;

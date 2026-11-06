@@ -118,8 +118,8 @@ mod tests {
         std::fs::write(s.roster_path(), b"{ truncated").unwrap();
         let mut lock_name = s.roster_path().into_os_string();
         lock_name.push(".lock");
-        let holder = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(lock_name).unwrap();
-        holder.lock().unwrap();
+        // Another live process holds it, in the record `file-lock.mjs` writes.
+        std::fs::write(&lock_name, format!("{} 1 other-token\n", std::process::id())).unwrap();
         let started = std::time::Instant::now();
         let answer = tokio::time::timeout(std::time::Duration::from_secs(8), s.current_provider_account_id(PROVIDER))
             .await
@@ -129,7 +129,7 @@ mod tests {
         assert_eq!(std::fs::read(s.roster_path()).unwrap(), b"{ truncated");
         let aside = std::fs::read_dir(dir.path()).unwrap().filter_map(Result::ok).any(|e| e.file_name().to_string_lossy().contains(".corrupt-"));
         assert!(!aside, "nothing was moved aside");
-        holder.unlock().unwrap();
+        std::fs::remove_file(&lock_name).unwrap();
         // Released: the next read restores the backup.
         assert_eq!(s.current_provider_account_id(PROVIDER).await.unwrap(), ID);
     }

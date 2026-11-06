@@ -362,6 +362,21 @@ async fn headers_past_16_kib_get_431() {
     listener.stop().await;
 }
 
+/// Node's `maxHeadersCount` is 2000, bounded by the 16 KiB head: 103 small headers are served,
+/// where hyper's own default of 100 would answer 431.
+#[tokio::test]
+async fn more_than_a_hundred_headers_under_the_size_limit_are_served() {
+    let f = fx(WebhookConfig::default());
+    let listener = serve_on_loopback(&f).await;
+    let mut head = String::from("GET / HTTP/1.1\r\nHost: x\r\n");
+    for i in 0..103 {
+        head.push_str(&format!("x-h{i}: v\r\n"));
+    }
+    head.push_str("\r\n");
+    assert_eq!(exchange(listener.port(), &[head.as_bytes()]).await.0, 200);
+    listener.stop().await;
+}
+
 /// Node's 60 s `headersTimeout`: a head that never completes is cut off. The clock is paused, so
 /// the minute costs no wall time.
 #[tokio::test(start_paused = true)]

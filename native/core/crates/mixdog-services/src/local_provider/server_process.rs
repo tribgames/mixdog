@@ -60,6 +60,10 @@ pub trait RunningProcess: Send + Sync {
     /// Resolves once the process exits.
     async fn wait(&self) -> ExitInfo;
     fn kill(&self);
+    /// The child's pid, when the launcher knows it.
+    fn pid(&self) -> Option<u32> {
+        None
+    }
 }
 
 /// Receives a child's stdout/stderr text. The alias keeps the argument's lifetime higher-ranked
@@ -120,7 +124,8 @@ pub struct ServerProcess {
     launcher: Arc<dyn Launcher>,
     health: Arc<dyn Health>,
     owner: Arc<Mutex<Owner>>,
-    serial: tokio::sync::Mutex<()>,
+    // One permit: the semaphore is never closed, so an acquire only waits its turn.
+    serial: tokio::sync::Semaphore,
     /// Next ticket and the tokens of starts not yet finished.
     pending: Mutex<(u64, Vec<(u64, CancellationToken)>)>,
     start_timeout: Duration,
@@ -152,7 +157,7 @@ impl ServerProcess {
             launcher,
             health,
             owner: Arc::default(),
-            serial: tokio::sync::Mutex::new(()),
+            serial: tokio::sync::Semaphore::new(1),
             pending: Mutex::default(),
             start_timeout: timing.start_timeout,
             stop_timeout: timing.stop_timeout,
@@ -366,7 +371,7 @@ impl ServerProcess {
         };
         let result = {
             let lane = tokio::select! {
-                lane = self.serial.lock() => Some(lane),
+                lane = self.serial.acquire() => Some(lane),
                 _ = token.cancelled() => None,
             };
             match lane {
@@ -383,7 +388,7 @@ impl ServerProcess {
         for (_, t) in self.pending.lock().unwrap().1.iter() {
             t.cancel();
         }
-        let _lane = self.serial.lock().await;
+        let _lane = self.serial.acquire().await;
         let current = self.owner.lock().unwrap().current.clone();
         self.stop_state(&current).await
     }
@@ -428,10 +433,15 @@ struct ManagedProcess {
     exit: tokio::sync::watch::Receiver<Option<ExitInfo>>,
     manager: Arc<dyn ProcessManager>,
     handle: ProcessHandle,
+    pid: u32,
 }
 
 #[async_trait]
 impl RunningProcess for ManagedProcess {
+    fn pid(&self) -> Option<u32> {
+        Some(self.pid)
+    }
+
     async fn wait(&self) -> ExitInfo {
         let mut rx = self.exit.clone();
         loop {
@@ -465,7 +475,7 @@ impl Launcher for SystemLauncher {
             owner: ProcessOwner::Internal,
             time_limit: None,
         };
-        self.0.spawn(request).await.map_err(|e| match e {
+        let spawned = self.0.spawn(request).await.map_err(|e| match e {
             ProcessError::ProgramNotFound { .. } => format!("{program}: program not found"),
             ProcessError::PermissionDenied => format!("{program}: permission denied"),
             other => format!("{program}: could not start ({other:?})"),
@@ -487,7 +497,7 @@ impl Launcher for SystemLauncher {
                 }
             }
         });
-        Ok(Arc::new(ManagedProcess { exit: rx, manager: self.0.clone(), handle }))
+        Ok(Arc::new(ManagedProcess { exit: rx, manager: self.0.clone(), handle, pid: spawned.pid }))
     }
 }
 

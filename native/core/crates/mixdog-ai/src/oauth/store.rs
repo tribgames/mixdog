@@ -1,8 +1,8 @@
 //! One provider's credential file (`antigravity-oauth.json`, `openai-oauth.json`,
 //! ...): the file name and field names are the stored ones. Unknown fields
-//! survive a rewrite, a write is atomic (temp file, fsync, rename) and
-//! compare-and-swap under an OS advisory lock, and an unreadable file is
-//! never mistaken for a logout.
+//! survive a rewrite, a write is atomic (`mixdog-statefile`: temp file, fsync,
+//! rename) and compare-and-swap under the file's lock (Node's `file-lock.mjs`
+//! protocol, 2 s wait), and an unreadable file is never mistaken for a logout.
 //!
 //! All file I/O runs as lane jobs: reads on io-interactive, writes and locks
 //! on io-durability.
@@ -15,13 +15,15 @@
 
 use std::fs;
 use std::io;
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
 use mixdog_rt::DurabilityIo;
+use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
+use mixdog_statefile::LockOpts;
+use mixdog_statefile::Opts;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Map;
@@ -38,11 +40,11 @@ impl CredentialIo {
     /// Runs `body` as a read-lane job.
     pub(crate) async fn read_job<R: Send + 'static>(
         &self,
-        body: impl FnOnce() -> io::Result<R> + Send + 'static,
+        body: impl FnOnce(&InLane<InteractiveIo>) -> io::Result<R> + Send + 'static,
     ) -> io::Result<R> {
         let job = self
             .read
-            .submit(&CancellationToken::new(), move |_| body())
+            .submit(&CancellationToken::new(), body)
             .map_err(io::Error::other)?;
         job.await.map_err(io::Error::other)?
     }
@@ -50,11 +52,11 @@ impl CredentialIo {
     /// Runs `body` as a durability-lane job; it takes its own file locks.
     pub(crate) async fn write_job<R: Send + 'static>(
         &self,
-        body: impl FnOnce() -> io::Result<R> + Send + 'static,
+        body: impl FnOnce(&InLane<DurabilityIo>) -> io::Result<R> + Send + 'static,
     ) -> io::Result<R> {
         let job = self
             .write
-            .submit(&CancellationToken::new(), move |_| body())
+            .submit(&CancellationToken::new(), body)
             .map_err(io::Error::other)?;
         job.await.map_err(io::Error::other)?
     }
@@ -79,7 +81,7 @@ type Document = Map<String, Value>;
 
 fn read_document(path: &Path) -> Probe<Document> {
     match fs::read(path) {
-        Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
+        Ok(bytes) => match mixdog_statefile::parse_json_text(&bytes) {
             Ok(Value::Object(map)) => Probe::Present(map),
             _ => Probe::Unreadable,
         },
@@ -88,108 +90,24 @@ fn read_document(path: &Path) -> Probe<Document> {
     }
 }
 
-fn lock_path(path: &Path) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(".lock");
-    PathBuf::from(name)
+/// Node's token files: `writeJsonAtomicAsync({ lock, fsyncDir, mode: 0o600, secret })`; the
+/// caller holds the lock already.
+fn publish(lane: &InLane<DurabilityIo>, path: &Path, document: &Document) -> io::Result<()> {
+    let opts = Opts { secret: true, fsync_dir: true, ..Opts::default() };
+    mixdog_statefile::write_json(lane, path, &Value::Object(document.clone()), &opts)
+        .map(drop)
+        .map_err(|error| match error {
+            mixdog_statefile::StateError::Io(error) => error,
+            other => io::Error::other(other.to_string()),
+        })
 }
 
-/// Writes `document` beside `path` and renames it into place.
-fn publish(path: &Path, document: &Document) -> io::Result<()> {
-    publish_bytes(path, &serde_json::to_vec_pretty(document).map_err(io::Error::other)?)
-}
-
-/// Atomically replaces `path` with `bytes` (temp file, fsync, rename), under
-/// the path's advisory lock. Shared by every on-disk cache of this crate;
-/// call it from a lane job.
-pub(crate) fn write_atomic_locked(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    with_lock(path, || publish_bytes(path, bytes))
-}
-
-pub(crate) fn publish_bytes(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut name = path
-        .file_name()
-        .map(|n| n.to_owned())
-        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
-    name.push(format!(".mixdog-tmp-{:016x}", rand::random::<u64>()));
-    let temp = path.with_file_name(name);
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let result = (|| {
-        let mut file = options.open(&temp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        fs::rename(&temp, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
-        return result;
+/// A busy lock is a timeout (`ELOCKTIMEOUT`); a write cannot go on without it.
+fn lock_error(error: mixdog_statefile::LockError) -> io::Error {
+    match error {
+        mixdog_statefile::LockError::Io(error) => error,
+        busy => io::Error::new(io::ErrorKind::TimedOut, busy.to_string()),
     }
-    #[cfg(unix)]
-    if let Some(parent) = path.parent() {
-        fs::File::open(parent)?.sync_all()?;
-    }
-    Ok(())
-}
-
-/// Runs `body` holding the exclusive advisory lock of `path`'s lock file. The
-/// lock dies with the process.
-pub(crate) fn with_lock<R>(path: &Path, body: impl FnOnce() -> io::Result<R>) -> io::Result<R> {
-    let lock = fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(lock_path(path))?;
-    lock.lock()?;
-    let result = body();
-    let _ = lock.unlock();
-    result
-}
-
-/// Node's lock wait (`file-lock.mjs` `DEFAULT_LOCK_TIMEOUT_MS`).
-pub(crate) const LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(2000);
-
-/// `DEFAULT_BACKOFFS_MS`: 25, 50, 100, then 200 ms.
-fn backoff_ms(attempt: u32) -> u64 {
-    [25, 50, 100].get(attempt as usize).copied().unwrap_or(200)
-}
-
-/// [`with_lock`] with Node's acquisition: poll with jittered backoff until
-/// `timeout`, then give up (`ELOCKTIMEOUT`). `None` is a lock another holder
-/// kept for the whole wait; `body` did not run. Call it from a lane job,
-/// which is where the waiting sleeps.
-pub(crate) fn with_lock_within<R>(
-    path: &Path,
-    timeout: std::time::Duration,
-    body: impl FnOnce() -> io::Result<R>,
-) -> io::Result<Option<R>> {
-    let lock = fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(lock_path(path))?;
-    let deadline = std::time::Instant::now() + timeout;
-    let mut attempt = 0;
-    loop {
-        match lock.try_lock() {
-            Ok(()) => break,
-            Err(fs::TryLockError::WouldBlock) => {}
-            Err(fs::TryLockError::Error(err)) => return Err(err),
-        }
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
-        if left.is_zero() {
-            return Ok(None);
-        }
-        let base = backoff_ms(attempt);
-        let jitter = rand::random::<u64>() % base.min(75);
-        std::thread::sleep(left.min(std::time::Duration::from_millis(base + jitter)));
-        attempt += 1;
-    }
-    let result = body();
-    let _ = lock.unlock();
-    result.map(Some)
 }
 
 /// The merged document: `update`'s fields over what is stored, so fields this
@@ -243,14 +161,15 @@ impl CredentialFile {
 
     async fn write_job<R: Send + 'static>(
         &self,
-        body: impl FnOnce(&Path) -> io::Result<R> + Send + 'static,
+        body: impl FnOnce(&InLane<DurabilityIo>, &Path) -> io::Result<R> + Send + 'static,
     ) -> io::Result<R> {
         let path = self.path.clone();
         let job = self
             .io
             .write
-            .submit(&CancellationToken::new(), move |_| {
-                with_lock(&path, || body(&path))
+            .submit(&CancellationToken::new(), move |lane| {
+                mixdog_statefile::with_lock(lane, &path, &LockOpts::default(), || body(lane, &path))
+                    .map_err(lock_error)?
             })
             .map_err(io::Error::other)?;
         job.await.map_err(io::Error::other)?
@@ -261,7 +180,7 @@ impl CredentialFile {
         let Value::Object(update) = serde_json::to_value(value).map_err(io::Error::other)? else {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         };
-        self.write_job(move |path| publish(path, &merged(path, update)))
+        self.write_job(move |lane, path| publish(lane, path, &merged(path, update)))
             .await
     }
 
@@ -274,7 +193,7 @@ impl CredentialFile {
         unchanged: impl FnOnce(&Document) -> bool + Send + 'static,
         update: Document,
     ) -> io::Result<bool> {
-        self.write_job(move |path| {
+        self.write_job(move |lane, path| {
             let current = match read_document(path) {
                 Probe::Present(map) => map,
                 Probe::Absent => Document::new(),
@@ -285,7 +204,7 @@ impl CredentialFile {
             }
             let mut next = current;
             next.extend(update);
-            publish(path, &next)?;
+            publish(lane, path, &next)?;
             Ok(true)
         })
         .await
@@ -304,7 +223,7 @@ impl CredentialFile {
 
     /// Removes the credential (logout).
     pub async fn remove(&self) -> io::Result<()> {
-        self.write_job(|path| match fs::remove_file(path) {
+        self.write_job(|_, path| match fs::remove_file(path) {
             Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
             _ => Ok(()),
         })

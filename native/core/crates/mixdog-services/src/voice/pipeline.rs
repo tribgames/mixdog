@@ -7,10 +7,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
+use mixdog_rt::DurabilityIo;
 use serde_json::{Value, json};
 
 use super::language::{detect_device_language, normalize_whisper_language};
-use super::runtime::{RuntimeManifest, VoiceRuntime, resolve_voice_runtime};
+use super::runtime::{RuntimeManifest, VoiceRuntime, VoiceRuntimeInfo, resolve_voice_runtime, voice_runtime_info};
+use crate::lane::on_lane;
 use super::single_flight::SingleFlight;
 use super::wav::{ONSET_SILENCE_SECONDS, prepend_wav_silence};
 
@@ -118,6 +120,27 @@ pub struct VoicePipeline {
     transcribing: SingleFlight<Result<Option<String>, VoiceError>>,
     wav_by_attachment: Mutex<HashMap<String, PathBuf>>,
     converting: SingleFlight<Result<(), VoiceError>>,
+    /// The lane every file read and write of the voice path runs on.
+    lane: DurabilityIo,
+}
+
+/// Size of `path`, `None` when it cannot be read.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn file_size(path: &Path) -> Option<u64> {
+    std::fs::metadata(path).ok().map(|m| m.len())
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn file_exists(path: &Path) -> bool {
+    path.exists()
+}
+
+/// Prepends the onset silence to the converted WAV in place.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn pad_wav(wav: &Path) -> Result<(), VoiceError> {
+    let bytes = std::fs::read(wav).map_err(|e| VoiceError(e.to_string()))?;
+    let padded = prepend_wav_silence(&bytes, ONSET_SILENCE_SECONDS).map_err(|e| VoiceError(format!("{e}: {}", wav.display())))?;
+    std::fs::write(wav, padded).map_err(|e| VoiceError(e.to_string()))
 }
 
 impl VoicePipeline {
@@ -127,6 +150,7 @@ impl VoicePipeline {
         settings: Arc<dyn VoiceSettingsSource>,
         engine: Arc<dyn WhisperEngine>,
         tools: Arc<dyn AudioTools>,
+        lane: DurabilityIo,
     ) -> Self {
         Self {
             data_dir,
@@ -139,7 +163,12 @@ impl VoicePipeline {
             transcribing: SingleFlight::default(),
             wav_by_attachment: Mutex::default(),
             converting: SingleFlight::default(),
+            lane,
         }
+    }
+
+    pub fn lane(&self) -> DurabilityIo {
+        self.lane
     }
 
     pub fn settings(&self) -> VoiceSettings {
@@ -154,12 +183,22 @@ impl VoicePipeline {
         &self.manifest
     }
 
-    pub fn runtime(&self) -> VoiceRuntime {
-        resolve_voice_runtime(&self.data_dir, &self.manifest)
+    /// What is installed now, resolved on the lane; a lane that cannot answer reads as nothing
+    /// installed.
+    pub async fn runtime(&self) -> VoiceRuntime {
+        let (dir, manifest) = (self.data_dir.clone(), self.manifest.clone());
+        let unresolved = VoiceRuntime::absent(&self.manifest);
+        on_lane(self.lane, move || resolve_voice_runtime(&dir, &manifest)).await.unwrap_or(unresolved)
     }
 
-    fn contract(&self, settings: &VoiceSettings) -> Result<(VoiceRuntime, ServerContract), VoiceError> {
-        let runtime = self.runtime();
+    /// [`voice_runtime_info`] for `runtime`, read on the lane.
+    pub async fn runtime_info(&self, runtime: &VoiceRuntime) -> VoiceRuntimeInfo {
+        let (runtime, manifest) = (runtime.clone(), self.manifest.clone());
+        on_lane(self.lane, move || voice_runtime_info(&runtime, &manifest)).await.unwrap_or_default()
+    }
+
+    async fn contract(&self, settings: &VoiceSettings) -> Result<(VoiceRuntime, ServerContract), VoiceError> {
+        let runtime = self.runtime().await;
         if !runtime.installed {
             let missing: Vec<&str> = [
                 (runtime.binary, "binary"),
@@ -207,8 +246,9 @@ impl VoicePipeline {
         let settings = self.settings();
         let max_bytes = settings.max_file_size_mb * 1024.0 * 1024.0;
         if max_bytes > 0.0 {
-            if let Ok(meta) = tokio::fs::metadata(audio).await {
-                if meta.len() as f64 > max_bytes {
+            let path = audio.to_owned();
+            if let Ok(Some(size)) = on_lane(self.lane, move || file_size(&path)).await {
+                if size as f64 > max_bytes {
                     return Ok(None);
                 }
             }
@@ -231,7 +271,7 @@ impl VoicePipeline {
 
     async fn transcribe_uncached(&self, audio: &Path, attachment_id: Option<&str>) -> Result<Option<String>, VoiceError> {
         let settings = self.settings();
-        let (runtime, contract) = self.contract(&settings)?;
+        let (runtime, contract) = self.contract(&settings).await?;
         let language = self.language(&settings);
         let wav = self.ensure_wav(audio, attachment_id, &runtime, &settings).await?;
         self.engine.ensure_ready(&contract).await?;
@@ -256,7 +296,8 @@ impl VoicePipeline {
         if let Some(id) = attachment_id {
             let cached = self.wav_by_attachment.lock().unwrap().get(id).cloned();
             if let Some(path) = cached {
-                if path.exists() {
+                let probed = path.clone();
+                if on_lane(self.lane, move || file_exists(&probed)).await.unwrap_or(false) {
                     return Ok(path);
                 }
                 self.wav_by_attachment.lock().unwrap().remove(id);
@@ -271,10 +312,8 @@ impl VoicePipeline {
                 self.tools
                     .convert_to_wav(&ffmpeg, audio, &wav, settings.sample_rate, settings.channels, threads)
                     .await?;
-                let bytes = tokio::fs::read(&wav).await.map_err(|e| VoiceError(e.to_string()))?;
-                let padded = prepend_wav_silence(&bytes, ONSET_SILENCE_SECONDS)
-                    .map_err(|e| VoiceError(format!("{e}: {}", wav.display())))?;
-                tokio::fs::write(&wav, padded).await.map_err(|e| VoiceError(e.to_string()))
+                let converted = wav.clone();
+                on_lane(self.lane, move || pad_wav(&converted)).await.map_err(|e| VoiceError(e.to_string()))?
             })
             .await?;
         if let Some(id) = attachment_id {
@@ -287,7 +326,7 @@ impl VoicePipeline {
     /// cold model load. Never fails: warm-up is advisory.
     pub async fn prepare_transcription(&self) -> Value {
         let settings = self.settings();
-        let contract = match self.contract(&settings) {
+        let contract = match self.contract(&settings).await {
             Ok((_, contract)) => contract,
             Err(VoiceError(reason)) => return json!({"ready": false, "reason": reason}),
         };
@@ -386,7 +425,7 @@ pub(crate) mod tests {
 
     fn pipeline(dir: &Path, section: Value, tools: FakeTools, engine: FakeEngine) -> (VoicePipeline, Arc<FakeTools>, Arc<FakeEngine>) {
         let (tools, engine) = (Arc::new(tools), Arc::new(engine));
-        let p = VoicePipeline::new(dir.to_owned(), manifest(), Arc::new(Fixed(section)), engine.clone(), tools.clone());
+        let p = VoicePipeline::new(dir.to_owned(), manifest(), Arc::new(Fixed(section)), engine.clone(), tools.clone(), mixdog_rt::testing::tokens().durability_io);
         (p, tools, engine)
     }
 

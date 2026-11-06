@@ -2,6 +2,8 @@
 //! the one-click core install. Status never downloads and never spawns; how an engine resolves
 //! (manifest, PATH, managed tools dir) sits behind [`EngineResolver`] with the engine runner.
 
+#![cfg_attr(test, allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup"))]
+
 pub mod apply;
 pub mod catalog;
 pub mod core_install;
