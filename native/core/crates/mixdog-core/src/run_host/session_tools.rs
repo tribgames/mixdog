@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_js::{js_trim, JsRegex};
 use mixdog_mcp::scopes::{ExtensionScopes, ScopeKind};
@@ -160,8 +161,11 @@ pub trait SessionMcp: Send + Sync + 'static {
 }
 
 /// Whether skills are listed for a folder (`skills.length` of `resolveSessionTools`).
+/// Answered from a collection that is current (Node collects before it filters), so it is async;
+/// a collection that fails is the error, not "none".
+#[async_trait]
 pub trait SkillsListed: Send + Sync + 'static {
-    fn any_for(&self, cwd: &Path) -> bool;
+    async fn any_for(&self, cwd: &Path) -> Result<bool, String>;
 }
 
 /// [`SessionMcp`] over the hub: the tools of every ready server whose own extension scope admits
@@ -202,16 +206,17 @@ impl SessionToolBuilder {
     /// The tools the session sends: its spec's resolved set, in the order of the surface's active
     /// tools (the header's `tools`, after the deferred surface chose them), without what the
     /// provider's route rejected. A bridge surface adds the bridge's own tools.
-    pub fn tools(&self, header: &Header, surface: &SessionSurface) -> SessionTools {
+    pub async fn tools(&self, header: &Header, surface: &SessionSurface) -> Result<SessionTools, String> {
         let cwd = header.get("cwd").and_then(Value::as_str).map(PathBuf::from).unwrap_or_default();
         let model = header.get("model").and_then(Value::as_str).map_or("", js_trim);
+        let skills_listed = self.skills.any_for(&cwd).await?;
         let resolved = resolve(
             &self.pool,
             self.mcp.tools(&cwd),
             &Resolve {
                 tool_spec: header.get("toolSpec"),
                 model,
-                skills_listed: self.skills.any_for(&cwd),
+                skills_listed,
                 agent_owned: surface.agent_owned,
                 schema_allowed: surface.schema_allowed.as_deref(),
                 disallowed: &surface.disallowed,
@@ -225,7 +230,7 @@ impl SessionToolBuilder {
             .filter_map(|active| resolved.iter().chain(&bridge).find(|t| name(t) == active).cloned())
             .collect();
         let builtins = tools.iter().map(|t| name(t)).filter(|n| is_builtin(n)).map(str::to_owned).collect();
-        SessionTools { tools, builtins }
+        Ok(SessionTools { tools, builtins })
     }
 }
 
@@ -321,9 +326,10 @@ mod tests {
         }
     }
     struct Listed(bool);
+    #[async_trait]
     impl SkillsListed for Listed {
-        fn any_for(&self, _: &Path) -> bool {
-            self.0
+        async fn any_for(&self, _: &Path) -> Result<bool, String> {
+            Ok(self.0)
         }
     }
 
@@ -337,22 +343,22 @@ mod tests {
         value.as_object().expect("object").clone()
     }
 
-    #[test]
-    fn the_sent_set_is_the_resolved_set_in_the_order_of_the_active_tools_less_route_exclusions() {
+    #[tokio::test]
+    async fn the_sent_set_is_the_resolved_set_in_the_order_of_the_active_tools_less_route_exclusions() {
         let surface = SessionSurface {
             active_tools: ["grep", "read", "agent", "mcp__alpha__zeta", "nope", "shell"].map(String::from).to_vec(),
             disallowed: vec!["shell".into()],
             route_excluded: vec![("read".into(), "why".into())],
             ..SessionSurface::default()
         };
-        let got = builder().tools(&header(json!({"cwd": "/work", "model": "claude-sonnet-4", "toolSpec": "full"})), &surface);
+        let got = builder().tools(&header(json!({"cwd": "/work", "model": "claude-sonnet-4", "toolSpec": "full"})), &surface).await.unwrap();
         // `read` is route-excluded, `nope` is not a tool, `shell` is denied.
         assert_eq!(names(&got.tools), ["grep", "agent", "mcp__alpha__zeta"]);
         assert_eq!(got.builtins, ["grep"]);
     }
 
-    #[test]
-    fn a_bridge_surface_carries_the_bridge_tools_even_past_an_allowlist() {
+    #[tokio::test]
+    async fn a_bridge_surface_carries_the_bridge_tools_even_past_an_allowlist() {
         let surface = SessionSurface {
             active_tools: ["read", "load_tool", "call_tool"].map(String::from).to_vec(),
             schema_allowed: Some(vec!["read".into()]),
@@ -360,19 +366,19 @@ mod tests {
             ..SessionSurface::default()
         };
         let header = header(json!({"cwd": "/work", "model": "gpt-5", "toolSpec": "full"}));
-        assert_eq!(names(&builder().tools(&header, &surface).tools), ["read", "load_tool", "call_tool"]);
+        assert_eq!(names(&builder().tools(&header, &surface).await.unwrap().tools), ["read", "load_tool", "call_tool"]);
         let native = SessionSurface { bridge: false, ..surface };
-        assert_eq!(names(&builder().tools(&header, &native).tools), ["read"]);
+        assert_eq!(names(&builder().tools(&header, &native).await.unwrap().tools), ["read"]);
     }
 
-    #[test]
-    fn an_agent_worker_never_sends_the_lead_only_control_tools() {
+    #[tokio::test]
+    async fn an_agent_worker_never_sends_the_lead_only_control_tools() {
         let surface = SessionSurface {
             active_tools: ["session", "agent", "ask_user", "handoff_user", "goal"].map(String::from).to_vec(),
             agent_owned: true,
             ..SessionSurface::default()
         };
-        let got = builder().tools(&header(json!({"cwd": "/work", "model": "claude-sonnet-4"})), &surface);
+        let got = builder().tools(&header(json!({"cwd": "/work", "model": "claude-sonnet-4"})), &surface).await.unwrap();
         assert_eq!(names(&got.tools), ["goal"]);
     }
 }

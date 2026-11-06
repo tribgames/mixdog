@@ -108,7 +108,7 @@ fn text(value: Option<&Value>) -> String {
 }
 
 /// The message of the `Error` a failed port step stands for.
-fn port_message(error: &PortError) -> String {
+pub(crate) fn port_message(error: &PortError) -> String {
     match error {
         PortError::Invalid { reason, .. } => reason.clone(),
         PortError::Denied(message)

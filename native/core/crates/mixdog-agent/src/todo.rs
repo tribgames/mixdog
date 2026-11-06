@@ -62,6 +62,11 @@ pub trait TodoView: Send + Sync {
     async fn phases(&self) -> Vec<TodoPhase>;
     async fn goal_active(&self) -> bool;
     async fn awaiting_background_work(&self) -> bool;
+    /// The turn waits on the user outside the loop's own sight (an `ask_user` question left
+    /// unanswered, which the todo store records).
+    async fn user_waiting(&self) -> bool {
+        false
+    }
     /// Whether a call changes files, runs commands or mutates a repository
     /// (typed from the tool's annotations by the host).
     fn is_mutation(&self, call: &ToolCall) -> bool;
@@ -185,8 +190,9 @@ impl TurnGuards for TodoGuards {
         // Read before taking the lock: it is never held across an await.
         let background = self.view.awaiting_background_work().await;
         let goal = self.view.goal_active().await;
+        let user_waiting = self.view.user_waiting().await;
         let mut check = lock(&self.check);
-        if check.awaiting_progress || check.user_wait {
+        if check.awaiting_progress || check.user_wait || user_waiting {
             return None;
         }
         let open: Vec<&TodoTask> = phases
@@ -288,5 +294,32 @@ mod tests {
         assert!(guards.completion_reminder(false).await.is_none());
         guards.begin_turn(false);
         assert!(guards.completion_reminder(false).await.is_some());
+    }
+
+    /// A question left unanswered is recorded outside the loop (the todo store): the check
+    /// reads it from the view (`userWaits.has(id)`).
+    #[tokio::test]
+    async fn a_question_the_view_reports_unanswered_makes_the_turn_wait_on_the_user() {
+        struct Waiting(View);
+        #[async_trait]
+        impl TodoView for Waiting {
+            async fn phases(&self) -> Vec<TodoPhase> {
+                self.0.phases().await
+            }
+            async fn goal_active(&self) -> bool {
+                false
+            }
+            async fn awaiting_background_work(&self) -> bool {
+                false
+            }
+            async fn user_waiting(&self) -> bool {
+                true
+            }
+            fn is_mutation(&self, _: &ToolCall) -> bool {
+                false
+            }
+        }
+        let guards = TodoGuards::new(Arc::new(Waiting(View { phases: open_list(), goal: false })), false);
+        assert!(guards.completion_reminder(false).await.is_none());
     }
 }

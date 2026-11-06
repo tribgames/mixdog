@@ -223,6 +223,47 @@ async fn only_the_shipped_internal_agents_are_hidden() {
     assert!(!agents.hidden_agent(None));
 }
 
+/// `isContactAgentId(id, readAgentDefinitionKind(id))` over the definitions: a marked bot, a bot
+/// known by its greeting, never an unmarked agent, a shipped role or Mixy; and nothing before the
+/// first read. A change is seen at the next refresh.
+#[tokio::test]
+async fn contact_ids_answer_nodes_contact_rule_from_the_definitions() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    write_files(
+        dir.path(),
+        &json!({
+            "agents/ann/AGENT.md": "---\nkind: bot\n---\nBody\n",
+            "agents/cat/AGENT.md": "---\nkind: Bot\n---\nBody\n",
+            "agents/bob/AGENT.md": "---\nname: Bob\n---\nBody\n",
+            "agents/dan/AGENT.md": "---\nname: Dan\n---\nBody\n",
+            "agents/worker/AGENT.md": "---\nkind: bot\n---\nBody\n",
+            "agents/lead/AGENT.md": "---\nkind: bot\n---\nBody\n",
+        }),
+    );
+    let greeted = HashMap::from([("dan".to_owned(), true)]);
+    let agents = Arc::new(AgentDefinitions::new(
+        dir.path(),
+        dir.path(),
+        tokens.interactive_io,
+        AgentRoutes::new(config, dir.path()),
+        Arc::new(Evidence { greeted, chatted: HashMap::new(), owns: false }),
+        Arc::new(|| Value::Null),
+        dir.path().join("task"),
+    ));
+    let contacts = ContactIds::new(agents);
+    assert!(!contacts.is_contact_bot("ann"), "nothing is known before the first read");
+    contacts.refresh().await.unwrap();
+    let answers: Vec<_> = ["ann", " ANN ", "cat", "dan", "bob", "worker", "lead", "maintainer", "nobody", ""].iter().map(|id| contacts.is_contact_bot(id)).collect();
+    assert_eq!(answers, [true, true, true, true, false, false, false, false, false, false]);
+    std::fs::write(dir.path().join("agents/bob/AGENT.md"), "---\nkind: bot\n---\nBody\n").unwrap();
+    assert!(!contacts.is_contact_bot("bob"), "a change shows at the next refresh");
+    contacts.refresh().await.unwrap();
+    assert!(contacts.is_contact_bot("bob"));
+}
+
 struct NoEffects;
 
 #[async_trait]

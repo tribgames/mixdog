@@ -38,6 +38,7 @@ pub use hoist::ScriptSyntax;
 pub use jobs::ElevationGate;
 pub use jobs::ExecConfig;
 pub use jobs::OsPromptElevation;
+pub use jobs::OwnerCycles;
 pub use jobs::SurvivorWatch;
 pub use jobs::Survivors;
 pub use jobs::ExecRuntime;

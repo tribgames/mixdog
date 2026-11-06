@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicU32;
 
 use mixdog_core_api::domain::common::EventSource;
@@ -339,6 +340,8 @@ struct JobState {
     promoted_ms: Option<u64>,
     /// When the process last wrote to stdout or stderr.
     last_output_ms: Option<u64>,
+    /// The owner's user cycle when the command moved to the background (`stampShellJobCycle`).
+    user_cycle: Option<u64>,
 }
 
 impl JobState {
@@ -355,6 +358,7 @@ impl JobState {
             cancelled: false,
             promoted_ms: None,
             last_output_ms: None,
+            user_cycle: None,
         }
     }
 }
@@ -638,15 +642,29 @@ impl Job {
         let _ = rx.wait_for(|done| *done).await;
     }
 
-    /// Hands the running job to the background. `false` when it has already finished.
-    pub fn detach(&self, now_ms: u64) -> bool {
+    /// Hands the running job to the background, stamped with the owner's current user `cycle`.
+    /// `false` when it has already finished.
+    pub fn detach(&self, now_ms: u64, cycle: u64) -> bool {
         let mut state = self.state();
         if state.finished {
             return false;
         }
         state.detached = true;
         state.promoted_ms = Some(now_ms);
+        state.user_cycle = Some(cycle);
         true
+    }
+
+    /// Whether this job is a running background task that counts for `hasActiveBackgroundTasks`
+    /// on the shell surface: it moved to the background (a foreground command is no task) or
+    /// tracks a finished command's survivors. `awaited_only` leaves out the survivors (Node's
+    /// `detached` tasks); `user_cycle` keeps only a task stamped with that cycle.
+    fn counts_as_active(&self, awaited_only: bool, user_cycle: Option<u64>) -> bool {
+        let state = self.state();
+        (state.promoted_ms.is_some() || self.survivors)
+            && !state.finished
+            && !(awaited_only && self.survivors)
+            && user_cycle.is_none_or(|cycle| state.user_cycle == Some(cycle))
     }
 
     /// The task started when it moved to the background, not when the process did.
@@ -944,6 +962,12 @@ pub struct ExecRuntime {
     pub(crate) config: ExecConfig,
     pub(crate) snapshots: super::snapshot::Snapshots,
     jobs: Mutex<HashMap<String, Arc<Job>>>,
+    cycles: OnceLock<Arc<dyn OwnerCycles>>,
+}
+
+/// The owner's user cycle (`currentUserCycle`): how many genuine prompts the session has seen.
+pub trait OwnerCycles: Send + Sync {
+    fn current(&self, owner: &ThreadId) -> u64;
 }
 
 impl ExecConfig {
@@ -956,7 +980,23 @@ impl ExecConfig {
 
 impl ExecRuntime {
     pub fn new(config: ExecConfig) -> Arc<Self> {
-        Arc::new(Self { config, jobs: Mutex::new(HashMap::new()), snapshots: super::snapshot::Snapshots::default() })
+        Arc::new(Self { config, jobs: Mutex::new(HashMap::new()), snapshots: super::snapshot::Snapshots::default(), cycles: OnceLock::new() })
+    }
+
+    /// Where a job moved to the background reads its owner's user cycle. Set once, before jobs
+    /// run; without it every owner is on cycle 0 (a session that has seen no prompt).
+    pub fn set_cycles(&self, cycles: Arc<dyn OwnerCycles>) {
+        let _ = self.cycles.set(cycles);
+    }
+
+    /// The owner's current user cycle.
+    pub fn cycle_of(&self, owner: &ThreadId) -> u64 {
+        self.cycles.get().map_or(0, |cycles| cycles.current(owner))
+    }
+
+    /// `hasActiveBackgroundTasks({ callerSessionId: owner, surface: 'shell', awaitedOnly, match })`.
+    pub fn has_active(&self, owner: &ThreadId, awaited_only: bool, user_cycle: Option<u64>) -> bool {
+        lock(&self.jobs).values().any(|job| &job.owner == owner && job.counts_as_active(awaited_only, user_cycle))
     }
 
     pub fn now_ms(&self) -> u64 {

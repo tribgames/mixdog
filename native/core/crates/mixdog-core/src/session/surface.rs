@@ -16,7 +16,8 @@ use super::seams::ToolSurfaceSource;
 /// Tools the provider rejected for the thread's current route, with the model text of why
 /// (`providerToolExclusionReason`).
 pub trait RouteExclusions: Send + Sync + 'static {
-    fn excluded(&self, thread: &ThreadId) -> Vec<(String, String)>;
+    /// The tools the thread's route left out, as `(tool, reason)`; `header` names the route.
+    fn excluded(&self, thread: &ThreadId, header: &Header) -> Vec<(String, String)>;
 }
 
 /// No route has excluded anything (a run that has not started, or a provider without schema
@@ -24,7 +25,7 @@ pub trait RouteExclusions: Send + Sync + 'static {
 pub struct NoRouteExclusions;
 
 impl RouteExclusions for NoRouteExclusions {
-    fn excluded(&self, _thread: &ThreadId) -> Vec<(String, String)> {
+    fn excluded(&self, _thread: &ThreadId, _header: &Header) -> Vec<(String, String)> {
         Vec::new()
     }
 }
@@ -41,7 +42,7 @@ impl HeaderToolSurfaces {
 
 impl ToolSurfaceSource for HeaderToolSurfaces {
     fn surface(&self, thread: &ThreadId, header: &Header) -> SessionSurface {
-        SessionSurface::from_header(header, self.exclusions.excluded(thread))
+        SessionSurface::from_header(header, self.exclusions.excluded(thread, header))
     }
 }
 
@@ -54,7 +55,7 @@ mod tests {
     struct Excluded;
 
     impl RouteExclusions for Excluded {
-        fn excluded(&self, thread: &ThreadId) -> Vec<(String, String)> {
+        fn excluded(&self, thread: &ThreadId, _header: &Header) -> Vec<(String, String)> {
             assert_eq!(thread, &ThreadId::from("t1"));
             vec![("goal".into(), "tool \"goal\" is unavailable with the current model".into())]
         }

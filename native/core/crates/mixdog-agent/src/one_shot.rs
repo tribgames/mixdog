@@ -16,6 +16,7 @@ use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::Usage;
+use mixdog_core_api::domain::retry::RetryDecider;
 use tokio_util::sync::CancellationToken;
 
 use crate::compact::summary_run::SummaryCall;
@@ -23,9 +24,12 @@ use crate::compact::summary_run::SummaryFailure;
 use crate::compact::summary_run::SummaryResponse;
 use crate::compact::summary_run::SummarySender;
 use crate::env::AllowAll;
+use crate::env::Clock;
 use crate::env::DrainRequest;
+use crate::env::JitterSource;
 use crate::env::NoGuards;
 use crate::env::NullObserver;
+use crate::env::RetryWait;
 use crate::env::RunEnv;
 use crate::env::SteerEntry;
 use crate::env::SteerSource;
@@ -68,11 +72,21 @@ impl TranscriptSink for DiscardSink {
 /// A run outside any session: the host's clock, jitter, retry wait and decider,
 /// with steering, compaction, routing fallback, hooks and sinks off.
 pub(crate) fn isolated_env(host: &RunEnv) -> RunEnv {
+    isolated(Arc::clone(&host.clock), Arc::clone(&host.jitter), Arc::clone(&host.waiter), Arc::clone(&host.decider))
+}
+
+/// The run environment of a call outside any run: only what the retry path needs.
+fn isolated(
+    clock: Arc<dyn Clock>,
+    jitter: Arc<dyn JitterSource>,
+    waiter: Arc<dyn RetryWait>,
+    decider: Arc<dyn RetryDecider>,
+) -> RunEnv {
     RunEnv {
-        clock: Arc::clone(&host.clock),
-        jitter: Arc::clone(&host.jitter),
-        waiter: Arc::clone(&host.waiter),
-        decider: Arc::clone(&host.decider),
+        clock,
+        jitter,
+        waiter,
+        decider,
         steer: Arc::new(NoSteer),
         observer: Arc::new(NullObserver),
         sink: Arc::new(DiscardSink),
@@ -177,6 +191,20 @@ impl OneShot {
     /// run's identity: no tool is offered.
     pub fn new(host: &RunEnv, tool_env: ToolEnv, provider: Arc<dyn ProviderAdapter>, cancel: CancellationToken) -> Self {
         Self { env: isolated_env(host), tool_env, provider, cancel, options: RequestOptions::default() }
+    }
+
+    /// A caller with no run around it (the compaction summary of a session between turns): the
+    /// retry path's clock, jitter, wait and decider are the process's.
+    pub fn standalone(
+        clock: Arc<dyn Clock>,
+        jitter: Arc<dyn JitterSource>,
+        waiter: Arc<dyn RetryWait>,
+        decider: Arc<dyn RetryDecider>,
+        tool_env: ToolEnv,
+        provider: Arc<dyn ProviderAdapter>,
+        cancel: CancellationToken,
+    ) -> Self {
+        Self { env: isolated(clock, jitter, waiter, decider), tool_env, provider, cancel, options: RequestOptions::default() }
     }
 
     /// The session facts a request carries (session id, transport scope,

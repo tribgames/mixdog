@@ -83,11 +83,13 @@ pub struct CompactorInput {
 }
 
 /// What a turn needs and no crate supplies yet. Every method is a seam with its owner.
+#[async_trait]
 pub trait SessionSeams: Send + Sync + 'static {
     /// The surface's tools: the built-ins its tool spec names and the connected MCP servers' tools
     /// (`McpHub::tools`), filtered by the surface. Owner: WP-TOOLS-ORCH (built-in registry),
     /// WP-MCP (merge).
-    fn tools(&self, thread: &ThreadId, header: &Header, surface: &mixdog_tools::policy::SessionSurface) -> SessionTools;
+    /// Async: whether skills are listed comes from a current collection; its failure is the error.
+    async fn tools(&self, thread: &ThreadId, header: &Header, surface: &mixdog_tools::policy::SessionSurface) -> Result<SessionTools, String>;
     /// `getHiddenAgent(agent)`. Owner: WP-CONFIG (agent store).
     fn hidden_agent(&self, agent: Option<&str>) -> bool;
     /// The todo list, goal and background work as the turn guards read them. Owner:
@@ -149,6 +151,8 @@ pub struct HostServices {
     /// built over it with the run's ladder.
     pub effort_judge: Option<Arc<EffortJudgeModel>>,
     pub seams: Arc<dyn SessionSeams>,
+    /// The sources of the settings the config does not hold.
+    pub settings: super::settings::SettingsSources,
     /// Runs the git and shell-tools probes of a composition (one per daemon process).
     pub probes: Arc<super::prewarm::StartupProbes>,
     /// The process-wide probe cache (`prompt::probes`).
@@ -205,8 +209,22 @@ impl RunParts for HostRunParts {
             .await
             .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
         let cwd = cwd_of(header)?;
-        let SessionTools { tools, builtins } = seams.tools(thread, header, &input.surface);
-        let settings = seams.run_settings(thread, header);
+        let SessionTools { tools, builtins } = seams.tools(thread, header, &input.surface).await.map_err(refuse)?;
+        let tool_set = ToolSet::with_builtins(tools, builtins);
+        let settings = super::settings::merge_settings(
+            seams.run_settings(thread, header),
+            &s.settings,
+            &super::settings::TurnFacts {
+                thread,
+                header,
+                provider: &provider,
+                prior: input.prior,
+                request: input.request,
+                injected: input.injected,
+                tools: &tool_set.definitions(),
+                now_ms: s.clock.now_ms(),
+            },
+        );
         let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
         let hidden = seams.hidden_agent(agent) || settings.hidden_agent;
         let tool_env = ToolEnv {
@@ -294,7 +312,7 @@ impl RunParts for HostRunParts {
         Ok(Assembled {
             rows: rows.clone(),
             provider,
-            tools: ToolSet::with_builtins(tools, builtins),
+            tools: tool_set,
             tool_env,
             gate,
             worktree: cwd.to_string_lossy().into_owned(),

@@ -409,10 +409,16 @@ async fn the_skill_listing_answers_from_the_catalog() {
         &SkillsWatch::new(),
     );
     let listed = CatalogSkillsListed(Arc::clone(&catalog));
-    // Before the host's first collection nothing is known; afterwards the skill is listed.
-    assert!(!listed.any_for(dir.path()));
-    catalog.skills().await.unwrap();
-    assert!(listed.any_for(dir.path()));
+    // A cold start collects before it answers.
+    assert_eq!(listed.any_for(dir.path()).await, Ok(true));
+    // A skill added since, after invalidation, is listed on the very next read.
+    std::fs::remove_dir_all(dir.path().join("skills").join("alpha")).unwrap();
+    catalog.invalidate();
+    assert_eq!(listed.any_for(dir.path()).await, Ok(false));
+    std::fs::create_dir_all(dir.path().join("skills").join("beta")).unwrap();
+    std::fs::write(dir.path().join("skills").join("beta").join("SKILL.md"), "---\nname: beta\ndescription: Use when beta.\n---\n\nbody\n").unwrap();
+    catalog.invalidate();
+    assert_eq!(listed.any_for(dir.path()).await, Ok(true));
 }
 
 #[tokio::test(flavor = "multi_thread")]
