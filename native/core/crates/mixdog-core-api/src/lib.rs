@@ -50,6 +50,7 @@ pub use host::HostClaim;
 pub use host::HostChannel;
 pub use host::HostError;
 pub use host::HostMediaSink;
+pub use host::SessionSurfaces;
 pub use ops::OpIndex;
 pub use server_request::ServerRequestSink;
 pub use service::DomainService;

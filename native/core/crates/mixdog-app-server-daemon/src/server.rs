@@ -3,11 +3,13 @@
 //! [`Running::build`] and drive every accepted connection through [`drive`]; the only thing a
 //! transport adds is where its connections come from.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use bytes::Bytes;
+use mixdog_app_protocol::JsonRpcMessage;
 use mixdog_app_protocol::limits::CloseCode;
 use mixdog_app_protocol::limits::Limits;
 use mixdog_app_protocol::limits::LimitsViolation;
@@ -18,6 +20,7 @@ use mixdog_app_server::Inbound;
 use mixdog_app_server::Outgoing;
 use mixdog_app_server::ServerConfig;
 use mixdog_app_server::VersionOrder;
+use mixdog_app_server::is_control;
 use mixdog_app_server_client::api::Connector;
 use mixdog_app_server_client::inprocess::FromClient;
 use mixdog_app_server_client::inprocess::InProcessConnector;
@@ -27,6 +30,7 @@ use mixdog_app_server_transport::AcceptedConnection;
 use mixdog_app_server_transport::ConnectionHub;
 use mixdog_app_server_transport::ConnectionOrigin;
 use mixdog_app_server_transport::Incoming;
+use mixdog_app_server_transport::InboundFrames;
 use mixdog_app_server_transport::SocketClosed;
 use mixdog_app_server_transport::SocketRead;
 use mixdog_app_server_transport::SocketWrite;
@@ -110,13 +114,64 @@ fn spawn_drive(server: AppServer, accepted: AcceptedConnection) {
 async fn drive(server: AppServer, accepted: AcceptedConnection) {
     let AcceptedConnection { id, mut inbound, sink, .. } = accepted;
     let handle = server.open(id, Arc::new(sink.clone()));
-    while let Some(message) = inbound.recv().await {
-        match handle.on_message(message) {
-            Inbound::Continue => {}
-            Inbound::Pause(resume) => resume.await,
-            Inbound::Close(code) => {
-                sink.close(code);
+    if let Some(code) = pump(&mut inbound, |message| handle.on_message(message), is_control).await {
+        sink.close(code);
+    }
+}
+
+/// Where a connection's decoded frames come from.
+trait Frames {
+    fn recv(&mut self) -> impl Future<Output = Option<JsonRpcMessage>> + Send;
+}
+
+impl Frames for InboundFrames {
+    fn recv(&mut self) -> impl Future<Output = Option<JsonRpcMessage>> + Send {
+        InboundFrames::recv(self)
+    }
+}
+
+/// Data-plane frames kept while the reader is paused. Past it the reader stops reading until the
+/// pause resolves (the transport's own queue then backpressures the peer).
+const PAUSED_FRAMES: usize = 64;
+
+/// Feeds frames to `on_message` in arrival order until the connection closes (`None`) or a
+/// handler asks to close it (`Some(code)`).
+///
+/// A pause (`Inbound::Pause`, a domain's full input buffer) holds back data-plane frames only:
+/// the reader keeps reading and hands control frames (`is_control`: C0 requests and answers to
+/// server requests) to `on_message` at once, so a `turn/interrupt` or an approval never waits
+/// behind a paused `process/input`. The held frames run, in order, when the pause resolves.
+async fn pump(
+    frames: &mut impl Frames,
+    mut on_message: impl FnMut(JsonRpcMessage) -> Inbound,
+    is_control: impl Fn(&JsonRpcMessage) -> bool,
+) -> Option<CloseCode> {
+    let mut held = VecDeque::new();
+    loop {
+        let message = match held.pop_front() {
+            Some(message) => message,
+            None => frames.recv().await?,
+        };
+        let mut resume = match on_message(message) {
+            Inbound::Continue => continue,
+            Inbound::Close(code) => return Some(code),
+            Inbound::Pause(resume) => resume,
+        };
+        loop {
+            let next = if held.len() < PAUSED_FRAMES {
+                match futures::future::select(resume.as_mut(), std::pin::pin!(frames.recv())).await {
+                    futures::future::Either::Left(((), _)) => break,
+                    futures::future::Either::Right((next, _)) => next,
+                }
+            } else {
+                resume.as_mut().await;
                 break;
+            };
+            let message = next?;
+            if !is_control(&message) {
+                held.push_back(message);
+            } else if let Inbound::Close(code) = on_message(message) {
+                return Some(code);
             }
         }
     }
@@ -260,6 +315,105 @@ mod tests {
         let started = reply(&mut halves, 1).await;
         assert!(started.get("result").is_some(), "{started}");
         shutdown.run().await;
+    }
+
+    struct Source(mpsc::Receiver<JsonRpcMessage>);
+
+    impl Frames for Source {
+        async fn recv(&mut self) -> Option<JsonRpcMessage> {
+            self.0.recv().await
+        }
+    }
+
+    fn frame(method: &str) -> JsonRpcMessage {
+        serde_json::from_value(serde_json::json!({ "method": method })).unwrap()
+    }
+
+    fn method_of(message: &JsonRpcMessage) -> String {
+        match message {
+            JsonRpcMessage::Notification(notification) => notification.method.clone(),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    fn control(message: &JsonRpcMessage) -> bool {
+        method_of(message).starts_with("ctl")
+    }
+
+    /// `data1` pauses the reader until `resume`. The paused clock only makes the failure a test
+    /// failure instead of a hang: the timeout fires when nothing else can run.
+    fn paused_pump(
+        frames: mpsc::Receiver<JsonRpcMessage>,
+        resume: tokio::sync::oneshot::Receiver<()>,
+        seen: Arc<Mutex<Vec<String>>>,
+        handled_control: tokio::sync::oneshot::Sender<()>,
+    ) -> tokio::task::JoinHandle<Option<CloseCode>> {
+        tokio::spawn(async move {
+            let (mut resume, mut handled_control) = (Some(resume), Some(handled_control));
+            pump(
+                &mut Source(frames),
+                move |message| {
+                    let name = method_of(&message);
+                    seen.lock().unwrap().push(name.clone());
+                    match name.as_str() {
+                        "data1" => {
+                            let resume = resume.take().unwrap();
+                            Inbound::Pause(Box::pin(async move {
+                                let _ = resume.await;
+                            }))
+                        }
+                        "ctl-close" => Inbound::Close(CloseCode::InvalidFrame),
+                        "ctl" => {
+                            if let Some(handled) = handled_control.take() {
+                                let _ = handled.send(());
+                            }
+                            Inbound::Continue
+                        }
+                        _ => Inbound::Continue,
+                    }
+                },
+                control,
+            )
+            .await
+        })
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_control_frame_is_handled_while_the_reader_is_paused() {
+        let (frames, inbound) = mpsc::channel(8);
+        let (resume, resumed) = tokio::sync::oneshot::channel();
+        let (handled, handled_rx) = tokio::sync::oneshot::channel();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let pumped = paused_pump(inbound, resumed, seen.clone(), handled);
+        for name in ["data1", "data2", "ctl"] {
+            frames.send(frame(name)).await.unwrap();
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(60), handled_rx)
+            .await
+            .expect("the control frame waited behind the paused reader")
+            .unwrap();
+        assert_eq!(*seen.lock().unwrap(), ["data1", "ctl"], "the data frame is held, the control frame is not");
+        resume.send(()).unwrap();
+        drop(frames);
+        assert_eq!(pumped.await.unwrap(), None);
+        assert_eq!(*seen.lock().unwrap(), ["data1", "ctl", "data2"], "held frames run in order after the pause");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_close_from_a_control_frame_ends_a_paused_reader() {
+        let (frames, inbound) = mpsc::channel(8);
+        let (resume, resumed) = tokio::sync::oneshot::channel();
+        let (handled, _handled_rx) = tokio::sync::oneshot::channel();
+        let pumped = paused_pump(inbound, resumed, Arc::new(Mutex::new(Vec::new())), handled);
+        for name in ["data1", "ctl-close"] {
+            frames.send(frame(name)).await.unwrap();
+        }
+        let code = tokio::time::timeout(std::time::Duration::from_secs(60), pumped)
+            .await
+            .expect("the close waited behind the paused reader")
+            .unwrap();
+        assert_eq!(code, Some(CloseCode::InvalidFrame));
+        drop(resume);
     }
 
     #[tokio::test]

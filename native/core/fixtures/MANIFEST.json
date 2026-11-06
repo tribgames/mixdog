@@ -56,6 +56,15 @@
       "totalBytes": 12641
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-auth-refresh.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "auth-refresh/MANIFEST.json",
+      "manifestSha256": "497c6820cfbeee379d220795990076ff5e3cf16ae0c097e076558aa71a6dc1c1",
+      "recorder": "benchmarks/rust-core/recorders/record-auth-refresh.mjs",
+      "set": "auth-refresh",
+      "totalBytes": 5996
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-cache-warm.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "cache-warm/MANIFEST.json",
@@ -579,12 +588,12 @@
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-setup-local-voice.mjs --tree <tree>",
-      "fileCount": 9,
+      "fileCount": 10,
       "manifest": "services/MANIFEST.json",
-      "manifestSha256": "82742ca07f4d21138694554ac256c8ef959f4ce0fa95b73ad313c5bf591dc5fb",
+      "manifestSha256": "d3583dd36f84cacbff95899e62e292ab39392d70d886f90043160f0507b68d8e",
       "recorder": "benchmarks/rust-core/recorders/record-setup-local-voice.mjs",
       "set": "services",
-      "totalBytes": 1467708
+      "totalBytes": 1750611
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-session-activity.mjs --tree <tree>",
@@ -668,6 +677,15 @@
       "totalBytes": 163770
     },
     {
+      "command": "node <repo>/benchmarks/rust-core/recorders/record-setup-ui.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "setup-ui/MANIFEST.json",
+      "manifestSha256": "3f5be8aa03762ec43d39639ec502fd0803f73e7a6217a6ee1725bb2bbed2fac3",
+      "recorder": "benchmarks/rust-core/recorders/record-setup-ui.mjs",
+      "set": "setup-ui",
+      "totalBytes": 3684
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-shell-job-actions.mjs [--tree <tree>]",
       "fileCount": 1,
       "manifest": "shell-job-actions/MANIFEST.json",
@@ -707,10 +725,10 @@
       "command": "node benchmarks/rust-core/recorders/record-thread-scm.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "thread-scm/MANIFEST.json",
-      "manifestSha256": "551501b03a17021e22875bb8d7df5e4d54a59c33715339303528658e7eef7023",
+      "manifestSha256": "4ee212a2ad3c7377ca8f1ba2629c74c0dec196c1a07358412bb1dd1fcc3f3221",
       "recorder": "benchmarks/rust-core/recorders/record-thread-scm.mjs",
       "set": "thread-scm",
-      "totalBytes": 16286
+      "totalBytes": 179418
     },
     {
       "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-thread-search.mjs --tree <tree>",

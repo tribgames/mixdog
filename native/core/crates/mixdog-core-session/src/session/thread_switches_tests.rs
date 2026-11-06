@@ -349,23 +349,8 @@ struct Target {
     calls: Mutex<Vec<Value>>,
 }
 
-#[async_trait]
 impl ContextTarget for Target {
-    fn clear_route_preparation(&self) {
-        lock(&self.calls).push(json!(["clearRoutePreparation"]));
-    }
-    fn set_desktop_session(&self, desktop: Option<Value>) {
-        lock(&self.calls).push(json!(["setDesktopSession", desktop]));
-    }
-    async fn apply_cwd(&self, cwd: Option<String>) -> Result<(), String> {
-        lock(&self.calls).push(json!(["applyResolvedCwd", cwd]));
-        Ok(())
-    }
-    async fn reset_route(&self) {
-        lock(&self.calls).push(json!(["setRoute", { "resolved": true }]));
-        lock(&self.calls).push(json!(["refreshRouteEffort"]));
-    }
-    fn invalidate(&self) {
+    fn invalidate(&self, _: &ThreadId) {
         lock(&self.calls).push(json!(["invalidateContextStatusCache"]));
         lock(&self.calls).push(json!(["invalidatePreSessionToolSurface"]));
     }
@@ -404,14 +389,29 @@ fn context_switch(world: &World) -> (SessionContextSwitch, Arc<Target>) {
     (SessionContextSwitch::new(world.directory.clone(), close, providers, shells, read_state, target.clone()), target)
 }
 
-/// The retargeting calls Node makes, in its order, for each recorded input.
+/// Node's calls of `switchContext` that the daemon does not make, because they retarget the
+/// runtime's single session for the next one (decisions.md, "wp-run-host: thread/switchContext
+/// retargets no global"): the next thread takes its cwd and desktop session from `thread/start`
+/// and resolves the configured Lead route on first read, and Rust has no route-preparation gate
+/// to clear.
+const DROPPED_CALLS: [&str; 5] = ["clearRoutePreparation", "setDesktopSession", "applyResolvedCwd", "setRoute", "refreshRouteEffort"];
+
+/// The calls that name the thread being left; with no outgoing thread they are not made either.
+const OUTGOING_CALLS: [&str; 2] = ["invalidateContextStatusCache", "invalidatePreSessionToolSurface"];
+
+/// Every call of the Node recording is either made for the outgoing thread or one of the dropped
+/// ones; with nothing open the target receives none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_context_switch_retargets_the_next_session_as_node_does() {
+async fn a_context_switch_makes_the_calls_that_name_the_thread_left_and_drops_the_rest() {
     let world = world().await;
     let (switch, target) = context_switch(&world);
     for (i, case) in recording("context-switch.json")["cases"].as_array().unwrap().iter().enumerate() {
         if case["open"] != json!(false) {
             continue;
+        }
+        for call in case["calls"].as_array().unwrap() {
+            let name = call[0].as_str().unwrap();
+            assert!(DROPPED_CALLS.contains(&name) || OUTGOING_CALLS.contains(&name), "case {i}: unexpected recorded call {name}");
         }
         let input = &case["input"];
         let cwd = input.get("cwd").and_then(Value::as_str).map(str::to_owned);
@@ -419,11 +419,9 @@ async fn a_context_switch_retargets_the_next_session_as_node_does() {
         let for_resume = input.get("forResume").is_some_and(|v| mixdog_ai::service::admin_route::truthy(Some(v)));
         lock(&target.calls).clear();
         switch.switch_context("", cwd, desktop, for_resume).await.expect("switched");
-        let recorded: Vec<Value> = case["calls"].as_array().unwrap().clone();
-        assert_eq!(*lock(&target.calls), recorded, "case {i}");
+        assert!(lock(&target.calls).is_empty(), "case {i}: no open thread, no call");
     }
 }
-
 /// The session left: a scratch one is tombstoned, any other stays resumable; both have their
 /// memory ingested and their work stopped.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -469,6 +467,10 @@ async fn the_session_left_is_closed_as_node_closes_it() {
     assert!(kept.get("closed").is_none(), "a conversation stays resumable: {kept:?}");
     eventually(|| handle.cell.run.load().is_none().then_some(())).await;
     eventually(|| lock(&world.rig.closes.seen).iter().any(|(id, _)| id.as_str() == "sess_used").then_some(())).await;
-    assert_eq!(lock(&target.calls).first(), Some(&json!(["clearRoutePreparation"])));
+    assert_eq!(
+        *lock(&target.calls),
+        [json!(["invalidateContextStatusCache"]), json!(["invalidatePreSessionToolSurface"])],
+        "the outgoing thread gets the kept calls in Node's order, without the dropped ones"
+    );
     let _: Map<String, Value> = kept;
 }

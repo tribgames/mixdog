@@ -104,8 +104,10 @@ async fn the_queue_reads_answer_as_nodes_in_memory_queue_does() {
     let reads = PendingQueue::new(directory.clone(), delivered.clone());
     let session = handle.id.as_str().to_owned();
     let got = reads.pending_messages(&session).await;
-    // Node's list holds each entry as it sits in memory, then again as the spool holds it.
-    let in_memory: Vec<Value> = queue["beforeFlush"].as_array().unwrap().iter().filter(|e| e.get("content").is_some()).cloned().collect();
+    // Node's list holds each entry as it sits in memory, then again as the spool holds it. The first half is the in-memory queue, taken by position: the spool's copy of an array-content prompt also carries `content`.
+    let node_list = queue["beforeFlush"].as_array().unwrap();
+    assert_eq!(node_list.len() % 2, 0);
+    let in_memory: Vec<Value> = node_list[..node_list.len() / 2].to_vec();
     assert_eq!(got.len(), in_memory.len());
     let want: Vec<Value> = got
         .iter()

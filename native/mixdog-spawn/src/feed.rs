@@ -87,13 +87,18 @@ impl Feed {
 
     /// Appends output, first waiting while the feed is paused or a subscriber trails by the ring
     /// bound. Runs on the process's own reader thread, so the wait stalls that process only.
+    /// Output that arrives after the exit event (a descendant holding the pipe past the drain
+    /// bound) is dropped: the exit is the last event.
     pub(crate) fn push_output(&self, stream: OutputStream, bytes: &[u8]) {
         if bytes.is_empty() {
             return;
         }
         let mut state = self.lock();
         loop {
-            if state.released || state.done {
+            if state.done {
+                return;
+            }
+            if state.released {
                 break;
             }
             let slowest = state.consumers.iter().map(|c| c.taken).min();

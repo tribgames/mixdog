@@ -11,7 +11,10 @@
 //! certificate before it sees a byte from the peer. Messages reach it one per event in arrival
 //! order, never batched or reordered.
 //!
-//! Each connection is one task on RT-W; a slow or dead peer stalls only its own task.
+//! Each connection is one task on RT-W; a slow or dead peer stalls only its own task. Channel
+//! writes go through a writer task per channel ([`Outbound`]), so a peer that stops reading
+//! never stops the task from seeing the peer fail; every awaited step runs under the
+//! connection's [`PeerBudget`], and coming up under [`peer::SETUP_BUDGET`].
 
 use std::sync::Arc;
 
@@ -19,6 +22,7 @@ use bytes::Bytes;
 use bytes::BytesMut;
 use mixdog_rt::TaskClass;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use webrtc::data_channel::DataChannel;
 use webrtc::data_channel::DataChannelEvent;
 use webrtc::peer_connection::PeerConnection;
@@ -34,8 +38,17 @@ use super::config::RelayProtocol;
 use super::config::RemoteCertificate;
 use super::config::TRANSPORT_CHANNEL_LABEL;
 use super::config::TRANSPORT_CONTROL_CHANNEL_LABEL;
+use super::outbound::Frame;
+use super::outbound::Outbound;
 use super::peer;
+use super::peer::PeerBudget;
 use super::peer::PeerEvent;
+use super::peer::PeerEvents;
+use super::peer::Raw;
+
+/// What may wait to be written to one channel: the owner's own outstanding window, which it
+/// never exceeds while the peer reads or not.
+const WRITE_QUEUE_BYTES: usize = BUFFER_HIGH_BYTES;
 
 /// `App` is `mixdog-transport` (MXT kinds 1 and 2); `Control` is `mixdog-transport-control`
 /// (kind 3, its own SCTP stream so it never waits behind bulk traffic).
@@ -110,6 +123,13 @@ enum Command {
 /// The owner's handle. Dropping it closes the connection.
 pub struct CarrierConnection {
     commands: mpsc::UnboundedSender<Command>,
+    budget: PeerBudget,
+}
+
+impl Drop for CarrierConnection {
+    fn drop(&mut self) {
+        self.budget.close();
+    }
 }
 
 impl CarrierConnection {
@@ -118,8 +138,13 @@ impl CarrierConnection {
     pub fn spawn(config: PeerConfig) -> (Self, mpsc::UnboundedReceiver<CarrierEvent>) {
         let (commands, command_rx) = mpsc::unbounded_channel();
         let (events, event_rx) = mpsc::unbounded_channel();
-        mixdog_rt::spawn("webrtc-carrier", TaskClass::Work, run(config, command_rx, events));
-        (Self { commands }, event_rx)
+        let budget = PeerBudget::default();
+        mixdog_rt::spawn(
+            "webrtc-carrier",
+            TaskClass::Work,
+            run(config, command_rx, events, budget.clone()),
+        );
+        (Self { commands, budget }, event_rx)
     }
 
     /// The first offer, or an ICE restart (`ice_restart`) on the same connection.
@@ -148,12 +173,18 @@ impl CarrierConnection {
 }
 
 struct Channels {
-    app: Arc<dyn DataChannel>,
-    control: Arc<dyn DataChannel>,
+    app: Outbound,
+    control: Outbound,
+}
+
+/// What the pumps and the writers tell the connection's loop.
+enum ChannelInput {
+    Event(DataChannelEvent),
+    WriteFailed(String),
 }
 
 impl Channels {
-    fn get(&self, channel: CarrierChannel) -> &Arc<dyn DataChannel> {
+    fn get(&self, channel: CarrierChannel) -> &Outbound {
         match channel {
             CarrierChannel::App => &self.app,
             CarrierChannel::Control => &self.control,
@@ -196,25 +227,39 @@ async fn run(
     config: PeerConfig,
     mut commands: mpsc::UnboundedReceiver<Command>,
     events: mpsc::UnboundedSender<CarrierEvent>,
+    budget: PeerBudget,
 ) {
     let emit = |event: CarrierEvent| {
         let _ = events.send(event);
     };
-    let peer::Opened { pc, events: mut peer_events } = match peer::open(&config, None).await {
+    let setup = tokio::time::sleep(peer::SETUP_BUDGET);
+    tokio::pin!(setup);
+    let opened = budget.step("open", peer::open(&config, None)).await.and_then(|opened| opened);
+    let peer::Opened { pc, events: mut peer_events } = match opened {
         Ok(opened) => opened,
         Err(fault) => return emit(CarrierEvent::Failed(fault)),
     };
-    let channels = match create_channels(pc.as_ref()).await {
+    let created = budget.step("create channels", create_channels(pc.as_ref())).await.and_then(|created| created);
+    let (app, control) = match created {
         Ok(channels) => channels,
         Err(fault) => {
-            let _ = pc.close().await;
+            budget.close();
+            peer::close(&pc).await;
             return emit(CarrierEvent::Failed(fault));
         }
     };
     let (channel_tx, mut channel_rx) = mpsc::unbounded_channel();
-    for channel in [CarrierChannel::App, CarrierChannel::Control] {
-        pump(channel, Arc::clone(channels.get(channel)), channel_tx.clone());
-    }
+    let outbound = |channel: CarrierChannel, data_channel: Arc<dyn DataChannel>| {
+        pump(channel, Arc::clone(&data_channel), channel_tx.clone(), budget.token());
+        let write_failed = channel_tx.clone();
+        Outbound::new("webrtc-carrier-writer", Arc::new(data_channel), WRITE_QUEUE_BYTES, move |detail| {
+            let _ = write_failed.send((channel, ChannelInput::WriteFailed(detail)));
+        })
+    };
+    let channels = Channels {
+        app: outbound(CarrierChannel::App, app),
+        control: outbound(CarrierChannel::Control, control),
+    };
     drop(channel_tx);
 
     let mut gate = Gate::default();
@@ -222,34 +267,74 @@ async fn run(
         tokio::select! {
             raw = peer_events.recv() => {
                 let Some(raw) = raw else { break };
-                match peer_events.resolve(raw).await {
-                    None => {}
-                    Some(PeerEvent::Candidate { candidate, relay_protocol, url }) => {
-                        emit(CarrierEvent::Candidate { candidate, relay_protocol, url });
-                    }
-                    Some(PeerEvent::Connected { remote_certificate }) => {
-                        emit(CarrierEvent::Connected { remote_certificate });
-                        gate.certified = true;
-                        maybe_open(&pc, &mut gate, &emit).await;
-                    }
-                    Some(PeerEvent::Failed(fault)) => fail(&mut gate, &emit, fault),
+                let handled = budget.step("peer event", on_peer_event(raw, &peer_events, &pc, &mut gate, &emit)).await;
+                if let Err(fault) = handled {
+                    fail(&mut gate, &emit, fault);
                 }
             }
-            Some((channel, event)) = channel_rx.recv() => {
-                on_channel_event(channel, event, &channels, &pc, &mut gate, &emit).await;
+            Some((channel, input)) = channel_rx.recv() => {
+                let handled = budget
+                    .step("channel event", on_channel_input(channel, input, &channels, &pc, &mut gate, &emit))
+                    .await;
+                if let Err(fault) = handled {
+                    fail(&mut gate, &emit, fault);
+                }
             }
             command = commands.recv() => match command {
                 None => break,
                 Some(command) => {
-                    on_command(command, &channels, &pc, &mut gate, &emit).await;
+                    let handled = budget.step("command", on_command(command, &channels, &pc, &mut gate, &emit)).await;
+                    if let Err(fault) = handled {
+                        fail(&mut gate, &emit, fault);
+                    }
                 }
             },
+            () = &mut setup, if !gate.opened && !gate.failed => {
+                let reason = if gate.certified { PeerFailure::ChannelFailed } else { PeerFailure::IceFailed };
+                fail(&mut gate, &emit, PeerFault::new(reason, "setup timed out"));
+            }
         }
     }
-    let _ = pc.close().await;
+    budget.close();
+    peer::close(&pc).await;
 }
 
-async fn create_channels(pc: &dyn PeerConnection) -> Result<Channels, PeerFault> {
+async fn on_peer_event(
+    raw: Raw,
+    peer_events: &PeerEvents,
+    pc: &Arc<dyn PeerConnection>,
+    gate: &mut Gate,
+    emit: &impl Fn(CarrierEvent),
+) {
+    match peer_events.resolve(raw).await {
+        None => {}
+        Some(PeerEvent::Candidate { candidate, relay_protocol, url }) => {
+            emit(CarrierEvent::Candidate { candidate, relay_protocol, url });
+        }
+        Some(PeerEvent::Connected { remote_certificate }) => {
+            emit(CarrierEvent::Connected { remote_certificate });
+            gate.certified = true;
+            maybe_open(pc, gate, emit).await;
+        }
+        Some(PeerEvent::Failed(fault)) => fail(gate, emit, fault),
+    }
+}
+
+async fn on_channel_input(
+    channel: CarrierChannel,
+    input: ChannelInput,
+    channels: &Channels,
+    pc: &Arc<dyn PeerConnection>,
+    gate: &mut Gate,
+    emit: &impl Fn(CarrierEvent),
+) {
+    match input {
+        ChannelInput::Event(event) => on_channel_event(channel, event, channels, pc, gate, emit).await,
+        ChannelInput::WriteFailed(detail) => fail(gate, emit, PeerFault::new(PeerFailure::ChannelFailed, detail)),
+    }
+}
+
+async fn create_channels(pc: &dyn PeerConnection) -> Result<(Arc<dyn DataChannel>, Arc<dyn DataChannel>), PeerFault> {
     // Both channels exist before the offer, so it negotiates SCTP for them. Both ordered: the
     // `direct:<connectionId>` control lane opens its boxes in seal order.
     let fault = |e: webrtc::error::Error| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string());
@@ -268,17 +353,24 @@ async fn create_channels(pc: &dyn PeerConnection) -> Result<Channels, PeerFault>
             .await
             .map_err(fault)?;
     }
-    Ok(Channels { app, control })
+    Ok((app, control))
 }
 
 fn pump(
     channel: CarrierChannel,
     data_channel: Arc<dyn DataChannel>,
-    tx: mpsc::UnboundedSender<(CarrierChannel, DataChannelEvent)>,
+    tx: mpsc::UnboundedSender<(CarrierChannel, ChannelInput)>,
+    closed: CancellationToken,
 ) {
     mixdog_rt::spawn("webrtc-carrier-channel", TaskClass::Work, async move {
-        while let Some(event) = data_channel.poll().await {
-            if tx.send((channel, event)).is_err() {
+        loop {
+            let event = tokio::select! {
+                biased;
+                () = closed.cancelled() => break,
+                event = data_channel.poll() => event,
+            };
+            let Some(event) = event else { break };
+            if tx.send((channel, ChannelInput::Event(event))).is_err() {
                 break;
             }
         }
@@ -341,7 +433,7 @@ async fn on_channel_event(
             }
         }
         DataChannelEvent::OnBufferedAmountLow => {
-            let buffered_amount = buffered(channels.get(channel)).await;
+            let buffered_amount = channels.get(channel).buffered().await;
             emit(CarrierEvent::Buffered {
                 channel,
                 buffered_amount,
@@ -359,10 +451,6 @@ async fn on_channel_event(
         ),
         _ => {}
     }
-}
-
-async fn buffered(channel: &Arc<dyn DataChannel>) -> usize {
-    channel.outstanding_bytes().await.unwrap_or(0)
 }
 
 async fn on_command(
@@ -386,7 +474,7 @@ async fn on_command(
         Command::Send(items) => send(items, channels, gate, emit).await,
         Command::Sample => {
             for channel in [CarrierChannel::App, CarrierChannel::Control] {
-                let buffered_amount = buffered(channels.get(channel)).await;
+                let buffered_amount = channels.get(channel).buffered().await;
                 emit(CarrierEvent::Buffered {
                     channel,
                     buffered_amount,
@@ -407,14 +495,19 @@ async fn send(items: Vec<CarrierItem>, channels: &Channels, gate: &mut Gate, emi
         if gate.failed || !gate.is_open(item.channel) {
             continue;
         }
-        let payload = BytesMut::from(item.data.as_ref());
-        if let Err(error) = channels.get(item.channel).send(payload).await {
-            fail(gate, emit, PeerFault::new(PeerFailure::ChannelFailed, error.to_string()));
+        // Queued for the channel's writer task; a full queue means the peer is not reading.
+        let payload = Frame::Binary(BytesMut::from(item.data.as_ref()));
+        if channels.get(item.channel).push(payload).is_err() {
+            fail(
+                gate,
+                emit,
+                PeerFault::new(PeerFailure::ChannelFailed, format!("{} send queue overflow", item.channel.name())),
+            );
         }
     }
     for (channel, bytes) in sent {
         let buffered_amount = if gate.is_open(channel) {
-            buffered(channels.get(channel)).await
+            channels.get(channel).buffered().await
         } else {
             0
         };
@@ -423,5 +516,83 @@ async fn send(items: Vec<CarrierItem>, channels: &Channels, gate: &mut Gate, emi
             bytes,
             buffered_amount,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::time::Duration;
+
+    use super::super::outbound::fakes::Stalled;
+    use super::*;
+
+    fn stalled_channels(cap: usize) -> Channels {
+        mixdog_rt::testing::tokens();
+        let outbound = || Outbound::new("test-writer", Arc::new(Stalled), cap, |_| {});
+        Channels {
+            app: outbound(),
+            control: outbound(),
+        }
+    }
+
+    fn item(channel: CarrierChannel, len: usize) -> CarrierItem {
+        CarrierItem {
+            channel,
+            data: Bytes::from(vec![0u8; len]),
+        }
+    }
+
+    fn open_gate() -> Gate {
+        Gate {
+            app_open: true,
+            control_open: true,
+            ..Gate::default()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_send_to_a_peer_that_stopped_reading_returns_and_reports_what_waits() {
+        let channels = stalled_channels(1_000);
+        let mut gate = open_gate();
+        let events = RefCell::new(Vec::new());
+        let emit = |event: CarrierEvent| events.borrow_mut().push(event);
+        let items = vec![item(CarrierChannel::App, 10), item(CarrierChannel::App, 20)];
+        tokio::time::timeout(Duration::from_secs(1), send(items, &channels, &mut gate, &emit))
+            .await
+            .expect("the send does not wait on the peer");
+        assert!(!gate.failed);
+        let events = events.into_inner();
+        assert!(
+            matches!(
+                events.as_slice(),
+                [CarrierEvent::Sent { channel: CarrierChannel::App, bytes: 30, buffered_amount: 30 }]
+            ),
+            "{events:?}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_queue_that_overflows_fails_the_carrier_once() {
+        let channels = stalled_channels(8);
+        let mut gate = open_gate();
+        let events = RefCell::new(Vec::new());
+        let emit = |event: CarrierEvent| events.borrow_mut().push(event);
+        let items = vec![item(CarrierChannel::Control, 9), item(CarrierChannel::Control, 9)];
+        tokio::time::timeout(Duration::from_secs(1), send(items, &channels, &mut gate, &emit))
+            .await
+            .expect("the send does not wait on the peer");
+        assert!(gate.failed);
+        let events = events.into_inner();
+        let failures: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                CarrierEvent::Failed(fault) => Some(fault),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].reason, PeerFailure::ChannelFailed);
+        assert_eq!(failures[0].detail.as_deref(), Some("control send queue overflow"));
     }
 }

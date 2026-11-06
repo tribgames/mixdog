@@ -388,6 +388,15 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
     }
     let quiet = Arc::new(Quiet);
     let models = core.models();
+    let app_feed = core.app_feed_core().clone();
+    let state = Arc::new(mixdog_core_base::state::StateRuntime::new(app_feed.clone()));
+    let (config, _) = mixdog_core_config::config::Config::open(
+        dir.path().join("mixdog-config.json"),
+        state.publisher.clone(),
+        mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io },
+    )
+    .await
+    .unwrap();
     let inputs = DomainInputs {
         tokens,
         paths: DomainPaths {
@@ -398,7 +407,9 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
             electron: js.electron,
         },
         env: Arc::new(|_| None),
-        app_feed: core.app_feed_core().clone(),
+        app_feed,
+        state,
+        config,
         scoped_feeds: Arc::new(CoreScopedFeeds::new(
             FeedLimits { ring_bytes: 1 << 20, max_snapshot_bytes: 1 << 20 },
             tokens.cpu_interactive,
@@ -447,6 +458,8 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
         },
     };
     let composed = compose_domains(inputs).await.unwrap();
+    // The one local provider is returned for the process inputs; the local-provider service holds the other handle.
+    assert!(Arc::strong_count(&composed.local_provider) >= 2);
     // The methods of these services are other owners' (see `OTHER_OWNERS`); all else is here.
     let mut builder = DomainsBuilder::new();
     for service in &composed.services {

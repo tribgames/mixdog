@@ -77,8 +77,8 @@ impl RoutineAgents for DefinitionAgents {
     }
 
     async fn presence(&self, agent_id: &str) -> Result<Presence, String> {
-        let mut found = self.definitions.presence(&[agent_id.to_owned()]).await.map_err(|error| format!("{error:?}"))?;
-        Ok(found.remove(agent_id).unwrap_or(Presence::Unknown))
+        let found = self.definitions.presence(&[agent_id.to_owned()]).await.map_err(|error| format!("{error:?}"))?;
+        Ok(found.get(agent_id).copied().unwrap_or(Presence::Unknown))
     }
 
     async fn archived(&self, agent_id: &str) -> Result<bool, String> {
@@ -214,14 +214,14 @@ fn reference_part(part: &Value, files: &dyn AttachmentFiles) -> Option<Value> {
         "image" => match (text(object.get("data")).filter(|d| !d.is_empty()), source) {
             (Some(data), _) => {
                 let mut rest = object.clone();
-                rest.remove("data");
+                rest.shift_remove("data");
                 (data, rest)
             }
             (None, Some(source)) => {
                 let data = text(source.get("data")).filter(|d| !d.is_empty())?;
                 let mut rest = object.clone();
                 for key in ["source", "mimeType", "mediaType"] {
-                    rest.remove(key);
+                    rest.shift_remove(key);
                 }
                 if let Some(mime) = text(source.get("media_type")).or_else(|| text(source.get("mediaType"))).filter(|m| !m.is_empty()) {
                     rest.insert("mimeType".into(), Value::String(mime));
@@ -235,7 +235,7 @@ fn reference_part(part: &Value, files: &dyn AttachmentFiles) -> Option<Value> {
             let data = text(source.get("data"))?;
             let mut rest = object.clone();
             for key in ["source", "type", "mimeType", "mediaType"] {
-                rest.remove(key);
+                rest.shift_remove(key);
             }
             let mime = [source.get("media_type"), source.get("mediaType"), object.get("mimeType"), object.get("mediaType")]
                 .into_iter()
@@ -254,7 +254,7 @@ fn reference_part(part: &Value, files: &dyn AttachmentFiles) -> Option<Value> {
         "file" => {
             let data = text(object.get("data"))?;
             let mut rest = object.clone();
-            rest.remove("data");
+            rest.shift_remove("data");
             (data, rest)
         }
         _ => return None,
@@ -632,6 +632,39 @@ mod tests {
         let cancelled = CancellationToken::new();
         cancelled.cancel();
         assert_eq!(s.sessions.run_executor(executor_run(Vec::new()), cancelled).await, Err("boom".into()));
+    }
+
+    /// Node's `storeInlineImagePart`/`storeInlineDocumentPart` (real module, recorded): a removed
+    /// key leaves the others in place and the keys they add come last, in Node's order.
+    #[test]
+    fn a_stored_reference_part_keeps_nodes_key_order() {
+        struct Ref;
+        impl AttachmentFiles for Ref {
+            fn store_inline(&self, _: &str, _: &str, _: &str) -> Option<super::super::attachment_reference::StoredFile> {
+                Some(super::super::attachment_reference::StoredFile { reference: "ref".into(), size_bytes: 4 })
+            }
+            fn named_file(&self, _: &str, _: &str, _: &str, _: Option<&super::super::attachment_reference::OriginalFile>) -> Result<String, ()> {
+                Err(())
+            }
+            fn blob_path(&self, _: &str) -> String {
+                String::new()
+            }
+        }
+        let png = STANDARD.encode([1u8, 2, 3, 4]);
+        let pdf = STANDARD.encode(b"%PDF-1.4 hello");
+        let cases = [
+            (json!({ "type": "image", "alt": "a", "data": png, "mimeType": "image/png", "z": 1 }),
+             r#"{"type":"image","alt":"a","mimeType":"image/png","z":1,"attachmentRef":"ref","sizeBytes":4}"#),
+            (json!({ "type": "image", "alt": "a", "source": { "type": "base64", "data": png, "media_type": "image/jpeg" }, "mimeType": "x", "mediaType": "y", "z": 1 }),
+             r#"{"type":"image","alt":"a","z":1,"mimeType":"image/jpeg","attachmentRef":"ref","sizeBytes":4}"#),
+            (json!({ "type": "document", "title": "T", "source": { "type": "base64", "data": pdf, "media_type": "text/plain" }, "extra": 1 }),
+             r#"{"title":"T","extra":1,"type":"file","mimeType":"application/pdf","filename":"T","attachmentRef":"ref","sizeBytes":4}"#),
+            (json!({ "type": "file", "name": "n", "data": png, "mimeType": "application/octet-stream", "extra": 1 }),
+             r#"{"type":"file","name":"n","mimeType":"application/octet-stream","extra":1,"attachmentRef":"ref","sizeBytes":4}"#),
+        ];
+        for (part, want) in cases {
+            assert_eq!(reference_part(&part, &Ref).expect("stored").to_string(), want);
+        }
     }
 
     /// Results and run rows go to the one home delivery.

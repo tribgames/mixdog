@@ -22,4 +22,4 @@ tracing = { workspace = true }
 [dev-dependencies]
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "sync", "test-util"] }

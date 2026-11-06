@@ -3,7 +3,11 @@
 
 #![cfg_attr(test, allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup"))]
 
+pub mod catalog;
 pub mod jobs;
+pub mod lanes;
+#[cfg(test)]
+mod lanes_twin_tests;
 pub mod renditions;
 pub mod service;
 pub mod store;

@@ -77,9 +77,10 @@ impl FolderAdmission for Admission {
             .iter()
             .filter(|s| {
                 removing
-                    || !(actor.is_some_and(|a| {
-                        s.id == a || s.owner_session_id.as_deref() == Some(a) || s.parent_session_id.as_deref() == Some(a)
-                    }) || !s.active)
+                    || (s.active
+                        && !actor.is_some_and(|a| {
+                            s.id == a || s.owner_session_id.as_deref() == Some(a) || s.parent_session_id.as_deref() == Some(a)
+                        }))
             })
             .map(|s| s.id.clone())
             .collect();

@@ -16,7 +16,7 @@ arc-swap = { workspace = true }
 crossbeam-channel = { workspace = true }
 # The driver features are named here so RT-C and RT-W always have time and I/O drivers
 # (`enable_all`), regardless of what other crates in the build enable.
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "net"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "net", "macros"] }
 tokio-util = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

@@ -443,6 +443,28 @@ async fn a_phone_without_vp8_gets_no_offer() {
     shared.stop();
 }
 
+/// Paused clock: the runtime advances it only when idle, so the setup deadline passes without a
+/// wall-clock wait. The phone never answers the offer.
+#[tokio::test(start_paused = true)]
+async fn a_carrier_whose_peer_never_answers_fails_at_the_setup_budget() {
+    mixdog_rt::testing::tokens();
+    let (carrier, mut events) = CarrierConnection::spawn(loopback());
+    carrier.offer(false);
+    let started = tokio::time::Instant::now();
+    let fault = tokio::time::timeout(Duration::from_secs(120), async {
+        loop {
+            if let CarrierEvent::Failed(fault) = events.recv().await.expect("the carrier reports before it ends") {
+                break fault;
+            }
+        }
+    })
+    .await
+    .expect("the carrier fails instead of waiting for ever");
+    assert_eq!(fault.reason, PeerFailure::IceFailed);
+    assert_eq!(fault.detail.as_deref(), Some("setup timed out"));
+    assert!(started.elapsed() >= super::peer::SETUP_BUDGET);
+}
+
 /// The frame-rate cap is judged against the time the source actually ran (measured), never an
 /// absolute frame count: sleeps overshoot under load, the cap's bound does not move.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

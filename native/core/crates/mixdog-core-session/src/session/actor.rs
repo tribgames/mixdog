@@ -176,6 +176,9 @@ pub(crate) enum Inbox {
     /// A completion as the session's listeners receive it (`{content, meta}`): shown as a live
     /// card when the card gates admit it.
     CompletionCard { content: String, meta: Value },
+    /// `notifySessionUi(id, content, meta)`: a notice for the surfaces attached now, published as
+    /// `thread/notification`; never a row, never queued for the model.
+    UiNotice { content: String, meta: Value },
     /// `TaskNotifier`: a detached job of this thread finished.
     TaskNotification {
         surface: String,
@@ -2545,6 +2548,13 @@ impl SessionActor {
         match msg {
             Inbox::GoalChanged(goal) => self.goal_changed(goal),
             Inbox::CompletionCard { content, meta } => self.completion_card(&content, &meta),
+            Inbox::UiNotice { content, meta } => {
+                let note = Note::new(
+                    "thread/notification",
+                    &mixdog_app_protocol::v2::thread::ThreadNotificationParams { thread_id: self.id.clone(), turn_id: None, content, meta },
+                );
+                self.accept_view(Change::Barrier, vec![note]);
+            }
             Inbox::TaskNotification {
                 surface,
                 task_id,
@@ -3393,6 +3403,7 @@ impl SessionActor {
             turn: turn.clone(),
             tx: self.ch.prod_tx.clone(),
             input: input_rx,
+            cancel: token.clone(),
             provider: self
                 .acked
                 .header

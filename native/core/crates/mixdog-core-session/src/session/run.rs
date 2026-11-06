@@ -28,6 +28,7 @@ use std::sync::Arc;
 use mixdog_core_api::CoreError;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::LaneToken;
+use mixdog_rt::Scope;
 
 use super::SessionLanes;
 use super::frames::encode;
@@ -102,6 +103,9 @@ pub enum RunError {
     Closed,
     /// The record failed its barrier and was not applied.
     NotApplied,
+    /// The run's token fired while the call waited on the lane or its reply; the message may or
+    /// may not have been taken.
+    Cancelled,
 }
 
 /// One steering input handed to the run at a model-call boundary (R10), as today's drain
@@ -310,6 +314,9 @@ pub struct RunPort {
     pub(crate) turn: TurnId,
     pub(crate) tx: mpsc::Sender<ProducerMsg>,
     pub(crate) input: watch::Receiver<InputState>,
+    /// The run's token: it ends every wait of the port except the commits, whose rows an abort
+    /// still writes.
+    pub(crate) cancel: CancellationToken,
     /// The header's `providerState` as acked at turn start.
     pub(crate) provider: Option<ProviderState>,
 }
@@ -327,13 +334,7 @@ impl RunPort {
     /// header change is durable; an unchanged state appends nothing.
     pub async fn save_provider_state(&self, state: Option<ProviderState>) -> Result<(), RunError> {
         let (ack, rx) = oneshot::channel();
-        self.send(ProducerMsg::ProviderState {
-            turn: self.turn.clone(),
-            state,
-            ack,
-        })
-        .await?;
-        rx.await.map_err(|_| RunError::Closed)?
+        self.call(ProducerMsg::ProviderState { turn: self.turn.clone(), state, ack }, rx).await?
     }
 
     pub fn thread(&self) -> &ThreadId {
@@ -344,8 +345,24 @@ impl RunPort {
         &self.turn
     }
 
+    /// The one wait of the port (RL §5.2): `work` ends when it finishes or when the run's token
+    /// fires, so a producer lane the actor stopped reading (the durability outbox is full) or an
+    /// ack that never comes cannot hold an aborted run.
+    async fn scoped<T>(&self, work: impl std::future::Future<Output = Result<T, RunError>>) -> Result<T, RunError> {
+        Scope::new().cancel(&self.cancel).run(work).await.done().unwrap_or(Err(RunError::Cancelled))
+    }
+
     async fn send(&self, msg: ProducerMsg) -> Result<(), RunError> {
-        self.tx.send(msg).await.map_err(|_| RunError::Closed)
+        self.scoped(async { self.tx.send(msg).await.map_err(|_| RunError::Closed) }).await
+    }
+
+    /// `msg` into the producer lane, then its reply.
+    async fn call<T>(&self, msg: ProducerMsg, reply: oneshot::Receiver<T>) -> Result<T, RunError> {
+        self.scoped(async {
+            self.tx.send(msg).await.map_err(|_| RunError::Closed)?;
+            reply.await.map_err(|_| RunError::Closed)
+        })
+        .await
     }
 
     /// Resolves once the run's input rows are durable (the first model call waits on it).
@@ -449,13 +466,7 @@ impl RunPort {
     /// boundary took starts its own turn when this one ends.
     pub async fn take_steers(&self, request: DrainRequest) -> Result<Vec<SteerInput>, RunError> {
         let (reply, rx) = oneshot::channel();
-        self.send(ProducerMsg::TakeSteers {
-            turn: self.turn.clone(),
-            request,
-            reply,
-        })
-        .await?;
-        rx.await.map_err(|_| RunError::Closed)
+        self.call(ProducerMsg::TakeSteers { turn: self.turn.clone(), request, reply }, rx).await
     }
 
     /// A failed-turn retry's rewind (`prepareAskTurn` shrinking `session.messages`): the model
@@ -465,21 +476,13 @@ impl RunPort {
     /// the next turn reads the prompt once. Resolves once it is durable (or failed).
     pub async fn context_rewound(&self, replacement: Vec<(ItemId, Value)>) -> Result<(), RunError> {
         let (ack, rx) = oneshot::channel();
-        self.send(ProducerMsg::ContextRewound { turn: self.turn.clone(), replacement, ack }).await?;
-        rx.await.map_err(|_| RunError::Closed)?
+        self.call(ProducerMsg::ContextRewound { turn: self.turn.clone(), replacement, ack }, rx).await?
     }
 
     /// Appends the `compacted` record and resolves once it is durable (or failed).
     pub async fn compacted(&self, compaction: Compaction) -> Result<(), RunError> {
         let (ack, rx) = oneshot::channel();
-        self.send(ProducerMsg::Compacted {
-            turn: self.turn.clone(),
-            compaction,
-            header: None,
-            ack,
-        })
-        .await?;
-        rx.await.map_err(|_| RunError::Closed)?
+        self.call(ProducerMsg::Compacted { turn: self.turn.clone(), compaction, header: None, ack }, rx).await?
     }
 }
 
@@ -495,9 +498,85 @@ impl ApprovalGate for RunPort {
             ask,
             reply,
         };
-        if self.send(msg).await.is_err() {
-            return interrupted();
+        match self.call(msg, rx).await {
+            Ok(resolution) => resolution,
+            Err(RunError::Cancelled) => ApprovalResolution::Cancelled { at: 0 },
+            Err(_) => interrupted(),
         }
-        rx.await.unwrap_or_else(|_| interrupted())
+    }
+}
+
+/// A cancelled run releases every wait of the port while the actor reads nothing (the state of
+/// a full durability outbox, G3(c)); the actor's end of the lane is held here and never drained.
+#[cfg(test)]
+mod cancel_tests {
+    use mixdog_core_api::domain::approval::ApprovalKind;
+
+    use super::*;
+
+    fn port(lane: usize) -> (RunPort, mpsc::Receiver<ProducerMsg>, CancellationToken) {
+        let (tx, rx) = mpsc::channel(lane);
+        let cancel = CancellationToken::new();
+        let port = RunPort {
+            thread: ThreadId::from("t"),
+            turn: TurnId::from("r"),
+            tx,
+            input: watch::channel(InputState::Pending).1,
+            cancel: cancel.clone(),
+            provider: None,
+        };
+        (port, rx, cancel)
+    }
+
+    fn ask() -> ApprovalAsk {
+        ApprovalAsk {
+            kind: ApprovalKind::Tool,
+            call_id: None,
+            tool: Some("bash".to_owned()),
+            action_kind: None,
+            reason: None,
+            payload: Value::Null,
+            remember: Vec::new(),
+            expires_after: None,
+        }
+    }
+
+    fn compaction() -> Compaction {
+        Compaction { replacement: Vec::new(), at: 0, dropped_count: 0, dropped: None }
+    }
+
+    #[tokio::test]
+    async fn a_send_blocked_on_a_full_lane_ends_at_cancel() {
+        let (port, _actor, cancel) = port(1);
+        port.notice("fills the lane".into()).await.expect("room for one");
+        let blocked = tokio::spawn({
+            let port = port.clone();
+            async move { port.save_provider_state(None).await }
+        });
+        cancel.cancel();
+        assert_eq!(blocked.await.unwrap(), Err(RunError::Cancelled));
+    }
+
+    #[tokio::test]
+    async fn an_ack_the_actor_never_sends_ends_at_cancel() {
+        let (port, _actor, cancel) = port(4);
+        let compacting = tokio::spawn({
+            let port = port.clone();
+            async move { port.compacted(compaction()).await }
+        });
+        cancel.cancel();
+        assert_eq!(compacting.await.unwrap(), Err(RunError::Cancelled));
+    }
+
+    #[tokio::test]
+    async fn an_approval_waiting_behind_a_full_lane_resolves_cancelled() {
+        let (port, _actor, cancel) = port(1);
+        port.notice("fills the lane".into()).await.expect("room for one");
+        let asking = tokio::spawn({
+            let port = port.clone();
+            async move { port.request(ask()).await }
+        });
+        cancel.cancel();
+        assert!(matches!(asking.await.unwrap(), ApprovalResolution::Cancelled { .. }));
     }
 }

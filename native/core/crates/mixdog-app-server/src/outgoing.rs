@@ -17,6 +17,7 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -35,6 +36,9 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ServerRequestId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::server_request::PendingServerRequest;
+use mixdog_rt::CancellationToken;
+use mixdog_rt::Scope;
+use mixdog_rt::Scoped;
 use serde_json::Value;
 
 use crate::connection::Connection;
@@ -73,6 +77,13 @@ pub struct Outgoing {
 impl mixdog_core_api::DesktopPresence for Outgoing {
     fn desktop_attached(&self) -> bool {
         self.desktop_attached_on(&FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID))
+    }
+}
+
+impl mixdog_core_api::SessionSurfaces for Outgoing {
+    fn surface_on(&self, thread: &mixdog_core_api::ids::ThreadId) -> bool {
+        let feed = FeedId::from(thread.as_str());
+        self.all_connections().iter().any(|conn| conn.is_surface_on(&feed))
     }
 }
 
@@ -247,8 +258,17 @@ impl Outgoing {
             .ok_or_else(|| desktop_host_unavailable("noClaimant"))
     }
 
-    /// One request to `claimant`, answered or failed as its connection ends.
-    async fn ask(&self, claimant: Arc<Connection>, method: Method, params: Value) -> Result<Value, HostError> {
+    /// One request to `claimant`, answered or failed as its connection ends. The wait ends at
+    /// the capability's deadline (`timedOut`) or when `cancel` fires (`cancelled`), whichever the
+    /// claimant's silence outlasts; the request is forgotten then, so a late answer is dropped.
+    async fn ask(
+        &self,
+        claimant: Arc<Connection>,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<Value, HostError> {
         let id = self.next_host_id();
         let reply = claimant
             .register_host_request(id.clone())
@@ -261,9 +281,15 @@ impl Outgoing {
             .sink
             .send_control(request_frame(id, method.as_str(), params))
             .map_err(|_| HostError::from(desktop_host_unavailable("claimantClosed")))?;
-        match reply.await {
-            Ok(reply) => reply,
-            Err(_) => Err(desktop_host_unavailable("claimantClosed").into()),
+        let scope = match cancel {
+            Some(cancel) => Scope::new().cancel(cancel),
+            None => Scope::new(),
+        };
+        match scope.deadline(Some(Instant::now() + capability.deadline())).run(reply).await {
+            Scoped::Done(Ok(reply)) => reply,
+            Scoped::Done(Err(_)) => Err(desktop_host_unavailable("claimantClosed").into()),
+            Scoped::Cancelled => Err(desktop_host_unavailable("cancelled").into()),
+            Scoped::DeadlineExceeded => Err(desktop_host_unavailable("timedOut").into()),
         }
     }
 
@@ -364,7 +390,7 @@ impl Drop for CancelOnDrop {
 impl mixdog_core_api::ClaimedHostChannel for Outgoing {
     async fn request_claimed(&self, capability: HostCapability, method: Method, params: Value) -> Result<(mixdog_core_api::HostClaim, Value), HostError> {
         let (claim, claimant) = self.current_claim(capability)?;
-        let answer = self.ask(claimant, method, params).await?;
+        let answer = self.ask(claimant, capability, method, params, None).await?;
         Ok((claim, answer))
     }
 
@@ -374,7 +400,7 @@ impl mixdog_core_api::ClaimedHostChannel for Outgoing {
         if &current != claim {
             return Err(desktop_host_unavailable("claimantChanged").into());
         }
-        self.ask(claimant, method, params).await
+        self.ask(claimant, capability, method, params, None).await
     }
 }
 
@@ -387,7 +413,18 @@ impl HostChannel for Outgoing {
         params: Value,
     ) -> Result<Value, HostError> {
         let claimant = self.claimant(capability)?;
-        self.ask(claimant, method, params).await
+        self.ask(claimant, capability, method, params, None).await
+    }
+
+    async fn request_scoped(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+        cancel: &CancellationToken,
+    ) -> Result<Value, HostError> {
+        let claimant = self.claimant(capability)?;
+        self.ask(claimant, capability, method, params, Some(cancel)).await
     }
 
     fn notify(

@@ -388,8 +388,51 @@ async fn nothing_fires_after_stop() {
     assert_eq!(store.list().len(), 1, "the resume is still pending");
 }
 
+/// `s1`'s fire never answers; every other session's fires at once.
+struct HungFireHost {
+    fires: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl ResumeHost for HungFireHost {
+    async fn materialize(&self, _session_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+    async fn route(&self, _session_id: &str) -> SessionRoute {
+        SessionRoute { provider: "openai-oauth".to_owned(), model: "gpt-x".to_owned() }
+    }
+    async fn usable(&self, _provider: &str, _model: &str) -> Result<bool, UsageError> {
+        Ok(true)
+    }
+    async fn fire(&self, session_id: &str, _generation: u64) -> Result<FireOutcome, String> {
+        self.fires.lock().unwrap().push(session_id.to_owned());
+        if session_id == "s1" {
+            std::future::pending().await
+        }
+        Ok(FireOutcome::Fired)
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hung_host_call_fails_its_entry_and_the_pass_goes_on() {
+    let now = golden()["now"].as_f64().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = open_store(dir.path()).await;
+    schedule(&store, "s1", now).await;
+    schedule(&store, "s2", now).await;
+    let host = Arc::new(HungFireHost { fires: Mutex::default() });
+    let clock = Arc::new(ManualClock::new(now));
+    let log: Arc<Mutex<Vec<String>>> = Arc::default();
+    let scheduler = scheduler_over(&store, host.clone(), &clock, &log);
+    // Nothing moves but the paused tokio clock, which jumps to the host-call bound while s1 hangs.
+    scheduler.tick().await;
+    assert_eq!(*host.fires.lock().unwrap(), ["s1", "s2"], "the entry behind the hung one still ran");
+    assert!(log.lock().unwrap().iter().any(|line| line == "quota resume failed session=s1: fire timed out"), "{:?}", log.lock().unwrap());
+    assert_eq!(store.list().iter().map(|e| e.session_id.as_str()).collect::<Vec<_>>(), ["s1"], "the hung entry waits, deferred");
+}
+
 #[tokio::test]
-async fn stop_waits_for_the_pass_in_flight_and_starts_no_further_entry() {
+async fn stop_releases_a_fire_in_flight_and_starts_no_further_entry() {
     let now = golden()["now"].as_f64().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let store = open_store(dir.path()).await;
@@ -402,17 +445,15 @@ async fn stop_waits_for_the_pass_in_flight_and_starts_no_further_entry() {
     wait_until("the timer is set", || clock.armed() == Some(0)).await;
     clock.advance(0.0);
     wait_until("the first fire is held", || host.fires.lock().unwrap().len() == 1).await;
-    let stopping = tokio::spawn({
-        let scheduler = scheduler.clone();
-        async move { scheduler.stop().await }
-    });
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(!stopping.is_finished(), "stop waits for the fire in flight");
-    host.gate.add_permits(10);
-    stopping.await.unwrap();
+    // The gate stays shut: the fire answers nothing, and stop still returns.
+    scheduler.stop().await;
     let fired: Vec<String> = host.fires.lock().unwrap().iter().map(|(id, _)| id.clone()).collect();
     assert_eq!(fired, ["s1"], "the second entry never started");
-    assert_eq!(store.list().iter().map(|e| e.session_id.as_str()).collect::<Vec<_>>(), ["s2"]);
+    assert_eq!(
+        store.list().iter().map(|e| e.session_id.as_str()).collect::<Vec<_>>(),
+        ["s1", "s2"],
+        "the abandoned fire's entry stays queued, for its generation to be tried again"
+    );
 }
 
 /// The file the 1.4.5 app left in a real data directory (`migration-corpus/v145/quota-resume.json`):

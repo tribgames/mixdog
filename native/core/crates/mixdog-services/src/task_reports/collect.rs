@@ -572,13 +572,14 @@ mod tests {
     fn tree(collect: &Value) -> (tempfile::TempDir, String) {
         let dir = tempfile::tempdir().unwrap();
         let root = mixdog_workspace::pathguard::canonical(dir.path()).unwrap();
+        // Each entry is a directory (`None`) or a file with its bytes; written on the lane.
+        let mut entries: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
         for file in collect["files"].as_array().unwrap() {
             let target = root.join(native(file["path"].as_str().unwrap()));
             if file.get("dir").is_some() {
-                std::fs::create_dir_all(&target).unwrap();
+                entries.push((target, None));
                 continue;
             }
-            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
             let bytes = if let Some(fill) = file.get("fill") {
                 vec![fill[0].as_str().unwrap().as_bytes()[0]; fill[1].as_u64().unwrap() as usize]
             } else if let Some(hex) = file.get("hex") {
@@ -587,8 +588,19 @@ mod tests {
             } else {
                 file["text"].as_str().unwrap().as_bytes().to_vec()
             };
-            std::fs::write(target, bytes).unwrap();
+            entries.push((target, Some(bytes)));
         }
+        on_lane(move |lane| {
+            for (target, bytes) in entries {
+                match bytes {
+                    None => mixdog_statefile::create_private_dir_all(lane, &target).unwrap(),
+                    Some(bytes) => {
+                        mixdog_statefile::create_private_dir_all(lane, target.parent().unwrap()).unwrap();
+                        mixdog_statefile::append_file(lane, &target, &bytes).unwrap();
+                    }
+                }
+            }
+        });
         let text = root.to_string_lossy().into_owned();
         (dir, text)
     }
@@ -620,7 +632,7 @@ mod tests {
         let reference = on_lane(move |lane| store_attachment(&blobs, lane, b"hello\n")).unwrap();
         assert_eq!(reference.len(), 64);
         let stored = data.join("prompt-attachments").join("sha256").join(&reference[..2]).join(&reference);
-        assert_eq!(std::fs::read(stored).unwrap(), b"hello\n");
+        assert_eq!(mixdog_statefile::read_content(&stored).unwrap().unwrap(), b"hello\n");
         let blobs = BlobStore::new(&data);
         assert!(on_lane(move |lane| store_attachment(&blobs, lane, b"")).is_err());
     }

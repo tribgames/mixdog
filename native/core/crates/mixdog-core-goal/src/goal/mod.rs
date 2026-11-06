@@ -23,6 +23,9 @@ mod tool;
 mod turns;
 
 #[cfg(test)]
+mod background_tests;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]

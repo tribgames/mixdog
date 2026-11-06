@@ -31,6 +31,7 @@ pub use locale_compare::default_locale_tag;
 pub use locale_compare::locale_compare;
 pub use locale_compare::locale_compare_en;
 pub use locale_compare::locale_compare_en_base;
+pub use locale_compare::locale_compare_en_numeric;
 pub use number::json_number;
 pub use number::number_to_string;
 pub use number::string_to_number;

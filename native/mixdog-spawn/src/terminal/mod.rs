@@ -265,7 +265,14 @@ struct Tab {
     handle: ProcessHandle,
     shell: String,
     cwd: Option<String>,
+    /// Lock order, outermost first: `TerminalTabs::tabs`, `TerminalTabs::cursor_floors`,
+    /// `Tab::pty_gate`, `Tab::state`. No code holds `state` while calling the process manager or
+    /// taking an earlier lock: it copies what it needs out and drops the guard first.
     state: Mutex<TabState>,
+    /// Serializes the calls that push `state` to the PTY (resize, flow control) so they land in
+    /// the order the state changed; each re-reads the latest state under it. A call that blocks
+    /// in the PTY holds this gate only, never `state`.
+    pty_gate: Mutex<()>,
     events: Arc<dyn TerminalEvents>,
     manager: LocalProcessManager,
 }
@@ -273,6 +280,10 @@ struct Tab {
 impl Tab {
     fn lock(&self) -> MutexGuard<'_, TabState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn gate(&self) -> MutexGuard<'_, ()> {
+        self.pty_gate.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn publish(&self, change: Option<Option<ActivityState>>) {
@@ -304,12 +315,24 @@ impl Tab {
         });
     }
 
-    fn apply_size(&self, state: &mut TabState, cols: u16, rows: u16) {
-        state.size = (cols, rows);
-        if !state.exited {
+    /// Applies the tab's current size to its PTY. Called without the state lock.
+    fn sync_size(&self) {
+        let _gate = self.gate();
+        let ((cols, rows), exited) = {
+            let state = self.lock();
+            (state.size, state.exited)
+        };
+        if !exited {
             // A racing exit is not an error.
             let _ = self.manager.resize_pty(&self.handle, PtySize { cols, rows });
         }
+    }
+
+    /// Applies the tab's current output pause to its reader. Called without the state lock.
+    fn sync_pause(&self) {
+        let _gate = self.gate();
+        let paused = self.lock().output_paused;
+        let _ = self.manager.set_output_paused(&self.handle, paused);
     }
 
     fn running(&self) -> bool {
@@ -577,6 +600,24 @@ impl TerminalTabs {
         }
     }
 
+    /// Where a respawned tab's cursors start. Cursors start at a creation-time epoch, so a cursor
+    /// issued before a restart (whose floors are gone) still falls below the oldest retained
+    /// position. The prior tab's lock and `cursor_floors` are taken one after the other, never
+    /// nested.
+    fn start_cursor(&self, tab_id: &str, prior: Option<&Tab>) -> u64 {
+        let from_prior = prior.map(|tab| tab.lock().buffer.cursor());
+        let from_floors = self
+            .cursor_floors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(tab_id)
+            .copied();
+        let floor = from_floors.into_iter().chain(from_prior).max();
+        floor
+            .map_or(0, |floor| floor + 1)
+            .max(cursor_epoch((self.config.now_ms)()))
+    }
+
     async fn spawn_tab(
         &self,
         tab_id: &str,
@@ -616,17 +657,7 @@ impl TerminalTabs {
         let cols = clamp_size(request.cols.unwrap_or(0), DEFAULT_COLS, 500);
         let rows = clamp_size(request.rows.unwrap_or(0), DEFAULT_ROWS, 200);
 
-        // Cursors start at a creation-time epoch, so a cursor issued before a restart (whose
-        // floors are gone) still falls below the oldest retained position.
-        let floor = {
-            let floors = self.cursor_floors.lock().unwrap_or_else(|e| e.into_inner());
-            let from_floors = floors.get(tab_id).copied();
-            let from_prior = prior.as_ref().map(|tab| tab.lock().buffer.cursor());
-            from_floors.into_iter().chain(from_prior).max()
-        };
-        let start = floor
-            .map_or(0, |floor| floor + 1)
-            .max(cursor_epoch((self.config.now_ms)()));
+        let start = self.start_cursor(tab_id, prior.as_deref());
         let infer_start = plan.integration == Some(Integration::Cmd);
         let tab = Arc::new(Tab {
             id: tab_id.to_owned(),
@@ -644,6 +675,7 @@ impl TerminalTabs {
                 client_sizes: HashMap::new(),
                 owner: None,
             }),
+            pty_gate: Mutex::new(()),
             events: Arc::clone(&self.config.events),
             manager: self.manager.clone(),
         });
@@ -826,8 +858,10 @@ impl TerminalTabs {
         if state.owner.as_deref().is_some_and(|owner| owner != client) {
             return;
         }
-        tab.apply_size(&mut state, cols, rows);
+        state.size = (cols, rows);
         tab.announce(before, &state);
+        drop(state);
+        tab.sync_size();
     }
 
     /// A view focused (or left) a tab. Focusing clears `finished` and makes the connection the
@@ -846,10 +880,15 @@ impl TerminalTabs {
         }
         let before = Tab::owner_of(&state);
         state.owner = Some(client.to_owned());
-        if let Some((cols, rows)) = state.client_sizes.get(client).copied() {
-            tab.apply_size(&mut state, cols, rows);
+        let reported = state.client_sizes.get(client).copied();
+        if let Some(size) = reported {
+            state.size = size;
         }
         tab.announce(before, &state);
+        drop(state);
+        if reported.is_some() {
+            tab.sync_size();
+        }
     }
 
     /// A connection closed: its focus and its size ownership end, on every tab.
@@ -877,9 +916,9 @@ impl TerminalTabs {
         if state.output_paused {
             return;
         }
-        if self.manager.set_output_paused(&tab.handle, true).is_ok() {
-            state.output_paused = true;
-        }
+        state.output_paused = true;
+        drop(state);
+        tab.sync_pause();
     }
 
     pub fn resume_output(&self, id: &str) {
@@ -890,21 +929,17 @@ impl TerminalTabs {
         if !state.output_paused {
             return;
         }
-        if self.manager.set_output_paused(&tab.handle, false).is_ok() {
-            state.output_paused = false;
-        }
+        state.output_paused = false;
+        drop(state);
+        tab.sync_pause();
     }
 
     // ----- teardown -------------------------------------------------------------------------
 
     fn dispose_tab(&self, tab: &Tab) {
-        {
+        let (was_paused, cursor) = {
             let mut state = tab.lock();
-            if state.output_paused {
-                // A paused reader must be released before the kill, or the exit cannot arrive.
-                let _ = self.manager.set_output_paused(&tab.handle, false);
-                state.output_paused = false;
-            }
+            let was_paused = std::mem::replace(&mut state.output_paused, false);
             state.exited = true;
             let change = state.activity.exit();
             tab.publish(change);
@@ -912,13 +947,18 @@ impl TerminalTabs {
             state.owner = None;
             state.client_sizes.clear();
             tab.announce(before, &state);
-            self.cursor_floors
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .entry(tab.id.clone())
-                .and_modify(|floor| *floor = (*floor).max(state.buffer.cursor()))
-                .or_insert(state.buffer.cursor());
+            (was_paused, state.buffer.cursor())
+        };
+        if was_paused {
+            // A paused reader must be released before the kill, or the exit cannot arrive.
+            tab.sync_pause();
         }
+        self.cursor_floors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(tab.id.clone())
+            .and_modify(|floor| *floor = (*floor).max(cursor))
+            .or_insert(cursor);
         // Already gone is fine.
         let _ = self.manager.kill_with(&tab.handle, KillReason::Requested);
     }
@@ -961,5 +1001,171 @@ impl TerminalTabs {
         for tab in tabs {
             self.dispose_tab(&tab);
         }
+    }
+}
+
+#[cfg(all(test, feature = "core-test"))]
+mod lock_order {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    use super::*;
+    use crate::manager::ProcessConfig;
+
+    struct Quiet;
+
+    impl TerminalEvents for Quiet {
+        fn activity(&self, _: &str, _: Option<ActivityState>) {}
+        fn size_owner(&self, _: &SizeOwnerChange) {}
+    }
+
+    /// F30: with `cursor_floors` held by the test, a dispose and a respawn of one tab id both
+    /// reach it. The dispose must have left the tab lock by then (a dispose that holds the tab
+    /// lock while it waits for the floors is the inversion), and once the floors are released
+    /// both finish.
+    #[test]
+    fn a_respawn_and_a_dispose_of_one_tab_id_do_not_deadlock() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let tabs = Arc::new(TerminalTabs::new(manager.clone(), TerminalConfig::new(Arc::new(Quiet))));
+        let tab = Arc::new(Tab {
+            id: "term_1".to_owned(),
+            handle: ProcessHandle::from("term_1"),
+            shell: "sh".to_owned(),
+            cwd: None,
+            state: Mutex::new(TabState {
+                buffer: ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0),
+                scanner: None,
+                decoder: Utf8Decoder::default(),
+                activity: ActivityTracker::new(false),
+                exited: false,
+                output_paused: false,
+                size: (80, 24),
+                client_sizes: HashMap::new(),
+                owner: None,
+            }),
+            pty_gate: Mutex::new(()),
+            events: Arc::new(Quiet),
+            manager,
+        });
+
+        let floors = tabs.cursor_floors.lock().unwrap();
+        let (done, finished) = mpsc::channel();
+        let dispose = {
+            let (tabs, tab, done) = (Arc::clone(&tabs), Arc::clone(&tab), done.clone());
+            std::thread::spawn(move || {
+                tabs.dispose_tab(&tab);
+                done.send("dispose").unwrap();
+            })
+        };
+        let respawn = {
+            let (tabs, tab) = (Arc::clone(&tabs), Arc::clone(&tab));
+            std::thread::spawn(move || {
+                tabs.start_cursor("term_1", Some(&*tab));
+                done.send("respawn").unwrap();
+            })
+        };
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if tab.state.try_lock().is_ok_and(|state| state.exited) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "the dispose holds the tab lock while it waits for the floors");
+            std::thread::yield_now();
+        }
+        drop(floors);
+        for _ in 0..2 {
+            finished.recv_timeout(Duration::from_secs(10)).expect("respawn and dispose finish");
+        }
+        dispose.join().unwrap();
+        respawn.join().unwrap();
+        assert!(tabs.cursor_floors.lock().unwrap().contains_key("term_1"));
+    }
+}
+#[cfg(all(test, feature = "core-test"))]
+mod bounded_waits {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::manager::ProcessConfig;
+
+    struct Quiet;
+
+    impl TerminalEvents for Quiet {
+        fn activity(&self, _: &str, _: Option<ActivityState>) {}
+        fn size_owner(&self, _: &SizeOwnerChange) {}
+    }
+
+    fn tabs_with(config: ProcessConfig) -> (Arc<TerminalTabs>, LocalProcessManager) {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, config);
+        let tabs = Arc::new(TerminalTabs::new(manager.clone(), TerminalConfig::new(Arc::new(Quiet))));
+        (tabs, manager)
+    }
+
+    /// The root exits at once but its grandchild keeps the output pipe for 60 s, so the
+    /// pipe-end the exit used to wait for never comes. `wait_gone` ends through the process
+    /// manager's bounded drain (`output_drain`), with no timer of its own.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn wait_gone_ends_when_a_descendant_holds_the_pipe() {
+        let (tabs, manager) = tabs_with(ProcessConfig {
+            output_drain: Duration::from_millis(50),
+            ..ProcessConfig::default()
+        });
+        let handle = ProcessHandle::from(format!("wait-gone-{}", std::process::id()));
+        let command = if cfg!(windows) {
+            CommandSpec::Shell {
+                script: "$i = New-Object System.Diagnostics.ProcessStartInfo; $i.FileName = 'ping'; \
+                         $i.Arguments = '-n 60 127.0.0.1'; $i.UseShellExecute = $false; \
+                         [void][System.Diagnostics.Process]::Start($i)"
+                    .to_owned(),
+                shell: Some("powershell".to_owned()),
+            }
+        } else {
+            CommandSpec::Shell {
+                script: "sleep 60 &".to_owned(),
+                shell: None,
+            }
+        };
+        manager
+            .spawn(SpawnRequest {
+                handle: handle.clone(),
+                command,
+                cwd: AbsPath::new(std::env::temp_dir()).expect("the temp dir is absolute"),
+                env: EnvSpec {
+                    inherit: true,
+                    ..EnvSpec::default()
+                },
+                pty: None,
+                stdin_piped: false,
+                output: OutputMode::Merged,
+                owner: ProcessOwner::Internal,
+                time_limit: None,
+            })
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), tabs.wait_gone(&handle))
+            .await
+            .expect("wait_gone ends although the pipe is still held");
+        assert!(manager.info(&handle).unwrap().exit.is_some());
+    }
+
+    /// The spawner a waiter waits on goes away without finishing: the slot is released and the
+    /// waiter ends, instead of waiting for a wake-up that never comes.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_waiter_on_an_abandoned_spawn_is_released() {
+        let (tabs, _manager) = tabs_with(ProcessConfig::default());
+        let Claim::Spawn { guard, .. } = tabs.claim("term_1") else {
+            panic!("the first claim spawns");
+        };
+        let waiter = {
+            let tabs = Arc::clone(&tabs);
+            tokio::spawn(async move { tabs.attach("term_1").await })
+        };
+        drop(guard);
+        let attached = tokio::time::timeout(Duration::from_secs(10), waiter)
+            .await
+            .expect("the waiter is released")
+            .unwrap();
+        assert!(attached.is_none());
     }
 }

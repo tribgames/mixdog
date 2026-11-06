@@ -3,6 +3,7 @@
 mod actor;
 mod admission;
 mod approvals;
+mod control;
 mod dispatch;
 mod errors;
 mod handshake;

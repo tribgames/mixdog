@@ -4,9 +4,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 16286,
+      "bytes": 179418,
       "path": "golden.json",
-      "sha256": "bd8d43cfef5c30bdd2834b587ba0028cc0a5b79955e4ecba7bc2f8208c63b33e"
+      "sha256": "0073df3b17e99c1ad47ffca15a3713d97fc8aa88a741a659f320fe1d02f92172"
     }
   ],
   "product": {
@@ -15,10 +15,10 @@
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 43481,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 1,
+      "closestCommit": "958102a1bce7b2954e8a42f2ebcb3a42265a3ee3",
+      "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 34407
+      "filesDifferingFromCommit": 43481
     },
     "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
     "tree": "product tree loaded by the recorder",
@@ -28,5 +28,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-thread-scm.mjs",
   "set": "thread-scm",
   "steps": 22,
-  "totalBytes": 16286
+  "totalBytes": 179418
 }

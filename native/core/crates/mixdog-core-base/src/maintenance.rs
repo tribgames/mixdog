@@ -22,6 +22,14 @@ use mixdog_rt::CancellationToken;
 /// `DEFAULT_TICK_MS`.
 pub const DEFAULT_TICK: Duration = Duration::from_secs(60);
 
+/// How long one task (or one idle probe) may run. A task past it is dropped and reported to its
+/// `on_error` as a failure, so one wedged task never holds the shared tick.
+pub const TASK_DEADLINE: Duration = Duration::from_secs(600);
+
+/// How long a task or probe already running may finish after shutdown began; past it the task is
+/// dropped, so shutdown never waits for the full [`TASK_DEADLINE`].
+pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+
 /// What a task reports when it fails; handed to its `on_error`.
 pub type TaskResult = Result<(), String>;
 pub type TaskFn = Arc<dyn Fn() -> BoxFuture<'static, TaskResult> + Send + Sync>;
@@ -142,10 +150,32 @@ impl MaintenanceSchedule {
         ProbeRegistration { schedule: Arc::downgrade(self), id }
     }
 
+    /// Awaits `work` for at most [`TASK_DEADLINE`], and [`SHUTDOWN_GRACE`] past the shutdown
+    /// signal; `None` when it was dropped at either bound.
+    async fn bounded<T>(&self, work: impl Future<Output = T>) -> Option<T> {
+        let shutdown = self.state.lock().unwrap_or_else(|e| e.into_inner()).shutdown.clone();
+        let after_shutdown = async {
+            match shutdown {
+                Some(shutdown) => {
+                    shutdown.cancelled().await;
+                    tokio::time::sleep(SHUTDOWN_GRACE).await;
+                }
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            biased;
+            done = work => Some(done),
+            () = tokio::time::sleep(TASK_DEADLINE) => None,
+            () = after_shutdown => None,
+        }
+    }
+
+    /// A probe that does not answer in time counts as busy.
     async fn is_idle(&self) -> bool {
         let probes: Vec<IdleProbe> = self.state.lock().unwrap_or_else(|e| e.into_inner()).probes.iter().map(|(_, p)| p.clone()).collect();
         for probe in probes {
-            if !probe().await {
+            if !self.bounded(probe()).await.unwrap_or(false) {
                 return false;
             }
         }
@@ -189,7 +219,8 @@ impl MaintenanceSchedule {
                 break;
             }
             *task.due_at.lock().unwrap_or_else(|e| e.into_inner()) = now.saturating_add(task.interval_ms);
-            if let Err(error) = (task.run)().await
+            let outcome = self.bounded((task.run)()).await.unwrap_or_else(|| Err(format!("{} did not finish in time", task.name)));
+            if let Err(error) = outcome
                 && let Some(on_error) = &task.on_error
             {
                 on_error(&error);
@@ -426,6 +457,68 @@ mod tests {
         release.notify_one();
         ended.await.expect("ended");
         assert_eq!(runs.load(Ordering::SeqCst), 0, "the task did not start after shutdown");
+    }
+
+    fn hanging(entered: &Arc<tokio::sync::Notify>) -> TaskFn {
+        let entered = entered.clone();
+        Arc::new(move || {
+            let entered = entered.clone();
+            async move {
+                entered.notify_one();
+                std::future::pending::<()>().await;
+                Ok(())
+            }
+            .boxed()
+        })
+    }
+
+    /// A task that never finishes is dropped at its deadline and reported as a failure; the
+    /// tasks after it still run in the same tick, and the next tick is not blocked behind it.
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_task_is_dropped_at_its_deadline_and_does_not_hold_the_tick() {
+        let schedule = MaintenanceSchedule::new();
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = seen.clone();
+        let on_error: ErrorSink = Arc::new(move |e| sink.lock().unwrap().push(e.to_owned()));
+        let after = Arc::new(AtomicUsize::new(0));
+        let entered = Arc::new(tokio::sync::Notify::new());
+        schedule.register_task("hung", hanging(&entered), options(1000, 0, Some(on_error)), 0);
+        schedule.register_task("after", counting(&after, false), options(1000, 0, None), 0);
+        let began = tokio::time::Instant::now();
+        assert_eq!(schedule.run_tasks(false, 0).await.ran, ["hung", "after"]);
+        assert_eq!(began.elapsed(), TASK_DEADLINE);
+        assert_eq!(*seen.lock().unwrap(), ["hung did not finish in time"]);
+        assert_eq!(after.load(Ordering::SeqCst), 1);
+        assert_eq!(schedule.run_tasks(true, 1).await.ran, ["hung", "after"], "the next tick is not stuck on the shared one");
+    }
+
+    /// A task that hangs when shutdown arrives is given the grace and then dropped: the
+    /// returned task ends well before the task deadline.
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_does_not_wait_for_a_hung_tick_past_the_grace() {
+        mixdog_rt::testing::tokens();
+        let schedule = MaintenanceSchedule::new();
+        let down = CancellationToken::new();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        schedule.register_task("hung", hanging(&entered), options(1000, 0, None), 0);
+        let ended = schedule.start(Duration::from_millis(100), Arc::new(|| 0), down.clone()).expect("started");
+        entered.notified().await;
+        let began = tokio::time::Instant::now();
+        down.cancel();
+        ended.await.expect("ended");
+        assert_eq!(began.elapsed(), SHUTDOWN_GRACE);
+        assert!(schedule.run_tasks(true, 0).await.ran.is_empty(), "every task is unregistered");
+    }
+
+    /// An idle probe that never answers counts as busy instead of holding the tick.
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_that_never_answers_counts_as_busy() {
+        let schedule = MaintenanceSchedule::new();
+        let runs = Arc::new(AtomicUsize::new(0));
+        schedule.register_task("a", counting(&runs, false), options(100, 0, None), 0);
+        schedule.register_idle_probe(Arc::new(|| std::future::pending::<bool>().boxed()));
+        assert_eq!(schedule.run_tasks(false, 1).await, TickReport { ran: vec![], busy: true });
+        assert_eq!(runs.load(Ordering::SeqCst), 0);
     }
 
     /// At shutdown the tick under way finishes its task, no further task is admitted, every

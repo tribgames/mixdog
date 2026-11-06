@@ -47,7 +47,7 @@ uuid = { workspace = true, features = ["v4"] }
 [dev-dependencies]
 # WP-WEBRTC tests
 mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net", "test-util"] }
 tempfile = { workspace = true }
 # LR §9 tests: a phone through the in-process relay connection into the real server over the mock core.
 mixdog-app-server = { workspace = true }

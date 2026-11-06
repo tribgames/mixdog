@@ -1008,6 +1008,23 @@ impl Sessions for RecordedCloses {
     fn clear_statusline_route(&self, _: &str) {}
 }
 
+/// `runToCompletion`: a foreground run resolves with the agent's final content and closes the
+/// agent's session with the executor reason, neither tombstoning nor as an owner close.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_foreground_run_ends_with_its_content_and_closes_its_session() {
+    long_lived_ticker();
+    let case = fixture("spawn.json").into_iter().next().unwrap();
+    let scenario = &case["scenario"];
+    let rig = rig(scenario, Some(&case["host"]));
+    let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242) };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let (session, content) = rig.spawn.run_to_completion(&scenario["args"], scenario["callerCwd"].as_str().unwrap(), &context, &cancel).await.expect("the run completes");
+    assert_eq!(content, "done");
+    let session = session.expect("the run's session");
+    let closed = rig.shared.log.lock().unwrap().iter().any(|entry| *entry == json!(format!("close:{session}:routine-executor-finished")));
+    assert!(closed, "the agent's session is closed after the run");
+}
+
 /// `job-start.mjs`: cancelling an agent job closes its worker session with reason
 /// `agent-task-cancel`, neither tombstoning it nor as an owner close (the host builds the turn's
 /// `Session "<id>" closed: closeSession (reason=agent-task-cancel)` text from that reason).

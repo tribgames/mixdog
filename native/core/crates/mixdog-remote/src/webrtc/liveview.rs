@@ -8,7 +8,9 @@
 //! congestion control (GCC over transport-wide feedback) narrows the track's bitrate to what the
 //! path carries, and a viewer's PLI/FIR asks the track for a keyframe.
 //!
-//! Each connection is one task on RT-W plus a writer task; a slow phone stalls only those.
+//! Each connection is one task on RT-W plus a writer task; a slow phone stalls only those. Input
+//! channel writes go through [`Outbound`], every awaited step runs under the connection's
+//! [`PeerBudget`], and coming up under [`peer::SETUP_BUDGET`].
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -72,8 +74,11 @@ use super::config::PeerConfig;
 use super::config::PeerFailure;
 use super::config::PeerFault;
 use super::config::RemoteCertificate;
+use super::outbound::Frame;
+use super::outbound::Outbound;
 use super::peer;
 use super::peer::MediaSetup;
+use super::peer::PeerBudget;
 use super::peer::PeerEvent;
 use super::capture::SharedSource;
 use super::track::Subscription;
@@ -90,6 +95,8 @@ const VIDEO_CLOCK_RATE: u32 = 90_000;
 const INITIAL_BITRATE_BPS: f64 = 1_000_000.0;
 const MIN_BITRATE_BPS: f64 = 100_000.0;
 const MAX_BITRATE_BPS: f64 = 8_000_000.0;
+/// What may wait to be written to the input channel (the phone's state pushes are small).
+const INPUT_QUEUE_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub enum LiveViewEvent {
@@ -139,6 +146,13 @@ enum Command {
 pub struct LiveViewConnection {
     commands: mpsc::UnboundedSender<Command>,
     track: Arc<Vp8Track>,
+    budget: PeerBudget,
+}
+
+impl Drop for LiveViewConnection {
+    fn drop(&mut self) {
+        self.budget.close();
+    }
 }
 
 impl LiveViewConnection {
@@ -155,12 +169,13 @@ impl LiveViewConnection {
         let track = Vp8Track::start(media, source)?;
         let (commands, command_rx) = mpsc::unbounded_channel();
         let (events, event_rx) = mpsc::unbounded_channel();
+        let budget = PeerBudget::default();
         mixdog_rt::spawn(
             "webrtc-liveview",
             TaskClass::Work,
-            run(config, receive_codecs, Arc::clone(&track), command_rx, events),
+            run(config, receive_codecs, Arc::clone(&track), command_rx, events, budget.clone()),
         );
-        Ok((Self { commands, track }, event_rx))
+        Ok((Self { commands, track, budget }, event_rx))
     }
 
     /// The phone's `maxBitrate` / `maxFramerate` commands: this connection's encoder only.
@@ -191,12 +206,16 @@ impl LiveViewConnection {
         let _ = self.commands.send(Command::ChannelSend(text));
     }
 
-    /// `None` when the connection is gone.
+    /// `None` when the connection is gone or does not answer within the step budget.
     pub async fn stats(&self) -> Option<SenderStats> {
-        let (tx, rx) = oneshot::channel();
-        self.commands.send(Command::Stats(tx)).ok()?;
-        rx.await.ok().flatten()
+        request_stats(&self.budget, &self.commands).await
     }
+}
+
+async fn request_stats(budget: &PeerBudget, commands: &mpsc::UnboundedSender<Command>) -> Option<SenderStats> {
+    let (tx, rx) = oneshot::channel();
+    commands.send(Command::Stats(tx)).ok()?;
+    budget.step("stats", rx).await.ok()?.ok().flatten()
 }
 
 /// Passes inbound keyframe requests (PLI and FIR) on to the application and drops every other
@@ -349,9 +368,10 @@ fn wall_clock_ms() -> u64 {
 
 struct Live {
     pc: Arc<dyn PeerConnection>,
-    input: Arc<dyn DataChannel>,
+    input: Outbound,
     sender: Arc<dyn RtpSender>,
     track: Arc<Vp8Track>,
+    connected: bool,
     input_open: bool,
     failed: bool,
 }
@@ -362,6 +382,7 @@ async fn run(
     track: Arc<Vp8Track>,
     mut commands: mpsc::UnboundedReceiver<Command>,
     events: mpsc::UnboundedSender<LiveViewEvent>,
+    budget: PeerBudget,
 ) {
     let emit = |event: LiveViewEvent| {
         let _ = events.send(event);
@@ -377,31 +398,50 @@ async fn run(
         Ok(setup) => setup,
         Err(fault) => return emit(LiveViewEvent::Failed(fault)),
     };
-    let peer::Opened { pc, events: mut peer_events } = match peer::open(&config, Some(setup)).await {
+    let setup_deadline = tokio::time::sleep(peer::SETUP_BUDGET);
+    tokio::pin!(setup_deadline);
+    let opened = budget
+        .step("open", peer::open(&config, Some(setup)))
+        .await
+        .and_then(|opened| opened);
+    let peer::Opened { pc, events: mut peer_events } = match opened {
         Ok(opened) => opened,
         Err(fault) => return emit(LiveViewEvent::Failed(fault)),
     };
     let local_track = match build_track() {
         Ok(local_track) => local_track,
         Err(fault) => {
-            let _ = pc.close().await;
+            budget.close();
+            peer::close(&pc).await;
             return emit(LiveViewEvent::Failed(fault));
         }
     };
-    let (input, sender) = match attach(pc.as_ref(), &local_track).await {
+    let attached = budget
+        .step("attach", attach(pc.as_ref(), &local_track))
+        .await
+        .and_then(|attached| attached);
+    let (input, sender) = match attached {
         Ok(parts) => parts,
         Err(fault) => {
-            let _ = pc.close().await;
+            budget.close();
+            peer::close(&pc).await;
             return emit(LiveViewEvent::Failed(fault));
         }
     };
     let key_wanted = Arc::new(Notify::new());
-    spawn_feedback_reader(Arc::clone(&local_track), Arc::clone(&key_wanted));
+    spawn_feedback_reader(Arc::clone(&local_track), Arc::clone(&key_wanted), budget.token());
     let (input_tx, mut input_rx) = mpsc::unbounded_channel();
     {
         let input = Arc::clone(&input);
+        let closed = budget.token();
         mixdog_rt::spawn("webrtc-liveview-input", TaskClass::Work, async move {
-            while let Some(event) = input.poll().await {
+            loop {
+                let event = tokio::select! {
+                    biased;
+                    () = closed.cancelled() => break,
+                    event = input.poll() => event,
+                };
+                let Some(event) = event else { break };
                 if input_tx.send(event).is_err() {
                     break;
                 }
@@ -410,13 +450,15 @@ async fn run(
     }
     let mut live = Live {
         pc,
-        input,
+        // A failed input write was never reported; the channel's own close or error is.
+        input: Outbound::new("webrtc-liveview-input-writer", Arc::new(input), INPUT_QUEUE_BYTES, |_| {}),
         sender,
         track,
+        connected: false,
         input_open: false,
         failed: false,
     };
-    match peer::make_offer(live.pc.as_ref(), false).await {
+    match budget.step("create offer", peer::make_offer(live.pc.as_ref(), false)).await.and_then(|sdp| sdp) {
         Ok(sdp) => emit(LiveViewEvent::Offer { sdp }),
         Err(fault) => fail(&mut live, &emit, fault),
     }
@@ -426,31 +468,46 @@ async fn run(
         tokio::select! {
             raw = peer_events.recv() => {
                 let Some(raw) = raw else { break };
-                match peer_events.resolve(raw).await {
-                    None => {}
-                    Some(PeerEvent::Candidate { candidate, .. }) => {
-                        emit(LiveViewEvent::Candidate { candidate });
-                    }
-                    Some(PeerEvent::Connected { remote_certificate }) => {
-                        emit(LiveViewEvent::Connected { remote_certificate });
-                        if writer.is_none() {
-                            writer = start_writer(&live, &local_track, &key_wanted, &estimate).await;
+                let handled = budget.step("peer event", async {
+                    match peer_events.resolve(raw).await {
+                        None => {}
+                        Some(PeerEvent::Candidate { candidate, .. }) => {
+                            emit(LiveViewEvent::Candidate { candidate });
                         }
+                        Some(PeerEvent::Connected { remote_certificate }) => {
+                            live.connected = true;
+                            emit(LiveViewEvent::Connected { remote_certificate });
+                            if writer.is_none() {
+                                writer = start_writer(&live, &local_track, &key_wanted, &estimate).await;
+                            }
+                        }
+                        Some(PeerEvent::Failed(fault)) => fail(&mut live, &emit, fault),
                     }
-                    Some(PeerEvent::Failed(fault)) => fail(&mut live, &emit, fault),
+                }).await;
+                if let Err(fault) = handled {
+                    fail(&mut live, &emit, fault);
                 }
             }
             Some(event) = input_rx.recv() => on_input_event(event, &mut live, &emit),
             command = commands.recv() => match command {
                 None => break,
-                Some(command) => on_command(command, &mut live, &emit).await,
+                Some(command) => {
+                    let handled = budget.step("command", on_command(command, &mut live, &emit)).await;
+                    if let Err(fault) = handled {
+                        fail(&mut live, &emit, fault);
+                    }
+                }
             },
+            () = &mut setup_deadline, if !live.connected && !live.failed => {
+                fail(&mut live, &emit, PeerFault::new(PeerFailure::IceFailed, "setup timed out"));
+            }
         }
     }
     if let Some(writer) = writer {
         writer.abort();
     }
-    let _ = live.pc.close().await;
+    budget.close();
+    peer::close(&live.pc).await;
 }
 
 fn build_track() -> Result<Arc<TrackLocalStaticSample>, PeerFault> {
@@ -502,9 +559,19 @@ async fn attach(
 }
 
 /// PLI/FIR from the phone become keyframe requests.
-fn spawn_feedback_reader(local_track: Arc<TrackLocalStaticSample>, key_wanted: Arc<Notify>) {
+fn spawn_feedback_reader(
+    local_track: Arc<TrackLocalStaticSample>,
+    key_wanted: Arc<Notify>,
+    closed: tokio_util::sync::CancellationToken,
+) {
     mixdog_rt::spawn("webrtc-liveview-rtcp", TaskClass::Work, async move {
-        while let Some(event) = local_track.poll().await {
+        loop {
+            let event = tokio::select! {
+                biased;
+                () = closed.cancelled() => break,
+                event = local_track.poll() => event,
+            };
+            let Some(event) = event else { break };
             if let TrackLocalEvent::OnRtcpPacket(_) = event {
                 key_wanted.notify_one();
             }
@@ -614,8 +681,9 @@ async fn on_command(command: Command, live: &mut Live, emit: &impl Fn(LiveViewEv
         }
         Command::Candidate(candidate) => peer::add_candidate(live.pc.as_ref(), candidate).await,
         Command::ChannelSend(text) => {
-            if live.input_open && !live.failed {
-                let _ = live.input.send_text(&text).await;
+            // Queued for the channel's writer task; a full queue means the phone is not reading.
+            if live.input_open && !live.failed && live.input.push(Frame::Text(text)).is_err() {
+                fail(live, emit, PeerFault::new(PeerFailure::ChannelFailed, "input send queue overflow"));
             }
         }
         Command::Stats(reply) => {
@@ -643,4 +711,20 @@ async fn sender_stats(live: &Live) -> Option<SenderStats> {
         bytes_sent: outbound.map_or(0, |o| o.sent_rtp_stream_stats.bytes_sent),
         candidate_pair: peer::selected_pair(live.pc.as_ref()).await,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn stats_from_a_connection_that_never_answers_end_at_the_step_budget() {
+        // The loop that would answer is parked: the queued command is never taken.
+        let (commands, parked) = mpsc::unbounded_channel();
+        let started = tokio::time::Instant::now();
+        let stats = request_stats(&PeerBudget::default(), &commands).await;
+        assert!(stats.is_none());
+        assert_eq!(started.elapsed(), peer::STEP_BUDGET);
+        drop(parked);
+    }
 }

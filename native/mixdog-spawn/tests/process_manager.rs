@@ -426,13 +426,9 @@ async fn natural_exit_behind_paused_output_is_published_and_frees_the_slot() {
     }
 }
 
-/// The root exits but a grandchild keeps the output pipe open: the exit waits for the pipe, and
-/// a kill still takes the grandchild down so the exit completes.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn kill_after_the_root_exited_still_takes_a_descendant_holding_the_pipe() {
-    let m = manager();
-    let h = handle("orphan-pipe");
-    let script = if cfg!(windows) {
+/// A root that prints its grandchild's pid and exits, leaving the grandchild holding the pipe.
+fn orphan_pipe_script() -> CommandSpec {
+    if cfg!(windows) {
         CommandSpec::Shell {
             script: "$i = New-Object System.Diagnostics.ProcessStartInfo; $i.FileName = 'ping'; \
                      $i.Arguments = '-n 60 127.0.0.1'; $i.UseShellExecute = $false; \
@@ -445,8 +441,25 @@ async fn kill_after_the_root_exited_still_takes_a_descendant_holding_the_pipe() 
             script: "sleep 60 & echo CHILD=$!".to_owned(),
             shell: None,
         }
-    };
-    m.spawn(request(&h, script)).await.unwrap();
+    }
+}
+
+fn kill_pid(pid: u32) {
+    let _ = std::process::Command::new(if cfg!(windows) { "taskkill" } else { "kill" })
+        .args(if cfg!(windows) { vec!["/F".to_owned(), "/PID".to_owned(), pid.to_string()] } else { vec![pid.to_string()] })
+        .output();
+}
+
+/// The root exits but a grandchild keeps the output pipe open: within the drain bound the exit
+/// waits for the pipe, and a kill still takes the grandchild down so the exit completes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kill_after_the_root_exited_still_takes_a_descendant_holding_the_pipe() {
+    let m = manager_with(ProcessConfig {
+        output_drain: Duration::from_secs(60),
+        ..ProcessConfig::default()
+    });
+    let h = handle("orphan-pipe");
+    m.spawn(request(&h, orphan_pipe_script())).await.unwrap();
     let grandchild = child_pid(&m, &h).await;
     // Long enough for the root to be gone; the pipe is still held.
     tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -467,6 +480,27 @@ async fn kill_after_the_root_exited_still_takes_a_descendant_holding_the_pipe() 
     }
     wait_exit(&m, &h).await;
     assert_eq!(m.info(&h).unwrap().exit.unwrap().killed, Some(KillReason::Requested));
+    assert_eq!(m.kill(&h), Err(ProcessError::AlreadyExited));
+}
+
+/// F9: the grandchild keeps the pipe for the whole test (it sleeps 60 s and is only killed at
+/// the end), yet the exit is published once the drain bound has passed, carrying the output
+/// that arrived, and the exit is the last event.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_exit_is_published_within_the_drain_bound_while_a_descendant_holds_the_pipe() {
+    let m = manager_with(ProcessConfig {
+        output_drain: Duration::from_millis(50),
+        ..ProcessConfig::default()
+    });
+    let h = handle("drain-bound");
+    m.spawn(request(&h, orphan_pipe_script())).await.unwrap();
+    let grandchild = child_pid(&m, &h).await;
+    let (bytes, exit) = collect(&m, &h).await;
+    let held = pid_alive(grandchild);
+    kill_pid(grandchild);
+    assert!(held, "the exit was published while the grandchild still held the pipe");
+    assert!(text(&bytes).contains("CHILD="), "output that arrived is kept: {:?}", text(&bytes));
+    assert_eq!(exit.killed, None, "the drain does not kill");
     assert_eq!(m.kill(&h), Err(ProcessError::AlreadyExited));
 }
 

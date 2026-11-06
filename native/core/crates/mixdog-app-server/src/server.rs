@@ -260,6 +260,19 @@ fn method_index() -> &'static HashMap<&'static str, &'static MethodSpec> {
     INDEX.get_or_init(|| CLIENT_METHODS.iter().map(|spec| (spec.method, spec)).collect())
 }
 
+/// Whether `message` is for the control path: a C0 request, or a client's answer to a server or
+/// host request. A reader that pauses on [`Inbound::Pause`] keeps reading and hands these on
+/// first, so a `turn/interrupt` or an approval decision never waits behind a paused data frame.
+pub fn is_control(message: &JsonRpcMessage) -> bool {
+    match message {
+        JsonRpcMessage::Request(request) => method_index()
+            .get(request.method.as_str())
+            .is_some_and(|spec| spec.class == RequestClass::C0),
+        JsonRpcMessage::Response(_) | JsonRpcMessage::Error(_) => true,
+        JsonRpcMessage::Notification(_) => false,
+    }
+}
+
 fn namespace(method: &'static str) -> &'static str {
     method.split_once('/').map_or(method, |(namespace, _)| namespace)
 }

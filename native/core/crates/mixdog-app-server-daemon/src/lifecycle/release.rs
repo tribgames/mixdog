@@ -20,6 +20,9 @@ pub struct LastExit {
     pub instance_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stalled_ms: Option<u64>,
+    /// The release step that was still running at its budget and was abandoned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stuck_step: Option<String>,
 }
 
 /// Atomic replace, file fsync, then (where the platform allows it) directory fsync.
@@ -49,6 +52,7 @@ mod tests {
             reason: reason.into(),
             instance_id: "i".into(),
             stalled_ms: stalled,
+            stuck_step: None,
         };
         write_last_exit(dir.path(), &record("update", None)).unwrap();
         write_last_exit(dir.path(), &record("userTerminated", Some(7))).unwrap();
