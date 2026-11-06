@@ -14,8 +14,8 @@ use mixdog_store::schema::record::Header;
 use serde_json::{json, Value};
 
 use super::assemble::RunSettings;
-use super::hop_host::HopWiring;
-use crate::tool_modules::value::auto_effort_base;
+use mixdog_core_run::run_host::hop_host::HopWiring;
+use mixdog_core_config::tool_modules::value::auto_effort_base;
 
 /// `HEARTBEAT_TURN_LIMITS` (`shared/routine-trigger.mjs:82`).
 const HEARTBEAT_MAX_TOOL_CALLS: u64 = 8;

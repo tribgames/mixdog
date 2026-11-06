@@ -28,7 +28,11 @@ use mixdog_protocol::ProviderId;
 use serde_json::{json, Value};
 
 use super::process::{remote_client, HostInfo, ProcessServices};
-use super::route_wiring::{claude_generation, ADAPTIVE_FLOOR, MANUAL_REJECTED_FLOOR, MAX_FLOOR, XHIGH_FLOOR};
+use mixdog_core_run::run_host::route_wiring::claude_generation;
+use mixdog_core_run::run_host::route_wiring::ADAPTIVE_FLOOR;
+use mixdog_core_run::run_host::route_wiring::MANUAL_REJECTED_FLOOR;
+use mixdog_core_run::run_host::route_wiring::MAX_FLOOR;
+use mixdog_core_run::run_host::route_wiring::XHIGH_FLOOR;
 
 /// `CODEX_CLIENT_VERSION_FLOOR`: the version when no live answer is known.
 pub const CODEX_CLIENT_VERSION_FLOOR: &str = "0.166.0";

@@ -8,6 +8,7 @@
 //! request is never cached). `code_graph` is cached only with the dependency roots the tool
 //! records while it runs, since without them an entry could not be invalidated precisely.
 
+use mixdog_core_run::run_host::guards::{is_git_mutation, is_shell_tool, strip_mcp};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,12 +33,7 @@ const TEXT_CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
 const SCOPED_TTL_MS: i64 = 30_000;
 /// The bounded validator certifies a whole file only within this budget.
 const READ_PREFIX_HASH_BYTES: u64 = 65_536;
-const MCP_TOOL_PREFIX: &str = "mcp__plugin_mixdog_mixdog__";
 const CURSOR_NATIVE_PREFIX: &str = "cursor_native_";
-
-fn strip_mcp(name: &str) -> &str {
-    name.strip_prefix(MCP_TOOL_PREFIX).unwrap_or(name)
-}
 
 // ---- paths ----
 
@@ -522,46 +518,6 @@ fn dependency_roots(tool: &str, args: &JsonValue, cwd: &str) -> Vec<String> {
 fn path_touches_root(abs: &str, root: &str) -> bool {
     let dir = |p: &str| if p.ends_with('/') { p.to_owned() } else { format!("{p}/") };
     abs == root || abs.starts_with(&dir(root)) || root.starts_with(&dir(abs))
-}
-
-// ---- mutation classes ----
-
-fn is_shell_tool(name: &str) -> bool {
-    matches!(strip_mcp(name), "shell" | "bash_session")
-}
-
-const GITHUB_READ_ACTIONS: [&str; 15] = [
-    "repo.list",
-    "repo.view",
-    "issue.list",
-    "issue.view",
-    "issue.comments",
-    "pr.list",
-    "pr.view",
-    "pr.comments",
-    "workflow.list",
-    "run.list",
-    "run.view",
-    "run.logs",
-    "release.list",
-    "release.view",
-    "notification.list",
-];
-
-/// `_isGitMutationTool`: an unknown github action counts as a mutation.
-fn is_git_mutation(name: &str, args: &JsonValue) -> bool {
-    match strip_mcp(name).to_lowercase().as_str() {
-        "git" => mixdog_tools::git::git_call_mutates(args),
-        "github" => !args.get("action").and_then(|a| a.as_str()).is_some_and(|a| GITHUB_READ_ACTIONS.contains(&a)),
-        _ => false,
-    }
-}
-
-/// `_isMutationTool(name, args) || _isShellTool(name)`: the work a todo list tracks — file
-/// edits, command execution and mutating git/github requests.
-pub(crate) fn is_mutating_call(name: &str, args: &JsonValue) -> bool {
-    let lowered = strip_mcp(name).to_lowercase();
-    lowered == "apply_patch" || lowered == "edit" || is_git_mutation(name, args) || is_shell_tool(name)
 }
 
 /// Touched paths of a patch (`*** Update/Add/Delete File:` lines and unified-diff headers), as

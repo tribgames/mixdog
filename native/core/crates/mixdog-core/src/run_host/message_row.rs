@@ -14,9 +14,10 @@
 //! `assistantBlocks`, `uiDiff`, and from `meta`: `source` (a string `meta` is a bare source),
 //! `attempt`, `submissionIds`, `transcript.messageId`, `effortConfiguration`.
 
+use mixdog_core_run::run_host::route_wiring::effort_value;
 use std::sync::Arc;
 
-use mixdog_agent::effort::{EffortMode, EffortSnapshot};
+use mixdog_agent::effort::EffortSnapshot;
 use mixdog_agent::message::{AgentMessage, Source, ToolKind};
 use mixdog_core_api::domain::provider::{
     BinarySource, CacheTier, Content, ContentPart, ImageSource, ProviderReplay, Role, StopReason, TextAttachment, ToolCall,
@@ -250,18 +251,6 @@ fn tier_name(tier: CacheTier) -> &'static str {
         CacheTier::Tier3 => "tier3",
         CacheTier::Env => "env",
     }
-}
-
-fn mode_name(mode: EffortMode) -> &'static str {
-    match mode {
-        EffortMode::Responses => "responses",
-        EffortMode::Anthropic => "anthropic",
-        EffortMode::Custom => "custom",
-    }
-}
-
-pub(crate) fn effort_value(e: &EffortSnapshot) -> Value {
-    json!({ "version": 1, "provider": e.provider, "model": e.model, "mode": mode_name(e.mode), "initialEffort": e.initial_effort, "effort": e.effort })
 }
 
 fn calls_of(row: &Value) -> Result<Vec<ToolCall>, String> {

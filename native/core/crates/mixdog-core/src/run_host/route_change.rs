@@ -15,19 +15,10 @@ use mixdog_agent::env::Clock;
 use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{json, Map, Value};
 
-use crate::ports::route::Route;
-use crate::session::route_session::RouteChange;
-
-/// `resolveSessionContextMeta(provider, model, seed)`: the five window fields of a model, as the
-/// header stores them (`null` where the model states none).
-#[derive(Clone, PartialEq, Debug)]
-pub struct ContextMeta {
-    pub context_window: Value,
-    pub raw_context_window: Value,
-    pub effective_context_window_percent: Value,
-    pub auto_compact_token_limit: Value,
-    pub compact_boundary_tokens: Value,
-}
+use mixdog_core_ports::ports::route::Route;
+use mixdog_core_run::run_host::session_context_meta::ContextMeta;
+use mixdog_core_session::session::route_session::route_changed;
+use mixdog_core_session::session::route_session::RouteChange;
 
 /// What a route change reads from the provider registry and the cache policy.
 pub trait RouteFacts: Send + Sync {
@@ -176,21 +167,14 @@ impl RunHostRouteChange {
         }
     }}
 
-/// A cleared conversation's environment reset (Node's resetSessionBp3Environment), as the header change
-/// the clear writes in its own patch.
-pub fn environment_reset(header: &Header) -> HeaderChange {
-    let blocks = crate::prompt::blocks::SystemBlocks::from_header(header);
-    crate::prompt::session::reset_environment(header, &blocks).change
-}
-
-/// Whether the route names another provider or model than `previous` (`routeChanged` of
-/// `updateSessionRoute`). The adapter passes it to `route_prompt_refresh`.
-pub fn route_changed(route: &Route, previous: &Route) -> bool {
-    let changed_field = |key: &str| truthy(route.get(key)) && route.get(key) != previous.get(key);
-    changed_field("provider") || changed_field("model")
-}
-
 impl RouteChange for RunHostRouteChange {
+    /// A cleared conversation's environment reset (Node's resetSessionBp3Environment), as the header
+    /// change the clear writes in its own patch.
+    fn environment_reset(&self, header: &Header) -> HeaderChange {
+        let blocks = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header);
+        crate::run_host::prompt_session::reset_environment(header, &blocks).change
+    }
+
     fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool) -> HeaderChange {
         let route_changed = route_changed(route, previous);
         let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
@@ -202,8 +186,8 @@ impl RouteChange for RunHostRouteChange {
             }
         }
         // A staged re-root and the # Session block, rewritten in the same patch (WP-PROMPT).
-        let blocks = crate::prompt::blocks::SystemBlocks::from_header(header);
-        merge(&mut change, crate::prompt::session::route_prompt(header, &blocks, route_changed).change);
+        let blocks = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header);
+        merge(&mut change, crate::run_host::prompt_session::route_prompt(header, &blocks, route_changed).change);
         change
     }
 }
@@ -286,6 +270,28 @@ mod tests {
             assert_eq!(want["updatedAtIsNumber"].as_bool().unwrap(), result.set.get("lastContextTokensUpdatedAt").is_some_and(Value::is_number), "{name}");
         }
         let _ = Role::User;
+    }
+
+    /// The clear of a conversation takes its environment reset from the route change the host
+    /// wires: it is the prompt module's reset, as one header change.
+    #[test]
+    fn the_environment_reset_is_the_prompt_modules_reset_as_one_header_change() {
+        let header: Header = json!({
+            "providerState": { "x": 1 }, "bp3EnvSplit": true,
+            "promptEnv": "# Session\nold\n\ntail", "bp3EnvironmentContext": "tail", "sessionStartMetaInjected": true,
+        })
+        .as_object()
+        .unwrap()
+        .clone()
+        .into_iter()
+        .collect();
+        let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Fixed));
+        let reset = change.environment_reset(&header);
+        let expected = crate::run_host::prompt_session::reset_environment(&header, &mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(&header)).change;
+        assert_eq!(reset.set, expected.set);
+        assert_eq!(reset.unset, expected.unset);
+        assert_eq!(reset.set.get("promptEnv"), Some(&json!("tail")));
+        assert_eq!(reset.set.get("sessionStartMetaInjected"), Some(&json!(false)));
     }
 
     #[test]

@@ -1,0 +1,52 @@
+[package]
+name = "mixdog-core-domains"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
+futures = { workspace = true, features = ["alloc", "async-await"] }
+mixdog-agent = { workspace = true }
+mixdog-ai = { workspace = true }
+mixdog-app-protocol = { workspace = true }
+mixdog-core-api = { workspace = true }
+mixdog-exthost = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-ledger = { workspace = true }
+mixdog-protocol = { workspace = true }
+mixdog-remote = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-store = { workspace = true }
+mixdog-tools = { workspace = true }
+mixdog-workspace = { workspace = true }
+pulldown-cmark = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
+tokio-util = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v7"] }
+mixdog-core-base = { workspace = true }
+mixdog-core-config = { workspace = true }
+mixdog-core-ports = { workspace = true }
+
+[dev-dependencies]
+bytes = { workspace = true }
+tempfile = { workspace = true }
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+mixdog-core-base = { workspace = true, features = ["test-support"] }

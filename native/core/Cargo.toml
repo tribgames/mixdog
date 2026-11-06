@@ -30,6 +30,17 @@ members = [
     "crates/mixdog-scm",
     "crates/mixdog-remote",
     "crates/mixdog-exthost",
+    "crates/mixdog-core-base",
+    "crates/mixdog-core-review",
+    "crates/mixdog-core-config",
+    "crates/mixdog-core-ports",
+    "crates/mixdog-core-rooms",
+    "crates/mixdog-core-goal",
+    "crates/mixdog-core-domains",
+    "crates/mixdog-core-run",
+    "crates/mixdog-core-agents",
+    "crates/mixdog-core-session",
+    "crates/mixdog-core-prompt",
     "crates/mixdog-core",
     "crates/mixdog-app-server",
     "crates/mixdog-app-server-transport",
@@ -90,6 +101,17 @@ mixdog-workspace = { path = "crates/mixdog-workspace" }
 mixdog-scm = { path = "crates/mixdog-scm" }
 mixdog-remote = { path = "crates/mixdog-remote" }
 mixdog-exthost = { path = "crates/mixdog-exthost" }
+mixdog-core-base = { path = "crates/mixdog-core-base" }
+mixdog-core-review = { path = "crates/mixdog-core-review" }
+mixdog-core-config = { path = "crates/mixdog-core-config" }
+mixdog-core-ports = { path = "crates/mixdog-core-ports" }
+mixdog-core-rooms = { path = "crates/mixdog-core-rooms" }
+mixdog-core-goal = { path = "crates/mixdog-core-goal" }
+mixdog-core-domains = { path = "crates/mixdog-core-domains" }
+mixdog-core-run = { path = "crates/mixdog-core-run" }
+mixdog-core-agents = { path = "crates/mixdog-core-agents" }
+mixdog-core-session = { path = "crates/mixdog-core-session" }
+mixdog-core-prompt = { path = "crates/mixdog-core-prompt" }
 mixdog-core = { path = "crates/mixdog-core" }
 mixdog-app-server = { path = "crates/mixdog-app-server" }
 mixdog-app-server-transport = { path = "crates/mixdog-app-server-transport" }

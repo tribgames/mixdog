@@ -129,7 +129,7 @@ mod tests {
 
     use super::*;
     use crate::run_host::summary_routes::{MaintainerRoute, SessionRoute};
-    use crate::session::StoredRows;
+    use mixdog_core_session::session::StoredRows;
 
     struct TextOnly;
     impl MediaMeter for TextOnly {

@@ -14,8 +14,11 @@ use mixdog_js::{js_trim, locale_compare_en_base, JsRegex};
 use serde_json::Value;
 
 use super::rules::{read_optional, split_lines, strip_frontmatter};
-use crate::config::{normalize_profile, PROFILE_EXPERIENCE_LEVELS, PROFILE_LANGUAGES};
-use crate::domains::instructions::{decode_file, style_slug};
+use mixdog_core_config::config::normalize_profile;
+use mixdog_core_config::config::PROFILE_EXPERIENCE_LEVELS;
+use mixdog_core_config::config::PROFILE_LANGUAGES;
+use mixdog_core_domains::domains::instructions::decode_file;
+use mixdog_core_config::config::output_style::style_slug;
 
 const DEFAULT_OUTPUT_STYLE_ID: &str = "simple";
 const OUTPUT_STYLE_ORDER: [&str; 4] = ["detailed", "simple", "minimal", "extreme-minimal"];

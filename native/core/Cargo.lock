@@ -3908,8 +3908,9 @@ dependencies = [
  "mixdog-app-server",
  "mixdog-app-server-client",
  "mixdog-app-server-transport",
- "mixdog-core",
  "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-core-domains",
  "mixdog-exthost",
  "mixdog-mcp",
  "mixdog-protocol",
@@ -3980,50 +3981,71 @@ dependencies = [
 name = "mixdog-core"
 version = "1.4.5"
 dependencies = [
- "arc-swap",
  "async-trait",
  "base64 0.22.1",
- "bytes",
  "chrono",
- "flate2",
  "futures",
- "indexmap",
- "libc",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
+ "mixdog-core-agents",
  "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-core-config",
+ "mixdog-core-domains",
+ "mixdog-core-goal",
+ "mixdog-core-ports",
+ "mixdog-core-prompt",
+ "mixdog-core-rooms",
+ "mixdog-core-run",
+ "mixdog-core-session",
  "mixdog-exthost",
  "mixdog-js",
  "mixdog-ledger",
  "mixdog-mcp",
- "mixdog-migrate",
  "mixdog-protocol",
- "mixdog-remote",
  "mixdog-rt",
- "mixdog-scm",
  "mixdog-services",
  "mixdog-spawn",
  "mixdog-statefile",
  "mixdog-store",
  "mixdog-tools",
- "mixdog-workspace",
- "pulldown-cmark",
  "rand 0.9.5",
- "regex",
- "reqwest",
- "serde",
  "serde_json",
- "sha1",
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "tracing",
- "unicode-normalization",
- "unicode-segmentation",
- "url",
+ "uuid",
+]
+
+[[package]]
+name = "mixdog-core-agents"
+version = "1.4.5"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "futures",
+ "mixdog-ai",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-core-config",
+ "mixdog-core-ports",
+ "mixdog-core-rooms",
+ "mixdog-js",
+ "mixdog-mcp",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-statefile",
+ "mixdog-tools",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
  "uuid",
 ]
 
@@ -4041,6 +4063,278 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "mixdog-core-base"
+version = "1.4.5"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "mixdog-ai",
+ "mixdog-app-protocol",
+ "mixdog-core-api",
+ "mixdog-js",
+ "mixdog-ledger",
+ "mixdog-protocol",
+ "mixdog-remote",
+ "mixdog-rt",
+ "mixdog-statefile",
+ "mixdog-store",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mixdog-core-config"
+version = "1.4.5"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "chrono",
+ "mixdog-agent",
+ "mixdog-ai",
+ "mixdog-app-protocol",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-js",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-scm",
+ "mixdog-services",
+ "mixdog-statefile",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "unicode-normalization",
+ "url",
+]
+
+[[package]]
+name = "mixdog-core-domains"
+version = "1.4.5"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "futures",
+ "mixdog-agent",
+ "mixdog-ai",
+ "mixdog-app-protocol",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-core-config",
+ "mixdog-core-ports",
+ "mixdog-exthost",
+ "mixdog-js",
+ "mixdog-ledger",
+ "mixdog-protocol",
+ "mixdog-remote",
+ "mixdog-rt",
+ "mixdog-store",
+ "mixdog-tools",
+ "mixdog-workspace",
+ "pulldown-cmark",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "mixdog-core-goal"
+version = "1.4.5"
+dependencies = [
+ "async-trait",
+ "futures",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-js",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-statefile",
+ "mixdog-store",
+ "mixdog-tools",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "unicode-segmentation",
+ "uuid",
+]
+
+[[package]]
+name = "mixdog-core-ports"
+version = "1.4.5"
+dependencies = [
+ "async-trait",
+ "mixdog-agent",
+ "mixdog-ai",
+ "mixdog-app-protocol",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-core-config",
+ "mixdog-js",
+ "mixdog-protocol",
+ "mixdog-services",
+ "mixdog-store",
+ "mixdog-tools",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "mixdog-core-prompt"
+version = "1.4.5"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "mixdog-agent",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-core-config",
+ "mixdog-js",
+ "mixdog-rt",
+ "mixdog-store",
+ "mixdog-tools",
+ "regex",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "mixdog-core-review"
+version = "1.4.5"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "flate2",
+ "futures",
+ "indexmap",
+ "mixdog-agent",
+ "mixdog-core-api",
+ "mixdog-js",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-scm",
+ "mixdog-spawn",
+ "mixdog-statefile",
+ "mixdog-tools",
+ "regex",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "mixdog-core-rooms"
+version = "1.4.5"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "mixdog-agent",
+ "mixdog-app-protocol",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-js",
+ "mixdog-rt",
+ "mixdog-services",
+ "mixdog-store",
+ "mixdog-tools",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mixdog-core-run"
+version = "1.4.5"
+dependencies = [
+ "async-trait",
+ "mixdog-agent",
+ "mixdog-ai",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-core-ports",
+ "mixdog-js",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-store",
+ "mixdog-tools",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "mixdog-core-session"
+version = "1.4.5"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "bytes",
+ "futures",
+ "mixdog-agent",
+ "mixdog-ai",
+ "mixdog-app-protocol",
+ "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-core-config",
+ "mixdog-core-goal",
+ "mixdog-core-ports",
+ "mixdog-core-review",
+ "mixdog-core-run",
+ "mixdog-js",
+ "mixdog-mcp",
+ "mixdog-migrate",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-scm",
+ "mixdog-services",
+ "mixdog-spawn",
+ "mixdog-statefile",
+ "mixdog-store",
+ "mixdog-tools",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4180,8 +4474,8 @@ dependencies = [
  "indexmap",
  "mixdog-agent",
  "mixdog-ai",
- "mixdog-core",
  "mixdog-core-api",
+ "mixdog-core-prompt",
  "mixdog-js",
  "mixdog-ledger",
  "mixdog-mcp",

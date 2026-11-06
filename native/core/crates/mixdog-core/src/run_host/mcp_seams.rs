@@ -39,9 +39,9 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use super::session_tools::SkillsListed;
-use crate::config::Config;
-use crate::ports::gate::GateEnv;
-use crate::ports::gate::GateRun;
+use mixdog_core_config::config::Config;
+use mixdog_core_ports::ports::gate::GateEnv;
+use mixdog_core_ports::ports::gate::GateRun;
 use super::hooks::BatchDecision;
 use super::hooks::PostToolDispatch;
 use super::hooks::PostToolEvent;

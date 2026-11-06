@@ -41,8 +41,8 @@ use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
-use mixdog_core::ports::gate::GateEnv;
-use mixdog_core::ports::gate::GateRun;
+use mixdog_core_ports::ports::gate::GateEnv;
+use mixdog_core_ports::ports::gate::GateRun;
 use mixdog_core::run_host::mcp_seams::AllowAllActions;
 use mixdog_core::run_host::mcp_seams::CatalogSkillsListed;
 use mixdog_core::run_host::mcp_seams::ConfigAllowAll;
@@ -358,8 +358,8 @@ async fn the_gate_env_binds_a_connector_call_to_the_hubs_account_choice() {
 /// "Allow all actions" is on only when the stored option is `true` (`developerOptionEnabledStrict`).
 #[tokio::test(flavor = "multi_thread")]
 async fn allow_all_actions_is_on_only_for_a_stored_true() {
-    use mixdog_core::config::Config;
-    use mixdog_core::config::ConfigLanes;
+    use mixdog_core_config::config::Config;
+    use mixdog_core_config::config::ConfigLanes;
     use mixdog_core_api::mock::MockStatePublisher;
 
     let tokens = mixdog_rt::testing::tokens();

@@ -24,8 +24,8 @@ use mixdog_store::schema::record::Header;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use super::route_wiring::LocalEntry;
-use crate::config::Config;
+use mixdog_core_run::run_host::route_wiring::LocalEntry;
+use mixdog_core_config::config::Config;
 
 /// The latest header of an open session, by session id (`opts.session`).
 pub trait SessionHeaders: Send + Sync {

@@ -24,7 +24,7 @@ use serde_json::{json, Map, Value};
 use super::builder_env::CatalogCaps;
 use super::process::{EffortRejections, ProcessServices};
 use super::step_judge::LadderSources;
-use crate::config::Config;
+use mixdog_core_config::config::Config;
 
 /// `config.providers[provider]`.
 pub(super) fn provider_entry(config: &Config, provider: &str) -> Option<Value> {

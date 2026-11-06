@@ -28,16 +28,19 @@ use mixdog_protocol::message_class::user_text::Blobs;
 use mixdog_services::effort_judge::judge::{EffortJudge, EffortJudgeModel};
 use mixdog_agent::step_effort::StepEffortJudge;
 use mixdog_store::schema::record::Header;
-use mixdog_tools::policy::{ConnectorPermissions, SessionGrants, ToolPolicy, ToolResolver};
+use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
 use serde_json::{json, Value};
 
-use super::artifact::ToolResultArtifacts;
+use mixdog_core_run::run_host::artifact::ToolResultArtifacts;
 use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
 use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
 use super::result_reuse::ToolResultReuse;
-use super::route_fallback::{HopHost, RouteHop};
-use crate::ports::gate::{GateEnv, LiveHeader, SessionGate};
+use mixdog_core_run::run_host::route_fallback::HopHost;
+use mixdog_core_run::run_host::route_fallback::RouteHop;
+use mixdog_core_ports::ports::gate::GateEnv;
+use mixdog_core_ports::ports::gate::LiveHeader;
+use mixdog_core_ports::ports::gate::SessionGate;
 
 /// The tools of a session's surface.
 pub struct SessionTools {
@@ -76,7 +79,7 @@ pub struct CompactorInput {
     /// `RunSettings.compact` (`auto` is not read; see `FreshCompactor::for_session`).
     pub settings: mixdog_agent::boundary::CompactSettings,
     /// The run's stored bodies (`FreshParts.rows`).
-    pub rows: Arc<crate::session::StoredRows>,
+    pub rows: Arc<mixdog_core_session::session::StoredRows>,
     /// Where a dropped execution is archived (`FreshParts.archive`).
     pub archive: Arc<dyn mixdog_agent::offload::ArtifactStore>,
     pub blobs: Arc<dyn Blobs + Send + Sync>,
@@ -146,7 +149,7 @@ pub struct HostServices {
     pub reaction_targets: Arc<ReactionTargets>,
     /// The session directory: each session's live header, grants and thread window. Boot builds it with
     /// `Arc::new_cyclic` since the directory owns the run factory that owns these services.
-    pub directory: std::sync::Weak<crate::session::SessionDirectory>,
+    pub directory: std::sync::Weak<mixdog_core_session::session::SessionDirectory>,
     /// The shared effort-judge model, present when the install has the ONNX Runtime library; each run's judge is
     /// built over it with the run's ladder.
     pub effort_judge: Option<Arc<EffortJudgeModel>>,
@@ -156,7 +159,7 @@ pub struct HostServices {
     /// Runs the git and shell-tools probes of a composition (one per daemon process).
     pub probes: Arc<super::prewarm::StartupProbes>,
     /// The process-wide probe cache (`prompt::probes`).
-    pub observed: Arc<crate::prompt::probes::StartupObservations>,
+    pub observed: Arc<mixdog_core_prompt::prompt::probes::StartupObservations>,
 }
 
 pub struct HostRunParts {
@@ -308,7 +311,7 @@ impl RunParts for HostRunParts {
         let session_id = thread.as_str();
         let read_body = config.read_body_required;
         // The reaction facts are read off the stored bodies the run holds, as Node reads `meta`.
-        let rows = Arc::new(crate::session::StoredRows::new());
+        let rows = Arc::new(mixdog_core_session::session::StoredRows::new());
         let artifacts: Arc<dyn mixdog_agent::offload::ArtifactStore> = Arc::new(ToolResultArtifacts::new(s.io, &seams.data_dir(), session_id));
         // No settings, no compaction policy: Node has no compactor for the session.
         let compactor = compact_settings.and_then(|settings| {

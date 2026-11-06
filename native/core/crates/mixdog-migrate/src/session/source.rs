@@ -32,7 +32,7 @@ use serde_json::value::RawValue;
 use sha1::Digest as _;
 use sha1::Sha1;
 
-use mixdog_core::prompt::migrate::migrate_system_messages;
+use mixdog_core_prompt::prompt::migrate::migrate_system_messages;
 
 use super::ids::message_iids;
 use super::model::Row;

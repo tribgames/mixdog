@@ -1,0 +1,33 @@
+[package]
+name = "mixdog-core-run"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait = { workspace = true }
+mixdog-agent = { workspace = true }
+mixdog-ai = { workspace = true }
+mixdog-core-api = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-protocol = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-store = { workspace = true }
+mixdog-tools = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
+mixdog-core-base = { workspace = true }
+mixdog-core-ports = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

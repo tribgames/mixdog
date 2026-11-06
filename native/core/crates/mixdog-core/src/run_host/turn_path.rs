@@ -29,23 +29,27 @@ use super::boot::{build_directory, HostParts};
 use super::compaction_world::{CompactionServices, ProcessCompactionWorld};
 use super::compactors::SessionCompactors;
 use super::mcp_seams::{AllowAllActions, HostGateEnv};
-use super::unattended::{RunStamps, UnattendedRunRegistry};
-use crate::agents::{AgentDefinitions, ContactIds};
+use mixdog_core_ports::ports::run_stamps::RunStamps;
+use super::unattended::UnattendedRunRegistry;
+use mixdog_core_agents::agents::AgentDefinitions;
+use mixdog_core_agents::agents::ContactIds;
 use mixdog_mcp::McpHub;
-use super::guards::{RunningWork, UserCycles};
+use mixdog_core_run::run_host::guards::RunningWork;
+use mixdog_core_run::run_host::guards::UserCycles;
 use super::host_seams::{ConfigSeams, DirectoryParts, SeamParts};
-use super::hop_host::HopFactory;
+use mixdog_core_run::run_host::hop_host::HopFactory;
 use super::mcp_seams::BusPostToolDispatch;
 use super::prewarm::StartupProbes;
 use super::reactions::ReactionTargets;
 use super::settings::SettingsSources;
 use super::session_tools::{SessionMcp, SessionToolBuilder, SkillsListed};
 use super::step_judge::LadderSources;
-use crate::goal::GoalRuntime;
-use crate::ports::gate::GateEnv;
-use crate::ports::todo_view::TodoViews;
-use crate::prompt::probes::StartupObservations;
-use crate::session::{RunFactory, SessionDeps, SessionDirectory};
+use mixdog_core_goal::goal::GoalRuntime;
+use mixdog_core_run::ports::todo_view::TodoViews;
+use mixdog_core_prompt::prompt::probes::StartupObservations;
+use mixdog_core_session::session::RunFactory;
+use mixdog_core_session::session::SessionDeps;
+use mixdog_core_session::session::SessionDirectory;
 
 /// Everything the turn path is built from.
 pub struct TurnPathParts {
