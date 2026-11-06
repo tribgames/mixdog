@@ -166,6 +166,13 @@ impl SessionDirectory {
             .map_err(|_| CoreError::Internal { incident_id: "session-history-job-dropped".into() })?
     }
 
+    /// A completion handed to a live session's listeners (`notifySessionCompletion`): its card,
+    /// when the card gates admit one. `false` when the session is not live here.
+    pub(crate) async fn show_completion(&self, owner: &ThreadId, content: String, meta: Value) -> bool {
+        let Some(handle) = self.inner.loaded(owner) else { return false };
+        handle.inbox.send(Inbox::CompletionCard { content, meta }).await.is_ok()
+    }
+
     /// The ordinal of the live compaction whose replacement holds the entry `iid`.
     pub(crate) async fn compaction_entry(&self, id: &ThreadId, iid: &str) -> Result<Option<u64>, CoreError> {
         let deps = &self.inner.deps;
@@ -288,12 +295,24 @@ impl SessionDirectory {
 /// not loaded is opened for it.
 #[async_trait::async_trait]
 impl mixdog_tools::exec::TaskNotifier for SessionDirectory {
+    /// `notifySessionCompletion`: the live session shows the completion's card as it arrives
+    /// (its listeners), then it is queued for the model.
     async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
+        let meta = json!({ "execution_surface": surface, "execution_id": task_id, "status": status });
+        self.show_completion(owner, notification.clone(), meta).await;
+        self.queue_completion(owner, surface, task_id, status, notification).await;
+    }
+}
+
+impl SessionDirectory {
+    /// `enqueueCompletion`: the completion joins the owner's queue; a thread not loaded is
+    /// opened for it (and, not live, is never woken by it).
+    pub(crate) async fn queue_completion(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, text: String) {
         let msg = |live| Inbox::TaskNotification {
             surface: surface.to_owned(),
             task_id: task_id.to_owned(),
             status: status.to_owned(),
-            text: notification.clone(),
+            text: text.clone(),
             live,
         };
         if let Some(handle) = self.inner.loaded(owner) {

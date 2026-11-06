@@ -209,7 +209,7 @@ pub fn content_text(content: &Content) -> String {
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|part| match part {
-                ContentPart::Text(text) => Some(text.as_str()),
+                ContentPart::Text(text, _) => Some(text.as_str()),
                 ContentPart::Image(_) => Some("[Image]"),
                 ContentPart::File { .. } | ContentPart::Document { .. } => None,
             })

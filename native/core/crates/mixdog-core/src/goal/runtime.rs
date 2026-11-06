@@ -190,7 +190,7 @@ pub(crate) struct SlotMem {
 
 pub(crate) struct Slot {
     /// One mutation at a time, in the order asked.
-    pub chain: tokio::sync::Mutex<()>,
+    pub chain: Arc<tokio::sync::Mutex<()>>,
     pub mem: Mutex<SlotMem>,
 }
 
@@ -231,6 +231,18 @@ pub(crate) struct Tx<'a> {
     pub held: Vec<Option<Goal>>,
 }
 
+type Turn = std::pin::Pin<Box<dyn Future<Output = tokio::sync::OwnedMutexGuard<()>> + Send>>;
+
+/// Joins the session's queue now: the first poll registers the waiter, which keeps its place.
+fn reserve_turn(slot: &Slot) -> Turn {
+    let mut waiting = Box::pin(slot.chain.clone().lock_owned());
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    match waiting.as_mut().poll(&mut cx) {
+        std::task::Poll::Ready(guard) => Box::pin(std::future::ready(guard)),
+        std::task::Poll::Pending => waiting,
+    }
+}
+
 fn normalize_thresholds(values: &[f64]) -> Vec<f64> {
     let mut out: Vec<f64> = Vec::new();
     for value in values {
@@ -261,7 +273,7 @@ impl Inner {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .entry(id.to_owned())
-            .or_insert_with(|| Arc::new(Slot { chain: tokio::sync::Mutex::new(()), mem: Mutex::default() }))
+            .or_insert_with(|| Arc::new(Slot { chain: Arc::new(tokio::sync::Mutex::new(())), mem: Mutex::default() }))
             .clone()
     }
 
@@ -301,8 +313,19 @@ impl Inner {
         finally: impl FnOnce(&Arc<Inner>) + Send + 'static,
     ) {
         let inner = self.clone();
+        // Node's `withMutation` takes its place in the chain when called, not when the task
+        // first runs, so a mutation asked before a later one runs before it.
+        let reserved = assert_session_id(&id).map(|id| {
+            let slot = self.slot(&id);
+            let turn = reserve_turn(&slot);
+            (id, slot, turn)
+        });
         self.spawn_task(async move {
-            if let Err(error) = inner.with_mutation(&id, op).await {
+            let result = match reserved {
+                Ok((id, slot, turn)) => inner.run_mutation(&id, &slot, turn, op).await,
+                Err(error) => Err(error),
+            };
+            if let Err(error) = result {
                 inner.on_error(&error);
             }
             finally(&inner);
@@ -318,7 +341,19 @@ impl Inner {
     ) -> GoalResult<R> {
         let id = assert_session_id(id)?;
         let slot = self.slot(&id);
-        let _turn = slot.chain.lock().await;
+        let turn = reserve_turn(&slot);
+        self.run_mutation(&id, &slot, turn, op).await
+    }
+
+    async fn run_mutation<R: Send + 'static>(
+        self: &Arc<Self>,
+        id: &str,
+        slot: &Arc<Slot>,
+        turn: Turn,
+        op: impl FnOnce(&mut Tx<'_>) -> GoalResult<R> + Send + 'static,
+    ) -> GoalResult<R> {
+        let id = id.to_owned();
+        let _turn = turn.await;
         let (inner, job_slot, job_id) = (self.clone(), slot.clone(), id.clone());
         let job = move |lane: &InLane<DurabilityIo>| {
             let path = record_path(&inner.root, &job_id);
@@ -332,6 +367,10 @@ impl Inner {
             .submit(&CancellationToken::new(), job)
             .map_err(|_| GoalError::new("goal storage is busy"))?;
         let (result, held) = submitted.await.map_err(|_| GoalError::new("goal storage stopped"))?;
+        // A mutation takes the record's lock in the goals directory; the directory watch of
+        // Node's cache answers with a re-read of the file as stored, which replaces a copy the
+        // first load had charged the unobserved stretch to.
+        slot.mem().cache = None;
         for goal in held {
             self.notify(&id, goal);
         }
@@ -372,7 +411,7 @@ impl Inner {
     }
 
     /// `readStoredRecord` for an observer: the cached committed record, loaded once.
-    async fn cached(self: &Arc<Self>, slot: &Arc<Slot>, id: &str) -> GoalResult<Option<Goal>> {
+    pub(crate) async fn cached(self: &Arc<Self>, slot: &Arc<Slot>, id: &str) -> GoalResult<Option<Goal>> {
         if let Some(cached) = slot.mem().cache.clone() {
             return Ok(cached);
         }
@@ -408,7 +447,9 @@ impl Inner {
     pub async fn visible_snapshot(self: &Arc<Self>, id: &str) -> GoalResult<Option<Goal>> {
         let id = assert_session_id(id)?;
         let slot = self.slot(&id);
-        let record = self.read_view(&slot, &id).await;
+        // `limitIfExpired` reads the stored record and settles the suspend itself, so that a
+        // drop shows as a change to commit and publish.
+        let record = self.cached(&slot, &id).await;
         let (goal, expired) = self.snapshot_from(&slot, &id, record);
         if expired {
             let (inner, id) = (self.clone(), id.clone());
@@ -475,7 +516,7 @@ impl<'a> Tx<'a> {
 
     /// `storedSnapshot` inside a mutation.
     pub fn stored_snapshot(&self) -> Option<Goal> {
-        let (goal, expired) = self.inner.snapshot_from(self.slot, self.id, self.read_record());
+        let (goal, expired) = self.inner.snapshot_from(self.slot, self.id, self.read_stored());
         if expired {
             delete_stored_goal_file(&self.inner.root, self.id);
         }
@@ -576,7 +617,7 @@ impl<'a> Tx<'a> {
 
     /// `armDeadline(id)` right after a write of the record.
     fn arm_after_write(&self) {
-        let goal = self.read_record().ok().flatten();
+        let goal = self.read_stored().ok().flatten();
         self.inner.arm_deadline(self.slot, self.id, goal);
     }
 
@@ -630,7 +671,7 @@ impl GoalRuntime {
     pub async fn stored_snapshot(&self, session_id: &str) -> GoalResult<Option<Goal>> {
         let id = assert_session_id(session_id)?;
         let slot = self.inner.slot(&id);
-        let record = self.inner.read_view(&slot, &id).await;
+        let record = self.inner.cached(&slot, &id).await;
         let (goal, expired) = self.inner.snapshot_from(&slot, &id, record);
         if expired {
             let root = self.inner.root.clone();

@@ -336,6 +336,32 @@ async fn reads_share_a_domain_and_queue_behind_its_writes() {
     client.frames(3).await;
 }
 
+/// `thread/continueInModel` and `thread/quotaResume/*` act on the route and the daemon-wide quota
+/// store: the domain service that claims them answers, not the thread's actor.
+#[tokio::test]
+async fn a_thread_method_a_domain_claims_goes_to_the_domain_not_the_thread() {
+    const CLAIMED: &[&str] = &["thread/continueInModel", "thread/quotaResume/schedule", "thread/quotaResume/cancel"];
+    let rig = Rig::routed(super::domain_methods(), vec![("route", CLAIMED)]);
+    let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
+    thread.set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "thread" })))));
+    let gate = rig.gate("route");
+    gate.permits.add_permits(CLAIMED.len() + 1);
+    let client = rig.ready(1, json!({}));
+    let samples = Samples::new();
+    for (index, method) in CLAIMED.iter().enumerate() {
+        let id = index as i64 + 1;
+        let mut params = samples.params(method);
+        params["threadId"] = json!("t1");
+        client.request(id, method, params.clone());
+        let response = client.response(id).await;
+        let op = params["opId"].as_str().unwrap();
+        assert_eq!(response["result"], json!({ "done": format!("{method}:{op}") }), "{method}: {response}");
+    }
+    // A thread method nobody claims still goes to its thread.
+    client.request(10, "thread/read", json!({ "threadId": "t1" }));
+    assert_eq!(client.response(10).await["result"], json!({ "via": "thread" }));
+}
+
 #[tokio::test]
 async fn queued_requests_of_a_closed_connection_never_run() {
     let rig = Rig::gated(&["project"]);

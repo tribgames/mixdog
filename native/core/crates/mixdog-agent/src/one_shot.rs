@@ -1,5 +1,6 @@
 //! One model call outside any ask, on the loop's own attempt, retry and
-//! stream-fold path (`Run::send_provider_request`): the compaction summary.
+//! stream-fold path (`Run::send_provider_request`): the compaction summary and the room
+//! supervisor's step, each with its own [`CallShape`].
 //!
 //! The call is a request of messages with no tools, sent to one route's
 //! provider. The decider owns retries (through the host's wait), the stream is
@@ -90,6 +91,42 @@ pub(crate) fn isolated_env(host: &RunEnv) -> RunEnv {
     }
 }
 
+/// Whether a request marks the provider's prompt-cache layers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PromptCache {
+    /// The route's own policy, from the request options the call was built with.
+    #[default]
+    Route,
+    /// No layer is marked (Node `NO_PROMPT_CACHE`): a request nothing will read again.
+    Off,
+}
+
+/// The parts of a request that differ between the steps that make one-shot calls.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallShape {
+    /// The usage-ledger source (`requestKind`); `None` sends none.
+    pub request_kind: Option<String>,
+    pub effort: String,
+    /// `false` surfaces an overload at once instead of retrying it (Node `retry529: false`).
+    pub retry_529: bool,
+    pub prompt_cache: PromptCache,
+}
+
+impl CallShape {
+    /// The compaction summary (`summarySendOpts`, `forked-summary.mjs`): kind `compaction`, effort
+    /// `low`, the provider's own 529 retry and cache policy.
+    pub fn compaction() -> Self {
+        Self { request_kind: Some("compaction".to_owned()), effort: "low".to_owned(), retry_529: true, prompt_cache: PromptCache::Route }
+    }
+
+    /// The room supervisor's step (`room-supervisor-completion.mjs`): no request kind, the route's
+    /// own effort trimmed (`low` when it names none), no 529 retry and no prompt cache.
+    pub fn room_supervisor(route_effort: Option<&str>) -> Self {
+        let effort = route_effort.map(str::trim).filter(|e| !e.is_empty()).unwrap_or("low");
+        Self { request_kind: None, effort: effort.to_owned(), retry_529: false, prompt_cache: PromptCache::Off }
+    }
+}
+
 /// What one call asks for.
 #[derive(Clone, Debug)]
 pub struct OneShotCall {
@@ -97,6 +134,20 @@ pub struct OneShotCall {
     /// The output cap of this request, kept on every retry of it.
     pub max_output_tokens: u32,
     pub fast: bool,
+    pub shape: CallShape,
+}
+
+/// `model_parameters` with every cache layer unmarked (`NO_PROMPT_CACHE`); other parameters stay.
+fn without_prompt_cache(parameters: Option<serde_json::Value>) -> Option<serde_json::Value> {
+    let mut parameters = match parameters {
+        Some(serde_json::Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
+    };
+    parameters.insert(
+        "cacheStrategy".to_owned(),
+        serde_json::json!({ "tools": "none", "system": "none", "tier3": "none", "messages": "none" }),
+    );
+    Some(serde_json::Value::Object(parameters))
 }
 
 /// The folded answer.
@@ -144,19 +195,24 @@ impl OneShot {
         // An independent request, never a continuation of the source
         // conversation's effort history.
         let options = RequestOptions {
-            effort: Some("low".to_owned()),
+            effort: Some(call.shape.effort.clone()),
             effort_projection: None,
             tool_choice: None,
             hosted_tools: Vec::new(),
             shared_cache_prefix_count: None,
             provider_state: None,
             fast: call.fast,
-            request_kind: Some("compaction".to_owned()),
+            request_kind: call.shape.request_kind.clone(),
+            model_parameters: match call.shape.prompt_cache {
+                PromptCache::Route => self.options.model_parameters.clone(),
+                PromptCache::Off => without_prompt_cache(self.options.model_parameters.clone()),
+            },
             max_output_tokens_override: Some(call.max_output_tokens),
             ..self.options.clone()
         };
         let mut config = RunConfig::new(self.tool_env.thread_id.clone(), self.tool_env.turn_id.clone(), call.model.clone());
         config.options = options;
+        config.retry_529 = call.shape.retry_529;
         let mut run = Run::new(
             self.env.clone(),
             self.cancel.clone(),
@@ -224,6 +280,7 @@ impl SummarySender for OneShot {
             model: call.model.clone(),
             max_output_tokens: u32::try_from(call.max_output_tokens).unwrap_or(u32::MAX),
             fast: call.fast,
+            shape: call.shape.clone(),
         };
         let out = self.call_prompt(&call, system, prompt).await.map_err(summary_failure)?;
         let reported = out.usage != Usage::default();

@@ -94,7 +94,7 @@ pub fn degrade_media_parts(
     let mut next = Vec::with_capacity(parts.len());
     for part in parts {
         let text = match part {
-            ContentPart::Text(_) => None,
+            ContentPart::Text(_, _) => None,
             ContentPart::Image(_) => Some(omitted_media_text("image")),
             ContentPart::File { .. } => Some(media.text_form(part)?.unwrap_or_else(|| omitted_media_text("file"))),
             ContentPart::Document { .. } => {
@@ -104,7 +104,7 @@ pub fn degrade_media_parts(
         match text {
             Some(text) => {
                 changed = true;
-                next.push(ContentPart::Text(text));
+                next.push(ContentPart::Text(text, false));
             }
             None => next.push(part.clone()),
         }
@@ -113,11 +113,11 @@ pub fn degrade_media_parts(
 }
 
 fn has_text(parts: &[ContentPart]) -> bool {
-    parts.iter().any(|p| matches!(p, ContentPart::Text(t) if !js_trim(t).is_empty()))
+    parts.iter().any(|p| matches!(p, ContentPart::Text(t, _) if !js_trim(t).is_empty()))
 }
 
 fn has_usable_text(part: &ContentPart) -> bool {
-    matches!(part, ContentPart::Text(t) if !js_trim(t).is_empty() && !is_unsent_media_text(t))
+    matches!(part, ContentPart::Text(t, _) if !js_trim(t).is_empty() && !is_unsent_media_text(t))
 }
 
 /// `assertLocalModelInput`: validates the request for a text-only model and

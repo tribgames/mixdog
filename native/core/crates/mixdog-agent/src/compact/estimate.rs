@@ -212,7 +212,7 @@ fn image_stub_text(images: &[JsonImage]) -> String {
 
 /// Provider-native blocks as estimate text: an image as its size stub, any
 /// other block as JSON with opaque payloads projected at their measured cost.
-fn native_blocks_text(value: &JsonValue) -> String {
+pub(crate) fn native_blocks_text(value: &JsonValue) -> String {
     let single = [value.clone()];
     let list: &[JsonValue] = value.as_array().map_or(&single, Vec::as_slice);
     list.iter()
@@ -267,8 +267,8 @@ impl MessageMeter<'_> {
                 .map(|part| match part {
                     // A text part without text has nothing to read and is
                     // priced as the part itself.
-                    ContentPart::Text(text) if text.is_empty() => r#"{"type":"text","text":""}"#.to_owned(),
-                    ContentPart::Text(text) => text.clone(),
+                    ContentPart::Text(text, _) if text.is_empty() => r#"{"type":"text","text":""}"#.to_owned(),
+                    ContentPart::Text(text, _) => text.clone(),
                     other => {
                         let meter = self.media.part(other);
                         media_tokens += meter.tokens;

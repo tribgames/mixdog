@@ -195,6 +195,7 @@ pub struct Inner {
     pub(super) differ: LineDiffer,
     pub(super) cards: CardDiffs,
     pub(super) store: Store,
+    pub(super) baselines: super::baselines::Baselines,
     pub(super) disk: Arc<dyn ReviewDisk>,
     pub(super) git: Arc<dyn ReviewGit>,
     pub(super) worktrees: Arc<dyn ReviewWorktrees>,
@@ -227,6 +228,7 @@ impl TurnReview {
                 differ: LineDiffer::new(),
                 cards: CardDiffs::default(),
                 store: Store::new(disk.clone(), data_dir),
+                baselines: super::baselines::Baselines::new(disk.clone(), data_dir),
                 disk,
                 git,
                 worktrees,
@@ -328,6 +330,7 @@ impl Inner {
             };
             (tracker, owner_tracker)
         };
+        let owner_root = owner_tracker.as_ref().map(|t| t.meta.worktree_root.clone());
         let snapshot = owner_tracker.and_then(|t| t.snapshot());
         // Git reports the turn's root canonically (macOS /var -> /private/var): each written path
         // is spelled the same way, or it never relates to it.
@@ -349,6 +352,9 @@ impl Inner {
         } else {
             changes
         };
+        // Independent of this tracker's validity: the session review needs every write's
+        // first-seen state even once the turn's buffers are gone.
+        self.capture_review_baselines(session_id, &tracker, owner_root.as_deref(), snapshot.as_ref(), &list);
         let root = tracker.patch_root("");
         let mut state = tracker.lock();
         if state.valid && !tracker.sealed() {
@@ -356,6 +362,42 @@ impl Inner {
             fold_tracked_changes(&mut state, &list, snapshot.as_ref(), &mut next_seq);
         }
         tracker_view(&self.differ, &mut state, &root, budget);
+    }
+
+    /// Hand each change's first-seen state to the session baselines of `session_id` and the Lead
+    /// it works for. A path inside the turn's Git root is skipped: the baseline tree already
+    /// vouches for it.
+    fn capture_review_baselines(&self, session_id: &str, tracker: &Tracker, owner_root: Option<&str>, snapshot: Option<&Arc<dyn WorktreeBase>>, list: &[TrackedChange]) {
+        let git_root = snapshot.map(|s| s.root()).unwrap_or_default();
+        let git_root = clean(&git_root);
+        let root = if clean(&tracker.meta.worktree_root).is_empty() { clean(owner_root.unwrap_or("")) } else { clean(&tracker.meta.worktree_root) }.to_owned();
+        let inside = |root: &str, path: &str| {
+            let rel = nodepath::relative_host(root, path);
+            !rel.is_empty() && !nodepath::is_absolute_host(&rel) && nodepath::split_segments(&rel).first().copied() != Some("..")
+        };
+        let mut changes = Vec::new();
+        for raw in list {
+            let path = clean(&raw.path);
+            if path.is_empty() || !nodepath::is_absolute_host(path) {
+                continue;
+            }
+            let new_path = raw.new_path.as_deref().map(clean).filter(|p| nodepath::is_absolute_host(p)).map(|p| nodepath::resolve_host(&[p])).unwrap_or_default();
+            if !git_root.is_empty() && inside(git_root, path) && (new_path.is_empty() || inside(git_root, &new_path)) {
+                continue;
+            }
+            let absent = |c: &ReviewContent| matches!(c, ReviewContent::Absent);
+            if new_path.is_empty() && absent(&raw.before) && absent(&raw.after) {
+                continue;
+            }
+            changes.push(super::baselines::CaptureChange {
+                path: nodepath::resolve_host(&[path]),
+                root: root.clone(),
+                before: raw.before.clone(),
+                new_path,
+                replaced: absent(&raw.before) != absent(&raw.after),
+            });
+        }
+        self.baselines.capture(session_id, changes, tracker.meta.owner_session_id.as_deref().unwrap_or(""));
     }
 
     // ── turn cache ─────────────────────────────────────────────────────────
@@ -699,6 +741,9 @@ impl Inner {
         }
         let owner = clean(owner_session_id).to_owned();
         let child = clean(child_session_id).to_owned();
+        // Durable: the worker's edits join the Lead's session review even when it runs its own
+        // session turn, and whatever the turn's agent list keeps.
+        self.baselines.record_review_owner(&child, &owner);
         if owner.is_empty() || child.is_empty() {
             return None;
         }

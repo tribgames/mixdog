@@ -33,9 +33,9 @@
       "sha256": "2fbe9d15048aec8939bc23c2936fe0f4b6579241d041fdbb35b70e2b2e969829"
     },
     {
-      "bytes": 128341,
+      "bytes": 239895,
       "path": "compact/golden/pressure.json",
-      "sha256": "c176d9d7aab67c720a234477701e452f767a4b975ba8b512b00a16b2bd2164c5"
+      "sha256": "9b4df74797d4626bc57040769d58ddaa390b00dba5ed073c06969044b2cf5625"
     },
     {
       "bytes": 94625,
@@ -48,19 +48,19 @@
       "sha256": "a3b99b253ca9c0284f06de9c3facf1c7853f07eb201c0512b97d6deb72cbe2cd"
     },
     {
-      "bytes": 20538,
+      "bytes": 20467,
       "path": "compact/record.mjs",
-      "sha256": "e2ed7ce1a5d438468a41badd6bd2c50bbd56b9ad246988af5aa8ff556384d3f4"
+      "sha256": "d0676c635a29cd4ab1baf6b11a8a26a7879b2d2df9bcaf286b893674ae023182"
     },
     {
-      "bytes": 12453,
+      "bytes": 24135,
       "path": "compact/record_pressure.mjs",
-      "sha256": "99f8ba3436412530cf5448081f5f0d144cca1aada6227c0f422ecb61d558ebcd"
+      "sha256": "756b44cccb77722b10a77c69a7c6ef89d73e2cc9256041a7e0dab0cbc4ddf27c"
     },
     {
-      "bytes": 10627,
+      "bytes": 10556,
       "path": "compact/record_settings.mjs",
-      "sha256": "d420d6909f935a71a59839195953f6aca2dd59a8bf9ef8e638888257540e711a"
+      "sha256": "217304c5f70827657253bc6a1dd3b57ab187c7158962dead7f179cf4a72ccc31"
     },
     {
       "bytes": 1817,
@@ -78,9 +78,9 @@
       "sha256": "dd7faf8bd9fa24bafdb87b7e6a2c8aaddab2bb5f78bc6659729669247429f0c1"
     },
     {
-      "bytes": 38112,
+      "bytes": 38257,
       "path": "flows/races.json",
-      "sha256": "4487010c0ae1f3a58591d26a07fd7d61d66dcece66113b1d5ba07e0598dbc5b8"
+      "sha256": "3c89e1ec13e681a6cd4e497bcb3eafd6695d55e3829789106cda03b3acca0110"
     },
     {
       "bytes": 123334,
@@ -208,9 +208,9 @@
       "sha256": "214bea77e0251d1b08cc441ac5b0bc361e22760ae4bb26b7d43f33571ce3d262"
     },
     {
-      "bytes": 47262,
+      "bytes": 47380,
       "path": "record-flows.mjs",
-      "sha256": "cae5ed04535f715e51c4efd72bf1358b969bbe561382bde1dcd0cd68cfeb265c"
+      "sha256": "35ccd4b7bab9e97c7819129134b717b43720afc14763878281e7541b8aec2495"
     },
     {
       "bytes": 25624,
@@ -371,5 +371,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 1336038
+  "totalBytes": 1459395
 }

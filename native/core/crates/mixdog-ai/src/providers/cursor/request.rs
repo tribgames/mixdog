@@ -146,7 +146,7 @@ fn text_of(content: &Content) -> String {
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|p| match p {
-                ContentPart::Text(t) if !t.is_empty() => Some(t.as_str()),
+                ContentPart::Text(t, _) if !t.is_empty() => Some(t.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -172,7 +172,7 @@ fn root_content(content: &Content) -> Vec<String> {
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|p| match p {
-                ContentPart::Text(t) if !t.is_empty() => {
+                ContentPart::Text(t, _) if !t.is_empty() => {
                     Some(format!("{{\"type\":\"text\",\"text\":{}}}", json_str(t)))
                 }
                 other => data_url_image(other).map(|(url, mime, _)| {

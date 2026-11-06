@@ -163,7 +163,7 @@ async fn offload_text(store: &dyn ArtifactStore, tool: &str, text: &str) -> Stri
 
 fn text_len(part: &ContentPart) -> usize {
     match part {
-        ContentPart::Text(t) => u16_len(t),
+        ContentPart::Text(t, _) => u16_len(t),
         _ => 0,
     }
 }
@@ -176,7 +176,7 @@ fn inline_len(content: &Content) -> usize {
 }
 
 fn is_offloadable_part(part: &ContentPart) -> bool {
-    matches!(part, ContentPart::Text(t) if u16_len(t) >= MIN_PART && !is_offloaded(t))
+    matches!(part, ContentPart::Text(t, _) if u16_len(t) >= MIN_PART && !is_offloaded(t))
 }
 
 /// Characters still available for reduction: a pointer is never re-offloaded
@@ -214,7 +214,7 @@ pub async fn offload_result(
             Content::Text(offload_text(store, tool, text).await)
         }
         Content::Parts(parts) => {
-            if !parts.iter().any(|p| matches!(p, ContentPart::Text(_))) {
+            if !parts.iter().any(|p| matches!(p, ContentPart::Text(_, _))) {
                 return content.clone();
             }
             let limit = if force { 0 } else { threshold(tool) };
@@ -230,7 +230,7 @@ pub async fn offload_result(
             let mut next = parts.clone();
             let mut changed = false;
             for index in order {
-                let ContentPart::Text(text) = &next[index] else {
+                let ContentPart::Text(text, _) = &next[index] else {
                     continue;
                 };
                 let replaced = offload_text(store, tool, text).await;
@@ -238,7 +238,7 @@ pub async fn offload_result(
                     continue;
                 }
                 inline = inline + u16_len(&replaced) - u16_len(text);
-                next[index] = ContentPart::Text(replaced);
+                next[index] = ContentPart::Text(replaced, false);
                 changed = true;
                 if inline <= limit {
                     break;
@@ -304,12 +304,12 @@ pub async fn compact_images(compactor: &dyn ImageCompactor, content: &Content) -
             ImageOutcome::Keep => out.push(part.clone()),
             ImageOutcome::Omitted(text) => {
                 changed = true;
-                out.push(ContentPart::Text(text));
+                out.push(ContentPart::Text(text, false));
             }
             ImageOutcome::Compacted { data, mime, note } => {
                 changed = true;
                 if let Some(note) = note {
-                    out.push(ContentPart::Text(note));
+                    out.push(ContentPart::Text(note, false));
                 }
                 out.push(ContentPart::Image(ImageSource::Base64 { data, mime_type: mime }));
             }

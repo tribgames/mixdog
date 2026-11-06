@@ -8,11 +8,18 @@ pub mod config;
 pub mod exchange;
 pub mod home;
 pub mod ids;
+pub mod maintainer;
 pub mod memory;
 pub mod pool;
 pub mod records;
 pub mod rows;
+pub mod memory_control;
+pub mod scheduler;
 pub mod serial;
+pub mod service;
+pub mod sessions;
+pub mod store;
+pub mod supervisor;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RoomError {

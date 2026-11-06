@@ -35,7 +35,7 @@ fn first_text(content: &Content) -> String {
         Content::Parts(parts) => parts
             .iter()
             .find_map(|p| match p {
-                ContentPart::Text(t) => Some(t.clone()),
+                ContentPart::Text(t, _) => Some(t.clone()),
                 _ => None,
             })
             .unwrap_or_default(),

@@ -380,19 +380,15 @@ mod tests {
             format!("{{\"fetchedAt\":1,\"data\":{API}}}\n"),
         )
         .unwrap();
-        source.warm_from_disk().await;
-        let layer = source.current().expect("warmed from disk");
-        let catalog = ProviderCatalog::new(CatalogSnapshot::default());
+        let catalog = Arc::new(ProviderCatalog::new(CatalogSnapshot::default()));
         catalog.refresh(&[gateway()]).await;
-        let before = catalog.snapshot();
-        let traits = CatalogTraits::new(Arc::new(ProviderCatalog::new((*before).clone())), "gateway".into());
-        assert_eq!(traits.catalog_wire("claude-x"), None, "no layer applied yet");
-        catalog.apply_metadata(&layer);
-        let after = catalog.snapshot();
-        assert_eq!(after.generation, before.generation + 1);
-        assert_eq!(
-            after.models_of(&"gateway".into())[0].npm.as_deref(),
-            Some("@ai-sdk/anthropic")
+        let traits = CatalogTraits::new(catalog.clone(), "gateway".into()).with_models_dev(source.clone());
+        assert_eq!(traits.catalog_wire("claude-x"), None, "nothing warmed yet");
+        source.warm_from_disk().await;
+        assert_eq!(traits.catalog_wire("claude-x"), Some(Wire::Messages));
+        assert!(
+            catalog.snapshot().models_of(&"gateway".into()).iter().all(|r| r.npm.is_none()),
+            "the layer is read beside the listing, never merged into it"
         );
         assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
         // A disk warm is stale-ok and does not count as fetched.
@@ -404,23 +400,21 @@ mod tests {
     #[tokio::test]
     async fn refresh_fetches_caches_and_swaps_the_snapshot_atomically() {
         let (dir, fake, source) = fixture(Some(API));
-        let catalog = ProviderCatalog::new(CatalogSnapshot::default());
+        let catalog = Arc::new(ProviderCatalog::new(CatalogSnapshot::default()));
         let held = catalog.snapshot();
         let sources = vec![gateway()];
-        catalog.refresh_with_metadata(&sources, &source).await;
-        let fresh = catalog.snapshot();
+        catalog.refresh(&sources).await;
+        source.load(false).await;
         // A reader that held the old snapshot is unaffected.
         assert!(held.models_of(&"gateway".into()).is_empty());
-        let rows = fresh.models_of(&"gateway".into());
-        assert!(rows.iter().all(|r| r.npm.as_deref() == Some("@ai-sdk/anthropic")));
-        let traits = CatalogTraits::new(Arc::new(ProviderCatalog::new((*fresh).clone())), "gateway".into());
+        let traits = CatalogTraits::new(catalog.clone(), "gateway".into()).with_models_dev(source.clone());
         assert_eq!(traits.catalog_wire("claude-x"), Some(Wire::Messages));
         assert!(!traits.outputs_text("tts-x"));
         // Cached verbatim in Node's shape.
         let text = cache_text(&dir);
         assert!(text.starts_with("{\"fetchedAt\":") && text.ends_with(&format!("\"data\":{API}}}\n")));
         // Younger than 6 h and fetched remotely: served without a fetch.
-        catalog.refresh_with_metadata(&sources, &source).await;
+        source.load(false).await;
         assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
         // A forced refresh ignores the window.
         source.load(true).await;
@@ -441,7 +435,7 @@ mod tests {
         assert_eq!(fake.calls.load(Ordering::SeqCst), 0, "cold start never touches the network");
         let outcome = service.refresh().await;
         assert!(outcome.failed.is_empty());
-        let traits = CatalogTraits::new(service.catalog(), "gateway".into());
+        let traits = service.traits("gateway".into());
         assert_eq!(traits.catalog_wire("claude-x"), Some(Wire::Messages));
         assert_eq!(fake.calls.load(Ordering::SeqCst), 1, "the disk copy was stale, so the refresh fetched");
     }

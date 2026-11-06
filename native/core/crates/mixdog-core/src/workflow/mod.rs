@@ -11,9 +11,9 @@
 //!
 //! The core routes by exact method, so the service is registered with its [`METHODS`].
 
-mod ids;
+pub(crate) mod ids;
 mod onboarding;
-mod pack;
+pub(crate) mod pack;
 mod prefs;
 pub(crate) mod presets;
 mod search;

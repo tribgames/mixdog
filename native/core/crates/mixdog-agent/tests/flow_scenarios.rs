@@ -925,6 +925,10 @@ async fn racing_requests_end_as_nodes_do() {
                         jobs.push((s(op, "as"), new.task_id));
                     }
                 }
+                "until" if op["notices"].is_u64() => {
+                    let wanted = op["notices"].as_u64().unwrap() as usize;
+                    until(&format!("{name}: notices"), || lock(&rig.shared.notices).len() >= wanted).await;
+                }
                 "until" => {
                     let entry = op["log"].clone();
                     let head = op["head"].as_str().map(str::to_owned);

@@ -227,7 +227,7 @@ fn system_items(request: &ModelRequest) -> Result<Vec<(String, Tier)>, ProviderE
             Content::Parts(parts) => {
                 for part in parts {
                     match part {
-                        ContentPart::Text(text) => push(text),
+                        ContentPart::Text(text, _) => push(text),
                         _ => {
                             return Err(local_error(
                                 "Anthropic system instructions must be text",

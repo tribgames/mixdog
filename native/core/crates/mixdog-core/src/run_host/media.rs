@@ -17,6 +17,8 @@ use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use mixdog_agent::compact::estimate::{MediaMeter, PartMeter, IMAGE_TOKEN_ALLOWANCE};
+use mixdog_agent::compact::pressure::{clean_image_mime, image_descriptor as json_image_descriptor, image_identity, ImageDescriptor, ImageIdentities};
+use mixdog_agent::message::AgentMessage;
 use mixdog_agent::compact::triggers::ToolMediaMeter;
 use mixdog_agent::text_only::MediaText;
 use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError};
@@ -24,7 +26,8 @@ use mixdog_core_api::domain::ext::{DocumentText, PdfIntake};
 use mixdog_core_api::domain::provider::{
     BinarySource, Content, ContentPart, DeliveryState, DocumentSource, ErrorKind, ImageSource, Message, ProviderError, Role,
 };
-use mixdog_protocol::ThreadId;
+use mixdog_protocol::{ProviderId, ThreadId};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 /// How an inline file payload can reach a model (`inlineFileKind`).
@@ -141,7 +144,7 @@ pub async fn pdf_intake_facts(
         .pdf_counts(thread, data_base64)
         .await
         .map_err(|e| format!("PDF inspection failed: {e:?}"))?;
-    // The parser rejected the bytes: the message is exactly what Node's intake throws.
+    // The parser rejected the bytes: the message is exactly what Node\'s intake throws.
     let counts = match counts {
         PdfIntake::Counts(counts) => counts,
         PdfIntake::Rejected(message) => return Err(message),
@@ -198,6 +201,9 @@ pub struct MediaLowering {
     facts: Arc<dyn AttachmentFacts>,
     /// The route takes no document block of any kind (`nativeDocuments === false`).
     no_documents: bool,
+    /// The route's provider: Node keeps one providerReplay per message (a route change strips the
+    /// previous provider's), so only this provider's envelopes are the replayed blocks.
+    provider: ProviderId,
     memo: Mutex<Memo>,
 }
 
@@ -253,8 +259,9 @@ impl MediaLowering {
         reader: Arc<dyn AttachmentReader>,
         facts: Arc<dyn AttachmentFacts>,
         no_documents: bool,
+        provider: ProviderId,
     ) -> Self {
-        Self { thread, docs, reader, facts, no_documents, memo: Mutex::new(Memo::default()) }
+        Self { thread, docs, reader, facts, no_documents, provider, memo: Mutex::new(Memo::default()) }
     }
 
     fn memo(&self) -> std::sync::MutexGuard<'_, Memo> {
@@ -411,7 +418,7 @@ impl MediaText for MediaLowering {
                         _ => None,
                     };
                     if let Some(text) = replacement {
-                        *part = ContentPart::Text(text);
+                        *part = ContentPart::Text(text, false);
                     }
                 }
             }
@@ -501,7 +508,7 @@ impl MediaMeter for MediaLowering {
     /// host's warm of the history) comes first.
     fn part(&self, part: &ContentPart) -> PartMeter {
         match part {
-            ContentPart::Text(text) => PartMeter { text: text.clone(), tokens: 0 },
+            ContentPart::Text(text, _) => PartMeter { text: text.clone(), tokens: 0 },
             ContentPart::Image(_) => PartMeter { text: String::new(), tokens: IMAGE_TOKEN_ALLOWANCE },
             _ => {
                 if let Some(reference) = is_image_ref(part) {
@@ -582,6 +589,43 @@ fn stored_wire_bytes(facts: &dyn AttachmentFacts, reference: Option<&str>) -> u6
 
 const _: &str = PDF_UNREADABLE_PREFIX;
 
+impl ImageIdentities for MediaLowering {
+    /// The images of a message: its content parts, and for an assistant message the native
+    /// blocks it replays (`assistantBlocks`, `providerReplay.items`).
+    fn images(&self, message: &AgentMessage) -> Vec<ImageDescriptor> {
+        let plain = |identity: String| ImageDescriptor { identity, width: None, height: None, detail: "auto".to_owned() };
+        let mut out: Vec<ImageDescriptor> = Vec::new();
+        if let Content::Parts(parts) = &message.message.content {
+            for part in parts {
+                match part {
+                    ContentPart::Image(ImageSource::Base64 { data, mime_type }) => out.push(plain(image_identity("inline", data, &clean_image_mime(mime_type)))),
+                    ContentPart::Image(ImageSource::Url(url)) => out.push(plain(image_identity("url", url, ""))),
+                    ContentPart::Image(ImageSource::FileId(id)) => out.push(plain(image_identity("file-id", id, ""))),
+                    _ => {
+                        if let Some(reference) = is_image_ref(part) {
+                            let mime = match part {
+                                ContentPart::File { mime_type, .. } => mime_type.as_str(),
+                                _ => "",
+                            };
+                            let f = self.facts.facts(reference).unwrap_or_default();
+                            out.push(ImageDescriptor { identity: image_identity("attachment-ref", reference, mime), width: f.width.filter(|w| *w > 0.0), height: f.height.filter(|h| *h > 0.0), detail: "auto".to_owned() });
+                        }
+                    }
+                }
+            }
+        }
+        if message.role() == Role::Assistant {
+            let blocks = message.message.assistant_blocks.iter().chain(message.message.replay_for(&self.provider).map(|r| &r.items));
+            for value in blocks {
+                match value {
+                    Value::Array(items) => out.extend(items.iter().filter_map(json_image_descriptor)),
+                    other => out.extend(json_image_descriptor(other)),
+                }
+            }
+        }
+        out
+    }
+}
 #[cfg(test)]
 mod tests {
     use mixdog_core_api::domain::ext::ExtError;
@@ -633,7 +677,7 @@ mod tests {
 
     fn lowering(no_documents: bool) -> MediaLowering {
         let store = Store(vec![("doc", b"hello".to_vec()), ("pdf", b"%PDF-1.4 body".to_vec()), ("office", b"PK".to_vec())]);
-        MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(Docs), Arc::new(store), Arc::new(Facts), no_documents)
+        MediaLowering::new(ThreadId::from("t".to_owned()), Arc::new(Docs), Arc::new(store), Arc::new(Facts), no_documents, ProviderId::from("anthropic"))
     }
 
     fn b64(text: &str) -> String {
@@ -708,7 +752,7 @@ mod tests {
         assert!(l.text_form(&office).is_err());
         let prepared = l.prepare_pdf_text(messages).await.unwrap();
         let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
-        assert_eq!(parts[0], ContentPart::Text("--- p.pdf (application/pdf, 13 bytes) ---\nPDFTEXT".into()));
+        assert_eq!(parts[0], ContentPart::Text("--- p.pdf (application/pdf, 13 bytes) ---\nPDFTEXT".into(), false));
         assert_eq!(parts[1], office, "an Office file keeps its part unless the route takes no documents");
         assert_eq!(l.text_form(&office).unwrap().unwrap(), "--- a.docx (application/vnd.openxmlformats-officedocument.wordprocessingml.document, 2 bytes) ---\nEXTRACTED");
         assert_eq!(l.text_form(&reference("doc", "text/plain", Some("d.txt"))).unwrap().unwrap(), "--- d.txt (text/plain, 5 bytes) ---\nhello");
@@ -727,7 +771,7 @@ mod tests {
         let messages = vec![Message::new(Role::User, Content::Parts(vec![broken, gone]))];
         let prepared = l.prepare_pdf_text(messages).await.unwrap();
         let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
-        assert_eq!(parts[0], ContentPart::Text("[file not sent inline: broken.docx (application/octet-stream, 2 bytes) — this type has no inline form; open it from disk with read]".into()));
+        assert_eq!(parts[0], ContentPart::Text("[file not sent inline: broken.docx (application/octet-stream, 2 bytes) — this type has no inline form; open it from disk with read]".into(), false));
         // A blob that is permanently gone is left alone by the prepare step and lowers to its placeholder.
         assert!(matches!(parts[1], ContentPart::File { .. }));
         assert_eq!(l.text_form(&parts[1]).unwrap().unwrap(), "[attachment unavailable: old.pdf]");
@@ -756,5 +800,49 @@ mod tests {
         // A provider that takes the PDF as text reads its first pages: a longer one is accepted.
         assert_eq!(pdf_intake_facts(&docs, &thread, "long", 1, false).await.unwrap().page_count, Some(101));
         assert_eq!(pdf_intake_facts(&docs, &thread, "unreadable", 1, true).await.unwrap_err(), "Invalid PDF structure.");
+    }
+
+    /// Node's `contentImageDescriptors` on 14 provider-native blocks.
+    #[test]
+    fn json_image_descriptors_follow_node() {
+        let golden: Value = serde_json::from_str(include_str!("golden/image_descriptors.json")).unwrap();
+        for (name, row) in golden.as_object().unwrap() {
+            let got: Vec<Value> = json_image_descriptor(&row["block"])
+                .into_iter()
+                .map(|d| json!({ "identity": d.identity, "width": d.width.map(mixdog_js::json_number), "height": d.height.map(mixdog_js::json_number), "detail": d.detail }))
+                .collect();
+            assert_eq!(json!(got), row["descriptors"], "{name}");
+        }
+    }
+
+    #[test]
+    fn content_parts_and_replayed_blocks_describe_the_same_images() {
+        let l = lowering(false);
+        let golden: Value = serde_json::from_str(include_str!("golden/image_descriptors.json")).unwrap();
+        let id = |name: &str| golden[name]["descriptors"][0]["identity"].as_str().unwrap().to_owned();
+        let mut m = AgentMessage::user("x");
+        m.message.content = Content::Parts(vec![
+            ContentPart::Image(ImageSource::Base64 { data: "AAAABBBB".into(), mime_type: "IMAGE/JPEG".into() }),
+            ContentPart::Image(ImageSource::Url("http://x/y.png".into())),
+            ContentPart::Image(ImageSource::FileId("file_2".into())),
+        ]);
+        let ids: Vec<String> = l.images(&m).into_iter().map(|d| d.identity).collect();
+        assert_eq!(ids, [id("data"), id("image_url_string"), id("source_file").replace(&id("source_file"), &image_identity("file-id", "file_2", ""))]);
+    }
+
+    #[test]
+    fn only_the_routes_providers_envelope_is_scanned() {
+        use mixdog_core_api::domain::provider::ProviderReplay;
+        let l = lowering(false);
+        let block = |url: &str| serde_json::json!([{ "type": "image", "source": { "type": "url", "url": url } }]);
+        let mut m = AgentMessage::assistant("x", Vec::new());
+        m.message.push_replay(ProviderReplay { owner: ProviderId::from("openai"), items: block("http://x/other.png") });
+        m.message.push_replay(ProviderReplay { owner: ProviderId::from("anthropic"), items: block("http://x/own.png") });
+        let got: Vec<String> = l.images(&m).into_iter().map(|d| d.identity).collect();
+        let mut own = AgentMessage::assistant("x", Vec::new());
+        own.message.push_replay(ProviderReplay { owner: ProviderId::from("anthropic"), items: block("http://x/own.png") });
+        let want: Vec<String> = l.images(&own).into_iter().map(|d| d.identity).collect();
+        assert_eq!(got, want);
+        assert_eq!(got.len(), 1);
     }
 }

@@ -65,6 +65,9 @@ pub(crate) enum Display {
     None,
     /// The display items of an `item`/`amend` record.
     Items(Vec<Shown>),
+    /// A durable row that shows nothing live: a completion its card already stands for
+    /// (Node's `suppressDisplay`); a reopen shows it where its turn took it in.
+    Suppressed,
     /// The `queued` row of a `queue{enqueue}` record.
     Queued(Value),
 }
@@ -89,6 +92,9 @@ pub(crate) enum Change {
     PromptWithout(String),
     /// No change: its effects run once every earlier record is durable.
     Barrier,
+    /// A live completion card (not persisted): a new item at the end of the view, or the item
+    /// with its id replaced.
+    Card(ThreadItem),
 }
 
 #[derive(Clone, Debug)]
@@ -182,6 +188,17 @@ impl SessionState {
                 self.prompt_history = prompt_history::without(&self.prompt_history, text);
             }
             Change::Barrier => {}
+            Change::Card(card) => {
+                if let Some(row) = self.window.iter_mut().find(|row| row.item.id() == card.id()) {
+                    row.item = Arc::new(card.clone());
+                } else {
+                    self.window.push_back(WindowItem { ordinal: None, item: Arc::new(card.clone()), prompt: None });
+                    while self.window.len() > self.view_items {
+                        self.window.pop_front();
+                        self.has_older = true;
+                    }
+                }
+            }
         }
     }
 

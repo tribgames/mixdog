@@ -20,7 +20,7 @@ pub enum ReviewSide {
     Bytes(Vec<u8>),
     /// The file changed but its bytes were not captured: the review shows an explicit omitted
     /// marker (never empty bytes) and offers no undo.
-    Omitted,
+    Omitted { size: u64, reason: Option<String> },
 }
 
 /// A file a tool call changed, for the thread's turn review.
@@ -53,7 +53,7 @@ fn side(side: WriteSide) -> ReviewSide {
     match side {
         WriteSide::Absent => ReviewSide::Absent,
         WriteSide::Bytes(bytes) => ReviewSide::Bytes(bytes),
-        WriteSide::Uncaptured => ReviewSide::Omitted,
+        WriteSide::Uncaptured { size, reason } => ReviewSide::Omitted { size, reason },
     }
 }
 
@@ -92,7 +92,7 @@ mod tests {
         let writes = TurnReviewWrites::new(recorder.clone());
         let receipts = vec![
             WriteReceipt { path: "/a.docx".into(), before: WriteSide::Absent, after: WriteSide::Bytes(b"new".to_vec()) },
-            WriteReceipt { path: "/b.xlsx".into(), before: WriteSide::Bytes(b"old".to_vec()), after: WriteSide::Uncaptured },
+            WriteReceipt { path: "/b.xlsx".into(), before: WriteSide::Bytes(b"old".to_vec()), after: WriteSide::Uncaptured { size: 7, reason: None } },
         ];
         writes.record(&ThreadId::from("t1"), &ToolCallId::from("c1"), receipts).await;
 
@@ -102,7 +102,7 @@ mod tests {
             got[0].2,
             vec![
                 ReviewChange { path: "/a.docx".into(), before: ReviewSide::Absent, after: ReviewSide::Bytes(b"new".to_vec()) },
-                ReviewChange { path: "/b.xlsx".into(), before: ReviewSide::Bytes(b"old".to_vec()), after: ReviewSide::Omitted },
+                ReviewChange { path: "/b.xlsx".into(), before: ReviewSide::Bytes(b"old".to_vec()), after: ReviewSide::Omitted { size: 7, reason: None } },
             ]
         );
     }

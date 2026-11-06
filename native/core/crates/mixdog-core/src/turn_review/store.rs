@@ -52,7 +52,7 @@ fn root_key(value: &str) -> String {
     if cfg!(windows) { trimmed.to_lowercase() } else { trimmed }
 }
 
-fn session_hash(session_id: &str) -> String {
+pub(super) fn session_hash(session_id: &str) -> String {
     let digest = Sha256::digest(session_id.as_bytes());
     digest.iter().take(12).map(|b| format!("{b:02x}")).collect()
 }
@@ -193,6 +193,29 @@ fn changes_file_ok(parsed: &Value, session_id: &str) -> Option<Obj> {
     Some(obj.clone())
 }
 
+/// Oldest-first sweep of one record directory (`sweepDirectory`).
+pub(super) async fn sweep_dir(disk: &dyn ReviewDisk, directory: &Path, ttl_ms: f64, max_files: usize) {
+    let Ok(names) = disk.list(directory).await else { return };
+    let now = disk.now_ms();
+    let mut kept: Vec<(PathBuf, f64)> = Vec::new();
+    for (name, stamp) in names {
+        if !name.ends_with(".json") {
+            continue;
+        }
+        let path = directory.join(&name);
+        if now - stamp.mtime_ms > ttl_ms {
+            let _ = disk.remove(&path).await;
+            continue;
+        }
+        kept.push((path, stamp.mtime_ms));
+    }
+    kept.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    let excess = kept.len().saturating_sub(max_files);
+    for (path, _) in kept.into_iter().take(excess) {
+        let _ = disk.remove(&path).await;
+    }
+}
+
 impl Store {
     pub fn new(disk: Arc<dyn ReviewDisk>, data_dir: &Path) -> Self {
         Self {
@@ -274,25 +297,7 @@ impl Store {
     /// Oldest-first sweep of one record directory so a long-lived install cannot accumulate
     /// records.
     pub async fn sweep_directory(&self, directory: &Path, ttl_ms: f64, max_files: usize) {
-        let Ok(names) = self.disk.list(directory).await else { return };
-        let now = self.disk.now_ms();
-        let mut kept: Vec<(PathBuf, f64)> = Vec::new();
-        for (name, stamp) in names {
-            if !name.ends_with(".json") {
-                continue;
-            }
-            let path = directory.join(&name);
-            if now - stamp.mtime_ms > ttl_ms {
-                let _ = self.disk.remove(&path).await;
-                continue;
-            }
-            kept.push((path, stamp.mtime_ms));
-        }
-        kept.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        let excess = kept.len().saturating_sub(max_files);
-        for (path, _) in kept.into_iter().take(excess) {
-            let _ = self.disk.remove(&path).await;
-        }
+        sweep_dir(self.disk.as_ref(), directory, ttl_ms, max_files).await;
     }
 
     async fn sweep_records(&self) {

@@ -245,12 +245,19 @@ impl RouteSession for SessionRouteAdapter {
             }
         }
         let mut change = route_fields(&header, &route);
-        let derived = self.change.route_change(&applied(&header, &change), &route, &previous, cross_provider);
-        for key in derived.unset {
-            unset(&mut change, &key);
-        }
-        for (key, value) in derived.set {
-            set(&mut change, &key, value);
+        let routed = applied(&header, &change);
+        let derived = self.change.route_change(&routed, &route, &previous, cross_provider);
+        // The prompt half: a staged workspace change applies on a new route, and the
+        // `# Session` block is rebuilt for the session's cwd.
+        let changed = crate::run_host::route_change::route_changed(&route, &previous);
+        let prompt = super::worktree::route_prompt_refresh(&super::worktree::PromptView { header: &routed, tier3: None, env: None }, changed);
+        for part in [derived, prompt.change] {
+            for key in part.unset {
+                unset(&mut change, &key);
+            }
+            for (key, value) in part.set {
+                set(&mut change, &key, value);
+            }
         }
         set(&mut change, "updatedAt", json!(self.clock.now_ms()));
         self.threads.patch_header(thread, change.set, change.unset).await?;
@@ -408,6 +415,31 @@ mod tests {
         let (seen, previous, cross) = change.0.lock().unwrap()[0].clone();
         assert_eq!((seen["model"].clone(), previous, cross), (json!("claude-x"), json!({ "provider": "openai", "model": "gpt-a" }), true));
         assert!(!adapter.update_route(&ThreadId::from("sess_gone"), Route::new(), false).await.expect("gone"));
+    }
+
+    /// A route change on a session with a staged re-root applies it in the same header change,
+    /// as Node's `updateSessionRoute` does (the `applied` golden's header).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_route_change_applies_a_staged_reroot_in_the_same_header_change() {
+        use crate::ports::threads::SessionThreads;
+        let cases: Vec<Value> = serde_json::from_str(include_str!("worktree_goldens/reroot_goldens.json")).expect("goldens");
+        let case = &cases[0];
+        let before = obj(case["before"]["header"].clone());
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let thread = ThreadId::from("sess_reroot");
+        directory.create_with_id(thread.clone(), before.clone(), json!({})).await.expect("create");
+        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let none = Arc::new(Change(Mutex::default()));
+        let adapter = SessionRouteAdapter::new(directory.clone(), threads.clone(), none, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone());
+        let route = obj(json!({ "model": "another-model" }));
+        assert!(adapter.update_route(&thread, route, false).await.expect("update"));
+        let stored = threads.header(&thread).await.expect("header");
+        let applied = case["applied"]["header"].as_object().expect("applied header");
+        for key in ["cwd", "rootCwd"] {
+            assert_eq!(stored.get(key), applied.get(key), "{key}");
+        }
+        assert!(super::super::worktree::pending_workspace_reroot(&stored).is_none(), "the staged change is applied");
     }
 
     struct Live(Route);

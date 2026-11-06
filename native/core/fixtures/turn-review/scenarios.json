@@ -540,7 +540,8 @@
        "createdAt": 0,
        "updatedAt": 0
       }
-     ]
+     ],
+     "file": "{\"version\":1,\"sessionId\":\"s1\",\"records\":[{\"checkpointId\":\"cp1\",\"kind\":\"tracked\",\"root\":\"<ws>\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":2,\"deletions\":1,\"revertable\":true,\"patch\":\"diff --git a/a.txt b/a.txt\\n--- a/a.txt\\n+++ b/a.txt\\n@@ -1,3 +1,4 @@\\n one\\n-two\\n+2\\n three\\n+four\\n\",\"patchEncoding\":\"utf8\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"A\",\"additions\":1,\"deletions\":0,\"revertable\":true,\"patch\":\"diff --git a/b.txt b/b.txt\\nnew file mode 100644\\n--- /dev/null\\n+++ b/b.txt\\n@@ -0,0 +1,1 @@\\n+fresh\\n\",\"patchEncoding\":\"utf8\",\"state\":\"applied\"},{\"path\":\"c.txt\",\"status\":\"D\",\"additions\":0,\"deletions\":1,\"revertable\":true,\"patch\":\"diff --git a/c.txt b/c.txt\\ndeleted file mode 100644\\n--- a/c.txt\\n+++ /dev/null\\n@@ -1,1 +0,0 @@\\n-gone\\n\",\"patchEncoding\":\"utf8\",\"state\":\"applied\"},{\"path\":\"e.txt\",\"oldPath\":\"d.txt\",\"status\":\"R\",\"additions\":0,\"deletions\":0,\"revertable\":true,\"patch\":\"diff --git a/d.txt b/e.txt\\nsimilarity index 100%\\nrename from d.txt\\nrename to e.txt\\n\",\"patchEncoding\":\"utf8\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":0,\"updatedAt\":0}]}"
     }
    },
    {
@@ -1317,7 +1318,8 @@
        "createdAt": 0,
        "updatedAt": 0
       }
-     ]
+     ],
+     "file": "{\"version\":1,\"sessionId\":\"s1\",\"records\":[{\"checkpointId\":\"cp1\",\"kind\":\"tracked\",\"root\":\"<ws>\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"diff --git a/a.txt b/a.txt\\n--- a/a.txt\\n+++ b/a.txt\\n@@ -1,3 +1,3 @@\\n 1\\n-2\\n+two\\n 3\\n\",\"patchEncoding\":\"utf8\",\"state\":\"applied\"},{\"path\":\"b.txt\",\"status\":\"A\",\"additions\":1,\"deletions\":0,\"revertable\":true,\"patch\":\"diff --git a/b.txt b/b.txt\\nnew file mode 100644\\n--- /dev/null\\n+++ b/b.txt\\n@@ -0,0 +1,1 @@\\n+b\\n\",\"patchEncoding\":\"utf8\",\"state\":\"applied\"}],\"revision\":5,\"createdAt\":0,\"updatedAt\":0}]}"
     }
    }
   ]
@@ -1717,7 +1719,8 @@
        "createdAt": 0,
        "updatedAt": 0
       }
-     ]
+     ],
+     "file": "{\"version\":1,\"sessionId\":\"s1\",\"records\":[{\"checkpointId\":\"cp1\",\"kind\":\"tracked\",\"root\":\"<ws>\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"big.dat\",\"status\":\"M\",\"additions\":0,\"deletions\":0,\"binary\":true,\"revertable\":false,\"reason\":\"binary/large file content was not captured\",\"patch\":null,\"state\":\"applied\"}],\"revision\":1,\"createdAt\":0,\"updatedAt\":0}]}"
     }
    }
   ]
@@ -1917,7 +1920,8 @@
      "toolFiles": [
       "a.txt"
      ],
-     "sealed": true
+     "sealed": true,
+     "file": "{\"version\":1,\"sessionId\":\"s1\",\"turns\":[{\"generation\":1,\"checkpointId\":\"cp1\",\"root\":\"<ws>\",\"baselineTree\":\"<tree>\",\"baselineFiles\":[],\"toolFiles\":[\"a.txt\"],\"sealed\":true,\"updatedAt\":0}],\"sessionScopes\":[{\"root\":\"<ws>\",\"baselineTree\":\"<tree>\",\"toolFiles\":[\"a.txt\"],\"baselineFiles\":[],\"updatedAt\":0}]}"
     }
    },
    {
@@ -1958,7 +1962,8 @@
        "createdAt": 0,
        "updatedAt": 0
       }
-     ]
+     ],
+     "file": "{\"version\":1,\"sessionId\":\"s1\",\"records\":[{\"checkpointId\":\"cp1\",\"kind\":\"git\",\"root\":\"<ws>\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"a.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"diff --git a/a.txt b/a.txt\\n--- a/a.txt\\n+++ b/a.txt\\n@@ -1,1 +1,1 @@\\n-inside\\n+inside!\\n\",\"patchEncoding\":\"utf8\",\"state\":\"applied\"}],\"outside\":[{\"path\":\"<sc>/outside.txt\",\"status\":\"A\",\"additions\":1,\"deletions\":0,\"viewPatch\":\"diff --git a/<sc>/outside.txt b/<sc>/outside.txt\\nnew file mode 100644\\n--- /dev/null\\n+++ b/<sc>/outside.txt\\n@@ -0,0 +1,1 @@\\n+out\\n\",\"revertable\":false,\"reason\":\"file is outside the recorded root\",\"patch\":null}],\"revision\":1,\"createdAt\":0,\"updatedAt\":0}]}"
     }
    }
   ]
@@ -2186,7 +2191,8 @@
        "createdAt": 0,
        "updatedAt": 0
       }
-     ]
+     ],
+     "file": "{\"version\":1,\"sessionId\":\"s1\",\"records\":[{\"checkpointId\":\"cp1\",\"kind\":\"tracked\",\"root\":\"<ws>\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"doc.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"diff --git a/doc.txt b/doc.txt\\n--- a/doc.txt\\n+++ b/doc.txt\\n@@ -1,1 +1,1 @@\\n-v1\\n+v2\\n\",\"patchEncoding\":\"utf8\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":0,\"updatedAt\":0},{\"checkpointId\":\"cp2\",\"kind\":\"tracked\",\"root\":\"<ws>\",\"agents\":[],\"counts\":\"own\",\"files\":[{\"path\":\"doc.txt\",\"status\":\"M\",\"additions\":1,\"deletions\":1,\"revertable\":true,\"patch\":\"diff --git a/doc.txt b/doc.txt\\n--- a/doc.txt\\n+++ b/doc.txt\\n@@ -1,1 +1,1 @@\\n-v2\\n+v3\\n\",\"patchEncoding\":\"utf8\",\"state\":\"applied\"}],\"revision\":1,\"createdAt\":0,\"updatedAt\":0}]}"
     }
    }
   ]
@@ -2792,7 +2798,8 @@
    {
     "op": 6,
     "result": {
-     "cleared": true
+     "cleared": true,
+     "file": "{\"version\":1,\"sessionId\":\"s1\",\"clearedAt\":0}"
     }
    },
    {
@@ -2838,7 +2845,8 @@
    {
     "op": 10,
     "result": {
-     "cleared": true
+     "cleared": true,
+     "file": "{\"version\":1,\"sessionId\":\"s1\",\"clearedAt\":0}"
     }
    },
    {
@@ -2850,7 +2858,8 @@
    {
     "op": 13,
     "result": {
-     "cleared": false
+     "cleared": false,
+     "file": null
     }
    },
    {
@@ -3152,6 +3161,1169 @@
     "op": 14,
     "result": {
      "text": "eCBlZGl0ZWQK"
+    }
+   }
+  ]
+ },
+ {
+  "name": "session review without Git: first states across turns, renames, outside files, external edits, restart",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "one\ntwo\nthree\n"
+    }
+   },
+   {
+    "op": "file",
+    "path": "b.txt",
+    "content": {
+     "text": "moves\n"
+    }
+   },
+   {
+    "op": "file",
+    "path": "c.txt",
+    "content": {
+     "text": "gone\n"
+    }
+   },
+   {
+    "op": "file",
+    "path": "../out/o.txt",
+    "content": {
+     "text": "outside v1\n"
+    }
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "one\n2\nthree\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "new.txt",
+    "content": {
+     "text": "fresh\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "c.txt",
+    "content": null
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp2"
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "one\n2\nthree\nfour\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "b.txt",
+    "to": "b2.txt"
+   },
+   {
+    "op": "edit",
+    "path": "../out/o.txt",
+    "content": {
+     "text": "outside v2\n"
+    }
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "sessionFile",
+    "file": "a.txt"
+   },
+   {
+    "op": "sessionFile",
+    "file": "b2.txt",
+    "oldPath": "b.txt"
+   },
+   {
+    "op": "sessionFile",
+    "file": "zzz.txt"
+   },
+   {
+    "op": "file",
+    "path": "new.txt",
+    "content": {
+     "text": "changed outside the session\n"
+    }
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "baselineIndex"
+   },
+   {
+    "op": "restart"
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "one\ntwo\nthree\n"
+    }
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "sessionFile",
+    "file": "new.txt"
+   }
+  ],
+  "results": [
+   {
+    "op": 4,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [],
+     "patch": "",
+     "snapshotKind": "session",
+     "authoritative": false,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 5,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "a.txt",
+       "id": "<ws>/a.txt",
+       "outside": false,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      },
+      {
+       "path": "c.txt",
+       "id": "<ws>/c.txt",
+       "outside": false,
+       "status": "D",
+       "additions": 0,
+       "deletions": 1
+      },
+      {
+       "path": "new.txt",
+       "id": "<ws>/new.txt",
+       "outside": false,
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\ndiff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+fresh\n",
+     "snapshotKind": "session-tool",
+     "authoritative": true,
+     "complete": true,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 11,
+    "result": {
+     "token": {
+      "generation": 2,
+      "checkpointId": "cp2"
+     }
+    }
+   },
+   {
+    "op": 15,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 16,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "<sc>/out/o.txt",
+       "id": "<sc>/out/o.txt",
+       "outside": true,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      },
+      {
+       "path": "a.txt",
+       "id": "<ws>/a.txt",
+       "outside": false,
+       "status": "M",
+       "additions": 2,
+       "deletions": 1
+      },
+      {
+       "path": "b2.txt",
+       "id": "<ws>/b2.txt",
+       "outside": false,
+       "oldPath": "b.txt",
+       "status": "R",
+       "additions": 0,
+       "deletions": 0
+      },
+      {
+       "path": "c.txt",
+       "id": "<ws>/c.txt",
+       "outside": false,
+       "status": "D",
+       "additions": 0,
+       "deletions": 1
+      },
+      {
+       "path": "new.txt",
+       "id": "<ws>/new.txt",
+       "outside": false,
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/<sc>/out/o.txt b/<sc>/out/o.txt\n--- a/<sc>/out/o.txt\n+++ b/<sc>/out/o.txt\n@@ -1,1 +1,1 @@\n-outside v1\n+outside v2\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\ndiff --git a/b.txt b/b2.txt\nsimilarity index 100%\nrename from b.txt\nrename to b2.txt\ndiff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\ndiff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+fresh\n",
+     "snapshotKind": "session-tool",
+     "authoritative": true,
+     "complete": true,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 17,
+    "result": {
+     "supported": true,
+     "path": "a.txt",
+     "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\n"
+    }
+   },
+   {
+    "op": 18,
+    "result": {
+     "supported": true,
+     "path": "b2.txt",
+     "patch": "diff --git a/b.txt b/b2.txt\nsimilarity index 100%\nrename from b.txt\nrename to b2.txt\n"
+    }
+   },
+   {
+    "op": 19,
+    "result": {
+     "supported": true,
+     "path": "zzz.txt",
+     "patch": ""
+    }
+   },
+   {
+    "op": 21,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "<sc>/out/o.txt",
+       "id": "<sc>/out/o.txt",
+       "outside": true,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      },
+      {
+       "path": "a.txt",
+       "id": "<ws>/a.txt",
+       "outside": false,
+       "status": "M",
+       "additions": 2,
+       "deletions": 1
+      },
+      {
+       "path": "b2.txt",
+       "id": "<ws>/b2.txt",
+       "outside": false,
+       "oldPath": "b.txt",
+       "status": "R",
+       "additions": 0,
+       "deletions": 0
+      },
+      {
+       "path": "c.txt",
+       "id": "<ws>/c.txt",
+       "outside": false,
+       "status": "D",
+       "additions": 0,
+       "deletions": 1
+      },
+      {
+       "path": "new.txt",
+       "id": "<ws>/new.txt",
+       "outside": false,
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/<sc>/out/o.txt b/<sc>/out/o.txt\n--- a/<sc>/out/o.txt\n+++ b/<sc>/out/o.txt\n@@ -1,1 +1,1 @@\n-outside v1\n+outside v2\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\ndiff --git a/b.txt b/b2.txt\nsimilarity index 100%\nrename from b.txt\nrename to b2.txt\ndiff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\ndiff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+changed outside the session\n",
+     "snapshotKind": "session-tool",
+     "authoritative": true,
+     "complete": true,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 22,
+    "result": {
+     "text": "{\"version\":1,\"sessionId\":\"s1\",\"createdAt\":0,\"updatedAt\":0,\"files\":[{\"key\":\"<ws>/a.txt\",\"path\":\"<ws>\\\\a.txt\",\"root\":\"<ws>\",\"at\":0,\"state\":\"present\",\"status\":\"captured\",\"size\":14,\"sha256\":\"b6285c57e8797db5d4c51c80d6f11938afda9b11c6a003549709189e9b4b92a2\",\"blob\":\"b6285c57e8797db5d4c51c80d6f11938afda9b11c6a003549709189e9b4b92a2\",\"touched\":0},{\"key\":\"<ws>/new.txt\",\"path\":\"<ws>\\\\new.txt\",\"root\":\"<ws>\",\"at\":0,\"state\":\"absent\",\"status\":\"captured\",\"size\":0},{\"key\":\"<ws>/c.txt\",\"path\":\"<ws>\\\\c.txt\",\"root\":\"<ws>\",\"at\":0,\"state\":\"present\",\"status\":\"captured\",\"size\":5,\"sha256\":\"4b9f2c32577beb1ebc8ab2a1e226faaa9176a81cd4eedbaa22f8a0db919972b5\",\"blob\":\"4b9f2c32577beb1ebc8ab2a1e226faaa9176a81cd4eedbaa22f8a0db919972b5\"},{\"key\":\"<ws>/b.txt\",\"path\":\"<ws>\\\\b.txt\",\"root\":\"<ws>\",\"at\":0,\"state\":\"present\",\"status\":\"captured\",\"size\":6,\"sha256\":\"856466dcf157a2a8d76848119729fefca895e2954f315cc4885507dfa3995721\",\"blob\":\"856466dcf157a2a8d76848119729fefca895e2954f315cc4885507dfa3995721\"},{\"key\":\"<ws>/b2.txt\",\"path\":\"<ws>\\\\b2.txt\",\"root\":\"<ws>\",\"at\":0,\"state\":\"absent\",\"status\":\"captured\",\"size\":0},{\"key\":\"<sc>/out/o.txt\",\"path\":\"<sc>\\\\out\\\\o.txt\",\"root\":\"<ws>\",\"at\":0,\"state\":\"present\",\"status\":\"captured\",\"size\":11,\"sha256\":\"27b21f234268367285107255d0262de5c4ff2143f389c8cb49daa89ecab0546d\",\"blob\":\"27b21f234268367285107255d0262de5c4ff2143f389c8cb49daa89ecab0546d\"}],\"renames\":[],\"events\":[[0,\"<ws>/new.txt\"],[0,\"<ws>/c.txt\"],[0,\"<ws>/b.txt\",\"<ws>/b2.txt\"]]}"
+    }
+   },
+   {
+    "op": 24,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "<sc>/out/o.txt",
+       "id": "<sc>/out/o.txt",
+       "outside": true,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      },
+      {
+       "path": "a.txt",
+       "id": "<ws>/a.txt",
+       "outside": false,
+       "status": "M",
+       "additions": 2,
+       "deletions": 1
+      },
+      {
+       "path": "b2.txt",
+       "id": "<ws>/b2.txt",
+       "outside": false,
+       "oldPath": "b.txt",
+       "status": "R",
+       "additions": 0,
+       "deletions": 0
+      },
+      {
+       "path": "c.txt",
+       "id": "<ws>/c.txt",
+       "outside": false,
+       "status": "D",
+       "additions": 0,
+       "deletions": 1
+      },
+      {
+       "path": "new.txt",
+       "id": "<ws>/new.txt",
+       "outside": false,
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/<sc>/out/o.txt b/<sc>/out/o.txt\n--- a/<sc>/out/o.txt\n+++ b/<sc>/out/o.txt\n@@ -1,1 +1,1 @@\n-outside v1\n+outside v2\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\ndiff --git a/b.txt b/b2.txt\nsimilarity index 100%\nrename from b.txt\nrename to b2.txt\ndiff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\ndiff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+changed outside the session\n",
+     "snapshotKind": "session",
+     "authoritative": true,
+     "complete": true,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 26,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "<sc>/out/o.txt",
+       "id": "<sc>/out/o.txt",
+       "outside": true,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      },
+      {
+       "path": "b2.txt",
+       "id": "<ws>/b2.txt",
+       "outside": false,
+       "oldPath": "b.txt",
+       "status": "R",
+       "additions": 0,
+       "deletions": 0
+      },
+      {
+       "path": "c.txt",
+       "id": "<ws>/c.txt",
+       "outside": false,
+       "status": "D",
+       "additions": 0,
+       "deletions": 1
+      },
+      {
+       "path": "new.txt",
+       "id": "<ws>/new.txt",
+       "outside": false,
+       "status": "A",
+       "additions": 1,
+       "deletions": 0
+      }
+     ],
+     "patch": "diff --git a/<sc>/out/o.txt b/<sc>/out/o.txt\n--- a/<sc>/out/o.txt\n+++ b/<sc>/out/o.txt\n@@ -1,1 +1,1 @@\n-outside v1\n+outside v2\ndiff --git a/b.txt b/b2.txt\nsimilarity index 100%\nrename from b.txt\nrename to b2.txt\ndiff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\ndiff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+changed outside the session\n",
+     "snapshotKind": "session",
+     "authoritative": true,
+     "complete": true,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 27,
+    "result": {
+     "supported": true,
+     "path": "new.txt",
+     "patch": "diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+changed outside the session\n"
+    }
+   }
+  ]
+ },
+ {
+  "name": "session review inside Git: baseline tree, owned paths, files outside the root",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "git"
+   },
+   {
+    "op": "file",
+    "path": "a.txt",
+    "content": {
+     "text": "x\ny\n"
+    }
+   },
+   {
+    "op": "file",
+    "path": "keep.txt",
+    "content": {
+     "text": "untouched\n"
+    }
+   },
+   {
+    "op": "file",
+    "path": "../outside.txt",
+    "content": {
+     "text": "out v1\n"
+    }
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "path": "a.txt",
+    "content": {
+     "text": "x\nY\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "../outside.txt",
+    "content": {
+     "text": "out v2\n"
+    }
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "sessionFile",
+    "file": "a.txt"
+   },
+   {
+    "op": "sessionFile",
+    "file": "keep.txt"
+   },
+   {
+    "op": "sessionFile",
+    "file": "../outside.txt"
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp2"
+   },
+   {
+    "op": "edit",
+    "path": "b.txt",
+    "content": {
+     "text": "second turn\n"
+    }
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "restart"
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "sessionFile",
+    "file": "b.txt"
+   }
+  ],
+  "results": [
+   {
+    "op": 4,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [],
+     "patch": "",
+     "snapshotKind": "session",
+     "authoritative": false,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 5,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "a.txt",
+       "oldPath": null,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1,
+       "binary": false
+      },
+      {
+       "path": "<sc>/outside.txt",
+       "id": "<sc>/outside.txt",
+       "outside": true,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\nindex b77b4eb..7061c57 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\ndiff --git a/<sc>/outside.txt b/<sc>/outside.txt\n--- a/<sc>/outside.txt\n+++ b/<sc>/outside.txt\n@@ -1,1 +1,1 @@\n-out v1\n+out v2\n",
+     "patchTruncated": false,
+     "snapshotKind": "session",
+     "authoritative": true,
+     "complete": true
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "a.txt",
+       "oldPath": null,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1,
+       "binary": false
+      },
+      {
+       "path": "<sc>/outside.txt",
+       "id": "<sc>/outside.txt",
+       "outside": true,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\nindex b77b4eb..7061c57 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\ndiff --git a/<sc>/outside.txt b/<sc>/outside.txt\n--- a/<sc>/outside.txt\n+++ b/<sc>/outside.txt\n@@ -1,1 +1,1 @@\n-out v1\n+out v2\n",
+     "patchTruncated": false,
+     "snapshotKind": "session",
+     "authoritative": true,
+     "complete": true
+    }
+   },
+   {
+    "op": 11,
+    "result": {
+     "supported": true,
+     "path": "a.txt",
+     "patch": "diff --git a/a.txt b/a.txt\nindex b77b4eb..7061c57 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\n"
+    }
+   },
+   {
+    "op": 12,
+    "result": {
+     "supported": true,
+     "path": "keep.txt",
+     "patch": ""
+    }
+   },
+   {
+    "op": 13,
+    "result": {
+     "supported": true,
+     "path": "../outside.txt",
+     "patch": ""
+    }
+   },
+   {
+    "op": 14,
+    "result": {
+     "token": {
+      "generation": 2,
+      "checkpointId": "cp2"
+     }
+    }
+   },
+   {
+    "op": 16,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 18,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "a.txt",
+       "oldPath": null,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1,
+       "binary": false
+      },
+      {
+       "path": "b.txt",
+       "oldPath": null,
+       "status": "A",
+       "additions": 1,
+       "deletions": 0,
+       "binary": false
+      },
+      {
+       "path": "<sc>/outside.txt",
+       "id": "<sc>/outside.txt",
+       "outside": true,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/a.txt b/a.txt\nindex b77b4eb..7061c57 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\ndiff --git a/b.txt b/b.txt\nnew file mode 100644\nindex 0000000..7388ec6\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+second turn\ndiff --git a/<sc>/outside.txt b/<sc>/outside.txt\n--- a/<sc>/outside.txt\n+++ b/<sc>/outside.txt\n@@ -1,1 +1,1 @@\n-out v1\n+out v2\n",
+     "patchTruncated": false,
+     "snapshotKind": "session",
+     "authoritative": true,
+     "complete": true
+    }
+   },
+   {
+    "op": 19,
+    "result": {
+     "supported": true,
+     "path": "b.txt",
+     "patch": "diff --git a/b.txt b/b.txt\nnew file mode 100644\nindex 0000000..7388ec6\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+second turn\n"
+    }
+   }
+  ]
+ },
+ {
+  "name": "session review: workers join their lead, uncaptured first states, deleted history, other sessions",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "file",
+    "path": "img.bin",
+    "content": {
+     "b64": "AAECA/8="
+    }
+   },
+   {
+    "op": "file",
+    "path": "w.txt",
+    "content": {
+     "text": "worker file\n"
+    }
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "agentBegin",
+    "handle": "h1",
+    "owner": "s1",
+    "child": "worker-1",
+    "agent": "worker",
+    "tag": "task"
+   },
+   {
+    "op": "edit",
+    "session": "worker-1",
+    "path": "w.txt",
+    "content": {
+     "text": "worker edit\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "img.bin",
+    "content": {
+     "b64": "AAEJA/8H"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "big.dat",
+    "before": {
+     "omitted": {
+      "size": 70000000,
+      "reason": "oversized"
+     }
+    },
+    "content": {
+     "text": "now small\n"
+    }
+   },
+   {
+    "op": "edit",
+    "path": "huge.bin",
+    "before": {
+     "omitted": {
+      "size": 5000,
+      "reason": "binary"
+     }
+    },
+    "content": {
+     "text": "text now\n"
+    }
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "sessionReview",
+    "session": "worker-1"
+   },
+   {
+    "op": "sessionReview",
+    "session": "nobody"
+   },
+   {
+    "op": "baselineIndex"
+   },
+   {
+    "op": "baselineIndex",
+    "session": "worker-1"
+   },
+   {
+    "op": "agentComplete",
+    "handle": "h1",
+    "patches": []
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "restart"
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "clearHistory"
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "baselineIndex"
+   },
+   {
+    "op": "begin",
+    "checkpoint": "cp2"
+   },
+   {
+    "op": "edit",
+    "path": "w.txt",
+    "content": {
+     "text": "after the delete\n"
+    }
+   },
+   {
+    "op": "complete"
+   },
+   {
+    "op": "sessionReview"
+   },
+   {
+    "op": "baselineIndex"
+   },
+   {
+    "op": "forget"
+   },
+   {
+    "op": "sessionReview"
+   }
+  ],
+  "results": [
+   {
+    "op": 2,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp1"
+     }
+    }
+   },
+   {
+    "op": 3,
+    "result": {
+     "handle": {
+      "id": "<id>",
+      "ownerSessionId": "s1",
+      "generation": 1,
+      "historyEpoch": 0,
+      "sessionId": "worker-1",
+      "agent": "worker",
+      "tag": "task",
+      "completed": false
+     }
+    }
+   },
+   {
+    "op": 8,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "big.dat",
+       "id": "<ws>/big.dat",
+       "outside": false,
+       "status": "M",
+       "additions": 0,
+       "deletions": 0,
+       "reason": "the session's original content was too large to capture",
+       "baseline": "omitted-oversized"
+      },
+      {
+       "path": "huge.bin",
+       "id": "<ws>/huge.bin",
+       "outside": false,
+       "status": "M",
+       "additions": 0,
+       "deletions": 0,
+       "binary": true,
+       "reason": "the session's original binary content was not captured",
+       "baseline": "omitted-binary"
+      },
+      {
+       "path": "img.bin",
+       "id": "<ws>/img.bin",
+       "outside": false,
+       "status": "M",
+       "additions": 0,
+       "deletions": 0,
+       "binary": true
+      },
+      {
+       "path": "w.txt",
+       "id": "<ws>/w.txt",
+       "outside": false,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/img.bin b/img.bin\nindex e2613b3caa99ff78f481d27639d5500710722310..58778e0e243caef08270a5b93e73e14b4e28b0a8 100644\nGIT binary patch\nliteral 6\nNc${Nk<YfNO4gdl@0TciL\n\nliteral 5\nMc${NkWMcjg009&M1^@s6\n\ndiff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1,1 +1,1 @@\n-worker file\n+worker edit\n",
+     "snapshotKind": "session-tool",
+     "authoritative": true,
+     "partial": true,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 9,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "w.txt",
+       "id": "<ws>/w.txt",
+       "outside": false,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1,1 +1,1 @@\n-worker file\n+worker edit\n",
+     "snapshotKind": "session-tool",
+     "authoritative": true,
+     "complete": true,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 10,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [],
+     "patch": "",
+     "snapshotKind": "session",
+     "authoritative": false,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 11,
+    "result": {
+     "text": "{\"version\":1,\"sessionId\":\"s1\",\"createdAt\":0,\"updatedAt\":0,\"files\":[{\"key\":\"<ws>/w.txt\",\"path\":\"<ws>\\\\w.txt\",\"root\":\"<ws>\",\"at\":0,\"state\":\"present\",\"status\":\"captured\",\"size\":12,\"sha256\":\"05de0c04e9b6fa673ae5c33182f2f8d7022e3a202f2553ff89bbf777f6fac2ed\",\"blob\":\"05de0c04e9b6fa673ae5c33182f2f8d7022e3a202f2553ff89bbf777f6fac2ed\"},{\"key\":\"<ws>/img.bin\",\"path\":\"<ws>\\\\img.bin\",\"root\":\"<ws>\",\"at\":0,\"state\":\"present\",\"status\":\"captured\",\"size\":5,\"sha256\":\"ff5d8507b6a72bee2debce2c0054798deaccdc5d8a1b945b6280ce8aa9cba52e\",\"blob\":\"ff5d8507b6a72bee2debce2c0054798deaccdc5d8a1b945b6280ce8aa9cba52e\"},{\"key\":\"<ws>/big.dat\",\"path\":\"<ws>\\\\big.dat\",\"root\":\"<ws>\",\"at\":0,\"state\":\"present\",\"status\":\"omitted-oversized\",\"size\":70000000},{\"key\":\"<ws>/huge.bin\",\"path\":\"<ws>\\\\huge.bin\",\"root\":\"<ws>\",\"at\":0,\"state\":\"present\",\"status\":\"omitted-binary\",\"size\":5000}],\"renames\":[],\"events\":[]}"
+    }
+   },
+   {
+    "op": 12,
+    "result": {
+     "text": "{\"version\":1,\"sessionId\":\"worker-1\",\"createdAt\":0,\"updatedAt\":0,\"files\":[{\"key\":\"<ws>/w.txt\",\"path\":\"<ws>\\\\w.txt\",\"root\":\"<ws>\",\"at\":0,\"state\":\"present\",\"status\":\"captured\",\"size\":12,\"sha256\":\"05de0c04e9b6fa673ae5c33182f2f8d7022e3a202f2553ff89bbf777f6fac2ed\",\"blob\":\"05de0c04e9b6fa673ae5c33182f2f8d7022e3a202f2553ff89bbf777f6fac2ed\"}],\"renames\":[],\"events\":[]}"
+    }
+   },
+   {
+    "op": 13,
+    "result": {
+     "joined": true
+    }
+   },
+   {
+    "op": 14,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 16,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "big.dat",
+       "id": "<ws>/big.dat",
+       "outside": false,
+       "status": "M",
+       "additions": 0,
+       "deletions": 0,
+       "reason": "the session's original content was too large to capture",
+       "baseline": "omitted-oversized"
+      },
+      {
+       "path": "huge.bin",
+       "id": "<ws>/huge.bin",
+       "outside": false,
+       "status": "M",
+       "additions": 0,
+       "deletions": 0,
+       "binary": true,
+       "reason": "the session's original binary content was not captured",
+       "baseline": "omitted-binary"
+      },
+      {
+       "path": "img.bin",
+       "id": "<ws>/img.bin",
+       "outside": false,
+       "status": "M",
+       "additions": 0,
+       "deletions": 0,
+       "binary": true
+      },
+      {
+       "path": "w.txt",
+       "id": "<ws>/w.txt",
+       "outside": false,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/img.bin b/img.bin\nindex e2613b3caa99ff78f481d27639d5500710722310..58778e0e243caef08270a5b93e73e14b4e28b0a8 100644\nGIT binary patch\nliteral 6\nNc${Nk<YfNO4gdl@0TciL\n\nliteral 5\nMc${NkWMcjg009&M1^@s6\n\ndiff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1,1 +1,1 @@\n-worker file\n+worker edit\n",
+     "snapshotKind": "session",
+     "authoritative": true,
+     "partial": true,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 17,
+    "result": {
+     "ok": {
+      "turns": 1
+     }
+    }
+   },
+   {
+    "op": 18,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [],
+     "patch": "",
+     "snapshotKind": "session",
+     "authoritative": true,
+     "complete": true,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 19,
+    "result": {
+     "text": "{\"version\":1,\"sessionId\":\"s1\",\"createdAt\":0,\"updatedAt\":0,\"clearedAt\":0,\"files\":[],\"renames\":[],\"events\":[]}"
+    }
+   },
+   {
+    "op": 20,
+    "result": {
+     "token": {
+      "generation": 1,
+      "checkpointId": "cp2"
+     }
+    }
+   },
+   {
+    "op": 22,
+    "result": {
+     "completed": true
+    }
+   },
+   {
+    "op": 23,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "w.txt",
+       "id": "<ws>/w.txt",
+       "outside": false,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1,1 +1,1 @@\n-worker edit\n+after the delete\n",
+     "snapshotKind": "session-tool",
+     "authoritative": true,
+     "complete": true,
+     "patchTruncated": false
+    }
+   },
+   {
+    "op": 24,
+    "result": {
+     "text": "{\"version\":1,\"sessionId\":\"s1\",\"createdAt\":0,\"updatedAt\":0,\"clearedAt\":0,\"files\":[{\"key\":\"<ws>/w.txt\",\"path\":\"<ws>\\\\w.txt\",\"root\":\"<ws>\",\"at\":0,\"state\":\"present\",\"status\":\"captured\",\"size\":12,\"sha256\":\"3ae9025d52d4aecf4cf35d611b6007bdf037a2473d16bfc08c20e078b267b45f\",\"blob\":\"3ae9025d52d4aecf4cf35d611b6007bdf037a2473d16bfc08c20e078b267b45f\"}],\"renames\":[],\"events\":[]}"
+    }
+   },
+   {
+    "op": 26,
+    "result": {
+     "supported": true,
+     "root": "<ws>",
+     "files": [
+      {
+       "path": "w.txt",
+       "id": "<ws>/w.txt",
+       "outside": false,
+       "status": "M",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "patch": "diff --git a/w.txt b/w.txt\n--- a/w.txt\n+++ b/w.txt\n@@ -1,1 +1,1 @@\n-worker edit\n+after the delete\n",
+     "snapshotKind": "session",
+     "authoritative": true,
+     "complete": true,
+     "patchTruncated": false
     }
    }
   ]

@@ -47,10 +47,12 @@ pub struct CallerChain {
 pub trait RouteSetupSessions: Send + Sync {
     /// `None` when the caller has no agent (it follows no chain).
     fn caller_chain(&self, thread: &ThreadId, config: &Obj) -> Option<CallerChain>;
-    /// An open session by id; `None` when it is absent or closed.
-    fn session(&self, id: &str, config: &Obj) -> Option<SessionFacts>;
-    /// The open sessions of `agent`: those held here, then its home thread from disk.
-    fn agent_sessions(&self, agent: &str, config: &Obj) -> Vec<SessionFacts>;
+    /// An open session by id, held here or stored (`mgr.getSession`); `None` when it is absent or
+    /// closed.
+    async fn session(&self, id: &str, config: &Obj) -> Option<SessionFacts>;
+    /// The open sessions of `agent`: those held here, then its home thread, from disk when it is
+    /// not loaded.
+    async fn agent_sessions(&self, agent: &str, config: &Obj) -> Vec<SessionFacts>;
     /// The daemon's configure lane (`executeSessionControl`, action `route`) on another session.
     async fn control(&self, caller: &ThreadId, session: &str, method: &str, input: Option<&Obj>) -> Result<Value, PortError>;
 }
@@ -221,7 +223,7 @@ impl RouteActions {
             return Err(fail(format!("{action} applies to another session: this one is running the setup call")));
         }
         let config = self.writes.config();
-        let session = self.sessions.session(&id, &config).ok_or_else(|| fail(format!("session {id} not found")))?;
+        let session = self.sessions.session(&id, &config).await.ok_or_else(|| fail(format!("session {id} not found")))?;
         self.assert_agent(thread, &session.acting_agent, action).await?;
         Ok(session)
     }
@@ -237,7 +239,7 @@ impl RouteActions {
                 return Err(fail("agent is required"));
             }
             self.assert_agent(thread, &agent, "reset_route_fallback").await?;
-            self.sessions.agent_sessions(&agent, &config)
+            self.sessions.agent_sessions(&agent, &config).await
         } else {
             vec![self.target(thread, args, "reset_route_fallback", false).await?]
         };

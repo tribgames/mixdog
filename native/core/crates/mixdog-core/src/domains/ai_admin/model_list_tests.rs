@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::catalog::{CatalogSnapshot, ModelsDevSource};
+use mixdog_ai::catalog::{CatalogSnapshot, ModelSource, ModelsDevSource};
 use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
@@ -64,4 +64,52 @@ async fn model_list_matches_node() {
             assert_eq!(got, want, "{label}: row {n} {}", want["id"]);
         }
     }
+}
+
+struct Listed(Vec<mixdog_core_api::domain::provider::ModelRecord>);
+
+#[async_trait]
+impl mixdog_core_api::domain::provider::ModelListing for Listed {
+    async fn list_models(&self) -> Result<Vec<mixdog_core_api::domain::provider::ModelRecord>, ProviderError> {
+        Ok(self.0.clone())
+    }
+}
+
+/// The service over a snapshot the providers' own listing code produced (`codex_record`): the
+/// facts the picker rows read are the record's, not a recorded input.
+#[tokio::test]
+async fn a_snapshot_the_provider_listing_produced_reaches_the_rows() {
+    let rows = [
+        json!({ "slug": "gpt-5-codex", "display_name": "GPT 5.4", "description": "d54", "default_service_tier": "priority",
+                "supports_reasoning_effort_updates": false, "supported_reasoning_levels": [{ "effort": "low" }, { "effort": "high" }] }),
+        json!({ "slug": "gpt-6-mini", "display_name": "GPT 5.5" }),
+    ];
+    let records: Vec<_> = rows.iter().map(|row| mixdog_ai::providers::openai::models::codex_record(row).unwrap()).collect();
+    let source = ModelSource::new(serde_json::from_value(json!("openai-oauth")).unwrap(), Arc::new(Listed(records)));
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
+    let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), vec![source], metadata).await);
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let path = dir.path().join("mixdog-config.json");
+    std::fs::write(&path, serde_json::to_vec(&json!({ "agent": {} })).unwrap()).unwrap();
+    let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let service = ModelListService {
+        catalog,
+        config,
+        primary_provider: Arc::new(|| "openai-oauth".to_owned()),
+        unsupported: Arc::new(UnsupportedEfforts::default()),
+    };
+    let rows = service.rows(false, false).await;
+    let row = |id: &str| rows.iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("{id} in {rows:?}"));
+    let (stated, silent) = (row("gpt-5-codex"), row("gpt-6-mini"));
+    assert_eq!(stated["display"], "GPT 5.4");
+    assert_eq!(stated["description"], "d54");
+    assert_eq!(stated["tier"], "version");
+    assert_eq!(stated["defaultServiceTier"], "priority");
+    // The catalog says this model takes no mid-conversation effort update; the version rule
+    // alone would have allowed it.
+    assert_eq!(stated["autoEffortCapable"], json!(false));
+    assert_eq!(silent["autoEffortCapable"], json!(true));
 }

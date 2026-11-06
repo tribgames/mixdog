@@ -859,6 +859,9 @@ impl Tool for GitTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        // On every exit, a cancelled call included, the command is a turn boundary for the
+        // session's folder.
+        let _settled = crate::exec::settle::SettleGuard::new(ctx.review.clone(), ctx.cwd.as_path().to_string_lossy().into_owned());
         Ok(text_output(execute_git_tool(&self.locks, self.worktrees.as_ref(), ctx, args).await))
     }
 }

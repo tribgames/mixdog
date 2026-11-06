@@ -179,10 +179,19 @@ impl Inner {
         if self.is_closed() || slot.mem().warning_pending {
             return;
         }
-        let mut view = match self.read_view(&slot, id).await {
-            Ok(goal) => goal,
-            Err(error) => return self.on_error(&error),
-        };
+        match self.cached(&slot, id).await {
+            Ok(goal) => self.deliver_warning_with(&slot, id, threshold_ms, goal),
+            Err(error) => self.on_error(&error),
+        }
+    }
+
+    /// The rest of `deliverDeadlineWarning` over a record already read; its mutation joins the
+    /// session's queue at once.
+    fn deliver_warning_with(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, threshold_ms: f64, mut view: Option<Goal>) {
+        if self.is_closed() || slot.mem().warning_pending {
+            return;
+        }
+        let slot = slot.clone();
         let pending = self.warning_state(&slot, id, view.as_mut(), self.now());
         let crossed = pending.as_ref().map_or(0.0, |p| p.crossed);
         let target = if threshold_ms != 0.0 { threshold_ms } else { crossed };
@@ -203,7 +212,7 @@ impl Inner {
         let (inner, id) = (self.clone(), id.to_owned());
         self.spawn_task(async move {
             let slot = inner.slot(&id);
-            match inner.read_view(&slot, &id).await {
+            match inner.cached(&slot, &id).await {
                 Ok(goal) => {
                     inner.limit_if_expired_with(&slot, &id, goal);
                 }
@@ -217,10 +226,15 @@ impl Inner {
         self.spawn_task(async move { inner.deliver_deadline_warning(&id, threshold_ms).await });
     }
 
+    /// The crossing seen by `armDeadline` is delivered from that same read.
+    fn spawn_crossed_warning(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, threshold_ms: f64, goal: &Goal) {
+        self.deliver_warning_with(slot, id, threshold_ms, Some(goal.clone()));
+    }
+
     /// `armDeadline` over an observer's read of the record.
     pub async fn arm_observed(self: &Arc<Self>, id: &str) -> GoalResult<()> {
         let slot = self.slot(id);
-        let goal = self.read_view(&slot, id).await?;
+        let goal = self.cached(&slot, id).await?;
         self.arm_deadline(&slot, id, goal);
         Ok(())
     }
@@ -262,7 +276,8 @@ impl Inner {
         let warnings = self.warning_state(slot, id, Some(goal), at);
         if let Some(warnings) = warnings {
             if warnings.crossed != 0.0 {
-                self.spawn_warning(id, warnings.crossed);
+                let seen = goal.clone();
+                self.spawn_crossed_warning(slot, id, warnings.crossed, &seen);
             } else if warnings.next_delay > 0.0 {
                 let delay = f64::min(remaining, warnings.next_delay + WARNING_MARGIN_MS);
                 let (weak, task_id) = (Arc::downgrade(self), id.to_owned());
@@ -327,7 +342,7 @@ impl Tx<'_> {
         if self.inner.is_closed() {
             return Ok(());
         }
-        let mut current = self.read_record()?;
+        let mut current = self.read_stored()?;
         let at = self.now();
         if self.inner.settle_projection(slot, id, current.as_mut(), at) {
             let current = current.expect("an expired Goal exists");
@@ -341,7 +356,7 @@ impl Tx<'_> {
         if self.inner.is_closed() {
             return Ok(());
         }
-        let mut current = self.read_record()?;
+        let mut current = self.read_stored()?;
         let state = self.inner.warning_state(slot, id, current.as_mut(), self.now());
         let Some(state) = state.filter(|s| s.crossed != 0.0 && s.crossed == target) else { return Ok(()) };
         let _ = state;
@@ -361,7 +376,7 @@ impl Tx<'_> {
         if self.inner.is_closed() {
             return Ok(());
         }
-        let Some(mut goal) = self.read_record()? else { return Ok(()) };
+        let Some(mut goal) = self.read_stored()? else { return Ok(()) };
         if string(&goal, "status") != "active" || !truthy(goal.get("lastStartedAt")) {
             return Ok(());
         }

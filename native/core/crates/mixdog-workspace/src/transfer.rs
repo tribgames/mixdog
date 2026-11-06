@@ -60,7 +60,7 @@ struct Read {
     version: String,
     // Declared after `file`, so the handle is closed before the removal (Windows cannot remove a
     // folder that holds an open file).
-    cleanup: Option<Cleanup>,
+    _cleanup: Option<Cleanup>,
     #[allow(dead_code)]
     opened: Instant,
 }
@@ -204,7 +204,7 @@ impl Transfers {
         let id = new_id();
         reads.insert(
             id.clone(),
-            Read { owner: owner.to_owned(), file, size, version: version.clone(), cleanup: cleanup.map(Cleanup), opened: Instant::now() },
+            Read { owner: owner.to_owned(), file, size, version: version.clone(), _cleanup: cleanup.map(Cleanup), opened: Instant::now() },
         );
         // Every source's offered name goes through Node's `sanitizedFileName`, here and nowhere else.
         let name = sanitized_file_name(&name);

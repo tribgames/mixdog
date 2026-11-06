@@ -379,7 +379,7 @@ impl Inner {
 
     /// A legacy record kept no counts or diff for a new file it could not replay (outside the
     /// root): measure the file as it is on disk now.
-    async fn measure_legacy_change_file(&self, file: Obj, root: &str, budget: &mut LineDiffBudget) -> Obj {
+    pub(super) async fn measure_legacy_change_file(&self, file: Obj, root: &str, budget: &mut LineDiffBudget) -> Obj {
         if !is_unmeasured_file(&file) {
             return file;
         }

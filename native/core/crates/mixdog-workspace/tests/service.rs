@@ -44,6 +44,10 @@ struct Env {
 }
 
 fn env() -> Env {
+    env_with(None)
+}
+
+fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>>) -> Env {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let base = canonical(dir.path()).unwrap();
@@ -69,6 +73,7 @@ fn env() -> Env {
         user_data_dir: base.join("userData"),
         sources: vec![Arc::new(FixedSource(base.join("export.bin")))],
         code_graph: Some(Arc::new(EchoGraph)),
+        turn_review,
     })
     .unwrap();
     futures_block(service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None)).unwrap();
@@ -295,6 +300,193 @@ async fn a_source_domains_file_is_read_through_the_transfer_methods() {
     // A kind nobody serves stays unsupported.
     let missing = call(&env, "transfer/beginRead", json!({ "source": { "kind": "mediaAsset", "id": "m" } })).await;
     assert!(matches!(missing, Err(CoreError::DomainError { .. })), "{missing:?}");
+}
+
+/// A turn review that only records the `note_change` boundaries it is told of.
+#[derive(Default)]
+struct NoteLog(std::sync::Mutex<Vec<Option<Vec<String>>>>);
+
+#[async_trait::async_trait]
+impl mixdog_core_api::turn_review::TurnReviewApi for NoteLog {
+    fn note_change(&self, paths: Option<&[String]>) {
+        self.0.lock().unwrap().push(paths.map(<[String]>::to_vec));
+    }
+    async fn record_call(&self, _: &str, _: &str, _: &str, _: Vec<mixdog_core_api::turn_review::CallChange>) {
+        unimplemented!()
+    }
+    async fn record_tool_changes(&self, _: &str, _: &str, _: Vec<mixdog_core_api::turn_review::CallChange>) {
+        unimplemented!()
+    }
+    fn take_call_diff(&self, _: &str) -> Option<String> {
+        unimplemented!()
+    }
+    async fn begin_turn(&self, _: &str, _: &str, _: mixdog_core_api::turn_review::TurnOpen) -> Option<mixdog_core_api::turn_review::TurnToken> {
+        unimplemented!()
+    }
+    async fn complete_turn(&self, _: &str, _: Option<&mixdog_core_api::turn_review::TurnToken>) -> bool {
+        unimplemented!()
+    }
+    fn begin_agent_review(&self, _: &str, _: &str, _: &str, _: &str) -> Option<Box<dyn mixdog_core_api::turn_review::AgentReview>> {
+        unimplemented!()
+    }
+    fn forget_session(&self, _: &str) {
+        unimplemented!()
+    }
+    async fn turn_review_diff(&self, _: &str, _: &str, _: mixdog_core_api::turn_review::ReviewRead) -> mixdog_core_api::turn_review::Reply {
+        unimplemented!()
+    }
+    async fn session_review_diff(&self, _: &str, _: &str) -> mixdog_core_api::turn_review::Reply {
+        unimplemented!()
+    }
+    async fn session_review_file_patch(&self, _: &str, _: &str, _: &str, _: &str) -> mixdog_core_api::turn_review::Reply {
+        unimplemented!()
+    }
+    async fn turn_review_file_patch(&self, _: &str, _: &str, _: &str) -> mixdog_core_api::turn_review::Reply {
+        unimplemented!()
+    }
+    async fn revert_turn_review(&self, _: &str, _: &str, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        unimplemented!()
+    }
+    async fn revert_turn_review_file(&self, _: &str, _: &str, _: &str, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        unimplemented!()
+    }
+    async fn turn_changes(&self, _: &str, _: mixdog_core_api::turn_review::ChangesRead) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        unimplemented!()
+    }
+    async fn revert_turn_changes(&self, _: &str, _: &str, _: Option<&str>, _: f64) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        unimplemented!()
+    }
+    async fn reapply_turn_changes(&self, _: &str, _: &str, _: Option<&str>, _: f64) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        unimplemented!()
+    }
+    async fn clear_change_history(&self, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        unimplemented!()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_service_tells_the_turn_review_which_files_it_changed_and_only_after_it_did() {
+    let log = Arc::new(NoteLog::default());
+    let env = env_with(Some(log.clone()));
+    let root = env.root.to_string_lossy().into_owned();
+    let abs = |rel: &str| env.root.join(rel);
+    let noted = || -> Vec<Option<Vec<PathBuf>>> {
+        log.0.lock().unwrap().iter().map(|n| n.as_ref().map(|p| p.iter().map(PathBuf::from).collect())).collect()
+    };
+
+    call(&env, "projectFs/writeText", json!({ "root": root, "rel": "a.txt", "content": "two\n", "expectedContent": "one\n" })).await.unwrap();
+    assert_eq!(noted(), [Some(vec![abs("a.txt")])]);
+
+    // A refused write changed nothing and tells no one.
+    let refused = call(&env, "projectFs/writeText", json!({ "root": root, "rel": "a.txt", "content": "x", "expectedContent": "stale" })).await;
+    assert!(refused.is_err());
+    assert_eq!(noted().len(), 1);
+
+    call(&env, "projectFs/writeTextBatch", json!({ "root": root, "files": [
+        { "relPath": "a.txt", "content": "three\n", "expectedContent": "two\n" },
+        { "relPath": "readme.md", "content": "# yo\n", "expectedContent": "# hi\n" },
+    ] })).await.unwrap();
+    call(&env, "projectFs/create", json!({ "root": root, "relDir": "src", "name": "new.txt" })).await.unwrap();
+    call(&env, "projectFs/rename", json!({ "root": root, "rel": "src/new.txt", "newName": "old.txt" })).await.unwrap();
+    call(&env, "projectFs/move", json!({ "root": root, "rel": "src/old.txt", "targetDirRel": "." })).await.unwrap();
+    call(&env, "projectFs/copy", json!({ "root": root, "rel": "old.txt", "targetDirRel": "src" })).await.unwrap();
+    assert_eq!(
+        noted()[1..],
+        [
+            Some(vec![abs("a.txt"), abs("readme.md")]),
+            Some(vec![abs("src/new.txt")]),
+            Some(vec![abs("src/new.txt"), abs("src/old.txt")]),
+            Some(vec![abs("src/old.txt"), abs("old.txt")]),
+            Some(vec![abs("src/old.txt")]),
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_trash_entry_names_its_path_and_an_upload_commit_names_none() {
+    let log = Arc::new(NoteLog::default());
+    let env = env_with(Some(log.clone()));
+    let root = env.root.to_string_lossy().into_owned();
+    let noted = || log.0.lock().unwrap().clone();
+
+    // A permanent delete through the server trash path.
+    call(&env, "transfer/trash/entry", json!({ "path": root, "rel": "readme.md", "permanent": true })).await.unwrap();
+    assert!(!env.root.join("readme.md").exists());
+    assert_eq!(noted().len(), 1);
+    assert_eq!(noted()[0].as_ref().unwrap().iter().map(PathBuf::from).collect::<Vec<_>>(), [env.root.join("readme.md")]);
+
+    // A refused entry (missing) tells no one.
+    assert!(call(&env, "transfer/trash/entry", json!({ "path": root, "rel": "readme.md", "permanent": true })).await.is_err());
+    assert_eq!(noted().len(), 1);
+
+    // An upload names no file at commit: anything may have changed.
+    let begun = call(&env, "transfer/beginWrite", json!({ "root": root, "rel": "up.bin", "size": 3 })).await.unwrap();
+    assert_eq!(noted().len(), 1, "beginning an upload changes nothing");
+    let id = begun["transferId"].clone();
+    call(&env, "transfer/writeChunk", json!({ "transferId": id, "offset": 0, "bytesB64": "YWJj" })).await.unwrap();
+    assert_eq!(noted().len(), 1, "a chunk is only staged");
+    call(&env, "transfer/commit", json!({ "transferId": id })).await.unwrap();
+    assert_eq!(noted()[1..], [None]);
+    assert_eq!(std::fs::read(env.root.join("up.bin")).unwrap(), b"abc");
+}
+
+// `projectFs/trash` moves to the OS recycle bin, which a headless Unix host may not have.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trashed_project_entry_is_noted_by_its_absolute_path() {
+    let log = Arc::new(NoteLog::default());
+    let env = env_with(Some(log.clone()));
+    let root = env.root.to_string_lossy().into_owned();
+    std::fs::write(env.root.join("to-trash.txt"), "x").unwrap();
+    call(&env, "projectFs/trash", json!({ "root": root, "rel": "to-trash.txt" })).await.unwrap();
+    assert!(!env.root.join("to-trash.txt").exists());
+    // The item sits in the user's real recycle bin: take it out again, found by its original path
+    // (the project folder is this test's own temp directory, so nothing else can match).
+    let ours: Vec<_> = trash::os_limited::list()
+        .unwrap()
+        .into_iter()
+        .filter(|item| item.original_path() == env.root.join("to-trash.txt"))
+        .collect();
+    assert_eq!(ours.len(), 1, "the trashed file is in the recycle bin");
+    trash::os_limited::purge_all(ours).unwrap();
+    let noted = log.0.lock().unwrap().clone();
+    assert_eq!(noted.len(), 1);
+    assert_eq!(noted[0].as_ref().unwrap().iter().map(PathBuf::from).collect::<Vec<_>>(), [env.root.join("to-trash.txt")]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_recovery_restore_names_no_file_and_listing_or_inspecting_tells_no_one() {
+    let log = Arc::new(NoteLog::default());
+    let env = env_with(Some(log.clone()));
+    let root = env.root.to_string_lossy().into_owned();
+    // The service's journal folder (`Deps.recovery_dir`): an interrupted batch left a record.
+    let store = RecoveryStore::new(env.root.parent().unwrap().join("recovery"));
+    let file = env.root.join("a.txt");
+    let journal = store
+        .begin(
+            &env.root,
+            vec![PreparedFile {
+                rel_path: "a.txt".into(),
+                destination: canonical(&file).unwrap(),
+                parent: mixdog_workspace::recovery::identity_of(&env.root).unwrap(),
+                mode: 0,
+                before: b"one\n".to_vec(),
+                after: b"two\n".to_vec(),
+            }],
+        )
+        .unwrap();
+    std::fs::write(&file, "two\n").unwrap();
+    store.release(&journal.directory).unwrap();
+
+    let listed = call(&env, "projectFs/recovery", json!({ "root": root, "action": "list" })).await.unwrap();
+    let id = listed["records"][0]["id"].as_str().unwrap_or_else(|| panic!("{listed}")).to_owned();
+    let inspected = call(&env, "projectFs/recovery", json!({ "root": root, "action": "inspect", "id": id })).await.unwrap();
+    let revision = inspected["detail"]["revision"].as_str().unwrap_or_else(|| panic!("{inspected}")).to_owned();
+    assert!(log.0.lock().unwrap().is_empty(), "reading a record changes nothing");
+
+    call(&env, "projectFs/recovery", json!({ "root": root, "action": "restore", "id": id, "revision": revision })).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "one\n");
+    assert_eq!(log.0.lock().unwrap().clone(), [None]);
 }
 
 #[test]

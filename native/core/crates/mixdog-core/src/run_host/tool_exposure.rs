@@ -60,6 +60,17 @@ fn native_family_for_route(provider: &str, route: Option<&Value>) -> &'static st
     }
 }
 
+/// `nativeProviderFamily`: the native tool-search family of `provider` (`openai`, `anthropic`),
+/// or `""` for a provider that has none.
+pub fn native_provider_family(provider: &str, route: Option<&Value>) -> &'static str {
+    let p = mixdog_js::js_trim(provider).to_lowercase();
+    match p.as_str() {
+        "openai" | "openai-oauth" => "openai",
+        "anthropic" | "anthropic-oauth" => "anthropic",
+        _ => native_family_for_route(&p, route),
+    }
+}
+
 /// `deferredProviderMode`: `manifest` for Gemini, `native` for the first-party Anthropic and
 /// OpenAI providers (or a route pinned with verified support), else `canonical`.
 pub fn deferred_provider_mode(provider: &str, route: Option<&Value>) -> &'static str {
@@ -139,8 +150,18 @@ pub fn is_bridge_tool_definition(tool: &Value) -> bool {
         && tool.get("description").and_then(Value::as_str).is_some_and(|d| LEGACY_BRIDGE_LOAD_TOOL_DESCRIPTIONS.contains(&d))
 }
 
+/// The provider-native tool objects a session's request sends ahead of the schemas, in wire order.
+/// A conversation's request has none, whatever the exposure: `opts.nativeTools` is set only by the
+/// hosted web-search send (`session-runtime/native-web-search.mjs`), a one-shot request outside any
+/// session's fingerprint, and the request boundary starts its native prefix at zero for every
+/// provider. The exposure mode is taken so a future native tool lands here, in one place.
+pub fn native_request_tools(_session: &Value) -> Vec<Value> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
+
     use serde_json::json;
 
     use super::*;
@@ -185,8 +206,19 @@ mod tests {
         assert_eq!(tool_exposure_mode_for_provider("groq", Some(&route)), golden["modes_route"].as_str().unwrap());
     }
 
+    /// Node's request assembly (`snapshotProviderRequestTools`) leaves no native prefix on any provider.
+    #[test]
+    fn a_session_request_has_no_native_tools() {
+        let golden: Value = serde_json::from_str(include_str!("golden/native_tools.json")).unwrap();
+        for (provider, row) in golden.as_object().unwrap() {
+            assert_eq!(row["nativeCount"], 0, "{provider}");
+            assert!(native_request_tools(&json!({ "provider": provider })).is_empty(), "{provider}");
+        }
+    }
+
     #[test]
     fn bridge_only_definitions_are_recognised() {
+
         let load = golden()["load"]["description"].clone();
         assert!(is_bridge_tool_definition(&json!({ "name": "search_tools" })));
         assert!(is_bridge_tool_definition(&json!({ "name": "call_tool" })));

@@ -56,7 +56,7 @@ pub(crate) fn without_latest_images(messages: &[AgentMessage]) -> Vec<AgentMessa
                         .iter()
                         .map(|p| match p {
                             ContentPart::Image(_) => {
-                                ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.to_owned())
+                                ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.to_owned(), false)
                             }
                             other => other.clone(),
                         })
@@ -207,7 +207,7 @@ mod tests {
         let image = || ContentPart::Image(ImageSource::Url("u".into()));
         let old = AgentMessage::user_content(Content::Parts(vec![image()]));
         let fresh = AgentMessage::user_content(Content::Parts(vec![
-            ContentPart::Text("look".into()),
+            ContentPart::Text("look".into(), false),
             image(),
         ]));
         let messages = vec![old.clone(), AgentMessage::assistant("a", Vec::new()), fresh];
@@ -217,8 +217,8 @@ mod tests {
         assert_eq!(
             stripped[2].message.content,
             Content::Parts(vec![
-                ContentPart::Text("look".into()),
-                ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.into()),
+                ContentPart::Text("look".into(), false),
+                ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.into(), false),
             ])
         );
     }

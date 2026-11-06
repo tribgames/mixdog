@@ -50,7 +50,7 @@ fn phase_out(ph: p::Phase) -> w::ProxyPhase {
 
 fn part_out(part: &p::ContentPart) -> w::ProxyPart {
     match part {
-        p::ContentPart::Text(text) => w::ProxyPart::Text { text: text.clone() },
+        p::ContentPart::Text(text, _) => w::ProxyPart::Text { text: text.clone() },
         p::ContentPart::Image(source) => w::ProxyPart::Image {
             source: match source {
                 p::ImageSource::Base64 { data, mime_type } => w::ProxyImage::Base64 { data: data.clone(), mime_type: mime_type.clone() },
@@ -187,14 +187,14 @@ fn plain_json(value: Value) -> Result<Value, Invalid> {
 
 fn part_in(part: w::ProxyPart) -> Result<p::ContentPart, Invalid> {
     Ok(match part {
-        w::ProxyPart::Text { text } => p::ContentPart::Text(text),
+        w::ProxyPart::Text { text } => p::ContentPart::Text(text, false),
         w::ProxyPart::Image { source } => p::ContentPart::Image(match source {
             w::ProxyImage::Base64 { data, mime_type } => p::ImageSource::Base64 { data, mime_type },
             w::ProxyImage::Url { url } => p::ImageSource::Url(url),
             w::ProxyImage::FileId { id } => p::ImageSource::FileId(id),
         }),
         w::ProxyPart::File { source: w::ProxyBinary::Unavailable, mime_type, filename } => {
-            p::ContentPart::Text(unavailable_text(filename.as_deref(), &mime_type))
+            p::ContentPart::Text(unavailable_text(filename.as_deref(), &mime_type), false)
         }
         w::ProxyPart::File { source: w::ProxyBinary::Base64 { data }, mime_type, filename } => {
             p::ContentPart::File { source: p::BinarySource::Base64(data), mime_type, filename, text: None }
@@ -633,6 +633,7 @@ pub fn model_out(m: &p::ModelRecord) -> w::ProxyModel {
         reasoning_content_field: m.reasoning_content_field.clone(),
         context_window: m.context_window,
         max_context_window: m.max_context_window,
+        runtime_context_window: m.runtime_context_window,
         max_output_tokens: m.max_output_tokens,
         input_cost_per_m: m.input_cost_per_m.filter(|v| v.is_finite()),
         output_cost_per_m: m.output_cost_per_m.filter(|v| v.is_finite()),
@@ -672,6 +673,7 @@ pub fn catalog_model_out(m: &mixdog_ai::catalog::ModelRecord) -> w::ProxyModel {
         reasoning_content_field: m.reasoning_content_field.clone(),
         context_window: m.context_window,
         max_context_window: m.max_context_window,
+        runtime_context_window: m.runtime_context_window,
         max_output_tokens: m.output_tokens,
         input_cost_per_m: m.rates.input.filter(|v| v.is_finite()),
         output_cost_per_m: m.rates.output.filter(|v| v.is_finite()),
@@ -703,6 +705,7 @@ pub fn model_in(m: w::ProxyModel) -> p::ModelRecord {
     out.reasoning_content_field = m.reasoning_content_field;
     out.context_window = m.context_window;
     out.max_context_window = m.max_context_window;
+    out.runtime_context_window = m.runtime_context_window;
     out.max_output_tokens = m.max_output_tokens;
     out.input_cost_per_m = m.input_cost_per_m;
     out.output_cost_per_m = m.output_cost_per_m;

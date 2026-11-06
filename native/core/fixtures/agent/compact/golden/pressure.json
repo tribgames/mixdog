@@ -847,6 +847,278 @@
       }
     },
     {
+      "name": "snapshot-tail-id",
+      "op": "snapshot",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "usageMetricsTurnId": "t1",
+        "usageMetricsEpoch": 3,
+        "contextWindow": 200000
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        },
+        {
+          "role": "user",
+          "content": "ping",
+          "id": "m-77",
+          "meta": {
+            "transcript": {
+              "messageId": "id1"
+            }
+          }
+        }
+      ],
+      "images": {
+        "id1": []
+      },
+      "args": {
+        "policy": {
+          "triggerTokens": 150000,
+          "boundaryTokens": 180000,
+          "toolSchemaSignature": "sig",
+          "provider": "openai",
+          "contextWindow": 200000
+        },
+        "usedTokens": 5
+      },
+      "result": {
+        "version": 1,
+        "source": "post_compact",
+        "usedTokens": 5,
+        "limitTokens": 150000,
+        "messageTokensEst": 0,
+        "messageCount": 2,
+        "messagesSignature": "486aa3bae4f336f0d4bb0f07b7f652931e90bdaeb2e5718fada9cb2550e58651",
+        "tailRole": "user",
+        "tailId": "m-77",
+        "usageMetricsTurnId": "t1",
+        "usageMetricsEpoch": 3,
+        "toolSchemaSignature": "sig",
+        "provider": "openai",
+        "model": "gpt-x",
+        "contextWindow": 200000,
+        "boundaryTokens": 180000,
+        "triggerTokens": 150000,
+        "updatedAt": 1700000000000
+      },
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "usageMetricsTurnId": "t1",
+        "usageMetricsEpoch": 3,
+        "contextWindow": 200000,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 5,
+          "limitTokens": 150000,
+          "messageTokensEst": 0,
+          "messageCount": 2,
+          "messagesSignature": "486aa3bae4f336f0d4bb0f07b7f652931e90bdaeb2e5718fada9cb2550e58651",
+          "tailRole": "user",
+          "tailId": "m-77",
+          "usageMetricsTurnId": "t1",
+          "usageMetricsEpoch": 3,
+          "toolSchemaSignature": "sig",
+          "provider": "openai",
+          "model": "gpt-x",
+          "contextWindow": 200000,
+          "boundaryTokens": 180000,
+          "triggerTokens": 150000,
+          "updatedAt": 1700000000000
+        }
+      }
+    },
+    {
+      "name": "snapshot-tail-uuid-wins",
+      "op": "snapshot",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "usageMetricsTurnId": "t1",
+        "usageMetricsEpoch": 3,
+        "contextWindow": 200000
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        },
+        {
+          "role": "assistant",
+          "content": "pong",
+          "uuid": "u-5",
+          "id": "ignored",
+          "meta": {
+            "transcript": {
+              "messageId": "id2"
+            }
+          }
+        }
+      ],
+      "images": {
+        "id2": []
+      },
+      "args": {
+        "policy": {
+          "triggerTokens": 150000,
+          "boundaryTokens": 180000,
+          "toolSchemaSignature": "sig",
+          "provider": "openai",
+          "contextWindow": 200000
+        },
+        "usedTokens": 5
+      },
+      "result": {
+        "version": 1,
+        "source": "post_compact",
+        "usedTokens": 5,
+        "limitTokens": 150000,
+        "messageTokensEst": 0,
+        "messageCount": 2,
+        "messagesSignature": "fd68d600da09cf4846ad8376fc20ceada4ac77a52d58d6476d645d9dce2ee15f",
+        "tailRole": "assistant",
+        "tailId": "u-5",
+        "usageMetricsTurnId": "t1",
+        "usageMetricsEpoch": 3,
+        "toolSchemaSignature": "sig",
+        "provider": "openai",
+        "model": "gpt-x",
+        "contextWindow": 200000,
+        "boundaryTokens": 180000,
+        "triggerTokens": 150000,
+        "updatedAt": 1700000000000
+      },
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "usageMetricsTurnId": "t1",
+        "usageMetricsEpoch": 3,
+        "contextWindow": 200000,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 5,
+          "limitTokens": 150000,
+          "messageTokensEst": 0,
+          "messageCount": 2,
+          "messagesSignature": "fd68d600da09cf4846ad8376fc20ceada4ac77a52d58d6476d645d9dce2ee15f",
+          "tailRole": "assistant",
+          "tailId": "u-5",
+          "usageMetricsTurnId": "t1",
+          "usageMetricsEpoch": 3,
+          "toolSchemaSignature": "sig",
+          "provider": "openai",
+          "model": "gpt-x",
+          "contextWindow": 200000,
+          "boundaryTokens": 180000,
+          "triggerTokens": 150000,
+          "updatedAt": 1700000000000
+        }
+      }
+    },
+    {
+      "name": "snapshot-tail-row-id-beats-tool-call-id",
+      "op": "snapshot",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "usageMetricsTurnId": "t1",
+        "usageMetricsEpoch": 3,
+        "contextWindow": 200000
+      },
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c9",
+          "id": "row-9",
+          "content": "x",
+          "meta": {
+            "transcript": {
+              "messageId": "id3"
+            }
+          }
+        }
+      ],
+      "images": {
+        "id3": []
+      },
+      "args": {
+        "policy": {
+          "triggerTokens": 150000,
+          "boundaryTokens": 180000,
+          "toolSchemaSignature": "sig",
+          "provider": "openai",
+          "contextWindow": 200000
+        },
+        "usedTokens": 5
+      },
+      "result": {
+        "version": 1,
+        "source": "post_compact",
+        "usedTokens": 5,
+        "limitTokens": 150000,
+        "messageTokensEst": 0,
+        "messageCount": 2,
+        "messagesSignature": "cdb4c42835e36ae34929c5e02721cabc510b40645650aa94e71e24ab70645b20",
+        "tailRole": "tool",
+        "tailId": "row-9",
+        "usageMetricsTurnId": "t1",
+        "usageMetricsEpoch": 3,
+        "toolSchemaSignature": "sig",
+        "provider": "openai",
+        "model": "gpt-x",
+        "contextWindow": 200000,
+        "boundaryTokens": 180000,
+        "triggerTokens": 150000,
+        "updatedAt": 1700000000000
+      },
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "usageMetricsTurnId": "t1",
+        "usageMetricsEpoch": 3,
+        "contextWindow": 200000,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 5,
+          "limitTokens": 150000,
+          "messageTokensEst": 0,
+          "messageCount": 2,
+          "messagesSignature": "cdb4c42835e36ae34929c5e02721cabc510b40645650aa94e71e24ab70645b20",
+          "tailRole": "tool",
+          "tailId": "row-9",
+          "usageMetricsTurnId": "t1",
+          "usageMetricsEpoch": 3,
+          "toolSchemaSignature": "sig",
+          "provider": "openai",
+          "model": "gpt-x",
+          "contextWindow": 200000,
+          "boundaryTokens": 180000,
+          "triggerTokens": 150000,
+          "updatedAt": 1700000000000
+        }
+      }
+    },
+    {
       "name": "snapshot-ends-on-tool-result",
       "op": "snapshot",
       "header": {
@@ -1224,6 +1496,7 @@
             "deferLoading": true
           }
         ],
+        "native": [],
         "excludesCache": false,
         "calibration": 1
       },
@@ -1366,6 +1639,7 @@
             "deferLoading": true
           }
         ],
+        "native": [],
         "boundary": "request",
         "excludesCache": true,
         "calibration": 1.4
@@ -1509,6 +1783,7 @@
             "deferLoading": true
           }
         ],
+        "native": [],
         "excludesCache": false,
         "calibration": 1
       },
@@ -1650,6 +1925,7 @@
             "deferLoading": true
           }
         ],
+        "native": [],
         "excludesCache": false,
         "calibration": 1
       },
@@ -1789,6 +2065,7 @@
             "deferLoading": true
           }
         ],
+        "native": [],
         "excludesCache": false,
         "calibration": 1
       },
@@ -1929,6 +2206,7 @@
             "deferLoading": true
           }
         ],
+        "native": [],
         "excludesCache": false,
         "calibration": 1
       },
@@ -1995,6 +2273,7 @@
           "outputTokens": 2
         },
         "tools": [],
+        "native": [],
         "excludesCache": false,
         "calibration": 1
       },
@@ -2014,6 +2293,283 @@
         "contextPressureBaselineModel": "gpt-x",
         "contextPressureBaselineToolSignature": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
         "contextPressureBaselineRequestReserveTokens": 0,
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineUpdatedAt": 1700000000000,
+        "lastContextTokensStaleAfterCompact": false,
+        "contextPressureBaselineSource": "provider"
+      }
+    },
+    {
+      "name": "baseline-native-tool-prefix",
+      "op": "baseline",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "contextUsageSnapshot": {
+          "usedTokens": 1
+        },
+        "contextPressureUnanchoredAfterRestart": true,
+        "contextPressureUnanchoredReason": "checkpoint_context_mismatch",
+        "compaction": {
+          "lastCompactAt": 4
+        }
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": "file body"
+        },
+        {
+          "role": "assistant",
+          "content": "done",
+          "providerReplay": {
+            "items": [
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "look",
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "AAAABBBB"
+              },
+              "width": 100,
+              "height": 50
+            }
+          ],
+          "meta": {
+            "transcript": {
+              "messageId": "img1"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: a.png]  \n now here"
+        }
+      ],
+      "images": {
+        "img1": [
+          {
+            "identity": "3bba1ba5b5e1c25f2d82bc5307284f76742f82d409ef46ad39ecd21492a2aa31",
+            "width": 100,
+            "height": 50,
+            "detail": "auto"
+          }
+        ]
+      },
+      "args": {
+        "usage": {
+          "inputTokens": 900,
+          "outputTokens": 100
+        },
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            },
+            "deferLoading": false
+          },
+          {
+            "name": "search",
+            "description": "Search",
+            "inputSchema": {
+              "type": "object"
+            },
+            "deferLoading": true
+          }
+        ],
+        "native": [
+          {
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 3
+          },
+          {
+            "type": "memory_20250818",
+            "name": "memory",
+            "defer_loading": true
+          }
+        ],
+        "excludesCache": false,
+        "calibration": 1
+      },
+      "result": true,
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 4
+        },
+        "contextPressureBaselineTokens": 1000,
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselineMessageCount": 6,
+        "contextPressureBaselinePrefixSignature": "090e5765220259951ce0ae209b8bcbc1bdfc7a6acba0817cea39dac4170b4b02",
+        "contextPressureBaselineShapeSignature": "d389b7dc5dff37ef2bd8ed6d322393f856aaa53149ad73da71338452ac42bee7",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineToolSignature": "ac0cd46328ea65104c36b0ee004be6548bd025fa71b51a8d700a73f984bc16de",
+        "contextPressureBaselineRequestReserveTokens": 117,
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineUpdatedAt": 1700000000000,
+        "lastContextTokensStaleAfterCompact": false,
+        "contextPressureBaselineSource": "provider"
+      }
+    },
+    {
+      "name": "baseline-native-prefix-without-defined-tools",
+      "op": "baseline",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "contextUsageSnapshot": {
+          "usedTokens": 1
+        },
+        "contextPressureUnanchoredAfterRestart": true,
+        "contextPressureUnanchoredReason": "checkpoint_context_mismatch",
+        "compaction": {
+          "lastCompactAt": 4
+        }
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello  world"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": "file body"
+        },
+        {
+          "role": "assistant",
+          "content": "done",
+          "providerReplay": {
+            "items": [
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "look",
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "AAAABBBB"
+              },
+              "width": 100,
+              "height": 50
+            }
+          ],
+          "meta": {
+            "transcript": {
+              "messageId": "img1"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: a.png]  \n now here"
+        }
+      ],
+      "images": {
+        "img1": [
+          {
+            "identity": "3bba1ba5b5e1c25f2d82bc5307284f76742f82d409ef46ad39ecd21492a2aa31",
+            "width": 100,
+            "height": 50,
+            "detail": "auto"
+          }
+        ]
+      },
+      "args": {
+        "usage": {
+          "inputTokens": 900,
+          "outputTokens": 100
+        },
+        "tools": [],
+        "native": [
+          {
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 3
+          }
+        ],
+        "excludesCache": false,
+        "calibration": 1
+      },
+      "result": true,
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 4
+        },
+        "contextPressureBaselineTokens": 1000,
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselineMessageCount": 6,
+        "contextPressureBaselinePrefixSignature": "090e5765220259951ce0ae209b8bcbc1bdfc7a6acba0817cea39dac4170b4b02",
+        "contextPressureBaselineShapeSignature": "d389b7dc5dff37ef2bd8ed6d322393f856aaa53149ad73da71338452ac42bee7",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineToolSignature": "74a4a929b6a33c44f1fcec257a64bda0253ac72291ce879a1c28ba7ae0380dfb",
+        "contextPressureBaselineRequestReserveTokens": 43,
         "contextPressureBaselineBoundary": "complete",
         "contextPressureBaselineUpdatedAt": 1700000000000,
         "lastContextTokensStaleAfterCompact": false,
@@ -2125,6 +2681,7 @@
             "deferLoading": true
           }
         ],
+        "native": [],
         "boundary": "later",
         "excludesCache": false,
         "calibration": 1.15
@@ -2262,6 +2819,7 @@
             "deferLoading": true
           }
         ],
+        "native": [],
         "excludesCache": false,
         "calibration": 1
       },
@@ -2391,6 +2949,7 @@
             "deferLoading": true
           }
         ],
+        "native": [],
         "excludesCache": false,
         "calibration": 1
       },
@@ -2520,6 +3079,7 @@
             "deferLoading": true
           }
         ],
+        "native": [],
         "excludesCache": false,
         "calibration": 1
       },
@@ -4521,6 +5081,3070 @@
         "contextPressureUnanchoredAfterRestart": true,
         "contextPressureUnanchoredReason": "checkpoint_context_mismatch"
       }
+    }
+  ],
+  "rowSigns": [
+    {
+      "name": "media",
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at these"
+            },
+            {
+              "type": "image",
+              "data": "AAAABBBB",
+              "mimeType": "image/jpeg",
+              "width": 640,
+              "height": 480,
+              "detail": "HIGH"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "IMAGE/PNG",
+                "data": "Zm9v"
+              },
+              "dimensions": {
+                "width": 1280,
+                "height": 720
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "https://x.test/a.png",
+                "detail": "low"
+              }
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "url",
+                "url": "https://x.test/b.png"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "image_url",
+            "image_url": "https://x.test/single.png"
+          }
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "width": 100,
+              "height": 50
+            },
+            {
+              "type": "input_image",
+              "file_id": "file_1"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "inlineData": {
+                "mimeType": "image/webp",
+                "data": "QUJD"
+              },
+              "width": 10
+            },
+            {
+              "type": "image",
+              "uri": "gs://b/o.png",
+              "mime_type": "image/gif"
+            },
+            {
+              "fileData": {
+                "fileUri": "gs://b/p.png"
+              }
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "described",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "screenshot",
+              "arguments": {
+                "full": true
+              }
+            }
+          ],
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "QUJDRA=="
+              },
+              "width": 200,
+              "height": 100
+            },
+            {
+              "type": "text",
+              "text": "blk"
+            }
+          ],
+          "providerReplay": {
+            "items": [
+              {
+                "type": "input_image",
+                "image_url": "https://x.test/r.png"
+              },
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "providerReplay": {
+            "items": []
+          },
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "ignored",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "x",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "plan",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ],
+          "reasoningItems": [
+            {
+              "type": "reasoning",
+              "id": "r2"
+            }
+          ],
+          "providerMetadata": {
+            "gemini": {
+              "thoughtParts": [
+                {
+                  "text": "g",
+                  "thought": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "shot"
+            },
+            {
+              "type": "image",
+              "data": "REVG",
+              "mimeType": "image/png"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: image/png]  and [File omitted from stored history]\n now"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            },
+            null,
+            7,
+            {
+              "type": "weird",
+              "n": 1
+            },
+            "bare"
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "blob",
+            "n": 2
+          }
+        },
+        {
+          "role": "user"
+        },
+        {
+          "role": "user",
+          "content": null
+        }
+      ],
+      "exact": [
+        "59ec6b756b133c632aa6146a289c4efe62341e3af2cfb76a21ae4bb56b297100",
+        "30e3cedfbb93f3358e17e46dfdb2c274a9ff016aaa4cdf97a8570f79ffee1027",
+        "045f6a1ac3f6fedd81d8030ba81998a1eadd1a67a02501c0284bdb4b0cd1957d",
+        "a82e583104d03981b94d235621d31c39a5e5e614847ec3ad1cf7810baa8d6e6c",
+        "82ab0fbf4d4938c5dfeae63d96f87165311bb869a6a720ef86963d7aa661ae1e",
+        "a847b267876bda6c569e9d149712878e46c89ac6816e19469f6e221af68d4726",
+        "20f1f6328f00a2ad1be562f7994431c8efd151bf34c2e187560c75e25ed04deb",
+        "d080f47c002beccceabfd2dd3d0516f0ef76b5a751297a23375dd45072cbcbcd",
+        "96f7b1ad7ef10ef9ae05259cbe1d1bffede35c40bfb46055e7d13308be4903ac",
+        "a8e446a19f9575f4c5fd8e2acac5fea1ba8700c811e8c4418ea89be870a05dc1",
+        "057bce7f1a523dc79184c57f75953660de46b2599d59e7ba5b69f1d74c206f42",
+        "6cf962caa41c3e9e3f932f00a6cc934bb63183a6ba1eb3e5616b663aefae99df",
+        "abc9d2ba94f6305c3dc1f20f2609b953fbe6858c466d0a60cd9d495d28422dc8",
+        "3201cf4cf6623f6f9b546edf9004a3f972e7142d707ac81eeee601907eb246fa",
+        "20a8a9ed5d9cc4c57e85e139bc51b6a1d11dc5662e389080a8c0382f679491ba"
+      ],
+      "shape": [
+        "998056c5d028398d21c1bf240e35146a151442d08b5fc09ff42ac236c17f9447",
+        "6363a825a55cde6843a00d69c2697b6e544c9fc35e4aab83d2479d9ba2a69942",
+        "20379e69ef9a8e0c8e0f75b0230e773bc73e73a1da6491935b55655736cf5ef4",
+        "72953ce4c7378b394d0d4cee2032cc9b7b687491e881a2617f9c4bb949b04cb6",
+        "c3a7952460f179a42aea4718fcca42a651f92910e25f4ac7cc761bbc375d882d",
+        "4938ae84ce238d43b0193efda404a196754d8ee7f99d1828969f0ddac9b5c70f",
+        "66857a6122cf163398072ead91d5c8b038b2e940c3cc4a9b4d95848d3bbc3edc",
+        "42f50086156c6f93a8a29aad82c102b7562c3661b0a0a9bc1e52a9639250e5ed",
+        "57a14cac85324bb7475799fbc093ae77c274b281fd36d163b22d66433954501b",
+        "e4bdf7774eadebee85bcae1a88314c3ce138063e1f23c3a9b4a703099163af3d",
+        "acbac0944074261d297808eb230629b9ac07213666176355b0a950c008a828e9",
+        "b5964939f0d1596f9a37a7d51e5398895710c4f12d64fa0ebda841e427e5acca",
+        "ec34ebb34b5a57fbb703098768032949ed66dda5935965394e62ebaec45733e1",
+        "35eb4ddea716beea6024a8d6d359160f1c177a0d009e9d19101ae5109d03ee6d",
+        "5b0cec42ca6b92833ea6aa9f4ddfc132a2586430f789aa19b1bb18e6bffd7dd7"
+      ],
+      "empty": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "files",
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Pasted text #1]",
+              "attachmentRef": "3dad09294e9189e56f5fb6cf698259924c8b565c150236e5446694b3075d957c"
+            },
+            {
+              "type": "text",
+              "text": "[File #2]",
+              "attachmentRef": "0ca9091eb4e31fb1ab24c8c5de92a08e4e5f402919f82ea3ca784f38534f03f3",
+              "textKind": "file",
+              "filename": "we<ird>\"n'ame.py"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Pasted text #3]",
+              "attachmentRef": "63d7e759066321e7ba1bf418bb5c204ccffbf7f7f3cd0d5bc7d3695d353f6262"
+            },
+            {
+              "type": "text",
+              "text": "[Pasted text #4]",
+              "attachmentRef": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "attachmentRef": "8e101b9712405dbe8bacfc8bbcb268211b4011f9198db4916275b19141a1d9b4",
+              "mimeType": "application/pdf",
+              "filename": "a.pdf"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "feb1aba6fea741741b1bbcc974f74fed337b535b8eec7223b6dd15d7108f08e3",
+              "mimeType": "application/octet-stream",
+              "filename": "blob.bin"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "attachmentRef": "0ca9091eb4e31fb1ab24c8c5de92a08e4e5f402919f82ea3ca784f38534f03f3",
+              "mimeType": "text/x-python; charset=utf-8",
+              "filename": "a.py"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "mimeType": "text/plain"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "attachmentRef": "f9907f2571e7b9115fb1747cb5f596218b0be04366046055e90f24f398d6b12d",
+              "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "filename": "report.docx"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "f9907f2571e7b9115fb1747cb5f596218b0be04366046055e90f24f398d6b12d",
+              "mimeType": "application/octet-stream",
+              "filename": "Report.DOCX"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "71284a425626895b8e25ddb014f51c706c891b3cc3107e6ac82316162c974248",
+              "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "filename": "broken.docx"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "data": "YSxiCjEsMgo=",
+              "mimeType": "TEXT/CSV ",
+              "filename": "d.csv"
+            },
+            {
+              "type": "file",
+              "data": "AQIDBAU=",
+              "mimeType": "application/zip"
+            },
+            {
+              "type": "file",
+              "data": "JVBERi0xLjcgbWlzbGFiZWxsZWQ=",
+              "mimeType": "application/octet-stream"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "data": "UEsDBAoAAAAAAAYvZl0G8pnQoQAAAKEAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbDw/eG1sIHZlcnNpb249IjEuMCI/PjxUeXBlcyB4bWxucz0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3BhY2thZ2UvMjAwNi9jb250ZW50LXR5cGVzIj48RGVmYXVsdCBFeHRlbnNpb249InhtbCIgQ29udGVudFR5cGU9ImFwcGxpY2F0aW9uL3htbCIvPjwvVHlwZXM+UEsDBAoAAAAAAAYvZl0AAAAAAAAAAAAAAAAFAAAAd29yZC9QSwMECgAAAAAABi9mXSKbZXDjAAAA4wAAABEAAAB3b3JkL2RvY3VtZW50LnhtbDw/eG1sIHZlcnNpb249IjEuMCI/Pjx3OmRvY3VtZW50IHhtbG5zOnc9Imh0dHA6Ly9zY2hlbWFzLm9wZW54bWxmb3JtYXRzLm9yZy93b3JkcHJvY2Vzc2luZ21sLzIwMDYvbWFpbiI+PHc6Ym9keT48dzpwPjx3OnI+PHc6dD5RdWFydGVybHkgcmVwb3J0PC93OnQ+PC93OnI+PC93OnA+PHc6cD48dzpyPjx3OnQ+U2Vjb25kIGxpbmU8L3c6dD48L3c6cj48L3c6cD48L3c6Ym9keT48L3c6ZG9jdW1lbnQ+UEsBAhQACgAAAAAABi9mXQbymdChAAAAoQAAABMAAAAAAAAAAAAAAAAAAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAAKAAAAAAAGL2ZdAAAAAAAAAAAAAAAABQAAAAAAAAAAABAAAADSAAAAd29yZC9QSwECFAAKAAAAAAAGL2ZdIptlcOMAAADjAAAAEQAAAAAAAAAAAAAAAAD1AAAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAMAAwCzAAAABwIAAAAA",
+              "mimeType": "application/zip",
+              "filename": "inline.docx"
+            },
+            {
+              "type": "file",
+              "data": "",
+              "mimeType": "text/plain"
+            },
+            {
+              "type": "file",
+              "mimeType": "text/plain"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "document",
+              "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": "JVBERi0xLjQgZG9j"
+              },
+              "title": "Paper"
+            },
+            {
+              "type": "document",
+              "source": {
+                "type": "base64",
+                "media_type": "text/plain",
+                "data": "ZG9jIHRleHQ="
+              },
+              "filename": "n.txt"
+            },
+            {
+              "type": "document",
+              "source": {
+                "type": "text",
+                "data": "x"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "file",
+            "data": "c2luZ2xlIGZpbGU=",
+            "mimeType": "text/plain",
+            "filename": "s.txt"
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "t1",
+          "content": [
+            {
+              "type": "file",
+              "attachmentRef": "3dad09294e9189e56f5fb6cf698259924c8b565c150236e5446694b3075d957c",
+              "mimeType": "text/plain"
+            }
+          ]
+        }
+      ],
+      "exact": [
+        "5c33b0fc1acf84f0a1f2a0a2fd3e3a4dfe38f6a2c871d66a664c849d7b40483a",
+        "a569f106feeb813aee6eba66111234061ed088096b936fafa6da4182c8c364d6",
+        "2fddc02e444f205194db4108c557cf0ba54b148568caf2cb466487d47acd9d71",
+        "c0af3902449a87634ad41bead9d82f4e890985113fc23ee4aa3253b0c1025722",
+        "3adc0ede726b5c95c5819adeecd1a2d3ab4fa357a450385a0310185f94e37553",
+        "952ba9d2811aa63f1618e6c014ef671bcbc79ee6073f3f3715e4325f9af61154",
+        "af2d7277cb71214ce6de8b6ad8c8fa74882150546176031da614f816baca84b9",
+        "2e13fa258ee8d0c6c83fdbad51bdb9043e6cefdc8798dad0bcfd3f0a22d51059",
+        "40ed44be756f837ce0e2dc3c160ecbd58a5159c431c3548acbf4b3ee7cafe16e",
+        "de8e944781e393c4b1b342be31f15385638b1d0a8a594d26414e8468ca2fc622"
+      ],
+      "shape": [
+        "c9dbea295dbec549aeb1310f64dad1364abc72c466ae1c63893be4a15bf44b30",
+        "0651c7ede7006a484bd639af1dad217794ab6c724cebfdd63e0845cbc2079554",
+        "6db9f1dbf1d8decb54f5f6b10abdd7a1b3d6748ecbb202bc0aa678562fbed0b1",
+        "5c6ff5ddd115a7146189e3939a36d2712697ecaf62cebcc3115166cf18f830dc",
+        "c11e19acab43997e9f902d2f53c87584aefa993582e8a12bd436c18043c7e6d4",
+        "259b07f5fb25e0b04d68ca2a1316f69ad88ef1fb8b41c8abd12df2c6cecb8cf0",
+        "9acc1aa9144746fb732824f740743cfd1bef7cb2f0ccc9afb1508d306d82e675",
+        "025976821eac4d77e93caaa1a32dfc84ff5c553e4fe7e9cfdc4afd653db80cf7",
+        "9771e34d1ba0dd45a26cea1b75def8d9798c987213c7ce238754a80a06e345a3",
+        "17a717a832d5dcc555401a3456df20d87f2999d8783ba43c7cb1973bcef67ef9"
+      ],
+      "empty": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "stored-media",
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at these"
+            },
+            {
+              "type": "image",
+              "mimeType": "image/jpeg",
+              "width": 640,
+              "height": 480,
+              "detail": "HIGH",
+              "attachmentRef": "d5651e9a7a22f3d238fcd2ececd9a67c5cab5c46e353adbdb8dbcd82e0b4b44c",
+              "sizeBytes": 6
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "dimensions": {
+                "width": 1280,
+                "height": 720
+              },
+              "mimeType": "IMAGE/PNG",
+              "attachmentRef": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+              "sizeBytes": 3
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/png]"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "image_url",
+            "image_url": "https://x.test/single.png",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Image omitted from stored history]"
+              }
+            ]
+          }
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "width": 100,
+              "height": 50
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history]"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/webp]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/gif]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/png]"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "described",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "screenshot",
+              "arguments": {
+                "full": true
+              }
+            }
+          ],
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "QUJDRA=="
+              },
+              "width": 200,
+              "height": 100
+            },
+            {
+              "type": "text",
+              "text": "blk"
+            }
+          ],
+          "providerReplay": {
+            "items": [
+              {
+                "type": "input_image",
+                "image_url": "https://x.test/r.png"
+              },
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "providerReplay": {
+            "items": []
+          },
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "ignored",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "x",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "plan",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ],
+          "reasoningItems": [
+            {
+              "type": "reasoning",
+              "id": "r2"
+            }
+          ],
+          "providerMetadata": {
+            "gemini": {
+              "thoughtParts": [
+                {
+                  "text": "g",
+                  "thought": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "shot"
+            },
+            {
+              "type": "image",
+              "mimeType": "image/png",
+              "attachmentRef": "967c5a5b7e2fbbe3080a0c5cefea7c279570b16ae8465525538bc3b115267a45",
+              "sizeBytes": 3
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: image/png]  and [File omitted from stored history]\n now"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            },
+            null,
+            7,
+            {
+              "type": "weird",
+              "n": 1
+            },
+            "bare"
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "blob",
+            "n": 2
+          }
+        },
+        {
+          "role": "user"
+        },
+        {
+          "role": "user",
+          "content": null
+        }
+      ],
+      "exact": [
+        "e993e96f2c8f8ceeb154ec07db790e40078fccb208a42a32df4b0c3631057e2c",
+        "6cebe62e2641ba8a8c4c36133594c942b8b7077f7b03b02433ef522295eebac6",
+        "5ba3424cc27aa70b768afe38f15d8288e1de70bc14b3ccb54e2ffd599bd6cc83",
+        "71c87e08aaefea8bb015907d9ecff2316b355453ede3b8ffdd857c5e3504cc37",
+        "7c07ad42bbbe72bd3c6f06e1407b0af59349107be974d5d36f84583f9634a927",
+        "2adcd356d4b630b9fcf09642e45fce3db3f566f5c35120ece3b24a377ae3e5d4",
+        "77f233a4efcff9df4c2f2464fafc0d0c47cfa7392e50ba5728192b6141b5ac86",
+        "2176e4fc6aec6988dc20c0832bc549513b713a89d752cf1d30b06b2416ad75e8",
+        "938e88e828527c3a9819836b12c1e61234d890c8dac39d516d28205d380bd44a",
+        "22e294a3a6a4169c168e11bd6fee4d415bf6c1aab44a0eab39fde24e62cbe980",
+        "642cba99863290abd8b79d9cc65f1c4ac065de27c1327d845985a478eb655a53",
+        "aa37be3d1a574e99b4cbd2f09ea5eebbffdab310eb3f13a7a0633b3482779c8f",
+        "68989fc61926098c1e0e93afb3dc607412ccb0a1dd68ddecfd06e4441ce5020a",
+        "db86d6f4be272cf8fb971ae58e2aac2ab4beb0aaf939a13cf5e0bd3713ad2fbf",
+        "5c9e54101731d1a0943c8ed15d308438443d0c082178fea287a653fc8ae28d7e"
+      ],
+      "shape": [
+        "998056c5d028398d21c1bf240e35146a151442d08b5fc09ff42ac236c17f9447",
+        "6363a825a55cde6843a00d69c2697b6e544c9fc35e4aab83d2479d9ba2a69942",
+        "20379e69ef9a8e0c8e0f75b0230e773bc73e73a1da6491935b55655736cf5ef4",
+        "72953ce4c7378b394d0d4cee2032cc9b7b687491e881a2617f9c4bb949b04cb6",
+        "c3a7952460f179a42aea4718fcca42a651f92910e25f4ac7cc761bbc375d882d",
+        "4938ae84ce238d43b0193efda404a196754d8ee7f99d1828969f0ddac9b5c70f",
+        "66857a6122cf163398072ead91d5c8b038b2e940c3cc4a9b4d95848d3bbc3edc",
+        "42f50086156c6f93a8a29aad82c102b7562c3661b0a0a9bc1e52a9639250e5ed",
+        "57a14cac85324bb7475799fbc093ae77c274b281fd36d163b22d66433954501b",
+        "e4bdf7774eadebee85bcae1a88314c3ce138063e1f23c3a9b4a703099163af3d",
+        "acbac0944074261d297808eb230629b9ac07213666176355b0a950c008a828e9",
+        "b5964939f0d1596f9a37a7d51e5398895710c4f12d64fa0ebda841e427e5acca",
+        "ec34ebb34b5a57fbb703098768032949ed66dda5935965394e62ebaec45733e1",
+        "35eb4ddea716beea6024a8d6d359160f1c177a0d009e9d19101ae5109d03ee6d",
+        "5b0cec42ca6b92833ea6aa9f4ddfc132a2586430f789aa19b1bb18e6bffd7dd7"
+      ],
+      "empty": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "rowRestores": [
+    {
+      "name": "rows-provider-stored-turn",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 1,
+          "lastChangedAt": 2
+        },
+        "contextPressureUnanchoredAfterRestart": true,
+        "contextPressureUnanchoredReason": "x"
+      },
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at these"
+            },
+            {
+              "type": "image",
+              "mimeType": "image/jpeg",
+              "width": 640,
+              "height": 480,
+              "detail": "HIGH",
+              "attachmentRef": "d5651e9a7a22f3d238fcd2ececd9a67c5cab5c46e353adbdb8dbcd82e0b4b44c",
+              "sizeBytes": 6
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "dimensions": {
+                "width": 1280,
+                "height": 720
+              },
+              "mimeType": "IMAGE/PNG",
+              "attachmentRef": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+              "sizeBytes": 3
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/png]"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "image_url",
+            "image_url": "https://x.test/single.png",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Image omitted from stored history]"
+              }
+            ]
+          }
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "width": 100,
+              "height": 50
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history]"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/webp]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/gif]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/png]"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "described",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "screenshot",
+              "arguments": {
+                "full": true
+              }
+            }
+          ],
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "QUJDRA=="
+              },
+              "width": 200,
+              "height": 100
+            },
+            {
+              "type": "text",
+              "text": "blk"
+            }
+          ],
+          "providerReplay": {
+            "items": [
+              {
+                "type": "input_image",
+                "image_url": "https://x.test/r.png"
+              },
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "providerReplay": {
+            "items": []
+          },
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "ignored",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "x",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "plan",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ],
+          "reasoningItems": [
+            {
+              "type": "reasoning",
+              "id": "r2"
+            }
+          ],
+          "providerMetadata": {
+            "gemini": {
+              "thoughtParts": [
+                {
+                  "text": "g",
+                  "thought": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "shot"
+            },
+            {
+              "type": "image",
+              "mimeType": "image/png",
+              "attachmentRef": "967c5a5b7e2fbbe3080a0c5cefea7c279570b16ae8465525538bc3b115267a45",
+              "sizeBytes": 3
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: image/png]  and [File omitted from stored history]\n now"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            },
+            null,
+            7,
+            {
+              "type": "weird",
+              "n": 1
+            },
+            "bare"
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "blob",
+            "n": 2
+          }
+        },
+        {
+          "role": "user"
+        },
+        {
+          "role": "user",
+          "content": null
+        }
+      ],
+      "checkpoint": {
+        "contextState": {
+          "version": 1,
+          "kind": "provider",
+          "usedTokens": 1000,
+          "inputTokens": 800,
+          "outputTokens": 100,
+          "committedPrefixCount": 0,
+          "committedPrefixSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "turnMessageCount": 15,
+          "turnPrefixSignature": "5c9e54101731d1a0943c8ed15d308438443d0c082178fea287a653fc8ae28d7e",
+          "provider": "openai",
+          "model": "gpt-x",
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "requestReserveTokens": 70,
+          "boundary": "complete",
+          "updatedAt": 1700000000000,
+          "compaction": {
+            "boundaryTokens": 180000,
+            "triggerTokens": 150000,
+            "lastCompactAt": 77
+          }
+        }
+      },
+      "result": true,
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 77,
+          "lastChangedAt": 2,
+          "boundaryTokens": 180000,
+          "triggerTokens": 150000
+        },
+        "contextPressureBaselineTokens": 1000,
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselineMessageCount": 15,
+        "contextPressureBaselinePrefixSignature": "5c9e54101731d1a0943c8ed15d308438443d0c082178fea287a653fc8ae28d7e",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineToolSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+        "contextPressureBaselineRequestReserveTokens": 70,
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineUpdatedAt": 1700000000000,
+        "contextPressureBaselineSource": "checkpoint_provider",
+        "lastContextTokens": 800,
+        "lastContextTokensUpdatedAt": 1700000000000,
+        "lastContextTokensStaleAfterCompact": false
+      }
+    },
+    {
+      "name": "rows-provider-live-committed-prefix",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 1,
+          "lastChangedAt": 2
+        },
+        "contextPressureUnanchoredAfterRestart": true,
+        "contextPressureUnanchoredReason": "x"
+      },
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at these"
+            },
+            {
+              "type": "image",
+              "data": "AAAABBBB",
+              "mimeType": "image/jpeg",
+              "width": 640,
+              "height": 480,
+              "detail": "HIGH"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "IMAGE/PNG",
+                "data": "Zm9v"
+              },
+              "dimensions": {
+                "width": 1280,
+                "height": 720
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "https://x.test/a.png",
+                "detail": "low"
+              }
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "url",
+                "url": "https://x.test/b.png"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "image_url",
+            "image_url": "https://x.test/single.png"
+          }
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "width": 100,
+              "height": 50
+            },
+            {
+              "type": "input_image",
+              "file_id": "file_1"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "inlineData": {
+                "mimeType": "image/webp",
+                "data": "QUJD"
+              },
+              "width": 10
+            },
+            {
+              "type": "image",
+              "uri": "gs://b/o.png",
+              "mime_type": "image/gif"
+            },
+            {
+              "fileData": {
+                "fileUri": "gs://b/p.png"
+              }
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "described",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "screenshot",
+              "arguments": {
+                "full": true
+              }
+            }
+          ],
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "QUJDRA=="
+              },
+              "width": 200,
+              "height": 100
+            },
+            {
+              "type": "text",
+              "text": "blk"
+            }
+          ],
+          "providerReplay": {
+            "items": [
+              {
+                "type": "input_image",
+                "image_url": "https://x.test/r.png"
+              },
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "providerReplay": {
+            "items": []
+          },
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "ignored",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "x",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "plan",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ],
+          "reasoningItems": [
+            {
+              "type": "reasoning",
+              "id": "r2"
+            }
+          ],
+          "providerMetadata": {
+            "gemini": {
+              "thoughtParts": [
+                {
+                  "text": "g",
+                  "thought": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "shot"
+            },
+            {
+              "type": "image",
+              "data": "REVG",
+              "mimeType": "image/png"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: image/png]  and [File omitted from stored history]\n now"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            },
+            null,
+            7,
+            {
+              "type": "weird",
+              "n": 1
+            },
+            "bare"
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "blob",
+            "n": 2
+          }
+        },
+        {
+          "role": "user"
+        },
+        {
+          "role": "user",
+          "content": null
+        }
+      ],
+      "checkpoint": {
+        "contextState": {
+          "version": 1,
+          "kind": "provider",
+          "usedTokens": 1000,
+          "inputTokens": 800,
+          "outputTokens": 100,
+          "committedPrefixCount": 15,
+          "committedPrefixSignature": "20a8a9ed5d9cc4c57e85e139bc51b6a1d11dc5662e389080a8c0382f679491ba",
+          "turnMessageCount": 0,
+          "turnPrefixSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "provider": "openai",
+          "model": "gpt-x",
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "requestReserveTokens": 70,
+          "boundary": "complete",
+          "updatedAt": 1700000000000,
+          "compaction": {
+            "boundaryTokens": 180000,
+            "triggerTokens": 150000,
+            "lastCompactAt": 77
+          }
+        }
+      },
+      "result": true,
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 77,
+          "lastChangedAt": 2,
+          "boundaryTokens": 180000,
+          "triggerTokens": 150000
+        },
+        "contextPressureBaselineTokens": 1000,
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselineMessageCount": 15,
+        "contextPressureBaselinePrefixSignature": "20a8a9ed5d9cc4c57e85e139bc51b6a1d11dc5662e389080a8c0382f679491ba",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineToolSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+        "contextPressureBaselineRequestReserveTokens": 70,
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineUpdatedAt": 1700000000000,
+        "contextPressureBaselineSource": "checkpoint_provider",
+        "lastContextTokens": 800,
+        "lastContextTokensUpdatedAt": 1700000000000,
+        "lastContextTokensStaleAfterCompact": false
+      }
+    },
+    {
+      "name": "rows-provider-after-a-stored-prefix",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 1,
+          "lastChangedAt": 2
+        },
+        "contextPressureUnanchoredAfterRestart": true,
+        "contextPressureUnanchoredReason": "x"
+      },
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at these"
+            },
+            {
+              "type": "image",
+              "mimeType": "image/jpeg",
+              "width": 640,
+              "height": 480,
+              "detail": "HIGH",
+              "attachmentRef": "d5651e9a7a22f3d238fcd2ececd9a67c5cab5c46e353adbdb8dbcd82e0b4b44c",
+              "sizeBytes": 6
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "dimensions": {
+                "width": 1280,
+                "height": 720
+              },
+              "mimeType": "IMAGE/PNG",
+              "attachmentRef": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+              "sizeBytes": 3
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/png]"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "image_url",
+            "image_url": "https://x.test/single.png",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Image omitted from stored history]"
+              }
+            ]
+          }
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "width": 100,
+              "height": 50
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history]"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/webp]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/gif]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/png]"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "described",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "screenshot",
+              "arguments": {
+                "full": true
+              }
+            }
+          ],
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "QUJDRA=="
+              },
+              "width": 200,
+              "height": 100
+            },
+            {
+              "type": "text",
+              "text": "blk"
+            }
+          ],
+          "providerReplay": {
+            "items": [
+              {
+                "type": "input_image",
+                "image_url": "https://x.test/r.png"
+              },
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "providerReplay": {
+            "items": []
+          },
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "ignored",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "x",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "plan",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ],
+          "reasoningItems": [
+            {
+              "type": "reasoning",
+              "id": "r2"
+            }
+          ],
+          "providerMetadata": {
+            "gemini": {
+              "thoughtParts": [
+                {
+                  "text": "g",
+                  "thought": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "shot"
+            },
+            {
+              "type": "image",
+              "mimeType": "image/png",
+              "attachmentRef": "967c5a5b7e2fbbe3080a0c5cefea7c279570b16ae8465525538bc3b115267a45",
+              "sizeBytes": 3
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: image/png]  and [File omitted from stored history]\n now"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            },
+            null,
+            7,
+            {
+              "type": "weird",
+              "n": 1
+            },
+            "bare"
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "blob",
+            "n": 2
+          }
+        },
+        {
+          "role": "user"
+        },
+        {
+          "role": "user",
+          "content": null
+        }
+      ],
+      "checkpoint": {
+        "contextState": {
+          "version": 1,
+          "kind": "provider",
+          "usedTokens": 1000,
+          "inputTokens": 800,
+          "outputTokens": 100,
+          "committedPrefixCount": 7,
+          "committedPrefixSignature": "77f233a4efcff9df4c2f2464fafc0d0c47cfa7392e50ba5728192b6141b5ac86",
+          "turnMessageCount": 8,
+          "turnPrefixSignature": "3889cf7261348f63966e6083f92573075f07e8bb1c0202112117f808f3d59c0c",
+          "provider": "openai",
+          "model": "gpt-x",
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "requestReserveTokens": 70,
+          "boundary": "complete",
+          "updatedAt": 1700000000000,
+          "compaction": {
+            "boundaryTokens": 180000,
+            "triggerTokens": 150000,
+            "lastCompactAt": 77
+          }
+        }
+      },
+      "result": true,
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 77,
+          "lastChangedAt": 2,
+          "boundaryTokens": 180000,
+          "triggerTokens": 150000
+        },
+        "contextPressureBaselineTokens": 1000,
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselineMessageCount": 15,
+        "contextPressureBaselinePrefixSignature": "5c9e54101731d1a0943c8ed15d308438443d0c082178fea287a653fc8ae28d7e",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineToolSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+        "contextPressureBaselineRequestReserveTokens": 70,
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineUpdatedAt": 1700000000000,
+        "contextPressureBaselineSource": "checkpoint_provider",
+        "lastContextTokens": 800,
+        "lastContextTokensUpdatedAt": 1700000000000,
+        "lastContextTokensStaleAfterCompact": false
+      }
+    },
+    {
+      "name": "rows-post-compact",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 1,
+          "lastChangedAt": 2
+        },
+        "contextPressureUnanchoredAfterRestart": true,
+        "contextPressureUnanchoredReason": "x",
+        "usageMetricsTurnId": "old"
+      },
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at these"
+            },
+            {
+              "type": "image",
+              "mimeType": "image/jpeg",
+              "width": 640,
+              "height": 480,
+              "detail": "HIGH",
+              "attachmentRef": "d5651e9a7a22f3d238fcd2ececd9a67c5cab5c46e353adbdb8dbcd82e0b4b44c",
+              "sizeBytes": 6
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "dimensions": {
+                "width": 1280,
+                "height": 720
+              },
+              "mimeType": "IMAGE/PNG",
+              "attachmentRef": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+              "sizeBytes": 3
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/png]"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "image_url",
+            "image_url": "https://x.test/single.png",
+            "content": [
+              {
+                "type": "text",
+                "text": "[Image omitted from stored history]"
+              }
+            ]
+          }
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "width": 100,
+              "height": 50
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history]"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/webp]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/gif]"
+            },
+            {
+              "type": "text",
+              "text": "[Image omitted from stored history: image/png]"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "described",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "screenshot",
+              "arguments": {
+                "full": true
+              }
+            }
+          ],
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "QUJDRA=="
+              },
+              "width": 200,
+              "height": 100
+            },
+            {
+              "type": "text",
+              "text": "blk"
+            }
+          ],
+          "providerReplay": {
+            "items": [
+              {
+                "type": "input_image",
+                "image_url": "https://x.test/r.png"
+              },
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "providerReplay": {
+            "items": []
+          },
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "ignored",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "x",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "plan",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ],
+          "reasoningItems": [
+            {
+              "type": "reasoning",
+              "id": "r2"
+            }
+          ],
+          "providerMetadata": {
+            "gemini": {
+              "thoughtParts": [
+                {
+                  "text": "g",
+                  "thought": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "shot"
+            },
+            {
+              "type": "image",
+              "mimeType": "image/png",
+              "attachmentRef": "967c5a5b7e2fbbe3080a0c5cefea7c279570b16ae8465525538bc3b115267a45",
+              "sizeBytes": 3
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: image/png]  and [File omitted from stored history]\n now"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            },
+            null,
+            7,
+            {
+              "type": "weird",
+              "n": 1
+            },
+            "bare"
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "blob",
+            "n": 2
+          }
+        },
+        {
+          "role": "user"
+        },
+        {
+          "role": "user",
+          "content": null
+        }
+      ],
+      "checkpoint": {
+        "contextState": {
+          "version": 1,
+          "kind": "post_compact",
+          "usedTokens": 321,
+          "inputTokens": null,
+          "outputTokens": 0,
+          "committedPrefixCount": 0,
+          "committedPrefixSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "turnMessageCount": 15,
+          "turnPrefixSignature": "5c9e54101731d1a0943c8ed15d308438443d0c082178fea287a653fc8ae28d7e",
+          "provider": "openai",
+          "model": "gpt-x",
+          "toolSchemaSignature": "sig",
+          "requestReserveTokens": 0,
+          "boundary": "complete",
+          "updatedAt": 1700000000000,
+          "usageSnapshot": {
+            "version": 1,
+            "source": "post_compact",
+            "usedTokens": 321,
+            "limitTokens": 150000,
+            "messageTokensEst": 0,
+            "messageCount": 15,
+            "messagesSignature": "5c9e54101731d1a0943c8ed15d308438443d0c082178fea287a653fc8ae28d7e",
+            "tailRole": "user",
+            "tailId": "",
+            "usageMetricsTurnId": "turn-9",
+            "usageMetricsEpoch": 4,
+            "toolSchemaSignature": "sig",
+            "provider": "openai",
+            "model": "gpt-x",
+            "contextWindow": 200000,
+            "boundaryTokens": 180000,
+            "triggerTokens": 150000,
+            "updatedAt": 1700000000000
+          },
+          "compaction": {
+            "lastChangedAt": 12
+          }
+        }
+      },
+      "result": true,
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 1,
+          "lastChangedAt": 12
+        },
+        "usageMetricsTurnId": "turn-9",
+        "contextPressureBaselineTokens": 321,
+        "contextPressureBaselineOutputTokens": 0,
+        "contextPressureBaselineMessageCount": 15,
+        "contextPressureBaselinePrefixSignature": "5c9e54101731d1a0943c8ed15d308438443d0c082178fea287a653fc8ae28d7e",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineToolSignature": "sig",
+        "contextPressureBaselineRequestReserveTokens": 0,
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineUpdatedAt": 1700000000000,
+        "contextPressureBaselineSource": "checkpoint_post_compact",
+        "lastContextTokens": 0,
+        "lastContextTokensUpdatedAt": 1700000000000,
+        "lastContextTokensStaleAfterCompact": false,
+        "contextUsageSnapshot": {
+          "version": 1,
+          "source": "post_compact",
+          "usedTokens": 321,
+          "limitTokens": 150000,
+          "messageTokensEst": 0,
+          "messageCount": 15,
+          "messagesSignature": "5c9e54101731d1a0943c8ed15d308438443d0c082178fea287a653fc8ae28d7e",
+          "tailRole": "user",
+          "tailId": "",
+          "usageMetricsTurnId": "turn-9",
+          "usageMetricsEpoch": 4,
+          "toolSchemaSignature": "sig",
+          "provider": "openai",
+          "model": "gpt-x",
+          "contextWindow": 200000,
+          "boundaryTokens": 180000,
+          "triggerTokens": 150000,
+          "updatedAt": 1700000000000
+        },
+        "usageMetricsEpoch": 4
+      }
+    },
+    {
+      "name": "rows-files-committed-prefix",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 1,
+          "lastChangedAt": 2
+        },
+        "contextPressureUnanchoredAfterRestart": true,
+        "contextPressureUnanchoredReason": "x"
+      },
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Pasted text #1]",
+              "attachmentRef": "3dad09294e9189e56f5fb6cf698259924c8b565c150236e5446694b3075d957c"
+            },
+            {
+              "type": "text",
+              "text": "[File #2]",
+              "attachmentRef": "0ca9091eb4e31fb1ab24c8c5de92a08e4e5f402919f82ea3ca784f38534f03f3",
+              "textKind": "file",
+              "filename": "we<ird>\"n'ame.py"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[Pasted text #3]",
+              "attachmentRef": "63d7e759066321e7ba1bf418bb5c204ccffbf7f7f3cd0d5bc7d3695d353f6262"
+            },
+            {
+              "type": "text",
+              "text": "[Pasted text #4]",
+              "attachmentRef": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "attachmentRef": "8e101b9712405dbe8bacfc8bbcb268211b4011f9198db4916275b19141a1d9b4",
+              "mimeType": "application/pdf",
+              "filename": "a.pdf"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "feb1aba6fea741741b1bbcc974f74fed337b535b8eec7223b6dd15d7108f08e3",
+              "mimeType": "application/octet-stream",
+              "filename": "blob.bin"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "attachmentRef": "0ca9091eb4e31fb1ab24c8c5de92a08e4e5f402919f82ea3ca784f38534f03f3",
+              "mimeType": "text/x-python; charset=utf-8",
+              "filename": "a.py"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "mimeType": "text/plain"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "attachmentRef": "f9907f2571e7b9115fb1747cb5f596218b0be04366046055e90f24f398d6b12d",
+              "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "filename": "report.docx"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "f9907f2571e7b9115fb1747cb5f596218b0be04366046055e90f24f398d6b12d",
+              "mimeType": "application/octet-stream",
+              "filename": "Report.DOCX"
+            },
+            {
+              "type": "file",
+              "attachmentRef": "71284a425626895b8e25ddb014f51c706c891b3cc3107e6ac82316162c974248",
+              "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "filename": "broken.docx"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "data": "YSxiCjEsMgo=",
+              "mimeType": "TEXT/CSV ",
+              "filename": "d.csv"
+            },
+            {
+              "type": "file",
+              "data": "AQIDBAU=",
+              "mimeType": "application/zip"
+            },
+            {
+              "type": "file",
+              "data": "JVBERi0xLjcgbWlzbGFiZWxsZWQ=",
+              "mimeType": "application/octet-stream"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "data": "UEsDBAoAAAAAAAYvZl0G8pnQoQAAAKEAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbDw/eG1sIHZlcnNpb249IjEuMCI/PjxUeXBlcyB4bWxucz0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3BhY2thZ2UvMjAwNi9jb250ZW50LXR5cGVzIj48RGVmYXVsdCBFeHRlbnNpb249InhtbCIgQ29udGVudFR5cGU9ImFwcGxpY2F0aW9uL3htbCIvPjwvVHlwZXM+UEsDBAoAAAAAAAYvZl0AAAAAAAAAAAAAAAAFAAAAd29yZC9QSwMECgAAAAAABi9mXSKbZXDjAAAA4wAAABEAAAB3b3JkL2RvY3VtZW50LnhtbDw/eG1sIHZlcnNpb249IjEuMCI/Pjx3OmRvY3VtZW50IHhtbG5zOnc9Imh0dHA6Ly9zY2hlbWFzLm9wZW54bWxmb3JtYXRzLm9yZy93b3JkcHJvY2Vzc2luZ21sLzIwMDYvbWFpbiI+PHc6Ym9keT48dzpwPjx3OnI+PHc6dD5RdWFydGVybHkgcmVwb3J0PC93OnQ+PC93OnI+PC93OnA+PHc6cD48dzpyPjx3OnQ+U2Vjb25kIGxpbmU8L3c6dD48L3c6cj48L3c6cD48L3c6Ym9keT48L3c6ZG9jdW1lbnQ+UEsBAhQACgAAAAAABi9mXQbymdChAAAAoQAAABMAAAAAAAAAAAAAAAAAAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAAKAAAAAAAGL2ZdAAAAAAAAAAAAAAAABQAAAAAAAAAAABAAAADSAAAAd29yZC9QSwECFAAKAAAAAAAGL2ZdIptlcOMAAADjAAAAEQAAAAAAAAAAAAAAAAD1AAAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAMAAwCzAAAABwIAAAAA",
+              "mimeType": "application/zip",
+              "filename": "inline.docx"
+            },
+            {
+              "type": "file",
+              "data": "",
+              "mimeType": "text/plain"
+            },
+            {
+              "type": "file",
+              "mimeType": "text/plain"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "document",
+              "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": "JVBERi0xLjQgZG9j"
+              },
+              "title": "Paper"
+            },
+            {
+              "type": "document",
+              "source": {
+                "type": "base64",
+                "media_type": "text/plain",
+                "data": "ZG9jIHRleHQ="
+              },
+              "filename": "n.txt"
+            },
+            {
+              "type": "document",
+              "source": {
+                "type": "text",
+                "data": "x"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "file",
+            "data": "c2luZ2xlIGZpbGU=",
+            "mimeType": "text/plain",
+            "filename": "s.txt"
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "t1",
+          "content": [
+            {
+              "type": "file",
+              "attachmentRef": "3dad09294e9189e56f5fb6cf698259924c8b565c150236e5446694b3075d957c",
+              "mimeType": "text/plain"
+            }
+          ]
+        }
+      ],
+      "checkpoint": {
+        "contextState": {
+          "version": 1,
+          "kind": "provider",
+          "usedTokens": 1000,
+          "inputTokens": 800,
+          "outputTokens": 100,
+          "committedPrefixCount": 10,
+          "committedPrefixSignature": "de8e944781e393c4b1b342be31f15385638b1d0a8a594d26414e8468ca2fc622",
+          "turnMessageCount": 0,
+          "turnPrefixSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "provider": "openai",
+          "model": "gpt-x",
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "requestReserveTokens": 70,
+          "boundary": "complete",
+          "updatedAt": 1700000000000,
+          "compaction": {
+            "boundaryTokens": 180000,
+            "triggerTokens": 150000,
+            "lastCompactAt": 77
+          }
+        }
+      },
+      "result": true,
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "compaction": {
+          "lastCompactAt": 77,
+          "lastChangedAt": 2,
+          "boundaryTokens": 180000,
+          "triggerTokens": 150000
+        },
+        "contextPressureBaselineTokens": 1000,
+        "contextPressureBaselineOutputTokens": 100,
+        "contextPressureBaselineMessageCount": 10,
+        "contextPressureBaselinePrefixSignature": "de8e944781e393c4b1b342be31f15385638b1d0a8a594d26414e8468ca2fc622",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineToolSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+        "contextPressureBaselineRequestReserveTokens": 70,
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineUpdatedAt": 1700000000000,
+        "contextPressureBaselineSource": "checkpoint_provider",
+        "lastContextTokens": 800,
+        "lastContextTokensUpdatedAt": 1700000000000,
+        "lastContextTokensStaleAfterCompact": false
+      }
+    },
+    {
+      "name": "rows-edited-image",
+      "header": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "lastContextTokens": 3
+      },
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at these"
+            },
+            {
+              "type": "image",
+              "data": "CHANGED",
+              "mimeType": "image/jpeg",
+              "width": 640,
+              "height": 480,
+              "detail": "HIGH"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "IMAGE/PNG",
+                "data": "Zm9v"
+              },
+              "dimensions": {
+                "width": 1280,
+                "height": 720
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "https://x.test/a.png",
+                "detail": "low"
+              }
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "url",
+                "url": "https://x.test/b.png"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "image_url",
+            "image_url": "https://x.test/single.png"
+          }
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "width": 100,
+              "height": 50
+            },
+            {
+              "type": "input_image",
+              "file_id": "file_1"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "inlineData": {
+                "mimeType": "image/webp",
+                "data": "QUJD"
+              },
+              "width": 10
+            },
+            {
+              "type": "image",
+              "uri": "gs://b/o.png",
+              "mime_type": "image/gif"
+            },
+            {
+              "fileData": {
+                "fileUri": "gs://b/p.png"
+              }
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "described",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "screenshot",
+              "arguments": {
+                "full": true
+              }
+            }
+          ],
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "QUJDRA=="
+              },
+              "width": 200,
+              "height": 100
+            },
+            {
+              "type": "text",
+              "text": "blk"
+            }
+          ],
+          "providerReplay": {
+            "items": [
+              {
+                "type": "input_image",
+                "image_url": "https://x.test/r.png"
+              },
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "providerReplay": {
+            "items": []
+          },
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "ignored",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "x",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "plan",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ],
+          "reasoningItems": [
+            {
+              "type": "reasoning",
+              "id": "r2"
+            }
+          ],
+          "providerMetadata": {
+            "gemini": {
+              "thoughtParts": [
+                {
+                  "text": "g",
+                  "thought": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "shot"
+            },
+            {
+              "type": "image",
+              "data": "REVG",
+              "mimeType": "image/png"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: image/png]  and [File omitted from stored history]\n now"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            },
+            null,
+            7,
+            {
+              "type": "weird",
+              "n": 1
+            },
+            "bare"
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "blob",
+            "n": 2
+          }
+        },
+        {
+          "role": "user"
+        },
+        {
+          "role": "user",
+          "content": null
+        }
+      ],
+      "checkpoint": {
+        "contextState": {
+          "version": 1,
+          "kind": "provider",
+          "usedTokens": 1000,
+          "inputTokens": 800,
+          "outputTokens": 100,
+          "committedPrefixCount": 15,
+          "committedPrefixSignature": "20a8a9ed5d9cc4c57e85e139bc51b6a1d11dc5662e389080a8c0382f679491ba",
+          "turnMessageCount": 0,
+          "turnPrefixSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "provider": "openai",
+          "model": "gpt-x",
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "requestReserveTokens": 70,
+          "boundary": "complete",
+          "updatedAt": 1700000000000,
+          "compaction": {
+            "boundaryTokens": 180000,
+            "triggerTokens": 150000,
+            "lastCompactAt": 77
+          }
+        }
+      },
+      "result": false,
+      "after": {
+        "provider": "openai",
+        "model": "gpt-x",
+        "lastContextTokens": 3,
+        "contextPressureUnanchoredAfterRestart": true,
+        "contextPressureUnanchoredReason": "checkpoint_context_mismatch"
+      }
+    },
+    {
+      "name": "rows-other-model-unanchored",
+      "header": {
+        "provider": "openai",
+        "model": "other",
+        "contextPressureBaselineTokens": 500,
+        "contextPressureBaselinePrefixSignature": "nope",
+        "contextPressureBaselineMessageCount": 3
+      },
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at these"
+            },
+            {
+              "type": "image",
+              "data": "AAAABBBB",
+              "mimeType": "image/jpeg",
+              "width": 640,
+              "height": 480,
+              "detail": "HIGH"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "IMAGE/PNG",
+                "data": "Zm9v"
+              },
+              "dimensions": {
+                "width": 1280,
+                "height": 720
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "https://x.test/a.png",
+                "detail": "low"
+              }
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "url",
+                "url": "https://x.test/b.png"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "image_url",
+            "image_url": "https://x.test/single.png"
+          }
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "width": 100,
+              "height": 50
+            },
+            {
+              "type": "input_image",
+              "file_id": "file_1"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "inlineData": {
+                "mimeType": "image/webp",
+                "data": "QUJD"
+              },
+              "width": 10
+            },
+            {
+              "type": "image",
+              "uri": "gs://b/o.png",
+              "mime_type": "image/gif"
+            },
+            {
+              "fileData": {
+                "fileUri": "gs://b/p.png"
+              }
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "described",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "screenshot",
+              "arguments": {
+                "full": true
+              }
+            }
+          ],
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "QUJDRA=="
+              },
+              "width": 200,
+              "height": 100
+            },
+            {
+              "type": "text",
+              "text": "blk"
+            }
+          ],
+          "providerReplay": {
+            "items": [
+              {
+                "type": "input_image",
+                "image_url": "https://x.test/r.png"
+              },
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "providerReplay": {
+            "items": []
+          },
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "ignored",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "x",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "plan",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ],
+          "reasoningItems": [
+            {
+              "type": "reasoning",
+              "id": "r2"
+            }
+          ],
+          "providerMetadata": {
+            "gemini": {
+              "thoughtParts": [
+                {
+                  "text": "g",
+                  "thought": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "shot"
+            },
+            {
+              "type": "image",
+              "data": "REVG",
+              "mimeType": "image/png"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: image/png]  and [File omitted from stored history]\n now"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            },
+            null,
+            7,
+            {
+              "type": "weird",
+              "n": 1
+            },
+            "bare"
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "blob",
+            "n": 2
+          }
+        },
+        {
+          "role": "user"
+        },
+        {
+          "role": "user",
+          "content": null
+        }
+      ],
+      "checkpoint": {
+        "contextState": {
+          "version": 1,
+          "kind": "provider",
+          "usedTokens": 1000,
+          "inputTokens": 800,
+          "outputTokens": 100,
+          "committedPrefixCount": 15,
+          "committedPrefixSignature": "20a8a9ed5d9cc4c57e85e139bc51b6a1d11dc5662e389080a8c0382f679491ba",
+          "turnMessageCount": 0,
+          "turnPrefixSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "provider": "openai",
+          "model": "gpt-x",
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "requestReserveTokens": 70,
+          "boundary": "complete",
+          "updatedAt": 1700000000000,
+          "compaction": {
+            "boundaryTokens": 180000,
+            "triggerTokens": 150000,
+            "lastCompactAt": 77
+          }
+        }
+      },
+      "result": false,
+      "after": {
+        "provider": "openai",
+        "model": "other",
+        "contextPressureBaselineTokens": 500,
+        "contextPressureBaselinePrefixSignature": "nope",
+        "contextPressureBaselineMessageCount": 3,
+        "contextPressureUnanchoredAfterRestart": true,
+        "contextPressureUnanchoredReason": "checkpoint_context_mismatch"
+      }
+    },
+    {
+      "name": "rows-other-model-legacy-baseline-matches",
+      "header": {
+        "provider": "openai",
+        "model": "other",
+        "contextPressureBaselineTokens": 6,
+        "contextPressureBaselineOutputTokens": 1,
+        "contextPressureBaselineMessageCount": 15,
+        "contextPressureBaselinePrefixSignature": "20a8a9ed5d9cc4c57e85e139bc51b6a1d11dc5662e389080a8c0382f679491ba",
+        "contextPressureBaselineShapeSignature": "5b0cec42ca6b92833ea6aa9f4ddfc132a2586430f789aa19b1bb18e6bffd7dd7",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineToolSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+        "contextPressureBaselineRequestReserveTokens": 70,
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineUpdatedAt": 1700000000000,
+        "lastContextTokensStaleAfterCompact": false,
+        "contextPressureBaselineSource": "provider"
+      },
+      "rows": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look at these"
+            },
+            {
+              "type": "image",
+              "data": "AAAABBBB",
+              "mimeType": "image/jpeg",
+              "width": 640,
+              "height": 480,
+              "detail": "HIGH"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "IMAGE/PNG",
+                "data": "Zm9v"
+              },
+              "dimensions": {
+                "width": 1280,
+                "height": 720
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "https://x.test/a.png",
+                "detail": "low"
+              }
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "url",
+                "url": "https://x.test/b.png"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "image_url",
+            "image_url": "https://x.test/single.png"
+          }
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png",
+              "width": 100,
+              "height": 50
+            },
+            {
+              "type": "input_image",
+              "file_id": "file_1"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "inlineData": {
+                "mimeType": "image/webp",
+                "data": "QUJD"
+              },
+              "width": 10
+            },
+            {
+              "type": "image",
+              "uri": "gs://b/o.png",
+              "mime_type": "image/gif"
+            },
+            {
+              "fileData": {
+                "fileUri": "gs://b/p.png"
+              }
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "described",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "screenshot",
+              "arguments": {
+                "full": true
+              }
+            }
+          ],
+          "assistantBlocks": [
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "QUJDRA=="
+              },
+              "width": 200,
+              "height": 100
+            },
+            {
+              "type": "text",
+              "text": "blk"
+            }
+          ],
+          "providerReplay": {
+            "items": [
+              {
+                "type": "input_image",
+                "image_url": "https://x.test/r.png"
+              },
+              {
+                "type": "reasoning",
+                "id": "r1",
+                "encrypted_content": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+              }
+            ]
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "providerReplay": {
+            "items": []
+          },
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "ignored",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "x",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "plan",
+              "signature": "Zm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9vZm9v"
+            }
+          ],
+          "reasoningItems": [
+            {
+              "type": "reasoning",
+              "id": "r2"
+            }
+          ],
+          "providerMetadata": {
+            "gemini": {
+              "thoughtParts": [
+                {
+                  "text": "g",
+                  "thought": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "role": "tool",
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "shot"
+            },
+            {
+              "type": "image",
+              "data": "REVG",
+              "mimeType": "image/png"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "see [Image omitted from stored history: image/png]  and [File omitted from stored history]\n now"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": ""
+            },
+            null,
+            7,
+            {
+              "type": "weird",
+              "n": 1
+            },
+            "bare"
+          ]
+        },
+        {
+          "role": "user",
+          "content": {
+            "type": "blob",
+            "n": 2
+          }
+        },
+        {
+          "role": "user"
+        },
+        {
+          "role": "user",
+          "content": null
+        }
+      ],
+      "checkpoint": {
+        "contextState": {
+          "version": 1,
+          "kind": "provider",
+          "usedTokens": 1000,
+          "inputTokens": 800,
+          "outputTokens": 100,
+          "committedPrefixCount": 15,
+          "committedPrefixSignature": "20a8a9ed5d9cc4c57e85e139bc51b6a1d11dc5662e389080a8c0382f679491ba",
+          "turnMessageCount": 0,
+          "turnPrefixSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "provider": "openai",
+          "model": "gpt-x",
+          "toolSchemaSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+          "requestReserveTokens": 70,
+          "boundary": "complete",
+          "updatedAt": 1700000000000,
+          "compaction": {
+            "boundaryTokens": 180000,
+            "triggerTokens": 150000,
+            "lastCompactAt": 77
+          }
+        }
+      },
+      "result": true,
+      "after": {
+        "provider": "openai",
+        "model": "other",
+        "contextPressureBaselineTokens": 6,
+        "contextPressureBaselineOutputTokens": 1,
+        "contextPressureBaselineMessageCount": 15,
+        "contextPressureBaselinePrefixSignature": "20a8a9ed5d9cc4c57e85e139bc51b6a1d11dc5662e389080a8c0382f679491ba",
+        "contextPressureBaselineShapeSignature": "5b0cec42ca6b92833ea6aa9f4ddfc132a2586430f789aa19b1bb18e6bffd7dd7",
+        "contextPressureBaselineProvider": "openai",
+        "contextPressureBaselineModel": "gpt-x",
+        "contextPressureBaselineToolSignature": "3fb313c4e60c71e684fca16475b22844e9dcff6a36acbc5bdc689cfd4abd99f2",
+        "contextPressureBaselineRequestReserveTokens": 70,
+        "contextPressureBaselineBoundary": "complete",
+        "contextPressureBaselineUpdatedAt": 1700000000000,
+        "lastContextTokensStaleAfterCompact": false,
+        "contextPressureBaselineSource": "provider"
+      }
+    }
+  ],
+  "blobs": {
+    "3dad09294e9189e56f5fb6cf698259924c8b565c150236e5446694b3075d957c": "cGFzdGVkIGJvZHkKc2Vjb25kIGxpbmUgw6k=",
+    "0ca9091eb4e31fb1ab24c8c5de92a08e4e5f402919f82ea3ca784f38534f03f3": "cHJpbnQoImhpIikK",
+    "8e101b9712405dbe8bacfc8bbcb268211b4011f9198db4916275b19141a1d9b4": "JVBERi0xLjQKMSAwIG9iago=",
+    "feb1aba6fea741741b1bbcc974f74fed337b535b8eec7223b6dd15d7108f08e3": "AAEC//79",
+    "f9907f2571e7b9115fb1747cb5f596218b0be04366046055e90f24f398d6b12d": "UEsDBAoAAAAAAAYvZl0G8pnQoQAAAKEAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbDw/eG1sIHZlcnNpb249IjEuMCI/PjxUeXBlcyB4bWxucz0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3BhY2thZ2UvMjAwNi9jb250ZW50LXR5cGVzIj48RGVmYXVsdCBFeHRlbnNpb249InhtbCIgQ29udGVudFR5cGU9ImFwcGxpY2F0aW9uL3htbCIvPjwvVHlwZXM+UEsDBAoAAAAAAAYvZl0AAAAAAAAAAAAAAAAFAAAAd29yZC9QSwMECgAAAAAABi9mXSKbZXDjAAAA4wAAABEAAAB3b3JkL2RvY3VtZW50LnhtbDw/eG1sIHZlcnNpb249IjEuMCI/Pjx3OmRvY3VtZW50IHhtbG5zOnc9Imh0dHA6Ly9zY2hlbWFzLm9wZW54bWxmb3JtYXRzLm9yZy93b3JkcHJvY2Vzc2luZ21sLzIwMDYvbWFpbiI+PHc6Ym9keT48dzpwPjx3OnI+PHc6dD5RdWFydGVybHkgcmVwb3J0PC93OnQ+PC93OnI+PC93OnA+PHc6cD48dzpyPjx3OnQ+U2Vjb25kIGxpbmU8L3c6dD48L3c6cj48L3c6cD48L3c6Ym9keT48L3c6ZG9jdW1lbnQ+UEsBAhQACgAAAAAABi9mXQbymdChAAAAoQAAABMAAAAAAAAAAAAAAAAAAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAAKAAAAAAAGL2ZdAAAAAAAAAAAAAAAABQAAAAAAAAAAABAAAADSAAAAd29yZC9QSwECFAAKAAAAAAAGL2ZdIptlcOMAAADjAAAAEQAAAAAAAAAAAAAAAAD1AAAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAMAAwCzAAAABwIAAAAA",
+    "71284a425626895b8e25ddb014f51c706c891b3cc3107e6ac82316162c974248": "bm90IGEgemlwIGNvbnRhaW5lcg==",
+    "63d7e759066321e7ba1bf418bb5c204ccffbf7f7f3cd0d5bc7d3695d353f6262": "aGn//iE="
+  },
+  "office": [
+    {
+      "filename": "report.docx",
+      "bytes": "UEsDBAoAAAAAAAYvZl0G8pnQoQAAAKEAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbDw/eG1sIHZlcnNpb249IjEuMCI/PjxUeXBlcyB4bWxucz0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3BhY2thZ2UvMjAwNi9jb250ZW50LXR5cGVzIj48RGVmYXVsdCBFeHRlbnNpb249InhtbCIgQ29udGVudFR5cGU9ImFwcGxpY2F0aW9uL3htbCIvPjwvVHlwZXM+UEsDBAoAAAAAAAYvZl0AAAAAAAAAAAAAAAAFAAAAd29yZC9QSwMECgAAAAAABi9mXSKbZXDjAAAA4wAAABEAAAB3b3JkL2RvY3VtZW50LnhtbDw/eG1sIHZlcnNpb249IjEuMCI/Pjx3OmRvY3VtZW50IHhtbG5zOnc9Imh0dHA6Ly9zY2hlbWFzLm9wZW54bWxmb3JtYXRzLm9yZy93b3JkcHJvY2Vzc2luZ21sLzIwMDYvbWFpbiI+PHc6Ym9keT48dzpwPjx3OnI+PHc6dD5RdWFydGVybHkgcmVwb3J0PC93OnQ+PC93OnI+PC93OnA+PHc6cD48dzpyPjx3OnQ+U2Vjb25kIGxpbmU8L3c6dD48L3c6cj48L3c6cD48L3c6Ym9keT48L3c6ZG9jdW1lbnQ+UEsBAhQACgAAAAAABi9mXQbymdChAAAAoQAAABMAAAAAAAAAAAAAAAAAAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAAKAAAAAAAGL2ZdAAAAAAAAAAAAAAAABQAAAAAAAAAAABAAAADSAAAAd29yZC9QSwECFAAKAAAAAAAGL2ZdIptlcOMAAADjAAAAEQAAAAAAAAAAAAAAAAD1AAAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAMAAwCzAAAABwIAAAAA",
+      "text": "Quarterly report\nSecond line"
+    },
+    {
+      "filename": "Report.DOCX",
+      "bytes": "UEsDBAoAAAAAAAYvZl0G8pnQoQAAAKEAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbDw/eG1sIHZlcnNpb249IjEuMCI/PjxUeXBlcyB4bWxucz0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3BhY2thZ2UvMjAwNi9jb250ZW50LXR5cGVzIj48RGVmYXVsdCBFeHRlbnNpb249InhtbCIgQ29udGVudFR5cGU9ImFwcGxpY2F0aW9uL3htbCIvPjwvVHlwZXM+UEsDBAoAAAAAAAYvZl0AAAAAAAAAAAAAAAAFAAAAd29yZC9QSwMECgAAAAAABi9mXSKbZXDjAAAA4wAAABEAAAB3b3JkL2RvY3VtZW50LnhtbDw/eG1sIHZlcnNpb249IjEuMCI/Pjx3OmRvY3VtZW50IHhtbG5zOnc9Imh0dHA6Ly9zY2hlbWFzLm9wZW54bWxmb3JtYXRzLm9yZy93b3JkcHJvY2Vzc2luZ21sLzIwMDYvbWFpbiI+PHc6Ym9keT48dzpwPjx3OnI+PHc6dD5RdWFydGVybHkgcmVwb3J0PC93OnQ+PC93OnI+PC93OnA+PHc6cD48dzpyPjx3OnQ+U2Vjb25kIGxpbmU8L3c6dD48L3c6cj48L3c6cD48L3c6Ym9keT48L3c6ZG9jdW1lbnQ+UEsBAhQACgAAAAAABi9mXQbymdChAAAAoQAAABMAAAAAAAAAAAAAAAAAAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAAKAAAAAAAGL2ZdAAAAAAAAAAAAAAAABQAAAAAAAAAAABAAAADSAAAAd29yZC9QSwECFAAKAAAAAAAGL2ZdIptlcOMAAADjAAAAEQAAAAAAAAAAAAAAAAD1AAAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAMAAwCzAAAABwIAAAAA",
+      "text": "Quarterly report\nSecond line"
+    },
+    {
+      "filename": "broken.docx",
+      "bytes": "bm90IGEgemlwIGNvbnRhaW5lcg==",
+      "text": null
+    },
+    {
+      "filename": "inline.docx",
+      "bytes": "UEsDBAoAAAAAAAYvZl0G8pnQoQAAAKEAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbDw/eG1sIHZlcnNpb249IjEuMCI/PjxUeXBlcyB4bWxucz0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3BhY2thZ2UvMjAwNi9jb250ZW50LXR5cGVzIj48RGVmYXVsdCBFeHRlbnNpb249InhtbCIgQ29udGVudFR5cGU9ImFwcGxpY2F0aW9uL3htbCIvPjwvVHlwZXM+UEsDBAoAAAAAAAYvZl0AAAAAAAAAAAAAAAAFAAAAd29yZC9QSwMECgAAAAAABi9mXSKbZXDjAAAA4wAAABEAAAB3b3JkL2RvY3VtZW50LnhtbDw/eG1sIHZlcnNpb249IjEuMCI/Pjx3OmRvY3VtZW50IHhtbG5zOnc9Imh0dHA6Ly9zY2hlbWFzLm9wZW54bWxmb3JtYXRzLm9yZy93b3JkcHJvY2Vzc2luZ21sLzIwMDYvbWFpbiI+PHc6Ym9keT48dzpwPjx3OnI+PHc6dD5RdWFydGVybHkgcmVwb3J0PC93OnQ+PC93OnI+PC93OnA+PHc6cD48dzpyPjx3OnQ+U2Vjb25kIGxpbmU8L3c6dD48L3c6cj48L3c6cD48L3c6Ym9keT48L3c6ZG9jdW1lbnQ+UEsBAhQACgAAAAAABi9mXQbymdChAAAAoQAAABMAAAAAAAAAAAAAAAAAAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAAKAAAAAAAGL2ZdAAAAAAAAAAAAAAAABQAAAAAAAAAAABAAAADSAAAAd29yZC9QSwECFAAKAAAAAAAGL2ZdIptlcOMAAADjAAAAEQAAAAAAAAAAAAAAAAD1AAAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAMAAwCzAAAABwIAAAAA",
+      "text": "Quarterly report\nSecond line"
     }
   ]
 }

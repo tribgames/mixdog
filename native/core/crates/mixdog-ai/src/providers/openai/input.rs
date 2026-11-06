@@ -72,7 +72,7 @@ pub fn content_text(content: &Content) -> String {
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|part| match part {
-                ContentPart::Text(text) => Some(text.as_str()),
+                ContentPart::Text(text, _) => Some(text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -123,7 +123,7 @@ fn is_pdf(mime: &str) -> bool {
 
 fn normalize_part(part: &ContentPart, assistant: bool) -> Option<Value> {
     match part {
-        ContentPart::Text(text) => (!text.is_empty()).then(|| text_part(assistant, text.as_str())),
+        ContentPart::Text(text, _) => (!text.is_empty()).then(|| text_part(assistant, text.as_str())),
         ContentPart::Image(ImageSource::Base64 { data, mime_type }) => {
             Some(json!({"type": "input_image", "image_url": data_url(mime_type, data)}))
         }

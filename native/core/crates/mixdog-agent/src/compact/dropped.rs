@@ -60,7 +60,7 @@ fn has_text(content: &Content) -> bool {
     match content {
         Content::Text(text) => !js_trim(text).is_empty(),
         Content::Parts(parts) => {
-            parts.iter().any(|part| matches!(part, ContentPart::Text(text) if !js_trim(text).is_empty()))
+            parts.iter().any(|part| matches!(part, ContentPart::Text(text, _) if !js_trim(text).is_empty()))
         }
     }
 }

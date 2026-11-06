@@ -533,6 +533,18 @@ impl Tool for ShellTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        // Whatever the outcome or classification, a finished command is a turn boundary for the
+        // review of the folder it ran in (`tool-exec.mjs`); the folder is the raw `cwd` argument
+        // resolved against the session cwd, checked or not.
+        let requested = args.get("cwd").and_then(JsonValue::as_str).map(str::to_owned);
+        let cwd = super::settle::effective_shell_cwd(ctx.cwd.as_path(), requested.as_deref());
+        let _settled = super::settle::SettleGuard::new(ctx.review.clone(), cwd);
+        self.run(ctx, args).await
+    }
+}
+
+impl ShellTool {
+    async fn run(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let args: Args = serde_json::from_value(args).map_err(|e| {
             failed(
                 ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: e.to_string() },
@@ -768,7 +780,7 @@ impl Tool for ShellTool {
             time_limit: (time_limit > 0).then(|| Duration::from_millis(time_limit)),
         };
         let started = runtime
-            .start(&ctx.processes, request, task_id, command.clone(), ctx.thread_id.clone(), time_limit, &ctx.cancel)
+            .start(&ctx.processes, request, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), &ctx.cancel)
             .await;
         let job = match started {
             Ok(job) => job,

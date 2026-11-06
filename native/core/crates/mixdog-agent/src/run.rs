@@ -85,6 +85,13 @@ pub struct RunConfig {
     pub attachments: Option<std::sync::Arc<dyn crate::attachments::AttachmentText>>,
     /// The admitted slot of an agent job: handed back around each provider request.
     pub slot: Option<std::sync::Arc<dyn crate::env::Yielder>>,
+    /// The turn's signal with the reason its source aborted it with (see [`crate::cancel`]): the
+    /// host builds it over the run's token (`Cancel::from_token`) and aborts through it. Without
+    /// one, a cancelled wait reads as a bare `abort()`.
+    pub signal: Option<crate::cancel::Cancel>,
+    /// Node `opts.retry529`: `false` surfaces an overload (status 529) instead of retrying it, for a
+    /// background call that falls back at once. The provider's own policy is kept otherwise.
+    pub retry_529: bool,
 }
 
 impl RunConfig {
@@ -111,6 +118,8 @@ impl RunConfig {
             text_only: None,
             attachments: None,
             slot: None,
+            signal: None,
+            retry_529: true,
         }
     }
 }

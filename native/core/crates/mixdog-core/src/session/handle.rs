@@ -274,6 +274,35 @@ impl SessionHandle {
         Ok(Reply::Value(reply))
     }
 
+    /// `thread/revertTurnReview {checkpointId?}` / `thread/revertTurnReviewFile {file, checkpointId?}`:
+    /// the session runtime's `revertTurnReview(getCwd(), getSessionId(), ...)`. A refusal is a domain
+    /// error carrying Node's message.
+    async fn revert_turn_review(&self, req: &CoreRequest, file: bool) -> Result<Reply, CoreError> {
+        use mixdog_app_protocol::v2::params::ThreadRevertTurnReviewFileParams;
+        use mixdog_app_protocol::v2::params::ThreadRevertTurnReviewParams;
+        let invalid = |expected: &str| CoreError::InvalidParams { path: "params".into(), expected: expected.into() };
+        let (file, checkpoint) = if file {
+            let p: ThreadRevertTurnReviewFileParams = serde_json::from_value(req.params.clone()).map_err(|_| invalid("ThreadRevertTurnReviewFileParams"))?;
+            (Some(p.file), p.checkpoint_id)
+        } else {
+            let p: ThreadRevertTurnReviewParams = serde_json::from_value(req.params.clone()).map_err(|_| invalid("ThreadRevertTurnReviewParams"))?;
+            (None, p.checkpoint_id)
+        };
+        let cwd = self.explicit_cwd().await.unwrap_or_default();
+        let checkpoint = checkpoint.unwrap_or_default();
+        let review = &self.deps.turn_review;
+        let done = match file {
+            Some(file) => review.revert_turn_review_file(&cwd, self.id.as_str(), &file, &checkpoint).await,
+            None => review.revert_turn_review(&cwd, self.id.as_str(), &checkpoint).await,
+        };
+        done.map(|reply| Reply::Value(Value::Object(reply))).map_err(|error| CoreError::DomainError {
+            domain: "turnReview".into(),
+            code: None,
+            message: Some(error.message.into()),
+            detail: None,
+        })
+    }
+
     /// `thread/fork`: a new thread whose history continues this one's acked lineage.
     async fn fork(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let params: ThreadForkParams =
@@ -360,6 +389,8 @@ impl ThreadHandle for SessionHandle {
             "thread/resume" => self.resume(&req),
             "thread/read" => self.read(&req).await,
             "thread/fork" => self.fork(req).await,
+            "thread/revertTurnReview" => self.revert_turn_review(&req, false).await,
+            "thread/revertTurnReviewFile" => self.revert_turn_review(&req, true).await,
             "thread/reactions/set" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.reactions_set(req).await,
             // The acked header, for the core's own ports; never a connection's read.
             "thread/header/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {

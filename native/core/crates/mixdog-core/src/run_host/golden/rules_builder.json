@@ -1,0 +1,1311 @@
+{
+ "files": {
+  "rules/shared/10-a.md": "---\nname: x\n---\n# Shared A\n\nAlways line.\n<!-- tools: grep, find -->\n- Search with grep or find.\n  continuation line\n- not part of block\n\n<!-- tools: shell -->\n- Shell only.\n<!-- tools: lead -->\n- Lead only.\n  more lead\n<!--tools:-->\n- Empty marker keeps.\n   \n\n\n\ntrailing   \n",
+  "rules/shared/20-b.md": "# Shared B\r\n<!-- tools: Edit, apply_patch -->\r\n- Edit things.\r\n<!-- tools: apply_patch -->\r\n- Patch things.\r\nend\r\n",
+  "rules/shared/ignored.txt": "nope",
+  "rules/routes/a.md": "---\nproviders: openai, \"anthropic\"\nmodels: gpt-*\n---\nRoute A body.\n<!-- tools: apply_patch -->\nPatch guidance.\n",
+  "rules/routes/b.md": "Route B applies everywhere.\n",
+  "rules/routes/c.md": "---\nmodels: '*sonnet*', claude-3-*\n---\nRoute C body.\n",
+  "rules/routes/d.md": "---\nproviders: cursor\n---\n\n",
+  "rules/lead/LEAD.md": "# Lead\n\n- You are Mixdog, a coding agent.\n- Talk plainly. Before your first tool call, briefly state what you will do; narration or plan repeats.\n- Other bullet. On an agent report, verify it; never report it as done.\n<!-- tools: agent -->\n- Brief agents well.\n- Tail.\n",
+  "rules/agent-mode/AGENT_MODE.md": "Conduct body.\n",
+  "rules/agent-mode/MIXY.md": "Mixy body.\n",
+  "rules/agent/AGENT.md": "  Agent contract.\n"
+ },
+ "cases": [
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [],
+    "allowTools": null,
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [],
+    "allowTools": [],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [],
+    "allowTools": [],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep",
+     "find"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep",
+     "find"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep",
+     "find"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep",
+     "find"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep",
+     "find"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep",
+     "find"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep",
+     "find"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "grep",
+     "find"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "SHELL"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "SHELL"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "SHELL"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "SHELL"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "SHELL"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "SHELL"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "SHELL"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "SHELL"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit",
+     "apply_patch"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit",
+     "apply_patch"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit",
+     "apply_patch"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit",
+     "apply_patch"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit",
+     "apply_patch"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit",
+     "apply_patch"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit",
+     "apply_patch"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "edit",
+     "apply_patch"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "lead"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "lead"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\n- Patch things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "lead"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "lead"
+    ],
+    "allowTools": [],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "lead"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "lead"
+    ],
+    "allowTools": [
+     "grep"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- Search with grep or find.\n  continuation line\n- not part of block\n\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "lead"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": false
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Lead only.\n  more lead\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "shared",
+   "args": {
+    "omitTools": [
+     "lead"
+    ],
+    "allowTools": [
+     "shell",
+     "edit"
+    ],
+    "ownerIsAgent": true
+   },
+   "out": "---\nname: x\n---\n# Shared A\n\nAlways line.\n- not part of block\n\n- Shell only.\n- Empty marker keeps.\n\ntrailing\n\n# Shared B\n- Edit things.\nend"
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": null,
+    "model": null,
+    "omitTools": [],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": null,
+    "model": null,
+    "omitTools": [],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": null,
+    "model": null,
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": null,
+    "model": null,
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "openai",
+    "model": "gpt-5",
+    "omitTools": [],
+    "allowTools": null
+   },
+   "out": "Route A body.\nPatch guidance.\nRoute B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "openai",
+    "model": "gpt-5",
+    "omitTools": [],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route A body.\nRoute B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "openai",
+    "model": "gpt-5",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": null
+   },
+   "out": "Route A body.\nRoute B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "openai",
+    "model": "gpt-5",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route A body.\nRoute B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "OpenAI",
+    "model": "GPT-5.1",
+    "omitTools": [],
+    "allowTools": null
+   },
+   "out": "Route A body.\nPatch guidance.\nRoute B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "OpenAI",
+    "model": "GPT-5.1",
+    "omitTools": [],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route A body.\nRoute B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "OpenAI",
+    "model": "GPT-5.1",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": null
+   },
+   "out": "Route A body.\nRoute B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "OpenAI",
+    "model": "GPT-5.1",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route A body.\nRoute B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "anthropic",
+    "model": "claude-3-5-sonnet",
+    "omitTools": [],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "anthropic",
+    "model": "claude-3-5-sonnet",
+    "omitTools": [],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "anthropic",
+    "model": "claude-3-5-sonnet",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "anthropic",
+    "model": "claude-3-5-sonnet",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "anthropic",
+    "model": "vendor/Claude-Sonnet-4",
+    "omitTools": [],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "anthropic",
+    "model": "vendor/Claude-Sonnet-4",
+    "omitTools": [],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "anthropic",
+    "model": "vendor/Claude-Sonnet-4",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "anthropic",
+    "model": "vendor/Claude-Sonnet-4",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "cursor",
+    "model": "x",
+    "omitTools": [],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "cursor",
+    "model": "x",
+    "omitTools": [],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "cursor",
+    "model": "x",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "cursor",
+    "model": "x",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "openai",
+    "model": "claude-3-opus",
+    "omitTools": [],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "openai",
+    "model": "claude-3-opus",
+    "omitTools": [],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "openai",
+    "model": "claude-3-opus",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "openai",
+    "model": "claude-3-opus",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere.\nRoute C body."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "google",
+    "model": "gemini",
+    "omitTools": [],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "google",
+    "model": "gemini",
+    "omitTools": [],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "google",
+    "model": "gemini",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": null
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "route",
+   "args": {
+    "provider": "google",
+    "model": "gemini",
+    "omitTools": [
+     "apply_patch"
+    ],
+    "allowTools": [
+     "edit"
+    ]
+   },
+   "out": "Route B applies everywhere."
+  },
+  {
+   "fn": "lead",
+   "args": {
+    "includeLeadBrief": true,
+    "part": "common"
+   },
+   "out": "# Lead\n\n- Talk plainly.\n- Other bullet.\n- Brief agents well.\n- Tail."
+  },
+  {
+   "fn": "lead",
+   "args": {
+    "includeLeadBrief": true,
+    "part": "identity"
+   },
+   "out": "You are Mixdog, a coding agent."
+  },
+  {
+   "fn": "lead",
+   "args": {
+    "includeLeadBrief": true,
+    "part": "coding"
+   },
+   "out": "# Progress and Reports\n\n- Before your first tool call, briefly state what you will do; narration or plan repeats.\n- On an agent report, verify it; never report it as done."
+  },
+  {
+   "fn": "lead",
+   "args": {
+    "includeLeadBrief": true,
+    "part": "agent"
+   },
+   "out": "# Progress and Reports\n\n- Just answer conversation. Quick tool use (checking memory, a lookup,\n  leaving a reaction) needs no announcement. When starting longer work\n  (research, delegation, multi-step tasks), say in one line what you are\n  doing, stay quiet between tool calls, and share the result when it\n  finishes.\n- Relay agent reports faithfully. Code: one fresh Reviewer per non-trivial\n  feature after its last worker, any author (Lead if none); docs/copy/style:\n  read the diff. Recheck only concrete fixes, never rerun passing checks\n  without new evidence; at request end check feature seams."
+  },
+  {
+   "fn": "lead",
+   "args": {
+    "includeLeadBrief": false,
+    "part": "common"
+   },
+   "out": "# Lead\n\n- Talk plainly.\n- Other bullet.\n- Tail."
+  },
+  {
+   "fn": "lead",
+   "args": {
+    "includeLeadBrief": false,
+    "part": "identity"
+   },
+   "out": "You are Mixdog, a coding agent."
+  },
+  {
+   "fn": "lead",
+   "args": {
+    "includeLeadBrief": false,
+    "part": "coding"
+   },
+   "out": "# Progress and Reports\n\n- Before your first tool call, briefly state what you will do; narration or plan repeats.\n- On an agent report, verify it; never report it as done."
+  },
+  {
+   "fn": "lead",
+   "args": {
+    "includeLeadBrief": false,
+    "part": "agent"
+   },
+   "out": "# Progress and Reports\n\n- Just answer conversation. Quick tool use (checking memory, a lookup,\n  leaving a reaction) needs no announcement. When starting longer work\n  (research, delegation, multi-step tasks), say in one line what you are\n  doing, stay quiet between tool calls, and share the result when it\n  finishes.\n- Relay agent reports faithfully. Code: one fresh Reviewer per non-trivial\n  feature after its last worker, any author (Lead if none); docs/copy/style:\n  read the diff. Recheck only concrete fixes, never rerun passing checks\n  without new evidence; at request end check feature seams."
+  },
+  {
+   "fn": "agentMode",
+   "args": {
+    "part": "conduct"
+   },
+   "out": "Conduct body."
+  },
+  {
+   "fn": "agentMode",
+   "args": {
+    "part": "mixy"
+   },
+   "out": "# Your Role\n\nMixy body."
+  },
+  {
+   "fn": "agentMode",
+   "args": {
+    "part": "other"
+   },
+   "out": "Conduct body."
+  },
+  {
+   "fn": "agentRole",
+   "args": {},
+   "out": "Agent contract."
+  },
+  {
+   "fn": "omit",
+   "args": {
+    "text": "a\n<!-- tools: x -->",
+    "omitTools": [
+     "x"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": "a"
+  },
+  {
+   "fn": "omit",
+   "args": {
+    "text": "<!-- tools: x -->\nb",
+    "omitTools": [
+     "x"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": ""
+  },
+  {
+   "fn": "omit",
+   "args": {
+    "text": "x  \n\n\n\ny\t\n",
+    "omitTools": [
+     "x"
+    ],
+    "allowTools": null,
+    "ownerIsAgent": false
+   },
+   "out": "x\n\ny"
+  }
+ ]
+}

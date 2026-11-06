@@ -383,6 +383,9 @@ pub struct ProxyModel {
     /// The largest window the listing states for the model.
     #[ts(type = "number | null")]
     pub max_context_window: Option<u64>,
+    /// What a managed local runtime has allocated; bounds a selected window.
+    #[ts(type = "number | null")]
+    pub runtime_context_window: Option<u64>,
     #[ts(type = "number | null")]
     pub max_output_tokens: Option<u64>,
     /// The row's own prices, USD per million tokens; absent when not finite.

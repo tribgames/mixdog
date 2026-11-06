@@ -22,6 +22,7 @@ use super::approval::ApprovalGate;
 use super::common::AbsPath;
 use super::fs::FileService;
 use super::process::ProcessManager;
+use crate::turn_review::TurnReviewApi;
 use mixdog_protocol::ToolCallId;
 
 /// Tool annotations as published in `tool-schemas.json`.
@@ -102,6 +103,8 @@ pub struct ToolContext {
     pub processes: Arc<dyn ProcessManager>,
     /// This call's options from the caller.
     pub options: CallOptions,
+    /// The turn review the edit tools record their committed writes into (`None` where there is none).
+    pub review: Option<Arc<dyn TurnReviewApi>>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

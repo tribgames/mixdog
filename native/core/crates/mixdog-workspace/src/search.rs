@@ -48,6 +48,8 @@ pub struct SessionConfig {
     pub consumer: Option<String>,
     /// Entries the index scan visits before leaving folders to the per-query walk.
     pub scan_cap: Option<usize>,
+    /// Time the walk past the scan cap may take (Node's `beyondBudgetMs`, default 400 ms).
+    pub beyond_budget: Option<std::time::Duration>,
 }
 
 struct Index {
@@ -209,20 +211,16 @@ impl SearchSessions {
         }
         let (walk_root, pending, include_ignored, q) = (root.to_path_buf(), index.pending.clone(), session.config.include_ignored, query.to_owned());
         let watch = SessionStop { generation, session_generation: session.generation.clone() };
-        let deadline = std::time::Instant::now() + BEYOND_BUDGET;
-        let found = run(self.lanes.maintenance, &session.cancel, move || {
+        let deadline = std::time::Instant::now() + session.config.beyond_budget.unwrap_or(BEYOND_BUDGET);
+        let (found, finished) = run(self.lanes.maintenance, &session.cancel, move || {
             matches_beyond(&walk_root, &pending, include_ignored, &|| watch.superseded() || std::time::Instant::now() > deadline, &|p| match_file(p, &q).is_some())
         })
         .await?;
-        Ok(match found {
-            Some(found) => {
-                if found.len() <= INDEX_MAX_ENTRIES {
-                    *index.beyond.lock().expect("beyond cache") = Some((needle, found.clone()));
-                }
-                found
-            }
-            None => Vec::new(),
-        })
+        // A walk the budget cut short answers with what it found and keeps nothing.
+        if finished && found.len() <= INDEX_MAX_ENTRIES {
+            *index.beyond.lock().expect("beyond cache") = Some((needle, found.clone()));
+        }
+        Ok(found)
     }
 
     async fn search(&self, session: &Arc<Session>, generation: u64, query: String) -> WsResult<()> {
@@ -303,7 +301,17 @@ mod tests {
         std::fs::write(root.join("d/deep/needle-file.rs"), "").unwrap();
         let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
         let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::new(Arc::new(Null)).unwrap()));
-        let config = SessionConfig { roots: vec![root.clone()], limit: None, include_ignored: false, include_directories: false, consumer: None, scan_cap: Some(6) };
+        // The walk past the cap has a time budget (400 ms by default); a loaded machine must not
+        // decide this test, so it gets a budget no walk reaches.
+        let config = SessionConfig {
+            roots: vec![root.clone()],
+            limit: None,
+            include_ignored: false,
+            include_directories: false,
+            consumer: None,
+            scan_cap: Some(6),
+            beyond_budget: Some(std::time::Duration::from_secs(600)),
+        };
         let publisher = sessions.start("s", config).unwrap();
         let session = sessions.sessions.lock().unwrap().get("s").cloned().unwrap();
         let index = sessions.index_for(&session, 0, &root).await.unwrap().unwrap();
@@ -316,6 +324,48 @@ mod tests {
         sessions.search(&session, 0, "needle-file.r".into()).await.unwrap();
         assert!(index.beyond.lock().unwrap().is_some());
         assert!(publisher.state()["files"].to_string().contains("needle-file.rs"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_walk_the_budget_cut_short_answers_with_the_index_and_keeps_nothing() {
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = Lanes {
+            interactive: tokens.interactive_io,
+            durability: tokens.durability_io,
+            maintenance: tokens.maintenance_io,
+            cpu_bulk: tokens.cpu_bulk,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::pathguard::canonical(dir.path()).unwrap();
+        for d in ["a", "b", "c", "d"] {
+            std::fs::create_dir_all(root.join(d).join("deep")).unwrap();
+            for i in 0..5 {
+                std::fs::write(root.join(d).join(format!("f{i}.txt")), "").unwrap();
+            }
+        }
+        std::fs::write(root.join("d/deep/needle-file.rs"), "").unwrap();
+        std::fs::write(root.join("top-file.txt"), "").unwrap();
+        let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+        let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::new(Arc::new(Null)).unwrap()));
+        let config = SessionConfig {
+            roots: vec![root.clone()],
+            limit: None,
+            include_ignored: false,
+            include_directories: false,
+            consumer: None,
+            scan_cap: Some(6),
+            beyond_budget: Some(std::time::Duration::ZERO),
+        };
+        let publisher = sessions.start("s", config).unwrap();
+        let session = sessions.sessions.lock().unwrap().get("s").cloned().unwrap();
+        let index = sessions.index_for(&session, 0, &root).await.unwrap().unwrap();
+        assert!(index.files.iter().any(|f| f == "top-file.txt"), "{:?}", index.files);
+        sessions.search(&session, 0, "top-file".into()).await.unwrap();
+        // The answer still comes (what the index holds), and the cut-short walk is not cached
+        // as if it had finished.
+        let files = publisher.state()["files"].to_string();
+        assert!(files.contains("top-file.txt"), "{files}");
+        assert!(index.beyond.lock().unwrap().is_none());
     }
 
     // Current-thread runtime: the 30 launched tasks cannot start before the test first awaits, so
@@ -337,7 +387,7 @@ mod tests {
         let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
         let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::new(Arc::new(Null)).unwrap()));
         let publisher = sessions
-            .start("s1", SessionConfig { roots: vec![root.clone()], limit: None, include_ignored: false, include_directories: false, consumer: None, scan_cap: None })
+            .start("s1", SessionConfig { roots: vec![root.clone()], limit: None, include_ignored: false, include_directories: false, consumer: None, scan_cap: None, beyond_budget: None })
             .unwrap();
         for i in 0..29 {
             sessions.update("s1", format!("q{i}")).unwrap();

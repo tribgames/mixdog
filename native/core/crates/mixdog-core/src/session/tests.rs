@@ -388,9 +388,13 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
     let rig = Rig::new();
-    rig.set_script(Arc::new(|run| {
+    let reason: Arc<Mutex<Option<String>>> = Arc::default();
+    let seen = reason.clone();
+    rig.set_script(Arc::new(move |run| {
+        let seen = seen.clone();
         Box::pin(async move {
             run.cancel.cancelled().await;
+            *seen.lock().unwrap() = Some(run.signal.reason());
             RunOutcome::Interrupted
         })
     }));
@@ -424,6 +428,67 @@ async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
     })
     .await;
     assert_eq!(completed.2["turn"]["status"], "interrupted");
+    // The user's stop carries `abortRuntime`'s text.
+    let expected = format!("Session \"{}\" closed: runtime abort (reason=cli-abort)", handle.id.as_str());
+    assert_eq!(reason.lock().unwrap().as_deref(), Some(expected.as_str()));
+}
+
+/// The turn's review (`snapshot-tracker.mjs`): the run begins it once its workspace is final, a
+/// tool waits for the baseline, and the turn settles only after the seal, so its edit is the
+/// sealed turn's change record under the input row's checkpoint.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_edits_a_file_seals_its_review_before_it_settles() {
+    use mixdog_core_api::turn_review::ChangesRead;
+    let rig = Rig::new();
+    let ws = tempfile::tempdir().unwrap();
+    let root = ws.path().canonicalize().unwrap().to_string_lossy().trim_start_matches(r"\\?\").to_owned();
+    assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(&root).status().unwrap().success());
+    std::fs::write(ws.path().join("a.txt"), "one\n").unwrap();
+    let checkpoints: Arc<Mutex<Vec<String>>> = Arc::default();
+    let seen = checkpoints.clone();
+    let cwd = root.clone();
+    let deps = rig.deps();
+    let review = deps.turn_review.clone();
+    let tool = review.clone();
+    rig.set_script(Arc::new(move |run| {
+        let (seen, cwd, tool) = (seen.clone(), cwd.clone(), tool.clone());
+        Box::pin(async move {
+            use mixdog_core_api::turn_review::{CallChange, ReviewContent};
+            run.port.input_durable().await.expect("input durable");
+            // The turn's checkpoint is its input row.
+            seen.lock().unwrap().push(run.input_item.as_str().to_owned());
+            run.review.start(&cwd);
+            // The edit tool waits for the baseline, writes, and records its call.
+            assert!(run.review.ready().await.is_some(), "a baseline");
+            let file = std::path::Path::new(&cwd).join("a.txt");
+            std::fs::write(&file, "two\n").unwrap();
+            let change = CallChange {
+                path: file.to_string_lossy().into_owned(),
+                new_path: None,
+                before: ReviewContent::Bytes(b"one\n".to_vec().into()),
+                after: ReviewContent::Bytes(b"two\n".to_vec().into()),
+            };
+            tool.record_call("call-1", run.thread.as_str(), &cwd, vec![change]).await;
+            RunOutcome::Completed(Box::default())
+        })
+    }));
+    let directory = SessionDirectory::new(deps);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "edit a.txt", "op-1").await;
+    // The baseline and the seal run real Git (a shadow repository); under a loaded suite they
+    // take longer than `eventually`'s 5 s (measured 7.7 s).
+    let started = std::time::Instant::now();
+    while !idle(&handle) {
+        assert!(started.elapsed() < std::time::Duration::from_secs(60), "the turn settles");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let checkpoint = checkpoints.lock().unwrap()[0].clone();
+    assert!(!checkpoint.is_empty());
+    // Settled means sealed: the record is readable at once.
+    let read = ChangesRead { checkpoint_id: checkpoint, patch: true, file: None };
+    let changes = review.turn_changes(handle.id.as_str(), read).await.expect("the turn's change record");
+    let text = Value::Object(changes).to_string();
+    assert!(text.contains("a.txt") && text.contains("+two"), "{text}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -780,6 +845,32 @@ async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(runs_started(&rig, &quiet.id), 0);
     assert_eq!(runs_started(&rig, &parked.id), 0);
+}
+
+/// `thread/revertTurnReview` and `thread/revertTurnReviewFile` reach the turn review through the
+/// thread handle: a thread with no turn answers Node's refusal, a malformed call is invalid params.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn turn_review_reverts_are_served_by_the_thread_handle() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    for (method, params) in [
+        ("thread/revertTurnReview", json!({ "threadId": handle.id, "opId": "op-1" })),
+        ("thread/revertTurnReviewFile", json!({ "threadId": handle.id, "opId": "op-1", "file": "a.txt" })),
+    ] {
+        let error = handle.request(request(method, params, "op-1")).await.expect_err("no turn to revert");
+        match error {
+            CoreError::DomainError { domain, message: Some(message), .. } => {
+                assert_eq!((&*domain, &*message), ("turnReview", "turn worktree snapshot is unavailable"), "{method}");
+            }
+            other => panic!("{method}: {other:?}"),
+        }
+    }
+    let error = handle
+        .request(request("thread/revertTurnReviewFile", json!({ "threadId": handle.id, "opId": "op-2" }), "op-2"))
+        .await
+        .expect_err("a file is required");
+    assert!(matches!(error, CoreError::InvalidParams { .. }), "{error:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

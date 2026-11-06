@@ -292,18 +292,25 @@ fn redundant_preset(preset: &Value, default: &str) -> bool {
 /// `isStoreBot`: the split finished (`bots/migration.json` at version 1) and the bot has its
 /// folder or was copied by the split. Mixy's own folder is no ordinary bot.
 #[allow(clippy::disallowed_methods, reason = "an io-interactive job body: the proof says it runs there")]
-fn is_store_bot(lane: &InLane<InteractiveIo>, data_dir: &Path, id: &str) -> bool {
+pub(crate) fn is_store_bot(lane: &InLane<InteractiveIo>, data_dir: &Path, id: &str) -> bool {
     if data_dir.as_os_str().is_empty() || id.is_empty() || id == MIXY_BOT_ID || id.starts_with('.') {
         return false;
     }
-    let Some(manifest) = read_json(lane, &data_dir.join(BOTS_DIR).join(MIGRATION_MANIFEST)) else {
+    let Some(manifest) = bot_migration(lane, data_dir) else {
         return false;
     };
-    if manifest.get("version").and_then(Value::as_i64) != Some(MIGRATION_VERSION) {
-        return false;
-    }
     data_dir.join(BOTS_DIR).join(id).exists()
         || manifest.get("bots").and_then(Value::as_array).is_some_and(|bots| bots.iter().any(|b| b.as_str() == Some(id)))
+}
+
+/// `readBotMigration`: the finished split's record (`bots/migration.json` at version 1), `None`
+/// before it ran. The bot store is active exactly when this is `Some`.
+pub(crate) fn bot_migration(lane: &InLane<InteractiveIo>, data_dir: &Path) -> Option<Map<String, Value>> {
+    if data_dir.as_os_str().is_empty() {
+        return None;
+    }
+    let manifest = read_json(lane, &data_dir.join(BOTS_DIR).join(MIGRATION_MANIFEST))?;
+    (manifest.get("version").and_then(Value::as_i64) == Some(MIGRATION_VERSION)).then_some(manifest)
 }
 
 /// A JSON object file; a missing or damaged one falls back to its last good copy (`.bak`, left

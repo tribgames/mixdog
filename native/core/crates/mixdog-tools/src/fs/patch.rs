@@ -28,6 +28,18 @@ use mixdog_js::js_trim;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use super::patch_guard::Quarantine;
+use super::patch_guard::Snapshot;
+use super::patch_guard::capture;
+use super::patch_guard::content_edit_refusal;
+use super::patch_guard::decode_patch_target;
+use super::patch_guard::normalize_output_path;
+use super::patch_guard::read_for_conversion;
+use super::patch_guard::EDIT_MAX_BYTES;
+use super::patch_guard::SNAPSHOT_MAX_BYTES;
+use super::patch_guard::read_present;
+use super::patch_guard::refusal_message;
+use super::patch_guard::restore;
 use super::patch_hunk::Kind;
 use super::patch_hunk::Lines;
 use super::patch_hunk::Notices;
@@ -48,6 +60,9 @@ use super::patch_parse::UnifiedAnchors;
 use super::patch_parse::is_counted_header;
 use super::patch_parse::strip_diff_prefix;
 use super::patch_redirect::relocated_header;
+use super::patch_review::committed_patch;
+use super::os_error::fs_message;
+use super::patch_review::with_card_diff;
 use super::patch_unified::UFile;
 use super::patch_unified::parse_patch;
 use super::patch_parse::has_bare_hunk;
@@ -230,6 +245,8 @@ struct Entry {
     native: Option<NativeEntry>,
     /// Why the codec-preserving writer cannot apply this entry; reported once the engine ran.
     error: Option<String>,
+    /// Why the engine must not be given this target (the file would not round-trip as UTF-8).
+    gate: Option<String>,
 }
 
 struct RenameOp {
@@ -238,6 +255,8 @@ struct RenameOp {
     shown_src: String,
     shown_dest: String,
     content: Vec<u8>,
+    /// The source as it was before the rename, to put back if the rename fails.
+    original: Vec<u8>,
     dest_before: Option<Vec<u8>>,
     lines_changed: usize,
     same_file: bool,
@@ -249,7 +268,8 @@ async fn convert(ctx: &ToolContext, base: &AbsPath, section: &Section, fuzzy: bo
     let abs = resolve_path(base, &section.path)?;
     let display = section.path.replace('\\', "/");
     let out_of_base = !abs.as_path().starts_with(base.as_path());
-    let shown_path = shown(ctx, &abs);
+    let shown_path = normalize_output_path(&display);
+    let full_text = normalize_output_path(&abs.as_path().to_string_lossy());
     match section.kind {
         Kind::Add => {
             let mut content = section.lines.join("\n");
@@ -265,69 +285,53 @@ async fn convert(ctx: &ToolContext, base: &AbsPath, section: &Section, fuzzy: bo
                 js: true,
                 native: None,
                 error: None,
+                gate: None,
             }))
         }
         Kind::Delete => {
-            // A target that cannot be read (a directory, say) is deleted all the same; it shows no lines.
-            let read = guarded(ctx, "apply_patch", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await?;
-            let bytes = read.ok().map(|b| b.bytes);
-            let removed = bytes
+            // Only a file that reads as valid UTF-8 text within the snapshot limit has lines to show.
+            let bytes = read_present(ctx, &abs, SNAPSHOT_MAX_BYTES, true).await?;
+            let deleted_lines: Vec<String> = bytes
                 .as_deref()
-                .and_then(|b| decode_text(b).ok())
-                .filter(|(_, codec)| codec.encoding == Encoding::Utf8)
-                .map_or(0, |(text, _)| Lines::split(&text).text.len());
-            let deleted_lines = bytes
-                .as_deref()
-                .and_then(|b| decode_text(b).ok())
-                .filter(|(_, codec)| codec.encoding == Encoding::Utf8)
+                .filter(|b| std::str::from_utf8(b).is_ok())
+                .and_then(|b| decode_patch_target(b).ok())
                 .map(|(text, _)| Lines::split(&text).text)
                 .unwrap_or_default();
+            let removed = deleted_lines.len();
             let js = uses_js_writer(ctx, base, &abs, true).await?;
             let native = (!js).then(|| NativeEntry::v4a(true, header_of(base, &abs, &display), abs.clone(), Vec::new(), deleted_lines));
-            Ok(Some(Entry { kind: EKind::Delete, abs, shown: shown_path, added: 0, removed, content: Vec::new(), before: bytes, js, native, error: None }))
+            Ok(Some(Entry { kind: EKind::Delete, abs, shown: shown_path, added: 0, removed, content: Vec::new(), before: bytes, js, native, error: None, gate: None }))
         }
         Kind::Update => {
-            let bytes = match stat_opt(ctx, &abs).await? {
-                Ok(_) => read_opt(ctx, &abs).await?,
-                Err(_) => None,
+            let bytes = match read_for_conversion(ctx, &abs).await? {
+                Ok(Some(bytes)) => bytes,
+                Ok(None) => return text_err(format!("V4A update target unreadable: {} (ENOENT).", section.path)),
+                Err(why) => return text_err(format!("V4A update target unreadable: {} ({why}).", section.path)),
             };
-            let Some(bytes) = bytes else {
-                return text_err(format!("V4A update target unreadable: {} (ENOENT).", section.path));
-            };
-            let (text, codec) = decode_text(&bytes).map_err(|reason| {
-                Stop::Text(format!("V4A update target unreadable: {} ({}).", section.path, decode_message(&reason, &display)))
+            let (text, codec) = decode_patch_target(&bytes).map_err(|reason| {
+                Stop::Text(format!("V4A update target unreadable: {} ({}).", section.path, decode_message(&reason, &full_text)))
             })?;
             let js = out_of_base || codec.encoding != Encoding::Utf8 || uses_js_writer(ctx, base, &abs, false).await?;
-            if !js {
-                let hunks = unified_update_hunks(&Lines::split(&text), &section.hunks, fuzzy, &section.path, &display, notices, reject_partial).map_err(Stop::Text)?;
-                if hunks.is_empty() {
-                    return Ok(None);
-                }
-                let count = |tag: char| hunks.iter().flat_map(|h| &h.lines).filter(|l| l.starts_with(tag)).count();
-                let (added, removed) = (count('+'), count('-'));
-                let native = NativeEntry::v4a(false, header_of(base, &abs, &display), abs.clone(), hunks, Vec::new());
-                return Ok(Some(Entry { kind: EKind::Modify, abs, shown: shown_path, added, removed, content: Vec::new(), before: Some(bytes), js: false, native: Some(native), error: None }));
-            }
-            let applied = apply_hunks(&Lines::split(&text), &section.hunks, fuzzy, Some(&section.path), &display, Some(notices), &format!("apply_patch: {display}"), reject_partial).map_err(Stop::Text)?;
-            if applied.emitted == 0 {
+            // The hunks are resolved the same way for both writers; only who applies them differs.
+            let hunks = unified_update_hunks(&Lines::split(&text), &section.hunks, fuzzy, &section.path, &display, notices, reject_partial).map_err(Stop::Text)?;
+            if hunks.is_empty() {
                 return Ok(None);
             }
-            Ok(Some(Entry {
-                kind: EKind::Modify,
-                abs,
-                shown: shown_path,
-                added: applied.added,
-                removed: applied.removed,
-                content: encode_text(&applied.lines.join(), codec),
-                before: Some(bytes),
-                js: true,
-                native: None,
-                error: None,
-            }))
+            let count = |tag: char| hunks.iter().flat_map(|h| &h.lines).filter(|l| l.starts_with(tag)).count();
+            let (added, removed) = (count('+'), count('-'));
+            if !js {
+                let native = NativeEntry::v4a(false, header_of(base, &abs, &display), abs.clone(), hunks, Vec::new());
+                return Ok(Some(Entry { kind: EKind::Modify, abs, shown: shown_path, added, removed, content: Vec::new(), before: Some(bytes), js: false, native: Some(native), error: None, gate: None }));
+            }
+            let fuzz = if fuzzy { 2 } else { 0 };
+            let (content, error) = match apply_unified_hunks(&Lines::split(&text), &hunks, fuzz, &shown_path) {
+                Ok(applied) => (encode_text(&applied.join(), codec), None),
+                Err(message) => (Vec::new(), Some(message)),
+            };
+            Ok(Some(Entry { kind: EKind::Modify, abs, shown: shown_path, added, removed, content, before: Some(bytes), js: true, native: None, error, gate: None }))
         }
     }
 }
-
 // ---- renames ----
 
 async fn validate_rename(ctx: &ToolContext, base: &AbsPath, section: &Section, seen_dest: &mut HashSet<String>) -> R<()> {
@@ -407,17 +411,19 @@ async fn build_rename(ctx: &ToolContext, base: &AbsPath, section: &Section, fuzz
     let src = resolve_path(base, &section.path)?;
     let dest = resolve_path(base, move_path)?;
     let unreadable = |why: String| Stop::Text(format!("apply_patch: V4A rename source unreadable: {} ({why})", section.path));
-    let bytes = match read_opt(ctx, &src).await? {
-        Some(b) => b,
-        None => return Err(unreadable("ENOENT".to_owned())),
+    let bytes = match read_for_conversion(ctx, &src).await? {
+        Ok(Some(b)) => b,
+        Ok(None) => return Err(unreadable("ENOENT".to_owned())),
+        Err(why) => return Err(unreadable(why)),
     };
-    let (text, codec) = decode_text(&bytes).map_err(|reason| unreadable(decode_message(&reason, &section.path)))?;
+    let (text, codec) = decode_patch_target(&bytes).map_err(|reason| unreadable(decode_message(&reason, &normalize_output_path(&src.as_path().to_string_lossy()))))?;
     let applied = apply_hunks(&Lines::split(&text), &section.hunks, fuzzy, None, &section.path, None, "apply_patch", true).map_err(Stop::Text)?;
     let dest_before = read_opt(ctx, &dest).await?;
     Ok(RenameOp {
-        shown_src: section.path.clone(),
-        shown_dest: move_path.to_owned(),
+        shown_src: normalize_output_path(&section.path),
+        shown_dest: normalize_output_path(move_path),
         content: encode_text(&applied.lines.join(), codec),
+        original: bytes,
         dest_before,
         lines_changed: section.hunks.iter().map(|h| h.lines.len()).sum(),
         same_file: path_key(&src) == path_key(&dest) && src != dest,
@@ -482,29 +488,116 @@ fn header_of(base: &AbsPath, abs: &AbsPath, display: &str) -> String {
     display.to_owned()
 }
 
-/// Puts the engine's files back as they were before it ran.
-async fn restore_native(ctx: &ToolContext, entries: &[&Entry]) -> Vec<String> {
-    let mut errors = Vec::new();
-    for e in entries {
-        let result = match &e.before {
-            Some(before) => ctx
-                .files
-                .write(ctx.io.durability, WriteRequest { path: e.abs.clone(), content: before.clone(), precondition: WritePrecondition::Unconditional })
-                .await
-                .map(|_| ()),
-            None => ctx.files.remove(ctx.io.durability, e.abs.clone(), false).await,
-        };
-        if let Err(err) = result {
-            errors.push(format!("{}: {err:?}", e.shown));
+/// Node `deleteOnlyPaths`: the targets a patch only deletes, which keep the smaller snapshot limit.
+fn delete_only_keys(targets: &[(AbsPath, bool)]) -> HashSet<String> {
+    let others: HashSet<String> = targets.iter().filter(|(_, delete)| !delete).map(|(p, _)| skey(p)).collect();
+    targets.iter().filter(|(p, delete)| *delete && !others.contains(&skey(p))).map(|(p, _)| skey(p)).collect()
+}
+
+fn skey(abs: &AbsPath) -> String {
+    mixdog_scm::locks::path_key(abs.as_path())
+}
+
+/// The rollback state of one batch (Node `applyCodexBatchWithRollback`); a sequence unit has no
+/// snapshots, only the quarantine it commits itself.
+struct Tx {
+    snapshots: Vec<Snapshot>,
+    quarantine: Quarantine,
+    owns_commit: bool,
+    /// Which of the batch's paths are V4A moves (source, destination), for the turn review.
+    renames: Vec<(AbsPath, AbsPath)>,
+}
+
+impl Tx {
+    fn unit() -> Self {
+        Self { snapshots: Vec::new(), quarantine: Quarantine::default(), owns_commit: true, renames: Vec::new() }
+    }
+}
+
+/// Snapshots every path the batch touches and refuses an edit whose bytes cannot be captured.
+async fn begin_tx(ctx: &ToolContext, entries: &[Entry], renames: &[&Section], base: &AbsPath) -> R<Tx> {
+    let mut paths: Vec<AbsPath> = Vec::new();
+    let mut seen = HashSet::new();
+    let mut rename_sources = HashSet::new();
+    let mut extra: Vec<AbsPath> = Vec::new();
+    for s in renames {
+        let src = resolve_path(base, &s.path)?;
+        rename_sources.insert(skey(&src));
+        extra.push(src);
+        extra.push(resolve_path(base, s.move_path.as_deref().unwrap_or_default())?);
+    }
+    for abs in entries.iter().map(|e| &e.abs).chain(extra.iter()) {
+        if seen.insert(skey(abs)) {
+            paths.push(abs.clone());
         }
     }
-    errors
+    let edited: HashSet<String> = entries.iter().filter(|e| e.kind != EKind::Delete).map(|e| skey(&e.abs)).collect();
+    let delete_only: HashSet<String> = entries.iter().filter(|e| e.kind == EKind::Delete && !edited.contains(&skey(&e.abs))).map(|e| skey(&e.abs)).collect();
+    let snapshots = capture(ctx, &paths, &delete_only).await?.map_err(|m| Stop::Text(format!("Error: {m}")))?;
+    let edit_keys: HashSet<String> = entries.iter().filter(|e| e.kind == EKind::Modify).map(|e| skey(&e.abs)).chain(rename_sources).collect();
+    if let Some((hit, omitted)) = snapshots.iter().find_map(|s| s.omitted().filter(|_| edit_keys.contains(&skey(&s.path))).map(|o| (s, o))) {
+        return text_err(format!("Error: {}", refusal_message(&normalize_output_path(&hit.path.as_path().to_string_lossy()), omitted)));
+    }
+    let mut quarantine = Quarantine::default();
+    quarantine.mark_omitted(&snapshots);
+    let moves = renames
+        .iter()
+        .map(|s| Ok((resolve_path(base, &s.path)?, resolve_path(base, s.move_path.as_deref().unwrap_or_default())?)))
+        .collect::<Result<Vec<_>, ToolError>>()?;
+    Ok(Tx { snapshots, quarantine, owns_commit: false, renames: moves })
+}
+
+/// Node `withRollback`: undoes the batch and words the outcome, including what could not be undone.
+async fn roll_back(ctx: &ToolContext, tx: &mut Tx, outcome: String) -> R<String> {
+    let mut errors = tx.quarantine.rollback(ctx).await?;
+    let (restore_errors, snapshots) = restore(ctx, std::mem::take(&mut tx.snapshots)).await?;
+    errors.extend(restore_errors);
+    // What could not be undone stays on disk, so the review lists it.
+    if !errors.is_empty() {
+        let paths: Vec<AbsPath> = snapshots.iter().map(|s| s.path.clone()).collect();
+        committed_patch(ctx, &snapshots, &paths, &tx.renames).await;
+    }
+    Ok(if errors.is_empty() { format!("{outcome}\n{ROLLED_BACK}") } else { format!("{outcome}\n--- rollback incomplete ---\n{}", errors.join("\n")) })
+}
+
+/// A batch outcome: success commits the quarantine, failure rolls the batch back. `dry` runs
+/// change nothing and report as they are.
+async fn finish_batch(ctx: &ToolContext, tx: &mut Tx, outcome: R<String>, dry: bool, notices: &mut Notices) -> R<String> {
+    match outcome {
+        Ok(text) => {
+            let tail = notices.rejected_tail();
+            let text = wrap(&format!("{text}{tail}"), notices);
+            if dry {
+                return Ok(text);
+            }
+            let paths: Vec<AbsPath> = tx.snapshots.iter().map(|s| s.path.clone()).collect();
+            committed_patch(ctx, &tx.snapshots, &paths, &tx.renames).await;
+            let leftovers = tx.quarantine.commit(ctx).await?;
+            Ok(if leftovers.is_empty() { text } else { format!("{text}\n{}", leftovers.join("\n")) })
+        }
+        Err(Stop::Text(e)) => {
+            let text = wrap(&e, notices);
+            if dry { text_err(text) } else { text_err(roll_back(ctx, tx, text).await?) }
+        }
+        Err(Stop::Tool(e)) => {
+            if !dry {
+                roll_back(ctx, tx, String::new()).await?;
+            }
+            Err(Stop::Tool(e))
+        }
+    }
 }
 
 /// Writes the renames and entries as one unit, or only checks them when `dry`. The error text is
 /// complete, including its `Error: ` prefix.
-async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entries: &[Entry], opts: &Options) -> R<String> {
+async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entries: &[Entry], opts: &Options, tx: &mut Tx) -> R<String> {
     let (fuzzy, dry) = (opts.fuzzy, opts.dry);
+    // A binary or oversized target is refused before anything is written.
+    for e in entries.iter().filter(|e| e.kind == EKind::Modify) {
+        if let Some(refusal) = content_edit_refusal(ctx, &e.abs, &e.shown).await? {
+            return text_err(format!("Error: {refusal}"));
+        }
+    }
     for e in entries {
         match e.kind {
             EKind::Create => {
@@ -515,15 +608,27 @@ async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entr
             // A native delete of a missing file is reported by the engine in its own words.
             EKind::Delete if e.native.is_none() => {
                 if let Err(err) = stat_opt(ctx, &e.abs).await? {
+                    if err.kind == FsErrorKind::NotFound {
+                        return text_err(format!("Error: ENOENT: no such file or directory, lstat '{}'", e.abs.as_path().display()));
+                    }
                     return Err(Stop::Tool(fs_failure(&err, &e.shown)));
                 }
             }
-            EKind::Delete => {}
-            EKind::Modify => {}
+            EKind::Delete | EKind::Modify => {}
         }
     }
-    let native: Vec<&Entry> = entries.iter().filter(|e| e.native.is_some()).collect();
-    let js: Vec<&Entry> = entries.iter().filter(|e| e.kind == EKind::Create || e.js).collect();
+    // Deletes of files that are never snapshotted run last, as quarantine moves.
+    let mut protected: Vec<&Entry> = Vec::new();
+    if !dry {
+        for e in entries.iter().filter(|e| e.kind == EKind::Delete) {
+            if tx.quarantine.needs(ctx, &e.abs).await? {
+                protected.push(e);
+            }
+        }
+    }
+    let is_protected = |e: &Entry| protected.iter().any(|p| std::ptr::eq(*p, e));
+    let native: Vec<&Entry> = entries.iter().filter(|e| e.native.is_some() && !is_protected(e)).collect();
+    let js: Vec<&Entry> = entries.iter().filter(|e| (e.kind == EKind::Create || e.js) && !is_protected(e)).collect();
     let mut parts = Vec::new();
     if !native.is_empty() {
         parts.push(summary(&native, false, dry));
@@ -531,9 +636,12 @@ async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entr
     if !js.is_empty() {
         parts.push(summary(&js, true, dry));
     }
-    let text = parts.join("\n");
     let fuzz = if fuzzy { 2 } else { 0 };
     if !native.is_empty() {
+        // The native engine rewrites files as UTF-8: a target it cannot round-trip is refused.
+        if let Some(gate) = native.iter().find_map(|e| e.gate.clone()) {
+            return text_err(format!("Error: {gate}"));
+        }
         let units: Vec<NativeEntry> = native.iter().filter_map(|e| e.native.clone()).collect();
         match run_engine(ctx, base, render(&units), fuzz, opts.reject_partial, dry).await.map_err(Stop::Tool)? {
             Err(message) => {
@@ -541,8 +649,7 @@ async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entr
                 return text_err(format!("Error: native patch failed — {message}{context}"));
             }
             Ok(stats) if !stats.failed.is_empty() => {
-                // Some files were skipped (`reject_partial: false`). The report is an error, so the
-                // files the engine did write are put back with everything else.
+                // Some files were skipped (`reject_partial: false`); the report is an error.
                 let skipped: Vec<(String, String)> = stats.failed.iter().map(|f| (f.descriptor.clone(), f.reason.clone())).collect();
                 let skipped_names: Vec<String> = skipped.iter().flat_map(|(path, _)| [path.replace('\\', "/"), strip_diff_prefix(path).replace('\\', "/")]).collect();
                 let written: Vec<&Entry> = native.iter().copied().filter(|e| !skipped_names.contains(&e.native.as_ref().map_or_else(String::new, |n| n.header.clone()))).collect();
@@ -557,34 +664,63 @@ async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entr
                     let context = failure_context(ctx, &units, path, fuzz).await;
                     lines.push(format!("  SKIP {} — {reason}{context}", if path.is_empty() { "(unknown)" } else { path.as_str() }));
                 }
-                if !dry {
-                    restore_native(ctx, &native).await;
-                }
                 return Err(Stop::Text(lines.join("\n")));
             }
             Ok(_) => {}
         }
     }
-    if let Some(message) = entries.iter().find_map(|e| e.error.clone()) {
-        if !dry {
-            restore_native(ctx, &native).await;
-        }
+    if let Some(message) = js.iter().find_map(|e| e.error.clone()) {
         return text_err(format!("Error: {message}"));
     }
     if dry {
-        return Ok(text);
+        return Ok(parts.join("\n"));
     }
-    if let Err(stop) = write_rest(ctx, renames, entries).await {
-        let failed = restore_native(ctx, &native).await;
-        return Err(match stop {
-            Stop::Text(text) if !failed.is_empty() => Stop::Text(format!("{text}\n--- rollback incomplete ---\n{}", failed.join("\n"))),
-            other => other,
-        });
-    }    Ok(text)
+    write_rest(ctx, renames, &js).await?;
+    if !protected.is_empty() {
+        let targets: Vec<(AbsPath, String)> = protected.iter().map(|e| (e.abs.clone(), e.shown.clone())).collect();
+        tx.quarantine.move_aside(ctx, targets).await?.map_err(|m| Stop::Text(format!("Error: {m}")))?;
+        let leftovers = if tx.owns_commit { tx.quarantine.commit(ctx).await? } else { Vec::new() };
+        let mut lines = vec![format!("Applied {} (JS)", count_label(protected.len(), "File"))];
+        lines.extend(protected.iter().map(|e| format!("  OK Delete {}", normalize_output_path(&e.shown))));
+        lines.extend(leftovers);
+        parts.push(lines.join("\n"));
+    }
+    Ok(parts.join("\n"))
+}
+/// Node `applyV4ARenameSection` past its dry run, for one ordered unit: the destination is
+/// written, the source removed (unless both name one file), and a failure of either puts both
+/// paths back before the unit reports `V4A rename failed`. The writes are not cancellable half-way.
+async fn apply_rename(ctx: &ToolContext, op: &RenameOp) -> R<()> {
+    if let Some(parent) = op.dest.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
+        if let Err(e) = guarded(ctx, "apply_patch", ctx.files.create_dir(ctx.io.durability, parent.clone(), true)).await? {
+            return text_err(format!("Error: {}", fs_message(&e, "mkdir", parent.as_path())));
+        }
+    }
+    let (files, lane) = (&ctx.files, ctx.io.durability);
+    let write = |path: &AbsPath, content: &[u8]| WriteRequest { path: path.clone(), content: content.to_vec(), precondition: WritePrecondition::Unconditional };
+    let attempt = async {
+        files.write(lane, write(&op.dest, &op.content)).await.map_err(|e| fs_message(&e, "rename", op.dest.as_path()))?;
+        if !op.same_file {
+            files.remove(lane, op.src.clone(), false).await.map_err(|e| fs_message(&e, "unlink", op.src.as_path()))?;
+        }
+        Ok::<(), String>(())
+    };
+    if let Err(why) = attempt.await {
+        // Best effort, as Node's: whatever cannot be put back stays as it is.
+        let _ = match &op.dest_before {
+            None => files.remove(lane, op.dest.clone(), false).await,
+            Some(before) => files.write(lane, write(&op.dest, before)).await.map(|_| ()),
+        };
+        if !op.same_file {
+            let _ = files.write(lane, write(&op.src, &op.original)).await;
+        }
+        return text_err(format!("Error: apply_patch: V4A rename failed for {} → {} ({why})", op.shown_src, op.shown_dest));
+    }
+    Ok(())
 }
 
 /// Writes the renames and the codec-preserving entries as one unit.
-async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[Entry]) -> R<()> {
+async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[&Entry]) -> R<()> {
     let mut writes: Vec<WriteRequest> = Vec::new();
     let mut removes: Vec<AbsPath> = Vec::new();
     // A case-only rename names one file twice: it is rewritten where it is, then renamed.
@@ -721,59 +857,30 @@ async fn run_batch(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>, op
         return text_err(NO_HEADER);
     }
     let rename_only = rest.is_empty();
-    // Every path the patch touches must be a regular file or absent, so a failure can be undone.
-    if !dry {
-        let mut paths: Vec<&AbsPath> = Vec::new();
-        for e in &entries {
-            paths.push(&e.abs);
-        }
-        let bases: Vec<AbsPath> = renames
-            .iter()
-            .flat_map(|s| [Some(s.path.as_str()), s.move_path.as_deref()])
-            .flatten()
-            .map(|p| resolve_path(base, p))
-            .collect::<Result<_, _>>()?;
-        paths.extend(bases.iter());
-        for abs in paths {
-            if let Ok(st) = stat_opt(ctx, abs).await? {
-                if st.kind != EntryKind::File {
-                    return text_err(format!("Error: apply_patch: rollback snapshot target is not a regular file: {}", fwd(abs.as_path())));
-                }
-            }
-        }
-    }
+    // Every path the patch touches is snapshotted, so a failure can be undone.
+    let mut tx = if dry { Tx::unit() } else { begin_tx(ctx, &entries, &renames, base).await? };
     let mut ops = Vec::new();
     for s in &renames {
         match build_rename(ctx, base, s, fuzzy).await {
             Ok(op) => ops.push(op),
             // A thrown rename failure takes the same path back out as a returned one.
-            Err(Stop::Text(e)) => return text_err(rolled_back(format!("Error: {e}"), dry)),
+            Err(Stop::Text(e)) => {
+                let text = format!("Error: {e}");
+                return text_err(if dry { text } else { roll_back(ctx, &mut tx, text).await? });
+            }
             Err(other) => return Err(other),
         }
     }
     let rename_lines: Vec<String> = ops.iter().map(|op| rename_line(op, dry)).collect();
     if rename_only {
-        return match apply_ops(ctx, base, &ops, &[], opts).await {
-            Ok(_) => Ok(wrap(&format!("{}\n", rename_lines.join("\n")), &mut notices)),
-            Err(Stop::Text(e)) => text_err(rolled_back(e, dry)),
-            Err(other) => Err(other),
-        };
+        let outcome = apply_ops(ctx, base, &ops, &[], opts, &mut tx).await.map(|_| format!("{}\n", rename_lines.join("\n")));
+        return finish_batch(ctx, &mut tx, outcome, dry, &mut notices).await;
     }
-    match apply_ops(ctx, base, &ops, &entries, opts).await {
-        Ok(text) => {
-            let combined = if rename_lines.is_empty() { text } else { format!("{}\n{text}", rename_lines.join("\n")) };
-            let tail = notices.rejected_tail();
-            Ok(wrap(&format!("{combined}{tail}"), &mut notices))
-        }
-        Err(Stop::Text(e)) => text_err(rolled_back(wrap(&e, &mut notices), dry)),
-        Err(other) => Err(other),
-    }
+    let outcome = apply_ops(ctx, base, &ops, &entries, opts, &mut tx).await.map(|text| {
+        if rename_lines.is_empty() { text } else { format!("{}\n{text}", rename_lines.join("\n")) }
+    });
+    finish_batch(ctx, &mut tx, outcome, dry, &mut notices).await
 }
-
-fn rolled_back(outcome: String, dry: bool) -> String {
-    if dry { outcome } else { format!("{outcome}\n{ROLLED_BACK}") }
-}
-
 async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>, opts: &Options, mode: Sequence) -> R<String> {
     let (fuzzy, dry) = (opts.fuzzy, opts.dry);
     let mut notices = Notices::default();
@@ -784,6 +891,22 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
     let mut applied: Vec<String> = Vec::new();
     let mut failures: Vec<(usize, String, String)> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
+    // The review sees the targets of the sections that committed, against their pre-patch state.
+    let mut unit_paths: Vec<AbsPath> = Vec::new();
+    for unit in &units {
+        unit_paths.push(resolve_path(base, &unit.path)?);
+        if let Some(dest) = &unit.move_path {
+            unit_paths.push(resolve_path(base, dest)?);
+        }
+    }
+    let mut targets = Vec::new();
+    for unit in &units {
+        targets.push((resolve_path(base, &unit.path)?, unit.kind == Kind::Delete));
+    }
+    let delete_only = delete_only_keys(&targets);
+    let before = if !dry && ctx.review.is_some() { capture(ctx, &unit_paths, &delete_only).await?.unwrap_or_default() } else { Vec::new() };
+    let mut mutated: Vec<AbsPath> = Vec::new();
+    let outcome: R<()> = async {
     for (i, unit) in units.iter().enumerate() {
         let display = unit.path.replace('\\', "/");
         if !mode.continue_after_failure && !failures.is_empty() {
@@ -800,7 +923,9 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
             let attempt = async {
                 validate_rename(ctx, base, unit, &mut HashSet::new()).await?;
                 let op = build_rename(ctx, base, unit, fuzzy).await?;
-                apply_ops(ctx, base, std::slice::from_ref(&op), &[], opts).await?;
+                if !dry {
+                    apply_rename(ctx, &op).await?;
+                }
                 R::Ok(if dry {
                     format!("(dry-run) would rename {display} → {} (~{} lines touched)", op.shown_dest, op.lines_changed)
                 } else {
@@ -808,7 +933,11 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
                 })
             };
             match attempt.await {
-                Ok(text) => applied.push(text),
+                Ok(text) => {
+                    applied.push(text);
+                    mutated.push(resolve_path(base, &unit.path)?);
+                    mutated.push(resolve_path(base, unit.move_path.as_deref().unwrap_or_default())?);
+                }
                 Err(Stop::Text(e)) => failures.push((i, display, format!("Error: {}", e.strip_prefix("Error: ").unwrap_or(&e)))),
                 Err(other) => return Err(other),
             }
@@ -826,12 +955,23 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
             applied.push(format!("(no changes) {display}"));
             continue;
         };
-        match apply_ops(ctx, base, &[], std::slice::from_ref(&entry), opts).await {
-            Ok(text) => applied.push(text),
+        match apply_ops(ctx, base, &[], std::slice::from_ref(&entry), opts, &mut Tx::unit()).await {
+            Ok(text) => {
+                applied.push(text);
+                mutated.push(entry.abs.clone());
+            }
             Err(Stop::Text(e)) => failures.push((i, display, e)),
             Err(other) => return Err(other),
         }
     }
+    Ok(())
+    }
+    .await;
+    // Units that committed are reviewed whichever way the run ends.
+    if !mutated.is_empty() {
+        committed_patch(ctx, &before, &mutated, &[]).await;
+    }
+    outcome?;
     let report = sequence_report(units.len(), &applied, &failures, &skipped, mode.continue_after_failure, dry);
     let tail = notices.rejected_tail();
     Ok(wrap(&format!("{report}{tail}"), &mut notices))
@@ -1024,9 +1164,8 @@ fn salvage_shattered(args: &JsonValue) -> JsonValue {
     for (key, value) in map.iter().filter(|(k, _)| !SCHEMA_KEYS.contains(&k.as_str())) {
         lines.push(key.clone());
         lines.push(match value {
-            JsonValue::String(s) => s.clone(),
             JsonValue::Null => String::new(),
-            other => other.to_string(),
+            other => mixdog_js::value_to_string(other),
         });
     }
     while lines.last().is_some_and(String::is_empty) {
@@ -1133,7 +1272,7 @@ impl Tool for ApplyPatchTool {
                 touched.push(resolve_path(&base, dest)?);
             }
         }
-        let _locked = if dry_run { None } else { Some(lock_write_paths(ctx, &touched.iter().collect::<Vec<_>>()).await?) };
+        let _locked = lock_patch_targets(ctx, &touched).await?;
         let rename_only = sections.len() == 1 && sections[0].kind == Kind::Update && sections[0].move_path.is_some();
         let any_rename = sections.iter().any(|s| s.kind == Kind::Update && s.move_path.is_some());
         let mut keys = HashSet::new();
@@ -1157,7 +1296,7 @@ impl Tool for ApplyPatchTool {
         if is_error_text(&text) {
             return Err(fail(error_code(&text), text));
         }
-        Ok(text_output(text))
+        Ok(with_card_diff(ctx, text_output(text)))
     }
 }
 
@@ -1265,7 +1404,7 @@ async fn unified_entries(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, f
         let lines = || file.hunks.iter().flat_map(|h| &h.lines);
         let added = lines().filter(|l| l.starts_with('+')).count();
         let removed = lines().filter(|l| l.starts_with('-')).count();
-        let shown_path = shown(ctx, &abs);
+        let shown_path = normalize_output_path(&display);
         let native_entry = |delete: bool| NativeEntry {
             delete,
             header: display.clone(),
@@ -1279,35 +1418,41 @@ async fn unified_entries(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, f
             UKind::Create => {
                 let mut content = lines().filter_map(|l| l.strip_prefix('+')).collect::<Vec<_>>().join("\n");
                 content.push('\n');
-                entries.push(Entry { kind: EKind::Create, abs, shown: shown_path, added, removed: 0, content: content.into_bytes(), before: None, js: true, native: None, error: None });
+                entries.push(Entry { kind: EKind::Create, abs, shown: shown_path, added, removed: 0, content: content.into_bytes(), before: None, js: true, native: None, error: None, gate: None });
             }
             UKind::Delete => {
-                let before = read_opt(ctx, &abs).await?;
+                let before = read_present(ctx, &abs, SNAPSHOT_MAX_BYTES, true).await?;
                 let js = uses_js_writer(ctx, base, &abs, true).await?;
                 let native = (!js).then(|| native_entry(true));
-                entries.push(Entry { kind: EKind::Delete, abs, shown: shown_path, added: 0, removed, content: Vec::new(), before, js, native, error: None });
+                entries.push(Entry { kind: EKind::Delete, abs, shown: shown_path, added: 0, removed, content: Vec::new(), before, js, native, error: None, gate: None });
             }
             UKind::Modify => {
-                let bytes = read_opt(ctx, &abs).await?;
-                let decoded = match &bytes {
-                    Some(b) => Some(decode_text(b).map_err(|reason| Stop::Text(format!("Error: {}", decode_message(&reason, &display))))?),
-                    None => None,
-                };
-                let utf16 = decoded.as_ref().is_some_and(|(_, codec)| codec.encoding != Encoding::Utf8);
+                // Bytes the codec check can read; a file past the edit limit or absent is left to
+                // the snapshot (batch) or the content guard (dry run) and to the engine.
+                let bytes = read_present(ctx, &abs, EDIT_MAX_BYTES, false).await?;
+                let decoded = bytes.as_deref().map(decode_patch_target);
+                let utf16 = matches!(&decoded, Some(Ok((_, codec))) if codec.encoding != Encoding::Utf8);
                 let js = utf16 || uses_js_writer(ctx, base, &abs, false).await?;
+                let decode_failure = |decoded: &Option<Result<(String, Codec), String>>| match decoded {
+                    Some(Err(reason)) => Some(decode_message(reason, &normalize_output_path(&display))),
+                    _ => None,
+                };
                 if !js {
                     let native = native_entry(false);
-                    entries.push(Entry { kind: EKind::Modify, abs, shown: shown_path, added, removed, content: Vec::new(), before: bytes, js: false, native: Some(native), error: None });
+                    let gate = decode_failure(&decoded);
+                    entries.push(Entry { kind: EKind::Modify, abs, shown: shown_path, added, removed, content: Vec::new(), before: bytes, js: false, native: Some(native), error: None, gate });
                     continue;
                 }
-                let Some((text, codec)) = decoded else {
-                    return text_err(format!("Error: apply_patch: {display}: no such file or directory"));
-                };
-                let (content, error) = match apply_unified_hunks(&Lines::split(&text), &to_uhunks(file), if fuzzy { 2 } else { 0 }, &display) {
-                    Ok(applied) => (encode_text(&applied.join(), codec), None),
-                    Err(message) => (Vec::new(), Some(message)),
-                };
-                entries.push(Entry { kind: EKind::Modify, abs, shown: shown_path, added, removed, content, before: bytes, js: true, native: None, error });
+                let (content, error) = match decoded {
+                    Some(Ok((text, codec))) => match apply_unified_hunks(&Lines::split(&text), &to_uhunks(file), if fuzzy { 2 } else { 0 }, &normalize_output_path(&display)) {
+                        Ok(applied) => (encode_text(&applied.join(), codec), None),
+                        Err(message) => (Vec::new(), Some(message)),
+                    },
+                    other => {
+                        let message = decode_failure(&other).unwrap_or_else(|| format!("ENOENT: no such file or directory, lstat '{}'", abs.as_path().display()));
+                        (Vec::new(), Some(message))
+                    }
+                };                entries.push(Entry { kind: EKind::Modify, abs, shown: shown_path, added, removed, content, before: bytes, js: true, native: None, error, gate: None });
             }
         }
     }
@@ -1318,22 +1463,10 @@ async fn unified_entries(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, f
 async fn run_unified(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, opts: &Options) -> R<String> {
     let mut notices = Notices::default();
     let entries = unified_entries(ctx, base, files, opts.fuzzy).await?;
-    if !opts.dry {
-        for e in &entries {
-            if let Ok(st) = stat_opt(ctx, &e.abs).await? {
-                if st.kind != EntryKind::File {
-                    return text_err(format!("Error: apply_patch: rollback snapshot target is not a regular file: {}", fwd(e.abs.as_path())));
-                }
-            }
-        }
-    }
-    match apply_ops(ctx, base, &[], &entries, opts).await {
-        Ok(text) => Ok(wrap(&text, &mut notices)),
-        Err(Stop::Text(e)) => text_err(rolled_back(wrap(&e, &mut notices), opts.dry)),
-        Err(other) => Err(other),
-    }
+    let mut tx = if opts.dry { Tx::unit() } else { begin_tx(ctx, &entries, &[], base).await? };
+    let outcome = apply_ops(ctx, base, &[], &entries, opts, &mut tx).await;
+    finish_batch(ctx, &mut tx, outcome, opts.dry, &mut notices).await
 }
-
 /// `canFallbackCountedUnified`'s error test: jsdiff refused the counts, not the shape.
 fn is_count_error(message: &str) -> bool {
     let lower = message.to_lowercase();
@@ -1370,6 +1503,22 @@ async fn run_unified_sequence(ctx: &ToolContext, base: &AbsPath, files: Vec<UFil
     let mut applied: Vec<String> = Vec::new();
     let mut failures: Vec<(usize, String, String)> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
+    let mut unit_paths: Vec<AbsPath> = Vec::new();
+    for file in &files {
+        if let Some(name) = target_name(file) {
+            unit_paths.push(resolve_path(base, strip_diff_prefix(name))?);
+        }
+    }
+    let mut targets = Vec::new();
+    for file in &files {
+        if let Some(name) = target_name(file) {
+            targets.push((resolve_path(base, strip_diff_prefix(name))?, classify(file) == UKind::Delete));
+        }
+    }
+    let delete_only = delete_only_keys(&targets);
+    let before = if !opts.dry && ctx.review.is_some() { capture(ctx, &unit_paths, &delete_only).await?.unwrap_or_default() } else { Vec::new() };
+    let mut mutated: Vec<AbsPath> = Vec::new();
+    let outcome: R<()> = async {
     for (i, file) in files.into_iter().enumerate() {
         let Some(name) = target_name(&file) else { return text_err(HEADERLESS) };
         let display = strip_diff_prefix(name).replace('\\', "/");
@@ -1382,15 +1531,27 @@ async fn run_unified_sequence(ctx: &ToolContext, base: &AbsPath, files: Vec<UFil
             continue;
         }
         let result = match unified_entries(ctx, base, vec![file], opts.fuzzy).await {
-            Ok(entries) => apply_ops(ctx, base, &[], &entries, opts).await,
+            Ok(entries) => apply_ops(ctx, base, &[], &entries, opts, &mut Tx::unit())
+                .await
+                .map(|text| (text, entries.into_iter().map(|e| e.abs).collect::<Vec<_>>())),
             Err(stop) => Err(stop),
         };
         match result {
-            Ok(text) => applied.push(text),
+            Ok((text, touched)) => {
+                applied.push(text);
+                mutated.extend(touched);
+            }
             Err(Stop::Text(e)) => failures.push((i, display, e)),
             Err(other) => return Err(other),
         }
     }
+    Ok(())
+    }
+    .await;
+    if !mutated.is_empty() {
+        committed_patch(ctx, &before, &mutated, &[]).await;
+    }
+    outcome?;
     let report = sequence_report(count, &applied, &failures, &skipped, false, opts.dry);
     Ok(wrap(&report, &mut notices))
 }
@@ -1405,12 +1566,12 @@ impl ApplyPatchTool {
                 touched.push(resolve_path(base, strip_diff_prefix(name))?);
             }
         }
-        let _locked = if opts.dry { None } else { Some(lock_write_paths(ctx, &touched.iter().collect::<Vec<_>>()).await?) };
+        let _locked = lock_patch_targets(ctx, &touched).await?;
         let outcome = if ordered { run_unified_sequence(ctx, base, files, opts).await } else { run_unified(ctx, base, files, opts).await };
         let text = into_text(outcome)?;
         if is_error_text(&text) {
             return Err(fail(error_code(&text), text));
         }
-        Ok(text_output(text))
+        Ok(with_card_diff(ctx, text_output(text)))
     }
 }

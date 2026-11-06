@@ -126,7 +126,7 @@ fn mime_or_pdf(mime: &str) -> String {
 pub fn is_referencable(part: &ContentPart) -> bool {
     match part {
         ContentPart::Image(ImageSource::Base64 { .. }) => true,
-        ContentPart::Image(_) | ContentPart::Text(_) => false,
+        ContentPart::Image(_) | ContentPart::Text(_, _) => false,
         ContentPart::Document { source, .. } => matches!(source, DocumentSource::Base64 { .. }),
         ContentPart::File { source, mime_type, filename, text: None } => match source {
             BinarySource::AttachmentRef(_) => is_image_mime(mime_type) || inline_file_kind(&mime_or_pdf(mime_type), "", filename.as_deref().unwrap_or("")) == FileKind::Pdf,
@@ -193,7 +193,7 @@ impl ReferencedMedia {
         // The named copy is the file the model hands to a file chooser or an office tool; the bare
         // blob path is only the fallback when the copy cannot be made.
         let path = self.files.named_file(&reference, &info.filename, &mime_type).unwrap_or_else(|()| self.files.blob_path(&reference));
-        Some(ContentPart::Text(if image { image_reference_text(&info, &path) } else { pdf_reference_text(&info, &path) }))
+        Some(ContentPart::Text(if image { image_reference_text(&info, &path) } else { pdf_reference_text(&info, &path) }, true))
     }
 }
 
@@ -232,7 +232,7 @@ impl AttachmentSeam for ReferencedMedia {
     /// `messageAttachmentBreakdown(message).tokens`: the image and document allowances.
     fn attachment_tokens(&self, message: &AgentMessage) -> u64 {
         match &message.message.content {
-            Content::Parts(parts) => parts.iter().filter(|p| !matches!(p, ContentPart::Text(_))).map(|p| self.meter.part(p).tokens).sum(),
+            Content::Parts(parts) => parts.iter().filter(|p| !matches!(p, ContentPart::Text(_, _))).map(|p| self.meter.part(p).tokens).sum(),
             Content::Text(_) => 0,
         }
     }
@@ -253,9 +253,14 @@ mod tests {
             Some(StoredFile { reference: filename.to_owned(), size_bytes: STANDARD.decode(base64).unwrap().len() as u64 })
         }
         fn named_file(&self, reference: &str, _: &str, _: &str) -> Result<String, ()> {
-            let key = if reference.is_empty() { "pdf_unchecked" } else { reference };
-            let case = self.0.as_object().unwrap().iter().find(|(_, v)| v["text"].as_str().is_some_and(|t| t.contains(&format!("\"{}\"", key))) || false);
-            let text = case.map_or("", |(_, v)| v["text"].as_str().unwrap());
+            let case = match reference {
+                "C:\\docs\\Q1 \"report\".pdf" => "pdf_pages",
+                "one.pdf" => "pdf_one_page_all_text",
+                "scan.pdf" => "pdf_scanned",
+                "Doc.pdf" => "pdf_document",
+                _ => "pdf_unchecked",
+            };
+            let text = self.0[case]["text"].as_str().unwrap_or("");
             text.lines().find_map(|l| l.strip_prefix("Path: ")).map(str::to_owned).ok_or(())
         }
         fn blob_path(&self, reference: &str) -> String {
@@ -279,7 +284,7 @@ mod tests {
     struct Meter;
     impl MediaMeter for Meter {
         fn part(&self, part: &ContentPart) -> PartMeter {
-            PartMeter { text: String::new(), tokens: if matches!(part, ContentPart::Text(_)) { 0 } else { 100 } }
+            PartMeter { text: String::new(), tokens: if matches!(part, ContentPart::Text(_, _)) { 0 } else { 100 } }
         }
     }
 
@@ -318,13 +323,13 @@ mod tests {
             assert_eq!(is_referencable(part), want["referencable"].as_bool().unwrap(), "{id} referencable");
             let got = s.reference_part(part);
             match want["text"].as_str().filter(|t| !t.is_empty()) {
-                Some(text) => assert_eq!(got, Some(ContentPart::Text(text.to_owned())), "{id}"),
+                Some(text) => assert_eq!(got, Some(ContentPart::Text(text.to_owned(), true)), "{id}"),
                 None => assert_eq!(got, None, "{id}"),
             }
         }
         // The image part: Node named it by file name, which an inline Rust image part does not carry.
         let image = s.reference_part(&ContentPart::Image(ImageSource::Base64 { data: png.into(), mime_type: "image/png".into() })).unwrap();
-        let ContentPart::Text(text) = image else { panic!("text") };
+        let ContentPart::Text(text, _) = image else { panic!("text") };
         assert!(text.starts_with("[Image kept on disk, not inlined: \"image\" (image/png, 70 bytes)\n"), "{text}");
     }
 
@@ -334,13 +339,13 @@ mod tests {
         let s = seam(&golden);
         let pdf = ContentPart::File { source: BinarySource::Base64(b64("%PDF-1.4 abc")), mime_type: "application/pdf".into(), filename: Some("one.pdf".into()), text: None };
         let mut user = AgentMessage::user("see");
-        user.message.content = Content::Parts(vec![ContentPart::Text("see".into()), pdf.clone()]);
+        user.message.content = Content::Parts(vec![ContentPart::Text("see".into(), false), pdf.clone()]);
         assert!(s.has_referencable_media(&user));
         assert_eq!(s.attachment_tokens(&user), 100);
         let referenced = s.reference_media(&user);
         let Content::Parts(parts) = &referenced.message.content else { panic!("parts") };
-        assert_eq!(parts[0], ContentPart::Text("see".into()));
-        assert!(matches!(&parts[1], ContentPart::Text(t) if t.starts_with("[Attachment kept on disk, not inlined: \"one.pdf\" (PDF, 1 page, text layer on every page, 12 bytes)")));
+        assert_eq!(parts[0], ContentPart::Text("see".into(), false));
+        assert!(matches!(&parts[1], ContentPart::Text(t, _) if t.starts_with("[Attachment kept on disk, not inlined: \"one.pdf\" (PDF, 1 page, text layer on every page, 12 bytes)")));
         assert!(!s.has_referencable_media(&referenced));
         // A tool result is left as it is.
         let mut tool = AgentMessage::tool_text("c1", "x", mixdog_agent::message::ToolKind::Normal);

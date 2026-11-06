@@ -109,7 +109,7 @@ fn lowered_content(content: &Content, vision: bool) -> (String, Vec<ImageData>) 
     let omitted = |label: &str| format!("[{label} omitted: local model is text-only]");
     for part in parts {
         match part {
-            ContentPart::Text(t) => text.push_str(t),
+            ContentPart::Text(t, _) => text.push_str(t),
             ContentPart::Image(ImageSource::Base64 { data, mime_type }) if vision => {
                 images.push(ImageData {
                     base64_data: data.clone(),
@@ -235,7 +235,7 @@ fn result_texts(content: &Content) -> Vec<String> {
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|p| match p {
-                ContentPart::Text(t) if !t.trim().is_empty() => Some(t.clone()),
+                ContentPart::Text(t, _) if !t.trim().is_empty() => Some(t.clone()),
                 _ => None,
             })
             .collect(),

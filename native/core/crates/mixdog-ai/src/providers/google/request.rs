@@ -60,7 +60,7 @@ fn text_of(content: &Content) -> String {
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|p| match p {
-                ContentPart::Text(t) => Some(t.as_str()),
+                ContentPart::Text(t, _) => Some(t.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -70,7 +70,7 @@ fn text_of(content: &Content) -> String {
 
 fn media_part(part: &ContentPart) -> Result<Option<Value>, ProviderError> {
     Ok(Some(match part {
-        ContentPart::Text(text) => json!({ "text": text }),
+        ContentPart::Text(text, _) => json!({ "text": text }),
         ContentPart::Image(ImageSource::Base64 { data, mime_type }) => {
             json!({ "inlineData": { "mimeType": mime_type, "data": data } })
         }
@@ -103,7 +103,7 @@ fn content_parts(content: &Content) -> Result<Vec<Value>, ProviderError> {
         Content::Parts(parts) => {
             let mut out = Vec::new();
             for part in parts {
-                if let ContentPart::Text(t) = part
+                if let ContentPart::Text(t, _) = part
                     && t.is_empty()
                 {
                     continue;
@@ -207,7 +207,7 @@ fn tool_result_parts(
     let media: Vec<Value> = match &message.content {
         Content::Parts(parts) => {
             let mut out = Vec::new();
-            for part in parts.iter().filter(|p| !matches!(p, ContentPart::Text(_))) {
+            for part in parts.iter().filter(|p| !matches!(p, ContentPart::Text(_, _))) {
                 out.extend(media_part(part)?);
             }
             out

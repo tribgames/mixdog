@@ -117,6 +117,9 @@ fn row_of(provider: &str, record: &ModelRecord) -> Value {
     if let Some(v) = record.max_context_window {
         row.insert("maxContextWindow".into(), json!(v));
     }
+    if let Some(v) = record.runtime_context_window {
+        row.insert("runtimeContextWindow".into(), json!(v));
+    }
     if let Some(v) = record.max_output_tokens {
         row.insert("outputTokens".into(), json!(v));
     }
@@ -248,6 +251,7 @@ mod tests {
         record.name = input.get("name").and_then(Value::as_str).map(str::to_owned);
         record.context_window = input.get("contextWindow").and_then(Value::as_u64);
         record.max_context_window = input.get("maxContextWindow").and_then(Value::as_u64);
+        record.runtime_context_window = input.get("runtimeContextWindow").and_then(Value::as_u64);
         record.max_output_tokens = input.get("outputTokens").and_then(Value::as_u64);
         record.input_cost_per_m = finite(input.get("inputCostPerM"));
         record.output_cost_per_m = finite(input.get("outputCostPerM"));

@@ -127,6 +127,9 @@ pub struct ModelRecord {
     /// The largest window the listing states for the model.
     #[serde(default)]
     pub max_context_window: Option<u64>,
+    /// What a managed local runtime has allocated; bounds a selected window.
+    #[serde(default)]
+    pub runtime_context_window: Option<u64>,
     pub output_tokens: Option<u64>,
     pub rates: Rates,
     pub vision: Capability,
@@ -164,6 +167,7 @@ impl ModelRecord {
             display_name: None,
             context_window: None,
             max_context_window: None,
+            runtime_context_window: None,
             output_tokens: None,
             rates: Rates::default(),
             vision: Capability::Unknown,
@@ -173,67 +177,5 @@ impl ModelRecord {
             reasoning_efforts: Vec::new(),
             source: MetadataSource::Native,
         }
-    }
-
-    /// Fills what this record does not state from `other`: the provider's own
-    /// limits and capabilities win; the metadata catalog fills gaps only.
-    pub fn fill_gaps_from(&mut self, other: &ModelRecord) {
-        fn gap<T: Clone>(slot: &mut Option<T>, value: &Option<T>) {
-            if slot.is_none() {
-                slot.clone_from(value);
-            }
-        }
-        fn flag(slot: &mut Capability, value: Capability) {
-            if *slot == Capability::Unknown {
-                *slot = value;
-            }
-        }
-        gap(&mut self.display_name, &other.display_name);
-        gap(&mut self.family, &other.family);
-        gap(&mut self.npm, &other.npm);
-        if self.output_modalities.is_empty() {
-            self.output_modalities.clone_from(&other.output_modalities);
-        }
-        if self.thinking == Thinking::Unspecified {
-            self.thinking.clone_from(&other.thinking);
-        }
-        gap(&mut self.context_window, &other.context_window);
-        gap(&mut self.output_tokens, &other.output_tokens);
-        gap(&mut self.rates.input, &other.rates.input);
-        gap(&mut self.rates.output, &other.rates.output);
-        gap(&mut self.rates.cache_read, &other.rates.cache_read);
-        gap(&mut self.rates.cache_write, &other.rates.cache_write);
-        flag(&mut self.vision, other.vision);
-        flag(&mut self.function_calling, other.function_calling);
-        flag(&mut self.fast_mode, other.fast_mode);
-        // No reasoning ladder when the model is known not to reason.
-        flag(&mut self.reasoning, other.reasoning);
-        if self.reasoning_efforts.is_empty() && self.reasoning != Capability::No {
-            self.reasoning_efforts.clone_from(&other.reasoning_efforts);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn metadata_fills_gaps_and_never_overrides_native() {
-        let mut native = ModelRecord::new("p".into(), "m");
-        native.context_window = Some(200_000);
-        native.reasoning = Capability::No;
-        let mut overlay = ModelRecord::new("p".into(), "m");
-        overlay.context_window = Some(1);
-        overlay.output_tokens = Some(64_000);
-        overlay.rates.input = Some(3.0);
-        overlay.reasoning = Capability::Yes;
-        overlay.reasoning_efforts = vec!["high".into()];
-        native.fill_gaps_from(&overlay);
-        assert_eq!(native.context_window, Some(200_000));
-        assert_eq!(native.output_tokens, Some(64_000));
-        assert_eq!(native.rates.input, Some(3.0));
-        assert_eq!(native.reasoning, Capability::No);
-        assert!(native.reasoning_efforts.is_empty());
     }
 }

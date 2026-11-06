@@ -99,7 +99,9 @@ fn data_lines(text: &str) -> Vec<String> {
 /// member speeches after it (no user message yet: the newest speeches), each text bounded.
 pub fn supervisor_rows(rows: &[RoomRow]) -> Vec<&RoomRow> {
     let said: Vec<&RoomRow> = rows.iter().filter(|r| matches!(r.kind, RowKind::User | RowKind::Speech)).collect();
-    let newest = |rows: &[&'_ RoomRow]| rows[rows.len().saturating_sub(ROWS_AFTER_USER)..].to_vec();
+    fn newest<'a>(rows: &[&'a RoomRow]) -> Vec<&'a RoomRow> {
+        rows[rows.len().saturating_sub(ROWS_AFTER_USER)..].to_vec()
+    }
     match said.iter().rposition(|r| r.kind == RowKind::User) {
         None => newest(&said),
         Some(at) => {
@@ -380,6 +382,7 @@ mod tests {
             let got = parse_room_decision(reply, &sup).map(|d| {
                 let scene = if d.scene == Some(Scene::Casual) { "casual" } else { "work" };
                 match d.action {
+                    Action::Unmanaged => unreachable!("only an absent Maintainer model is unmanaged"),
                     Action::Finish => serde_json::json!({ "action": "finish", "scene": scene }),
                     Action::Speak { agent_id, instruction } if instruction.is_empty() => {
                         serde_json::json!({ "action": "speak", "agentId": agent_id, "scene": scene })

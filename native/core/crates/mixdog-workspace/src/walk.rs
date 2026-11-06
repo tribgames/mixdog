@@ -182,20 +182,54 @@ pub fn index_paths(root: &Path, include_ignored: bool, max_entries: usize, stop:
     (paths, pending)
 }
 
-/// The paths of the unvisited folders that match `keep`, walked without a cap.
+/// The paths of the unvisited folders that match `keep`, walked without a cap, and whether the
+/// walk finished. A walk `stop` ended early still returns what it found before it stopped (Node's
+/// `searchBeyond` answers with the partial walk); nothing is kept after `stop` turns true.
 pub fn matches_beyond(
     root: &Path,
     pending: &[Pending],
     include_ignored: bool,
     stop: &dyn Fn() -> bool,
     keep: &dyn Fn(&str) -> bool,
-) -> Option<Vec<String>> {
-    let root_real = canonical(root).ok()?;
+) -> (Vec<String>, bool) {
+    let Ok(root_real) = canonical(root) else { return (Vec::new(), false) };
     let mut found = Vec::new();
     let left = walk_directories(root, &root_real, pending.iter().cloned().collect(), include_ignored, usize::MAX, stop, &mut |p| {
-        if keep(&p) {
+        if !stop() && keep(&p) {
             found.push(p);
         }
     });
-    left.is_empty().then_some(found)
+    let finished = left.is_empty() && !stop();
+    (found, finished)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn a_walk_stopped_midway_returns_what_it_found_before_and_is_not_finished() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        for d in ["a", "b", "c"] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+            std::fs::write(root.join(d).join("hit.txt"), "").unwrap();
+        }
+        let pending = [Pending { relative: String::new(), rules: Vec::new() }];
+        let (all, finished) = matches_beyond(&root, &pending, false, &|| false, &|p| p.ends_with("hit.txt"));
+        assert!((all.len(), finished) == (3, true), "{all:?}");
+
+        // The deadline passes once the first match was kept: the later matches are not.
+        let kept = Cell::new(0);
+        let (partial, finished) = matches_beyond(&root, &pending, false, &|| kept.get() >= 1, &|p| {
+            let hit = p.ends_with("hit.txt");
+            if hit {
+                kept.set(kept.get() + 1);
+            }
+            hit
+        });
+        assert_eq!(partial.len(), 1, "{partial:?}");
+        assert!(!finished);
+    }
 }

@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::EntryKind;
-use mixdog_core_api::domain::fs::WalkRequest;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 
@@ -19,6 +18,8 @@ use super::patch_hunk::Section;
 
 /// How long the basename scan may run (`BASENAME_SCAN_DEADLINE_MS`); hits found by then still count.
 const BASENAME_SCAN_DEADLINE: Duration = Duration::from_millis(750);
+/// Directories the scan reads at most (`maxDirs`).
+const BASENAME_SCAN_MAX_DIRS: usize = 6000;
 /// Segments peeled off a requested path at most (`findBySuffixStrip`'s `maxIterations`).
 const SUFFIX_STRIP_MAX: usize = 12;
 const SKIP_DIRS: &[&str] = &[
@@ -81,39 +82,46 @@ async fn suffix_strip(ctx: &ToolContext, base: &AbsPath, requested: &Path) -> Op
     None
 }
 
-/// `findFileByBasename` with `limit: 2`: files named like `requested` (case-insensitively) outside
-/// hidden and vendor directories, found on the maintenance lane.
+/// `findFileByBasename` with `limit: 2`: a breadth-first scan, shallow hits first, of at most
+/// 6000 directories within 750 ms, skipping hidden and vendor directories. What was found when
+/// it stops still counts.
 async fn basename_hits(ctx: &ToolContext, base: &AbsPath, requested: &Path) -> Result<Vec<PathBuf>, ToolError> {
     let Some(target) = requested.file_name().map(|n| n.to_string_lossy().to_lowercase()) else { return Ok(Vec::new()) };
-    let mut walk = ctx.files.walk(
-        ctx.io.maintenance,
-        WalkRequest { root: base.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: false },
-    );
+    let stop = std::time::Instant::now() + BASENAME_SCAN_DEADLINE;
+    let mut queue = std::collections::VecDeque::from([base.clone()]);
     let mut hits: Vec<PathBuf> = Vec::new();
-    let scan = pull_all(ctx, walk.as_mut(), |item| {
-        let Ok(entry) = item else { return true };
-        let path = entry.path.as_path();
-        let in_skipped_dir = relative_inside(base.as_path(), path).is_some_and(|rel| {
-            let mut parts: Vec<_> = rel.components().collect();
-            parts.pop();
-            parts.iter().any(|c| {
-                let name = c.as_os_str().to_string_lossy();
-                name.starts_with('.') || SKIP_DIRS.contains(&name.as_ref())
-            })
-        });
-        let named = path.file_name().is_some_and(|n| n.to_string_lossy().to_lowercase() == target);
-        if entry.kind == EntryKind::File && named && !in_skipped_dir && path != requested {
-            hits.push(path.to_path_buf());
+    let mut scanned = 0usize;
+    while hits.len() < 2 && scanned < BASENAME_SCAN_MAX_DIRS {
+        let Some(dir) = queue.pop_front() else { break };
+        if ctx.cancel.is_cancelled() {
+            return Err(cancelled());
         }
-        hits.len() < 2
-    });
-    // The hint is a courtesy: out of time, what was found so far still counts.
-    if let Ok(PullEnd::Cancelled) = tokio::time::timeout(BASENAME_SCAN_DEADLINE, scan).await {
-        return Err(cancelled());
+        if std::time::Instant::now() >= stop {
+            break;
+        }
+        scanned += 1;
+        let Ok(entries) = ctx.files.list_dir(ctx.io.interactive, dir).await else { continue };
+        for entry in entries {
+            let path = entry.path.as_path();
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            match entry.kind {
+                EntryKind::Dir => {
+                    if !(name.starts_with('.') || SKIP_DIRS.contains(&name.as_str())) {
+                        queue.push_back(entry.path.clone());
+                    }
+                }
+                EntryKind::File if name.to_lowercase() == target && path != requested => {
+                    hits.push(path.to_path_buf());
+                    if hits.len() >= 2 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
     }
     Ok(hits)
 }
-
 /// `uniqueExistingPatchTarget`: the one existing file the missing `requested` path most likely
 /// meant. Only a path inside the patch root is ever relocated.
 async fn unique_existing_target(ctx: &ToolContext, base: &AbsPath, requested: &AbsPath) -> Result<Option<AbsPath>, ToolError> {

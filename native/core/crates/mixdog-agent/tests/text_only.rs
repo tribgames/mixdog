@@ -54,7 +54,7 @@ impl MediaText for Media {
 fn part_from_json(part: &JsonValue) -> ContentPart {
     let str_of = |key: &str| part.get(key).and_then(JsonValue::as_str).map(str::to_owned);
     match part["type"].as_str().unwrap() {
-        "text" => ContentPart::Text(str_of("text").unwrap()),
+        "text" => ContentPart::Text(str_of("text").unwrap(), false),
         "image" => ContentPart::Image(ImageSource::Base64 {
             data: str_of("data").unwrap(),
             mime_type: str_of("mimeType").unwrap(),
@@ -100,7 +100,7 @@ fn message_to_json(message: &Message) -> JsonValue {
             parts
                 .iter()
                 .map(|p| match p {
-                    ContentPart::Text(t) => json!({"type": "text", "text": t}),
+                    ContentPart::Text(t, _) => json!({"type": "text", "text": t}),
                     ContentPart::Image(_) => json!({"type": "image"}),
                     ContentPart::File { .. } => json!({"type": "file"}),
                     ContentPart::Document { .. } => json!({"type": "document"}),

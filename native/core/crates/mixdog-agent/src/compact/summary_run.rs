@@ -24,6 +24,7 @@ use super::summary::fit_complete_compaction_prompt;
 use super::summary::fit_generated_handoff_message;
 use super::summary::extract_response_text;
 use crate::env::CompactError;
+use crate::one_shot::CallShape;
 use crate::message::AgentMessage;
 use mixdog_core_api::domain::provider::Role;
 
@@ -60,6 +61,8 @@ pub struct SummaryCall {
     pub model: String,
     pub max_output_tokens: u64,
     pub fast: bool,
+    /// Request kind, effort, 529 retry and cache choice of the step making the call.
+    pub shape: CallShape,
 }
 
 pub struct SummaryResponse {
@@ -95,6 +98,8 @@ pub struct SummaryRoute {
     /// Provider token-count calibration (see `providerTokenCalibration`).
     pub calibration: f64,
     pub fast: bool,
+    /// The route's own effort (the room Maintainer's); `None` where the step names none.
+    pub effort: Option<String>,
     pub sender: Arc<dyn SummarySender>,
 }
 
@@ -240,7 +245,7 @@ pub async fn generate_fresh_handoff_summary(
         head = chunks;
         previous = None;
     }
-    let call = SummaryCall { model: input.model.to_owned(), max_output_tokens: input.max_output_tokens, fast: input.fast };
+    let call = SummaryCall { model: input.model.to_owned(), max_output_tokens: input.max_output_tokens, fast: input.fast, shape: CallShape::compaction() };
     let mut run = Generated { mode: "isolated", ..Generated::default() };
     let mut offset = 0;
     loop {

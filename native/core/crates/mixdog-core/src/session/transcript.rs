@@ -54,6 +54,7 @@ pub(super) use self::transcript_rows::truthy;
 pub(super) use self::transcript_boundary::divider_model_switches;
 pub(super) use self::transcript_boundary::live_divider_model_switch;
 pub(super) use self::transcript_boundary::live_model_switch;
+pub(super) use self::transcript_response::has_body;
 
 /// `MessageRows` of one run: every history message the run holds is registered with the
 /// `item.body` the store holds for it (the `Value` read back at load, or the body the run

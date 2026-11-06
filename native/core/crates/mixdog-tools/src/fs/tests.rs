@@ -83,6 +83,7 @@ async fn context_seeded(root: &AbsPath, files: Arc<dyn FileService>, seeds: Vec<
         files,
         processes: Arc::new(MockProcessManager::default()),
         options: Default::default(),
+        review: None,
     }
 }
 
@@ -184,14 +185,29 @@ async fn run_golden(ctx: &ToolContext, root: &AbsPath, cases: &[&str]) {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-fn snapshot(dir: &Path, base: &Path, out: &mut std::collections::BTreeMap<String, String>) {
+type Tree = std::collections::BTreeMap<String, Vec<u8>>;
+
+/// A recorded file's bytes: its text, or { b64 } for bytes that are not UTF-8 text.
+fn bytes_of(value: &JsonValue) -> Vec<u8> {
+    use base64::Engine;
+    match value.as_str() {
+        Some(text) => text.as_bytes().to_vec(),
+        None => base64::engine::general_purpose::STANDARD.decode(value["b64"].as_str().unwrap()).unwrap(),
+    }
+}
+
+fn tree_of(value: &JsonValue) -> Tree {
+    value.as_object().map(|files| files.iter().map(|(k, v)| (k.clone(), bytes_of(v))).collect()).unwrap_or_default()
+}
+
+fn snapshot(dir: &Path, base: &Path, out: &mut Tree) {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.is_dir() {
             snapshot(&path, base, out);
         } else {
             let rel = path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
-            out.insert(rel, String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned());
+            out.insert(rel, std::fs::read(&path).unwrap());
         }
     }
 }
@@ -216,33 +232,48 @@ async fn edit_and_apply_patch_match_recorded_node_cases() {
         let dir = tempfile::tempdir().unwrap();
         let root = AbsPath::new(dir.path().join("ws")).unwrap();
         std::fs::create_dir_all(root.as_path()).unwrap();
-        let seeds = case["files"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(rel, text)| (rel.clone(), text.as_str().unwrap().as_bytes().to_vec()))
-            .collect();
+        let seeds = tree_of(&case["files"]).into_iter().collect();
+        // A second tree outside the workspace, <OUT> in the patch text.
+        let out = AbsPath::new(dir.path().join("out")).unwrap();
+        std::fs::create_dir_all(out.as_path()).unwrap();
+        for (rel, bytes) in tree_of(&case["outside"]) {
+            let path = out.as_path().join(&rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        let out_text = out.as_path().to_string_lossy().replace('\\', "/");
         let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), seeds).await;
         let tool_name = case["tool"].as_str().unwrap();
         let tool = tools.iter().find(|t| t.spec().name == tool_name).unwrap();
         let root_text = root.as_path().to_string_lossy().replace('\\', "/");
         let mut input = case["input"].clone();
         if let Some(b) = input.get_mut("base_path") {
-            *b = JsonValue::String(root_text.clone());
+            let recorded = b.as_str().unwrap().to_owned();
+            *b = JsonValue::String(recorded.replace("<ROOT>", &root_text));
+        }
+        if let Some(p) = input.get_mut("patch") {
+            let recorded = p.as_str().unwrap().to_owned();
+            *p = JsonValue::String(recorded.replace("<OUT>", &out_text));
         }
         // `edit` also takes the recorded `path` key as it is.
         let (is_error, text) = text_of(tool.call(&ctx, input).await);
-        let text = text.replace(&root_text, "<ROOT>").replace(&root.as_path().to_string_lossy().into_owned(), "<ROOT>");
-        let mut after = std::collections::BTreeMap::new();
+        let text = text
+            .replace(&out_text, "<OUT>")
+            .replace(&out.as_path().to_string_lossy().into_owned(), "<OUT>")
+            .replace(&root_text, "<ROOT>")
+            .replace(&root.as_path().to_string_lossy().into_owned(), "<ROOT>");
+        let mut after = Tree::new();
         snapshot(root.as_path(), root.as_path(), &mut after);
-        let want_after: std::collections::BTreeMap<String, String> = case["after"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
-            .collect();
-        if text != want || is_error != case["isError"].as_bool().unwrap() || after != want_after {
-            failures.push(format!("{name}:\n  want {want:?}\n  got  {text:?} (error={is_error})\n  want tree {want_after:?}\n  got  tree {after:?}"));
+        let mut after_out = Tree::new();
+        snapshot(out.as_path(), out.as_path(), &mut after_out);
+        let want_after = tree_of(&case["after"]);
+        let want_out = if case.get("after_out").is_some() { tree_of(&case["after_out"]) } else { after_out.clone() };
+        if text != want || is_error != case["isError"].as_bool().unwrap() || after != want_after || after_out != want_out {
+            let show = |t: &Tree| t.iter().map(|(k, v)| format!("{k}={:?}", String::from_utf8_lossy(v))).collect::<Vec<_>>().join(", ");
+            failures.push(format!(
+                "{name}:\n  want {want:?}\n  got  {text:?} (error={is_error})\n  want tree {}\n  got  tree {}\n  want out {}\n  got  out {}",
+                show(&want_after), show(&after), show(&want_out), show(&after_out)
+            ));
         }
     }
     assert!(failures.is_empty(), "{} of {} cases differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
@@ -334,4 +365,406 @@ async fn writes_to_one_path_wait_for_its_path_lock() {
     }
     let bytes = ctx.files.read(ctx.io.interactive, readme, Default::default()).await.unwrap().bytes;
     assert_eq!(String::from_utf8(bytes).unwrap(), "# Fixture\n\nALPHA beta\nGAMMA\n");
+}
+
+// ---- turn review ----
+
+/// A turn review that keeps the calls it was told about and answers a card diff for each.
+#[derive(Default)]
+struct FakeReview {
+    calls: std::sync::Mutex<Vec<(String, String, String, Vec<mixdog_core_api::turn_review::CallChange>)>>,
+}
+
+#[async_trait::async_trait]
+impl mixdog_core_api::turn_review::TurnReviewApi for FakeReview {
+    async fn record_call(&self, call_id: &str, session_id: &str, base_path: &str, changes: Vec<mixdog_core_api::turn_review::CallChange>) {
+        self.calls.lock().unwrap().push((call_id.to_owned(), session_id.to_owned(), base_path.to_owned(), changes));
+    }
+    async fn record_tool_changes(&self, _: &str, _: &str, _: Vec<mixdog_core_api::turn_review::CallChange>) {}
+    fn take_call_diff(&self, call_id: &str) -> Option<String> {
+        self.calls.lock().unwrap().iter().any(|c| c.0 == call_id).then(|| format!("card:{call_id}"))
+    }
+    fn note_change(&self, _: Option<&[String]>) {}
+    async fn begin_turn(&self, _: &str, _: &str, _: mixdog_core_api::turn_review::TurnOpen) -> Option<mixdog_core_api::turn_review::TurnToken> {
+        None
+    }
+    async fn complete_turn(&self, _: &str, _: Option<&mixdog_core_api::turn_review::TurnToken>) -> bool {
+        false
+    }
+    fn begin_agent_review(&self, _: &str, _: &str, _: &str, _: &str) -> Option<Box<dyn mixdog_core_api::turn_review::AgentReview>> {
+        None
+    }
+    fn forget_session(&self, _: &str) {}
+    async fn turn_review_diff(&self, _: &str, _: &str, _: mixdog_core_api::turn_review::ReviewRead) -> mixdog_core_api::turn_review::Reply {
+        Default::default()
+    }
+    async fn session_review_diff(&self, _: &str, _: &str) -> mixdog_core_api::turn_review::Reply {
+        Default::default()
+    }
+    async fn session_review_file_patch(&self, _: &str, _: &str, _: &str, _: &str) -> mixdog_core_api::turn_review::Reply {
+        Default::default()
+    }
+    async fn turn_review_file_patch(&self, _: &str, _: &str, _: &str) -> mixdog_core_api::turn_review::Reply {
+        Default::default()
+    }
+    async fn revert_turn_review(&self, _: &str, _: &str, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        Ok(Default::default())
+    }
+    async fn revert_turn_review_file(&self, _: &str, _: &str, _: &str, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        Ok(Default::default())
+    }
+    async fn turn_changes(&self, _: &str, _: mixdog_core_api::turn_review::ChangesRead) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        Ok(Default::default())
+    }
+    async fn revert_turn_changes(&self, _: &str, _: &str, _: Option<&str>, _: f64) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        Ok(Default::default())
+    }
+    async fn reapply_turn_changes(&self, _: &str, _: &str, _: Option<&str>, _: f64) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        Ok(Default::default())
+    }
+    async fn clear_change_history(&self, _: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        Ok(Default::default())
+    }
+}
+
+fn card_of(output: &ToolOutput) -> Option<&str> {
+    output.meta.as_ref().and_then(|m| m["uiDiff"].as_str())
+}
+
+/// A committed patch joins the turn review with the targets it really changed (a move carries its
+/// destination) and hands its card diff back; a dry run, a failed patch and an untouched file
+/// record nothing.
+#[tokio::test]
+async fn committed_writes_join_the_turn_review_and_carry_the_card_diff() {
+    use mixdog_core_api::turn_review::CallChange;
+    use mixdog_core_api::turn_review::ReviewContent;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = AbsPath::new(dir.path().join("ws")).unwrap();
+    std::fs::create_dir_all(root.as_path()).unwrap();
+    std::fs::write(root.as_path().join("a.txt"), "one\ntwo\n").unwrap();
+    std::fs::write(root.as_path().join("old.txt"), "keep\nme\n").unwrap();
+    std::fs::write(root.as_path().join("bin.dat"), [0x61u8, 0, 0x62, 0x80, 0, 1]).unwrap();
+    let review = Arc::new(FakeReview::default());
+    let mut ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await;
+    ctx.review = Some(review.clone());
+    let path = |name: &str| root.as_path().join(name).to_string_lossy().into_owned();
+
+    // A dry run and a refused patch leave no entry.
+    let dry = serde_json::json!({ "patch": "*** Update File: a.txt\n@@\n-one\n+ONE\n", "dry_run": true });
+    assert!(card_of(&ApplyPatchTool::new().call(&ctx, dry).await.unwrap()).is_none());
+    let stale = serde_json::json!({ "patch": "*** Update File: a.txt\n@@\n-nope\n+X\n" });
+    assert!(ApplyPatchTool::new().call(&ctx, stale).await.is_err());
+    assert!(review.calls.lock().unwrap().is_empty());
+
+    // A move that also edits: one change carrying both ends.
+    let moved = serde_json::json!({ "patch": "*** Update File: a.txt\n*** Move to: b.txt\n@@\n-one\n+ONE\n" });
+    let output = ApplyPatchTool::new().call(&ctx, moved).await.unwrap();
+    assert_eq!(card_of(&output), Some("card:c"));
+    {
+        let calls = review.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        let (call, session, base, changes) = &calls[0];
+        assert_eq!((call.as_str(), session.as_str(), base.as_str()), ("c", "t", root.as_path().to_string_lossy().as_ref()));
+        assert_eq!(
+            changes,
+            &vec![CallChange {
+                path: path("a.txt"),
+                new_path: Some(path("b.txt")),
+                before: ReviewContent::bytes(&b"one\ntwo\n"[..]),
+                after: ReviewContent::bytes(&b"ONE\ntwo\n"[..]),
+            }]
+        );
+    }
+
+    // A delete of an unreadable-as-text file is listed as omitted, never as empty bytes.
+    review.calls.lock().unwrap().clear();
+    let gone = serde_json::json!({ "patch": "*** Delete File: bin.dat\n*** Update File: old.txt\n@@\n-keep\n+KEEP\n" });
+    ApplyPatchTool::new().call(&ctx, gone).await.unwrap();
+    let calls = review.calls.lock().unwrap();
+    let changes = &calls[0].3;
+    assert_eq!(changes.len(), 2);
+    let bin = changes.iter().find(|c| c.path == path("bin.dat")).unwrap();
+    assert_eq!(bin.before, ReviewContent::Omitted { size: 6, reason: Some("binary".to_owned()) });
+    assert_eq!(bin.after, ReviewContent::Absent);
+    let old = changes.iter().find(|c| c.path == path("old.txt")).unwrap();
+    assert_eq!((&old.before, &old.after), (&ReviewContent::bytes(&b"keep\nme\n"[..]), &ReviewContent::bytes(&b"KEEP\nme\n"[..])));
+    drop(calls);
+
+    // `edit` records its write too: a replacement, then a created file.
+    review.calls.lock().unwrap().clear();
+    let edit = serde_json::json!({ "file_path": "old.txt", "old_string": "me", "new_string": "you" });
+    let output = EditTool::new().call(&ctx, edit).await.unwrap();
+    assert_eq!(card_of(&output), Some("card:c"));
+    let create = serde_json::json!({ "file_path": "fresh.txt", "old_string": "", "new_string": "hi\n" });
+    EditTool::new().call(&ctx, create).await.unwrap();
+    let calls = review.calls.lock().unwrap();
+    assert_eq!(calls[0].3[0].before, ReviewContent::bytes(&b"KEEP\nme\n"[..]));
+    assert_eq!(calls[0].3[0].after, ReviewContent::bytes(&b"KEEP\nyou\n"[..]));
+    assert_eq!(calls[1].3[0].before, ReviewContent::Absent);
+    assert_eq!(calls[1].3[0].after, ReviewContent::bytes(&b"hi\n"[..]));
+}
+// ---- locks, renames, rollback bounds ----
+
+fn link_dir(link: &Path, target: &Path) -> bool {
+    #[cfg(windows)]
+    let linked = std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).output().is_ok_and(|o| o.status.success());
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(target, link).is_ok();
+    linked
+}
+
+fn small_dir() -> (tempfile::TempDir, AbsPath) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = AbsPath::new(dir.path().join("ws")).unwrap();
+    std::fs::create_dir_all(root.as_path()).unwrap();
+    (dir, root)
+}
+
+fn local_ctx_files() -> Arc<dyn FileService> {
+    Arc::new(mixdog_workspace::localfs::LocalFileService::new())
+}
+
+/// `edit(real/a.txt)` and `apply_patch(alias/a.txt)` reach one file through a junction: run
+/// together they serialize and both edits land, whichever way each is spelled.
+#[tokio::test]
+async fn edit_and_apply_patch_through_a_junction_serialize_and_keep_both_edits() {
+    let (_dir, root) = small_dir();
+    std::fs::create_dir_all(root.as_path().join("real")).unwrap();
+    std::fs::write(root.as_path().join("real").join("a.txt"), "one\ntwo\nthree\n").unwrap();
+    if !link_dir(&root.as_path().join("alias"), &root.as_path().join("real")) {
+        eprintln!("junction test skipped");
+        return;
+    }
+    let ctx = Arc::new(context_seeded(&root, local_ctx_files(), Vec::new()).await);
+    for round in 0..6 {
+        std::fs::write(root.as_path().join("real").join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        let edit = {
+            let ctx = ctx.clone();
+            tokio::spawn(async move {
+                let args = serde_json::json!({ "file_path": "real/a.txt", "old_string": "one", "new_string": "ONE" });
+                text_of(EditTool::new().call(&ctx, args).await)
+            })
+        };
+        let patch = {
+            let ctx = ctx.clone();
+            tokio::spawn(async move {
+                let args = serde_json::json!({ "patch": "*** Begin Patch\n*** Update File: alias/a.txt\n@@\n-three\n+THREE\n*** End Patch\n" });
+                text_of(ApplyPatchTool::new().call(&ctx, args).await)
+            })
+        };
+        for task in [edit, patch] {
+            let (is_error, text) = task.await.unwrap();
+            assert!(!is_error, "round {round}: {text}");
+        }
+        assert_eq!(std::fs::read_to_string(root.as_path().join("real").join("a.txt")).unwrap(), "ONE\ntwo\nTHREE\n", "round {round}");
+    }
+}
+
+/// A holder of the real file's in-process lock holds up a patch aimed at it through a junction.
+#[tokio::test]
+async fn apply_patch_through_a_junction_waits_for_the_referents_lock() {
+    use std::time::Duration;
+    let (_dir, root) = small_dir();
+    std::fs::create_dir_all(root.as_path().join("real")).unwrap();
+    std::fs::write(root.as_path().join("real").join("a.txt"), "one\n").unwrap();
+    if !link_dir(&root.as_path().join("alias"), &root.as_path().join("real")) {
+        return;
+    }
+    let ctx = Arc::new(context_seeded(&root, local_ctx_files(), Vec::new()).await);
+    let referent = super::advisory::canonical_lock_target(&root.as_path().join("alias").join("a.txt"));
+    let held = crate::git::path_locks::lock_paths(&[referent.as_path()], &ctx.cancel).await.unwrap();
+    let task = {
+        let ctx = ctx.clone();
+        tokio::spawn(async move {
+            let args = serde_json::json!({ "patch": "*** Begin Patch\n*** Update File: alias/a.txt\n@@\n-one\n+ONE\n*** End Patch\n" });
+            text_of(ApplyPatchTool::new().call(&ctx, args).await)
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(!task.is_finished(), "a patch through a junction ran under its referent's lock");
+    drop(held);
+    let (is_error, text) = task.await.unwrap();
+    assert!(!is_error, "{text}");
+}
+
+/// The advisory lock excludes another holder of the same real file, takes a lock a dead process
+/// left, and releases only a lock that still carries its own token.
+#[tokio::test]
+async fn the_advisory_lock_waits_for_a_live_holder_reclaims_a_dead_one_and_releases_only_its_own() {
+    use std::time::Duration;
+    let (_dir, root) = small_dir();
+    let locks = root.as_path().join("locks");
+    let ctx = context(&root).await;
+    let target = root.as_path().join("t.txt");
+    let (short, poll) = (Duration::from_millis(200), Duration::from_millis(10));
+
+    let first = super::advisory::lock_in(&ctx, &locks, &[target.as_path()], short, poll).await.unwrap();
+    let blocked = super::advisory::lock_in(&ctx, &locks, &[target.as_path()], short, poll).await.err().expect("a held lock is not shared");
+    let file = super::advisory::lock_file_for(&locks, &target);
+    assert_eq!(
+        blocked.message_for_model,
+        format!("Error: advisory lock timeout: {} ({}) held by pid {}", target.display(), file.display(), std::process::id())
+    );
+    drop(first);
+    assert!(!file.exists());
+    let second = super::advisory::lock_in(&ctx, &locks, &[target.as_path()], short, poll).await.unwrap();
+    // Another process took the file over meanwhile: this holder must not delete it.
+    std::fs::write(&file, "1.someone-else").unwrap();
+    drop(second);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "1.someone-else");
+
+    // A lock whose holder is gone is cleared and taken.
+    std::fs::write(&file, "2147483646.deadbeef").unwrap();
+    let taken = super::advisory::lock_in(&ctx, &locks, &[target.as_path()], Duration::from_secs(2), poll).await.unwrap();
+    assert!(std::fs::read_to_string(&file).unwrap().starts_with(&format!("{}.", std::process::id())));
+    drop(taken);
+    // One real file under two spellings is one lock, taken once.
+    let again = root.as_path().join("sub").join("..").join("t.txt");
+    let both = super::advisory::lock_in(&ctx, &locks, &[target.as_path(), again.as_path()], short, poll).await;
+    assert!(both.is_ok());
+}
+
+/// `edit` and `apply_patch` wait for another process holding the file's advisory lock.
+#[tokio::test]
+async fn edit_and_apply_patch_wait_for_the_advisory_lock_of_their_file() {
+    use std::time::Duration;
+    let (_dir, root) = small_dir();
+    std::fs::write(root.as_path().join("a.txt"), "one\n").unwrap();
+    std::fs::write(root.as_path().join("b.txt"), "two\n").unwrap();
+    let ctx = Arc::new(context_seeded(&root, local_ctx_files(), Vec::new()).await);
+    for (name, is_edit) in [("a.txt", true), ("b.txt", false)] {
+        let lock_file = super::advisory::lock_file_for(&super::advisory::lock_directory(), &root.as_path().join(name));
+        std::fs::create_dir_all(lock_file.parent().unwrap()).unwrap();
+        std::fs::write(&lock_file, format!("{}.foreign", std::process::id())).unwrap();
+        let task = {
+            let ctx = ctx.clone();
+            tokio::spawn(async move {
+                let args = if is_edit {
+                    serde_json::json!({ "file_path": "a.txt", "old_string": "one", "new_string": "ONE" })
+                } else {
+                    serde_json::json!({ "patch": "*** Begin Patch\n*** Update File: b.txt\n@@\n-two\n+TWO\n*** End Patch\n" })
+                };
+                text_of(if is_edit { EditTool::new().call(&ctx, args).await } else { ApplyPatchTool::new().call(&ctx, args).await })
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!task.is_finished(), "{name} was written under another holder's advisory lock");
+        std::fs::remove_file(&lock_file).unwrap();
+        let (is_error, text) = task.await.unwrap();
+        assert!(!is_error, "{text}");
+    }
+}
+
+/// The local file service, except that removing `a.txt` fails as a busy file does.
+struct BusyRemove(Arc<dyn FileService>);
+
+#[cfg(windows)]
+const BUSY: i32 = 32;
+#[cfg(unix)]
+const BUSY: i32 = libc::EBUSY;
+
+#[async_trait::async_trait]
+impl FileService for BusyRemove {
+    async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        self.0.stat(lane, path).await
+    }
+    async fn read(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath, range: mixdog_core_api::domain::fs::ReadRange) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
+        self.0.read(lane, path, range).await
+    }
+    async fn list_dir(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
+        self.0.list_dir(lane, path).await
+    }
+    async fn write(&self, lane: mixdog_rt::DurabilityIo, request: WriteRequest) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        self.0.write(lane, request).await
+    }
+    async fn write_batch(&self, lane: mixdog_rt::DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
+        self.0.write_batch(lane, requests).await
+    }
+    async fn create_dir(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.create_dir(lane, path, recursive).await
+    }
+    async fn rename(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.rename(lane, from, to, overwrite).await
+    }
+    async fn copy(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.copy(lane, from, to, overwrite).await
+    }
+    async fn remove(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        if path.as_path().ends_with("a.txt") {
+            return Err(mixdog_core_api::domain::fs::FsError::new(mixdog_core_api::domain::fs::FsErrorKind::Io { os_code: Some(BUSY) }, Some(path)));
+        }
+        self.0.remove(lane, path, recursive).await
+    }
+    fn walk(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::WalkRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
+        self.0.walk(lane, request)
+    }
+    fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::SearchRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
+        self.0.search_text(lane, request)
+    }
+}
+
+/// An ordered rename whose source cannot be removed puts both paths back and fails as its own
+/// unit; the unit before it, already on disk, still reaches the review.
+#[tokio::test]
+async fn a_failed_source_removal_restores_both_paths_and_earlier_units_are_still_reviewed() {
+    use mixdog_core_api::turn_review::ReviewContent;
+    let (_dir, root) = small_dir();
+    std::fs::write(root.as_path().join("c.txt"), "keep\n").unwrap();
+    std::fs::write(root.as_path().join("a.txt"), "one\ntwo\n").unwrap();
+    let review = Arc::new(FakeReview::default());
+    let mut ctx = context_seeded(&root, Arc::new(BusyRemove(local_ctx_files())), Vec::new()).await;
+    ctx.review = Some(review.clone());
+    let patch = "*** Begin Patch\n*** Update File: c.txt\n@@\n-keep\n+KEEP\n*** Update File: a.txt\n*** Move to: b.txt\n@@\n-one\n+ONE\n*** End Patch\n";
+    let (is_error, text) = text_of(ApplyPatchTool::new().call(&ctx, serde_json::json!({ "patch": patch, "sequence": true })).await);
+    assert!(is_error);
+    let a = root.as_path().join("a.txt");
+    let (code, description) = if cfg!(windows) { ("EBUSY", "resource busy or locked") } else { ("EBUSY", "resource busy or locked") };
+    let why = format!("apply_patch: V4A rename failed for a.txt → b.txt ({code}: {description}, unlink '{}')", a.display());
+    assert!(text.contains(&why), "{text}");
+    assert!(text.contains("sequence stopped at section 2/2 (a.txt)"), "{text}");
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), "one\ntwo\n");
+    assert!(!root.as_path().join("b.txt").exists());
+    assert_eq!(std::fs::read_to_string(root.as_path().join("c.txt")).unwrap(), "KEEP\n");
+    let calls = review.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].3.len(), 1);
+    assert_eq!(calls[0].3[0].path, root.as_path().join("c.txt").to_string_lossy());
+    assert_eq!(calls[0].3[0].after, ReviewContent::bytes(&b"KEEP\n"[..]));
+}
+
+/// A delete-only target keeps the 8 MiB snapshot limit in an ordered patch, so a larger one is
+/// reviewed as an omitted state, not read whole.
+#[tokio::test]
+async fn an_ordered_delete_of_a_file_over_8_mib_is_reviewed_as_omitted() {
+    use mixdog_core_api::turn_review::ReviewContent;
+    let (_dir, root) = small_dir();
+    let big = "x\n".repeat(5 * 1024 * 1024);
+    std::fs::write(root.as_path().join("big.txt"), &big).unwrap();
+    std::fs::write(root.as_path().join("s.txt"), "one\n").unwrap();
+    let review = Arc::new(FakeReview::default());
+    let mut ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
+    ctx.review = Some(review.clone());
+    let patch = "*** Begin Patch\n*** Delete File: big.txt\n*** Update File: s.txt\n@@\n-one\n+ONE\n*** End Patch\n";
+    let (is_error, text) = text_of(ApplyPatchTool::new().call(&ctx, serde_json::json!({ "patch": patch, "sequence": true })).await);
+    assert!(!is_error, "{text}");
+    let calls = review.calls.lock().unwrap();
+    let change = calls[0].3.iter().find(|c| c.path.ends_with("big.txt")).unwrap();
+    assert_eq!(change.before, ReviewContent::Omitted { size: big.len() as u64, reason: Some("oversized".to_owned()) });
+    assert_eq!(change.after, ReviewContent::Absent);
+}
+
+/// A native failure over a file past 8 MiB carries no nearest-line hints, as Node's bounded read.
+#[tokio::test]
+async fn native_failure_context_reads_no_more_than_8_mib() {
+    let (_dir, root) = small_dir();
+    std::fs::write(root.as_path().join("small.txt"), "one\n").unwrap();
+    std::fs::write(root.as_path().join("big.txt"), "one\n".repeat(2 * 1024 * 1024 + 1)).unwrap();
+    let ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
+    let stale = |name: &str| serde_json::json!({ "patch": format!("--- a/{name}\n+++ b/{name}\n@@ -1,1 +1,1 @@\n-nope\n+X\n") });
+    let (_, small) = text_of(ApplyPatchTool::new().call(&ctx, stale("small.txt")).await);
+    assert!(small.contains("nearest line 1: \"one\""), "{small}");
+    let (_, big) = text_of(ApplyPatchTool::new().call(&ctx, stale("big.txt")).await);
+    assert!(big.starts_with("Error: native patch failed"), "{big}");
+    assert!(!big.contains("nearest line") && big.contains("expected first old/context line in big.txt: \"nope\"; use exact"), "{big}");
 }

@@ -11,6 +11,7 @@
 // and records, per scenario, the ops that drive them and what each answered. The Rust component
 // replays the same ops (`mixdog-core::turn_review::tests`). Output keeps each reply's key order:
 // the review tag hashes the reply's JSON text.
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -29,6 +30,7 @@ const reviewDiff = await importFrom(tree, 'src/runtime/shared/review-diff.mjs');
 const replyMod = await importFrom(tree, 'src/runtime/shared/turn-review-reply.mjs');
 const snapshot = await importFrom(tree, 'src/runtime/shared/turn-snapshot.mjs');
 const store = await importFrom(tree, 'src/runtime/shared/turn-snapshot-store.mjs');
+const baselines = await importFrom(tree, 'src/runtime/shared/session-baseline-store.mjs');
 const uiDiff = await importFrom(tree, 'src/runtime/agent/orchestrator/tools/patch/ui-diff.mjs');
 const redirects = await importFrom(tree, 'src/runtime/agent/orchestrator/tools/patch/read-redirects.mjs');
 
@@ -256,6 +258,21 @@ async function runScenario(scenario) {
   const lastReview = new Map();
   const revisions = new Map();
   const results = [];
+  // The persisted bytes of a session's file in one store directory ('' = the turn index), clocks
+  // zeroed and the scenario's directories tokenized; null when there is none.
+  const persistedText = (sessionId, sub) => {
+    const name = `${createHash('sha256').update(sessionId).digest('hex').slice(0, 24)}.json`;
+    const file = join(data, 'turn-snapshots', sub, name);
+    if (!existsSync(file)) return null;
+    let text = readFileSync(file, 'utf8')
+      .replace(/"(at|touched|createdAt|updatedAt|clearedAt|incompleteAt|foldedAt)":[0-9.e+-]+/g, '"$1":0')
+      .replace(/\[[0-9.e+-]+,/g, '[0,')
+      .replace(/"baselineTree":"[0-9a-f]+"/g, '"baselineTree":"<tree>"');
+    for (const [dir, token] of [[data, '<data>'], [ws, '<ws>'], [dirname(ws), '<sc>']]) {
+      for (const form of [dir, dir.toLowerCase()]) text = text.split(JSON.stringify(form).slice(1, -1)).join(token);
+    }
+    return text;
+  };
   const readDisk = (path) => (existsSync(full(path)) ? readFileSync(full(path)) : null);
   const record = (index, value) => results.push({ op: index, result: norm(value) });
   const attempt = async (index, task) => {
@@ -370,7 +387,8 @@ async function runScenario(scenario) {
         await attempt(index, () => snapshot.clearSessionChangeHistory(session));
         break;
       case 'restart':
-        // The process is gone; the files stay.
+        // The process is gone; the files stay. Its queued baseline writes land first.
+        await baselines._settleSessionBaselinesForTest();
         snapshot._resetTurnSnapshotForTest();
         TOKENS.clear();
         break;
@@ -393,16 +411,25 @@ async function runScenario(scenario) {
       }
       case 'records': {
         const records = await store.loadTurnChangeRecords(session);
-        record(index, { records });
+        record(index, { records, file: persistedText(session, 'changes') });
         break;
       }
       case 'snapshotRecord': {
         const found = await store.loadTurnSnapshotRecord(session);
-        record(index, found ? { generation: found.generation, checkpointId: found.checkpointId, root: found.root, toolFiles: found.toolFiles, sealed: found.sealed } : null);
+        record(index, found ? { generation: found.generation, checkpointId: found.checkpointId, root: found.root, toolFiles: found.toolFiles, sealed: found.sealed, file: persistedText(session, '') } : { file: persistedText(session, '') });
         break;
       }
+      case 'baselineIndex':
+        record(index, { text: persistedText(session, 'baselines') });
+        break;
+      case 'sessionReview':
+        record(index, await snapshot.getSessionReviewDiff(ws, session));
+        break;
+      case 'sessionFile':
+        record(index, await snapshot.getSessionReviewFilePatch(ws, session, op.file, op.oldPath ?? ''));
+        break;
       case 'cleared':
-        record(index, { cleared: await store.sessionChangeHistoryCleared(session) });
+        record(index, { cleared: await store.sessionChangeHistoryCleared(session), file: persistedText(session, 'cleared') });
         break;
       default:
         throw new Error(`unknown op ${op.op}`);
@@ -642,6 +669,96 @@ const scenarios = [
       { op: 'disk', path: 'old.bin' },
       { op: 'redo', checkpoint: 'cp1', revision: '@current' },
       { op: 'disk', path: 'x3.txt' },
+    ],
+  },
+  {
+    name: 'session review without Git: first states across turns, renames, outside files, external edits, restart',
+    ops: [
+      { op: 'file', path: 'a.txt', content: T(lines('one', 'two', 'three')) },
+      { op: 'file', path: 'b.txt', content: T('moves\n') },
+      { op: 'file', path: 'c.txt', content: T('gone\n') },
+      { op: 'file', path: '../out/o.txt', content: T('outside v1\n') },
+      { op: 'sessionReview' },
+      { op: 'begin', checkpoint: 'cp1' },
+      { op: 'edit', path: 'a.txt', content: T(lines('one', '2', 'three')) },
+      { op: 'edit', path: 'new.txt', content: T('fresh\n') },
+      { op: 'edit', path: 'c.txt', content: null },
+      { op: 'sessionReview' },
+      { op: 'complete' },
+      { op: 'begin', checkpoint: 'cp2' },
+      { op: 'edit', path: 'a.txt', content: T(lines('one', '2', 'three', 'four')) },
+      { op: 'edit', path: 'b.txt', to: 'b2.txt' },
+      { op: 'edit', path: '../out/o.txt', content: T('outside v2\n') },
+      { op: 'complete' },
+      { op: 'sessionReview' },
+      { op: 'sessionFile', file: 'a.txt' },
+      { op: 'sessionFile', file: 'b2.txt', oldPath: 'b.txt' },
+      { op: 'sessionFile', file: 'zzz.txt' },
+      { op: 'file', path: 'new.txt', content: T('changed outside the session\n') },
+      { op: 'sessionReview' },
+      { op: 'baselineIndex' },
+      { op: 'restart' },
+      { op: 'sessionReview' },
+      { op: 'file', path: 'a.txt', content: T(lines('one', 'two', 'three')) },
+      { op: 'sessionReview' },
+      { op: 'sessionFile', file: 'new.txt' },
+    ],
+  },
+  {
+    name: 'session review inside Git: baseline tree, owned paths, files outside the root',
+    ops: [
+      { op: 'git' },
+      { op: 'file', path: 'a.txt', content: T(lines('x', 'y')) },
+      { op: 'file', path: 'keep.txt', content: T('untouched\n') },
+      { op: 'file', path: '../outside.txt', content: T('out v1\n') },
+      { op: 'sessionReview' },
+      { op: 'begin', checkpoint: 'cp1' },
+      { op: 'edit', path: 'a.txt', content: T(lines('x', 'Y')) },
+      { op: 'edit', path: '../outside.txt', content: T('out v2\n') },
+      { op: 'sessionReview' },
+      { op: 'complete' },
+      { op: 'sessionReview' },
+      { op: 'sessionFile', file: 'a.txt' },
+      { op: 'sessionFile', file: 'keep.txt' },
+      { op: 'sessionFile', file: '../outside.txt' },
+      { op: 'begin', checkpoint: 'cp2' },
+      { op: 'edit', path: 'b.txt', content: T('second turn\n') },
+      { op: 'complete' },
+      { op: 'restart' },
+      { op: 'sessionReview' },
+      { op: 'sessionFile', file: 'b.txt' },
+    ],
+  },
+  {
+    name: 'session review: workers join their lead, uncaptured first states, deleted history, other sessions',
+    ops: [
+      { op: 'file', path: 'img.bin', content: { b64: Buffer.from([0, 1, 2, 3, 255]).toString('base64') } },
+      { op: 'file', path: 'w.txt', content: T('worker file\n') },
+      { op: 'begin', checkpoint: 'cp1' },
+      { op: 'agentBegin', handle: 'h1', owner: 's1', child: 'worker-1', agent: 'worker', tag: 'task' },
+      { op: 'edit', session: 'worker-1', path: 'w.txt', content: T('worker edit\n') },
+      { op: 'edit', path: 'img.bin', content: { b64: Buffer.from([0, 1, 9, 3, 255, 7]).toString('base64') } },
+      { op: 'edit', path: 'big.dat', before: { omitted: { size: 70000000, reason: 'oversized' } }, content: T('now small\n') },
+      { op: 'edit', path: 'huge.bin', before: { omitted: { size: 5000, reason: 'binary' } }, content: T('text now\n') },
+      { op: 'sessionReview' },
+      { op: 'sessionReview', session: 'worker-1' },
+      { op: 'sessionReview', session: 'nobody' },
+      { op: 'baselineIndex' },
+      { op: 'baselineIndex', session: 'worker-1' },
+      { op: 'agentComplete', handle: 'h1', patches: [] },
+      { op: 'complete' },
+      { op: 'restart' },
+      { op: 'sessionReview' },
+      { op: 'clearHistory' },
+      { op: 'sessionReview' },
+      { op: 'baselineIndex' },
+      { op: 'begin', checkpoint: 'cp2' },
+      { op: 'edit', path: 'w.txt', content: T('after the delete\n') },
+      { op: 'complete' },
+      { op: 'sessionReview' },
+      { op: 'baselineIndex' },
+      { op: 'forget' },
+      { op: 'sessionReview' },
     ],
   },
 ];

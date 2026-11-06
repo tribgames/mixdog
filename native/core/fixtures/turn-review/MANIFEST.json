@@ -23,9 +23,9 @@
       "sha256": "adf0b0002e6fb94cfe92c0abb3ec3305cf3501ecdbc9abb823944c4e660ffc56"
     },
     {
-      "bytes": 59376,
+      "bytes": 92085,
       "path": "scenarios.json",
-      "sha256": "8bce080a3e3b736159bef5519852383d181fbd20ae636a7cdc85e5df66ca16ef"
+      "sha256": "1710f6237182f49c50af4c64b93d4a55f4acef055b8a4180d0bd7dd2954c29f1"
     }
   ],
   "product": {
@@ -46,5 +46,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-review.mjs",
   "set": "turn-review",
-  "totalBytes": 222822
+  "totalBytes": 255531
 }

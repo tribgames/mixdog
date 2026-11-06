@@ -270,7 +270,15 @@ mod tests {
             Ok(Roster { name: "Plan".into(), members: vec![] })
         }
         async fn rows(&self, _: &str) -> Result<Vec<RoomRow>, RoomError> {
-            Ok(vec![])
+            // An unanswered user message: the room is waiting, so an unmanaged room gives each member a turn.
+            Ok(vec![RoomRow {
+                id: "1".into(),
+                kind: crate::rooms::rows::RowKind::User,
+                speaker: String::new(),
+                to: vec![],
+                text: "hi".into(),
+                seen: false,
+            }])
         }
         async fn speak(&self, _: &str, _: &str, _: &Turn, _: &Flags) -> Answer {
             self.speeches.fetch_add(1, Ordering::SeqCst);
@@ -296,6 +304,8 @@ mod tests {
 
     #[tokio::test]
     async fn an_exchange_runs_once_then_the_room_is_idle_and_unmarked() {
+        // `start` spawns through mixdog_rt, which needs its backend installed.
+        mixdog_rt::testing::tokens();
         let rooms = Arc::new(Rooms::new(Mem(Default::default())));
         let input = RoomConfigInput { name: "Plan".into(), members: vec!["lead".into(), "bench".into()], ..Default::default() };
         rooms.create(&input, "room01", 1).await.unwrap();

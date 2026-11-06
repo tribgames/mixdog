@@ -345,6 +345,8 @@ fn register_real(builder: &mut DomainsBuilder, seams: &Seams) -> Result<(), Comp
         sources: Vec::new(),
         // The adapter over the shared `CodeGraphTool` lands with the composed tool runtime.
         code_graph: None,
+        // The one shared `TurnReviewApi` is handed in by the composition that builds it.
+        turn_review: None,
     })
     .map_err(ComposeError::Workspace)?;
     builder.register(workspace)?;

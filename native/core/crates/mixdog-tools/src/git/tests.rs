@@ -263,7 +263,24 @@ fn context(cwd: &Path, session: &str, call: &str) -> ToolContext {
         files: Arc::new(MockFileService::default()),
         processes: processes::TestProcesses::shared(),
         options: Default::default(),
+        review: None,
     }
+}
+
+/// A finished git call — whatever it answered — tells the turn review the session's folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_finished_git_call_notes_the_session_folder_for_the_turn_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let review = Arc::new(crate::exec::settle::RecordingReview::default());
+    let tool = GitTool::new();
+    let mut c1 = context(tmp.path(), "worker", "c1");
+    c1.review = Some(review.clone());
+    let mut c2 = context(tmp.path(), "worker", "c2");
+    c2.review = Some(review.clone());
+    let _ = tool.call(&c1, json!({"command": "git nonsense"})).await;
+    let _ = tool.call(&c2, json!({})).await;
+    let folder = tmp.path().to_string_lossy().into_owned();
+    assert_eq!(*review.notes.lock().unwrap(), vec![Some(vec![folder.clone()]), Some(vec![folder])]);
 }
 
 fn text_of(outcome: ToolOutcome) -> String {

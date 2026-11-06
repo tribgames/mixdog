@@ -1795,6 +1795,7 @@ mod tests {
             files: Arc::new(MockFileService::default()),
             processes: Arc::new(MockProcessManager::default()),
             options: Default::default(),
+            review: None,
         }
     }
 

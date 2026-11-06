@@ -196,7 +196,7 @@ fn bounded_read(path: &Path, max: u64, mut budget: Option<&mut Budget>, classify
         }
     }
     let mut content = Vec::new();
-    file.by_ref().take(max + 1).read_to_end(&mut content).map_err(|e| ReadFail::Io(io_code(&e)))?;
+    Read::take(&mut file, max + 1).read_to_end(&mut content).map_err(|e| ReadFail::Io(io_code(&e)))?;
     let total = content.len() as u64;
     if total > max {
         return Ok(omitted("oversized", total, None));
@@ -250,6 +250,16 @@ pub(super) async fn read_for_conversion(ctx: &ToolContext, abs: &AbsPath) -> Res
     })
 }
 
+/// The bytes of `abs` when it is a regular file within `max` (and, with `detect_binary`, text); else `None`.
+pub(super) async fn read_present(ctx: &ToolContext, abs: &AbsPath, max: u64, detect_binary: bool) -> Result<Option<Vec<u8>>, ToolError> {
+    let path = abs.as_path().to_path_buf();
+    let read = on_lane(ctx, move || bounded_read(&path, max, None, false, detect_binary)).await?;
+    Ok(match read {
+        Ok(Bounded::Present { content, .. }) => Some(content),
+        _ => None,
+    })
+}
+
 /// Node `patchContentEditRefusal`: the refusal for editing `abs`, or `None` when it may proceed.
 pub(super) async fn content_edit_refusal(ctx: &ToolContext, abs: &AbsPath, display: &str) -> Result<Option<String>, ToolError> {
     let path = abs.as_path().to_path_buf();
@@ -271,6 +281,19 @@ pub(super) struct Snapshot {
 }
 
 impl Snapshot {
+    /// The state the turn review keeps: absent, the bytes, or an explicit omitted marker.
+    pub(super) fn review_content(&self) -> mixdog_core_api::turn_review::ReviewContent {
+        use mixdog_core_api::turn_review::ReviewContent;
+        if !self.existed {
+            return ReviewContent::Absent;
+        }
+        match (&self.omitted, &self.content) {
+            (Some(o), _) => ReviewContent::Omitted { size: o.size, reason: Some(o.reason.to_owned()) },
+            (None, Some(bytes)) => ReviewContent::bytes(bytes.clone()),
+            (None, None) => ReviewContent::Absent,
+        }
+    }
+
     pub(super) fn omitted(&self) -> Option<&Omitted> {
         self.omitted.as_ref()
     }
@@ -315,17 +338,32 @@ fn omitted_issue(snapshot: &Snapshot, o: &Omitted) -> Option<String> {
     }
 }
 
+/// OS codes of `EPERM`, `ENOTSUP` and `EINVAL` as libuv reports them: a filesystem that refuses
+/// fsync answers one of these and the restore stays best-effort there (`FSYNC_TOLERATED`).
+#[cfg(windows)]
+const FSYNC_TOLERATED: [i32; 3] = [5, 50, 87];
+#[cfg(target_os = "linux")]
+const FSYNC_TOLERATED: [i32; 3] = [1, 95, 22];
+#[cfg(all(unix, not(target_os = "linux")))]
+const FSYNC_TOLERATED: [i32; 3] = [1, 45, 22];
+
+/// Any other fsync failure fails the restore.
+fn fsync_outcome(result: std::io::Result<()>) -> std::io::Result<()> {
+    match result {
+        Err(e) if !e.raw_os_error().is_some_and(|code| FSYNC_TOLERATED.contains(&code)) => Err(e),
+        _ => Ok(()),
+    }
+}
+
 fn write_restored(path: &Path, content: &[u8]) -> std::io::Result<()> {
     let mut file = fs::OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
     file.write_all(content)?;
-    // A filesystem that refuses fsync keeps the restore best-effort.
-    let _ = file.sync_all();
-    Ok(())
+    fsync_outcome(file.sync_all())
 }
 
 /// Undoes the batch: every snapshotted path is written back (or removed when it did not exist).
 /// Returns the `path — reason` rows of what could not be restored.
-pub(super) async fn restore(ctx: &ToolContext, snapshots: Vec<Snapshot>) -> Result<Vec<String>, ToolError> {
+pub(super) async fn restore(ctx: &ToolContext, snapshots: Vec<Snapshot>) -> Result<(Vec<String>, Vec<Snapshot>), ToolError> {
     on_lane(ctx, move || {
         let mut errors = Vec::new();
         for s in &snapshots {
@@ -350,7 +388,7 @@ pub(super) async fn restore(ctx: &ToolContext, snapshots: Vec<Snapshot>) -> Resu
                 errors.push(format!("{shown} — {e}"));
             }
         }
-        errors
+        (errors, snapshots)
     })
     .await
 }
@@ -491,5 +529,23 @@ impl Quarantine {
                 .collect()
         })
         .await
+    }
+}
+#[cfg(test)]
+mod fsync_tests {
+    use super::*;
+
+    /// Only the codes a filesystem that refuses fsync answers are tolerated.
+    #[test]
+    fn only_the_unsupported_fsync_codes_are_tolerated() {
+        for code in FSYNC_TOLERATED {
+            assert!(fsync_outcome(Err(std::io::Error::from_raw_os_error(code))).is_ok());
+        }
+        #[cfg(windows)]
+        let other = 1117;
+        #[cfg(unix)]
+        let other = libc::EIO;
+        assert!(fsync_outcome(Err(std::io::Error::from_raw_os_error(other))).is_err());
+        assert!(fsync_outcome(Ok(())).is_ok());
     }
 }

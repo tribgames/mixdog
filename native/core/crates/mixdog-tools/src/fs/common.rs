@@ -173,12 +173,31 @@ pub(crate) async fn guarded<F: Future>(
     }
 }
 
-/// Takes the shared per-path locks (the ones a mutating git call holds on its work tree) for
-/// every path a write tool changes, so concurrent sessions serialize on a path as in Node.
-/// The guard must outlive the whole read-modify-write.
-pub(crate) async fn lock_write_paths(ctx: &ToolContext, paths: &[&AbsPath]) -> Result<PathLocks, ToolError> {
-    let raw: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
-    lock_paths(&raw, &ctx.cancel).await.ok_or_else(cancelled)
+/// What a write tool holds for its whole read-modify-write: the shared per-path locks (the ones a
+/// mutating git call holds on its work tree) and Node's cross-process advisory lock. The advisory
+/// lock is released first.
+#[must_use = "the paths stay locked while the guard lives"]
+pub(crate) struct WriteLocks {
+    _advisory: super::advisory::Advisory,
+    _paths: PathLocks,
+}
+
+/// Node `withBuiltinPathLocks(lockPaths, () => withAdvisoryLocks(lockPaths, …))` of `apply_patch`.
+/// Each target's real location joins the in-process set, the key `edit` holds, so two routes to
+/// one file (a junction and its referent) queue here and never poll the advisory file.
+pub(crate) async fn lock_patch_targets(ctx: &ToolContext, targets: &[AbsPath]) -> Result<WriteLocks, ToolError> {
+    let mut keys: Vec<PathBuf> = targets.iter().map(|t| t.as_path().to_path_buf()).collect();
+    for target in targets {
+        keys.extend(real_target_on_lane(ctx, target.as_path()).await?);
+    }
+    let refs: Vec<&Path> = keys.iter().map(PathBuf::as_path).collect();
+    let paths = lock_paths(&refs, &ctx.cancel).await.ok_or_else(cancelled)?;
+    let given: Vec<&Path> = targets.iter().map(AbsPath::as_path).collect();
+    let advisory = super::advisory::lock(ctx, &given).await?;
+    if ctx.cancel.is_cancelled() {
+        return Err(cancelled());
+    }
+    Ok(WriteLocks { _advisory: advisory, _paths: paths })
 }
 
 /// Node `realpathNearestExisting` joined back to the missing tail: the target with its nearest
@@ -190,14 +209,8 @@ fn real_target(full: &Path) -> Option<PathBuf> {
     while !probe.exists() {
         probe = probe.parent().filter(|p| *p != probe)?;
     }
-    let real = std::fs::canonicalize(probe).ok()?;
-    // `canonicalize` answers with the `\\?\` form on Windows; Node's `realpathSync` does not, and
-    // the lock key must read the same as the keys other tools take.
-    let text = real.to_string_lossy();
-    let real = match text.strip_prefix(r"\\?\") {
-        Some(plain) if !plain.starts_with("UNC\\") => PathBuf::from(plain),
-        _ => real,
-    };
+    // Node's `realpathSync` has no `\\?\` prefix, and the lock key must read like the other tools'.
+    let real = mixdog_workspace::pathguard::canonical(probe).ok()?;
     Some(real.join(full.strip_prefix(probe).ok()?))
 }
 
@@ -211,10 +224,15 @@ async fn real_target_on_lane(ctx: &ToolContext, full: &Path) -> Result<Option<Pa
 /// The locks `edit` takes: the target and where it really lives, so two routes to one file (a
 /// symlink and its referent) serialize. Once held, the real location is resolved again; a target
 /// that moved while the locks were awaited is refused, as in Node's `withEditTargetLock`.
-pub(crate) async fn lock_edit_target(ctx: &ToolContext, target: &AbsPath) -> Result<PathLocks, ToolError> {
+pub(crate) async fn lock_edit_target(ctx: &ToolContext, target: &AbsPath) -> Result<WriteLocks, ToolError> {
     let unresolved = || invalid("file_path", "unresolvable", "Error: cannot resolve edit target for locking");
     let real = real_target_on_lane(ctx, target.as_path()).await?.ok_or_else(unresolved)?;
-    let locks = lock_paths(&[target.as_path(), real.as_path()], &ctx.cancel).await.ok_or_else(cancelled)?;
+    let paths = lock_paths(&[target.as_path(), real.as_path()], &ctx.cancel).await.ok_or_else(cancelled)?;
+    let advisory = super::advisory::lock(ctx, &[real.as_path()]).await?;
+    if ctx.cancel.is_cancelled() {
+        return Err(cancelled());
+    }
+    let locks = WriteLocks { _advisory: advisory, _paths: paths };
     if real_target_on_lane(ctx, target.as_path()).await?.as_deref() != Some(real.as_path()) {
         return Err(fail(
             ToolErrorCode::Stale { expected: real.display().to_string(), actual: "moved".to_owned() },

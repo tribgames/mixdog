@@ -111,6 +111,15 @@ implementation in JavaScript and Rust that follows the same seek and
 replacement semantics; it is not a copy of the upstream Rust sources. The
 upstream NOTICE file is preserved as `LICENSES/codex-NOTICE.txt`.
 
+The Rust core under `native/core/` (the `mixdog-*` crates of the daemon
+backend) takes Codex's `codex-rs` workspace as its architectural reference:
+the split into protocol, app-server, app-server-daemon, core and store crates,
+the JSON-RPC thread/turn/item protocol with generated JSON Schema and
+TypeScript types, the append-only session log with a SQLite state store, and
+the tokio-based runtime layout. Mixdog reimplements these designs in its own
+code to reproduce Mixdog's existing behaviour; no Codex source file is copied
+into `native/core/`.
+
 The Apache-2.0 terms require this notice to travel with any redistribution of
 the derived files. Full license text: `LICENSES/Apache-2.0.txt`
 (<https://www.apache.org/licenses/LICENSE-2.0>).

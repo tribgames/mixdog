@@ -4,7 +4,6 @@
 //! engine's own. Around it sit Node's summary rows and failure context.
 
 use mixdog_core_api::domain::common::AbsPath;
-use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_js::js_trim;
@@ -16,6 +15,8 @@ use mixdog_rt::LaneToken;
 use super::common::*;
 use super::hints::compact_preview;
 use super::hints::nearest_line;
+use super::patch_guard::SNAPSHOT_MAX_BYTES;
+use super::patch_guard::read_present;
 use super::patch_hunk::Lines;
 use super::patch_hunk::UHunk;
 use super::patch_hunk::js_string;
@@ -317,9 +318,10 @@ pub(super) fn find_hunk_match(source: &Lines, hunk: &UHunk, min_start: usize, fu
 pub(super) async fn failure_context(ctx: &ToolContext, entries: &[NativeEntry], failed: &str, fuzz: usize) -> String {
     let Some(entry) = entries.iter().find(|e| matches_entry(e, failed)).or_else(|| entries.first()) else { return String::new() };
     let display = norm(&entry.header);
-    let source = match ctx.files.read(ctx.io.interactive, entry.abs.clone(), ReadRange::default()).await {
-        Ok(read) => String::from_utf8(read.bytes).ok().map(|text| Lines::split(&text)),
-        Err(_) => None,
+    // Bounded like Node's `readBoundedFile` default: a binary or over-8-MiB target gets no hints.
+    let source = match read_present(ctx, &entry.abs, SNAPSHOT_MAX_BYTES, true).await {
+        Ok(Some(bytes)) => String::from_utf8(bytes).ok().map(|text| Lines::split(&text)),
+        _ => None,
     };
     let failing = source.as_ref().and_then(|s| first_failing_hunk_of(entry, s, fuzz));
     let detail = failing.and_then(|h| source.as_ref().and_then(|s| first_failing_detail(&s.text, h)));
