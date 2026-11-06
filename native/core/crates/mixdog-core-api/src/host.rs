@@ -106,6 +106,39 @@ pub trait HostChannel: Send + Sync {
     }
 }
 
+/// The claim that served a host request: the desktop's `hostId`, its connection and the number
+/// of its claim (new for every `host/claim`, so a reconnect of the same desktop is another claim).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct HostClaim {
+    pub host: crate::ids::HostId,
+    pub connection: ConnectionId,
+    pub generation: u64,
+}
+
+/// A host channel whose requests can be bound to the claim that served an earlier one, for a
+/// payload that must reach that desktop and no other (a secret value).
+#[async_trait]
+pub trait ClaimedHostChannel: HostChannel {
+    /// [`HostChannel::request`], also naming the claim that served it.
+    async fn request_claimed(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+    ) -> Result<(HostClaim, Value), HostError>;
+
+    /// [`HostChannel::request`] addressed to `claim` alone: refused as
+    /// `capabilityUnavailable{desktopHost}` unless `claim` is still the one serving
+    /// `capability` (a newer claimant, or a reconnect, ends it), checked as the request is sent.
+    async fn request_to(
+        &self,
+        claim: &HostClaim,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+    ) -> Result<Value, HostError>;
+}
+
 /// A notification to one connection by id (the `@connection` delivery of the method table, for
 /// example `modelProxy/run/event` to the connection that asked). Never waits.
 pub trait ConnectionNotifier: Send + Sync {

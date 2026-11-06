@@ -6,7 +6,8 @@ import { createSecretInputs } from '../secret-input.ts';
 import { createTakeoverGate } from '../takeover-gate.ts';
 import { createBrowserCredentialFill } from './credential-autofill.ts';
 import { createBrowserVisualPrivacy, protectSecretNodes } from './visual-privacy.ts';
-import { fillBoundLogin, fillSecretInput, handoffPageFacts } from './host-agent.ts';
+import { fillBoundLogin, handoffPageFacts } from './host-agent.ts';
+import { fillSecretInput } from './secret-fill-core.test-helper.mjs';
 
 const SENTINEL = 'S3NT1NEL-bound-secret-90';
 const REQUEST = 'secret_0123456789abcdef';

@@ -1,0 +1,509 @@
+{
+  "cases": [
+    {
+      "after": {
+        "binding": null
+      },
+      "fill": {
+        "params": {
+          "action": "secret_fill",
+          "input": {
+            "request_id": "secret_0123456789ab",
+            "save": false,
+            "username": "",
+            "value": "Tr0ub4dor&3"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "entered"
+        }
+      },
+      "name": "a bound page is filled",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "hostId": "host-A",
+          "text": "ready"
+        }
+      },
+      "received": {
+        "document": "doc-1",
+        "form": "password",
+        "targets": 1,
+        "username": "",
+        "value": "Tr0ub4dor&3"
+      },
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "fill": {
+        "params": {
+          "action": "secret_fill",
+          "input": {
+            "request_id": "secret_0123456789ab",
+            "save": true,
+            "username": "alice",
+            "value": "Tr0ub4dor&3"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "entered"
+        }
+      },
+      "name": "a login with a username and the save choice is saved",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "hostId": "host-A",
+          "text": "ready"
+        }
+      },
+      "received": {
+        "document": "doc-1",
+        "form": "login",
+        "targets": 1,
+        "username": "alice",
+        "value": "Tr0ub4dor&3"
+      },
+      "saved": {
+        "origin": "https://example.com",
+        "password": "Tr0ub4dor&3",
+        "username": "alice"
+      },
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "fill": {
+        "params": {
+          "action": "secret_fill",
+          "input": {
+            "request_id": "secret_0123456789ab",
+            "save": false,
+            "username": "alice",
+            "value": "Tr0ub4dor&3"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "entered"
+        }
+      },
+      "name": "a login with a username and no save choice is not saved",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "hostId": "host-A",
+          "text": "ready"
+        }
+      },
+      "received": {
+        "document": "doc-1",
+        "form": "login",
+        "targets": 1,
+        "username": "alice",
+        "value": "Tr0ub4dor&3"
+      },
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "name": "a request with no binding is blocked",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "blocked"
+        }
+      },
+      "received": null,
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "name": "a binding of another session is blocked",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "blocked"
+        }
+      },
+      "received": null,
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "name": "a held takeover is blocked",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "blocked"
+        }
+      },
+      "received": null,
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "name": "a page that is gone is page_changed",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "page_changed"
+        }
+      },
+      "received": null,
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "name": "a destroyed page is page_changed",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "page_changed"
+        }
+      },
+      "received": null,
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "name": "a page that left the origin is page_changed",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "page_changed"
+        }
+      },
+      "received": null,
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "name": "a binding with no document is page_changed",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "page_changed"
+        }
+      },
+      "received": null,
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "name": "a binding with no elements is no_field",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "no_field"
+        }
+      },
+      "received": null,
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "fill": {
+        "params": {
+          "action": "secret_fill",
+          "input": {
+            "request_id": "secret_0123456789ab",
+            "save": false,
+            "username": "",
+            "value": "Tr0ub4dor&3"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "page_changed"
+        }
+      },
+      "name": "a page that moved between the phases is page_changed",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "hostId": "host-A",
+          "text": "ready"
+        }
+      },
+      "received": null,
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "fill": {
+        "params": {
+          "action": "secret_fill",
+          "input": {
+            "request_id": "secret_0123456789ab",
+            "save": false,
+            "username": "",
+            "value": "Tr0ub4dor&3"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "no_field"
+        }
+      },
+      "name": "a stale element is no_field",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "hostId": "host-A",
+          "text": "ready"
+        }
+      },
+      "received": {
+        "document": "doc-1",
+        "form": "password",
+        "targets": 1,
+        "username": "",
+        "value": "Tr0ub4dor&3"
+      },
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "fill": {
+        "params": {
+          "action": "secret_fill",
+          "input": {
+            "request_id": "secret_0123456789ab",
+            "save": false,
+            "username": "",
+            "value": "Tr0ub4dor&3"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "page_changed"
+        }
+      },
+      "name": "a fill failing on the page changing is page_changed",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "hostId": "host-A",
+          "text": "ready"
+        }
+      },
+      "received": {
+        "document": "doc-1",
+        "form": "password",
+        "targets": 1,
+        "username": "",
+        "value": "Tr0ub4dor&3"
+      },
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "fill": {
+        "params": {
+          "action": "secret_fill",
+          "input": {
+            "request_id": "secret_0123456789ab",
+            "save": false,
+            "username": "",
+            "value": "Tr0ub4dor&3"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "blocked"
+        }
+      },
+      "name": "another fill failure is blocked",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "hostId": "host-A",
+          "text": "ready"
+        }
+      },
+      "received": {
+        "document": "doc-1",
+        "form": "password",
+        "targets": 1,
+        "username": "",
+        "value": "Tr0ub4dor&3"
+      },
+      "saved": null,
+      "thread": "S1"
+    },
+    {
+      "after": {
+        "binding": null
+      },
+      "fill": {
+        "params": {
+          "action": "secret_fill",
+          "input": {
+            "request_id": "secret_0123456789ab",
+            "save": false,
+            "username": "",
+            "value": ""
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "text": "blocked"
+        }
+      },
+      "name": "a fill with no value is blocked",
+      "precheck": {
+        "params": {
+          "action": "secret_precheck",
+          "input": {
+            "request_id": "secret_0123456789ab"
+          },
+          "threadId": "S1"
+        },
+        "reply": {
+          "hostId": "host-A",
+          "text": "ready"
+        }
+      },
+      "received": null,
+      "saved": null,
+      "thread": "S1"
+    }
+  ],
+  "hostId": "host-A"
+}

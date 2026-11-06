@@ -19,6 +19,7 @@ import type { createBrowserGuestLifecycle } from './guest-lifecycle';
 import type { BrowserHostFoundation } from './host-foundation';
 import { LINKED_FIELD_READ, type LinkedFieldFacts } from './linked-sign-in';
 import type { BrowserProfileImportService } from './profile-import';
+import { createSavedLoginHost, type SavedLoginWorkerPort } from './saved-login-host';
 import { browserSessionId } from './session-registry';
 import type { createBrowserTabs } from './tabs';
 import { createBrowserTargetResolver } from './target-resolve';
@@ -71,62 +72,89 @@ async function saveChatLogin(login: { origin: string; username: string; password
   await vault.upsertVaultLogin({ ...login, source: 'chat' });
 }
 
-/** One secret the user typed into the card, filled into exactly the elements
- *  of the page the request was bound to (secret_bind) — never the selected
- *  tab, the focused field or another one — and only while that page shows
- *  the main-frame document it showed then (a navigation, even within the
- *  origin, retires the binding) on the same https origin, through the
- *  isolated-world fill (which keeps it registered for redaction). The
- *  session's own takeover lock is checked before the value is taken; every
- *  refusal (blocked, page changed, no field) drops the request's slots and
- *  binding unused, answers only its outcome, and the value is taken at most
- *  once and never logged. A sign-in the user chose to save is stored for the
- *  origin after it was entered. */
-export async function fillSecretInput(
-  host: {
-    pageById(sessionId: string, pageId: string): WebContents | null | undefined;
-    fill: Toolkit['credentialFill']['fillSecretField'];
-    assertFree?: (sessionId: string) => void;
-    saveLogin?: (login: { origin: string; username: string; password: string }) => Promise<void>;
-  },
+/** What the core's secret fill sends the desktop that bound a request: the value, handed over
+ *  only after `precheckSecretFill` answered `ready`, for that one fill. */
+export interface SecretFillValue {
+  value: string;
+  username: string;
+  save: boolean;
+}
+
+interface SecretFillHost {
+  /** This desktop's host id: the core compares it with the claim it bound the request to. */
+  hostId: string;
+  pageById(sessionId: string, pageId: string): WebContents | null | undefined;
+  fill: Toolkit['credentialFill']['fillSecretField'];
+  assertFree?: (sessionId: string) => void;
+  saveLogin?: (login: { origin: string; username: string; password: string }) => Promise<void>;
+}
+
+/** The checks Node's `fillSecretInput` made before it took the value: the request is bound to this
+ *  session, the session's takeover lock is free, the page it was bound to is still on its https
+ *  origin showing the main-frame document it showed then (a navigation, even within the origin,
+ *  retires the binding), and the exact elements to write were bound. Every refusal drops the
+ *  request's binding and answers only its outcome. */
+function boundTarget(
+  host: SecretFillHost,
   sessionId: string,
   requestId: string,
-  signal?: AbortSignal,
-  registry: SecretInputs = secretInputs
-): Promise<{ text: SecretFillOutcome }> {
+  registry: SecretInputs
+):
+  | { guest: WebContents; binding: NonNullable<ReturnType<SecretInputs['binding']>>; onOrigin: (page: WebContents) => boolean }
+  | { text: 'blocked' | 'page_changed' | 'no_field' } {
+  const refuse = (text: 'blocked' | 'page_changed' | 'no_field') => {
+    registry.discard(requestId);
+    return { text };
+  };
   const binding = registry.binding(requestId);
-  if (!registry.has(requestId)) {
-    registry.discard(requestId);
-    return { text: 'expired' };
-  }
-  if (!binding || binding.sessionId !== sessionId) {
-    registry.discard(requestId);
-    return { text: 'blocked' };
-  }
+  if (!binding || binding.sessionId !== sessionId) return refuse('blocked');
   try {
     (host.assertFree || ((id: string) => takeoverGate.assertFree(id)))(sessionId);
   } catch {
-    registry.discard(requestId);
-    return { text: 'blocked' };
+    return refuse('blocked');
   }
   const guest = host.pageById(sessionId, binding.pageId);
   const onOrigin = (page: WebContents) => !page.isDestroyed() && httpsOrigin(page.getURL()) === binding.origin;
-  if (!guest || !onOrigin(guest) || !binding.document) {
-    registry.discard(requestId);
-    return { text: 'page_changed' };
-  }
-  if (!binding.targets?.length) {
-    registry.discard(requestId);
-    return { text: 'no_field' };
-  }
-  const value = registry.take(requestId);
-  const username = registry.take(requestId + SECRET_USERNAME_SUFFIX);
-  const save = registry.take(requestId + SECRET_SAVE_SUFFIX) === '1';
+  if (!guest || !onOrigin(guest) || !binding.document) return refuse('page_changed');
+  if (!binding.targets?.length) return refuse('no_field');
+  return { guest, binding, onOrigin };
+}
+
+/** Phase one of a secret fill (`secret_precheck`): no value on the wire. Answers `ready` with this
+ *  desktop's host id when the bound page may be filled, else the outcome that refuses the fill. */
+export function precheckSecretFill(
+  host: SecretFillHost,
+  sessionId: string,
+  requestId: string,
+  registry: SecretInputs = secretInputs
+): { text: 'ready'; hostId: string } | { text: 'blocked' | 'page_changed' | 'no_field' } {
+  const target = boundTarget(host, sessionId, requestId, registry);
+  return 'text' in target ? target : { text: 'ready', hostId: host.hostId };
+}
+
+/** Phase two (`secret_fill`): the value the core took from its slot, written into exactly the
+ *  elements of the page the request was bound to through the isolated-world fill (which keeps it
+ *  registered for redaction). The target is checked again as the value arrives, since the page
+ *  can move between the phases; the binding is dropped, so a value is written at most once and is
+ *  never logged. A sign-in the user chose to save is stored for the origin after it was entered. */
+export async function runSecretFill(
+  host: SecretFillHost,
+  sessionId: string,
+  requestId: string,
+  secret: SecretFillValue,
+  signal?: AbortSignal,
+  registry: SecretInputs = secretInputs
+): Promise<{ text: SecretFillOutcome }> {
+  const target = boundTarget(host, sessionId, requestId, registry);
+  if ('text' in target) return target;
   registry.discard(requestId);
+  const { guest, binding, onOrigin } = target;
+  if (!secret.value) return { text: 'blocked' };
+  const { value, username, save } = secret;
   try {
     const result = await host.fill(
       guest,
-      { form: binding.form, value, username, targets: binding.targets, document: binding.document },
+      { form: binding.form, value, username, targets: binding.targets!, document: binding.document },
       signal
     );
     // A bound element gone or changed (stale) is no field: nothing was typed.
@@ -454,7 +482,16 @@ function createBrowserActionServices(
   };
 }
 
+/** A host with no computer host attached: no saved login is filled. */
+const NO_COMPUTER_HOST: SavedLoginWorkerPort = {
+  async run() {
+    throw new Error('saved_login_unavailable: no computer host is attached; no input was sent');
+  },
+};
+
 export function createBrowserHostAgent(options: {
+  /** This desktop's host id (host/claim): the secret fill answers with it. */
+  hostId: string;
   base: Pick<
     BrowserHostFoundation,
     | 'state'
@@ -481,6 +518,8 @@ export function createBrowserHostAgent(options: {
   onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
   /** The `browserAutoSignIn` setting (default on). */
   autoSignInEnabled?: () => boolean;
+  /** The computer host, for the worker steps of a saved-login fill the core runs. */
+  savedLoginWorker?: SavedLoginWorkerPort;
 }) {
   const { base, tools, lifecycle, taskLifecycle } = options;
   const autoSignIn = createBrowserAutoSignIn(
@@ -606,8 +645,12 @@ export function createBrowserHostAgent(options: {
     finishTurn: (sessionId, turnId, finish) =>
       finishBrowserTurn({ taskLifecycle, sessions, lifecycle }, sessionId, turnId, finish),
     beginTurn: (sessionId, turnId) => sessions.beginTurn(sessionId, turnId),
-    secretInput: (sessionId, requestId, signal) =>
-      fillSecretInput({ pageById, fill: tools.credentialFill.fillSecretField }, sessionId, requestId, signal),
+    secretFill: {
+      precheck: (sessionId, requestId) => precheckSecretFill({ hostId: options.hostId, pageById, fill: tools.credentialFill.fillSecretField }, sessionId, requestId),
+      fill: (sessionId, requestId, secret, signal) =>
+        runSecretFill({ hostId: options.hostId, pageById, fill: tools.credentialFill.fillSecretField }, sessionId, requestId, secret, signal),
+    },
+    savedLogin: createSavedLoginHost({ autoSignIn: options.autoSignInEnabled || (() => true), credentials: base.profileImporter, worker: options.savedLoginWorker ?? NO_COMPUTER_HOST, text: () => import('./credential-vault') }),
     handoffPage: (sessionId, action, input, signal) =>
       handoffPageFacts(
         {

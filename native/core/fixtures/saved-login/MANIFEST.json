@@ -1,0 +1,40 @@
+{
+  "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-saved-login.mjs --tree <tree>)",
+  "fileCount": 3,
+  "files": [
+    {
+      "bytes": 39414,
+      "path": "fill.json",
+      "sha256": "338756c64357f538935c0cb33140a9da18e440d3f79e2d1ef10e21f7d34a00ed"
+    },
+    {
+      "bytes": 4474,
+      "path": "pixels.json",
+      "sha256": "f8ceba0fc7efe2611bcb2763a76abdf463c59ecf3fd9e22cf937c1286272ad1a"
+    },
+    {
+      "bytes": 12048,
+      "path": "registry.json",
+      "sha256": "0f131a488fc1c35ba648b0dd90031e26094e01ae217ffbe437e13a91af3d9448"
+    }
+  ],
+  "product": {
+    "appsSha256": "25355d908927cf4dc23a2142d48d7a62d462f97cb7058a301af564aa8fa01551",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9237,
+    "refComparison": {
+      "closestCommit": "bd2393f2a2269ff69713d0cc5cb286835b3bf9bc",
+      "commitFilesMissingFromTree": 5,
+      "exact": false,
+      "filesDifferingFromCommit": 14
+    },
+    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-saved-login.mjs",
+  "set": "saved-login",
+  "totalBytes": 55936
+}

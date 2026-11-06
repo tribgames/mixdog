@@ -103,6 +103,13 @@ export interface ComputerCommand {
   /** fill_saved_login and turn_settle: the sending runtime process's owner id
    *  (secret-input.ts SavedLoginTurn). */
   runtime_id?: string;
+  /** fill_saved_login run by the core (browser/saved-login-host.ts): do one worker step of the fill and answer the
+   *  worker's response unsettled (saved_login_response); the core owns the vault lookup and the order. */
+  saved_login_step?: 'check' | 'type';
+  /** The value of a 	ype step, for the one write. */
+  saved_login_text?: string;
+  /** The target the check step proved, handed back with the 	ype step. */
+  saved_login_expected?: Record<string, unknown>;
 }
 
 /** One response line from the resident PowerShell host. */
@@ -124,6 +131,8 @@ export interface PowerShellResponse {
 
 export interface ComputerCommandResult {
   text: string;
+  /** A fill_saved_login step: the worker's response (ok, error, result), as it came. */
+  saved_login_response?: PowerShellResponse;
   /** Trusted status, separate from user-owned text such as clipboard data. */
   isError?: boolean;
   image?: { mimeType: string; data: string };

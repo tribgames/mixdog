@@ -92,6 +92,15 @@
       "totalBytes": 34095
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-compaction-commit.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "compaction-commit/MANIFEST.json",
+      "manifestSha256": "817b1655575d7289ceece7f9ecbc1c67e4a6e4c399221ae045debec69d2dba19",
+      "recorder": "benchmarks/rust-core/recorders/record-compaction-commit.mjs",
+      "set": "compaction-commit",
+      "totalBytes": 426237
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-compaction-plan.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "compaction-plan/MANIFEST.json",
@@ -524,6 +533,15 @@
       "totalBytes": 126512
     },
     {
+      "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-saved-login.mjs --tree <tree>)",
+      "fileCount": 3,
+      "manifest": "saved-login/MANIFEST.json",
+      "manifestSha256": "c90fe2c878ede7011a3088023c00804e29156a189ff506f25e0f5317130327a1",
+      "recorder": "benchmarks/rust-core/recorders/record-saved-login.mjs",
+      "set": "saved-login",
+      "totalBytes": 55936
+    },
+    {
       "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-secret-gates.mjs --tree <tree>)",
       "fileCount": 1,
       "manifest": "secret-gates/MANIFEST.json",
@@ -531,6 +549,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-secret-gates.mjs",
       "set": "secret-gates",
       "totalBytes": 8522
+    },
+    {
+      "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-secret-host.mjs --tree <tree>)",
+      "fileCount": 1,
+      "manifest": "secret-host/MANIFEST.json",
+      "manifestSha256": "de3c703ed77153a234dca0e409459b53daf0a8d664d9fbeac27aff14e46e8d03",
+      "recorder": "benchmarks/rust-core/recorders/record-secret-host.mjs",
+      "set": "secret-host",
+      "totalBytes": 11231
     },
     {
       "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-secret-input.mjs --tree <tree>)",

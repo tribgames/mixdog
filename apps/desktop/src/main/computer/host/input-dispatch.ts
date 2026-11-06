@@ -12,7 +12,7 @@ import { dispatchElectronInput } from './input-dispatch-electron-input';
 import { canUseAppOwnedInput } from './input-preflight';
 import type { ResolvedInputTarget } from './input-resolution';
 import { assertObservationInputAllowed } from './observation-policy';
-import { fillSavedLogin } from './saved-login';
+import { assertSavedLoginAvailable, fillSavedLogin } from './saved-login';
 import { sequenceStepRequest } from './sequence-dispatch';
 import { UserInputBeforeDispatch } from './user-input-refusal';
 import { UNKNOWN_WINDOW_INTEGRITY } from './window-reads';
@@ -145,6 +145,19 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
       // fill's own last check (Auto login) runs after that authorization with
       // no await before the request is written; past it nothing is recalled.
       if (usePrivilegedWorker) throw new Error('saved_login_refused: the browser runs elevated; no input was sent');
+      const step = command.saved_login_step;
+      if (step) {
+        // The core runs the fill and asks for one worker step, authorized as a fill's own request is. A value is
+        // written only after the same last check (Auto login), with no await before the request.
+        const request =
+          step === 'check'
+            ? { action: 'saved_login_check', field: command.field, text: null }
+            : { action: 'saved_login_type', field: command.field, text: command.saved_login_text, expected: command.saved_login_expected };
+        const authority = await authorizeDispatch();
+        assertObservationInputAllowed(command, host.isObserveOnly());
+        if (step === 'type') assertSavedLoginAvailable(command, host.savedLogins);
+        return await callPowerShell({ ...powerShellRequest, ...authority, ...request });
+      }
       return await fillSavedLogin(
         command,
         host.savedLogins,

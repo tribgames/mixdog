@@ -112,12 +112,24 @@ pub struct ServerRequestResolvedParams {
 
 /// Secret answer of a human-gate `provide-secret` request (today's `provideSecretInput`);
 /// never part of a decision or a log record.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalProvideSecretParams {
     pub op_id: OpId,
     pub request_id: RequestId,
     pub secret: String,
+}
+
+/// The secret never prints: a {:?} of the params (a log line, a panic message, a test failure)
+/// shows the request and that a secret is held.
+impl std::fmt::Debug for ApprovalProvideSecretParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApprovalProvideSecretParams")
+            .field("op_id", &self.op_id)
+            .field("request_id", &self.request_id)
+            .field("secret", &"<redacted>")
+            .finish()
+    }
 }
 
 impl crate::common::HasOpId for ApprovalProvideSecretParams {

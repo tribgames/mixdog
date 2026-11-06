@@ -112,7 +112,7 @@ async function scenario(origin: string, paymentOrigin: string, native: boolean):
   const mode = native ? 'native view' : 'pixel surface';
   const session = 'user-dialogs-session';
   const parent = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true } });
-  const browser = createBrowserHost(parent, { remoteSession: false, requestApproval: async () => true });
+  const browser = createBrowserHost(parent, { hostId: 'test-host', remoteSession: false, requestApproval: async () => true });
   try {
     await parent.loadURL('data:text/html,<p>shell</p>');
     const first = await readyBrowserFrame(browser, session);

@@ -10,6 +10,8 @@ import { BrowserBridgeServer } from './bridge-server';
 import { BACKGROUND_RECLAIM_INTERVAL_MS, type BrowserCommand } from './command';
 import { assertBrowserTaskCleanupContext, pendingSessionWork } from './host-policy';
 import { secretInputs } from '../secret-input';
+import type { SecretFillValue } from './host-agent';
+import type { SavedLoginHost } from './saved-login-host';
 import { redactBrowserText } from './redaction';
 import { browserSessionId } from './session-registry';
 
@@ -53,7 +55,13 @@ export interface BrowserCommandRunnerOptions {
   /** The session ran a turn or command: its pages belong to a live turn
    *  (`turnId` 0: a command with no turn id). */
   beginTurn: (sessionId: string, turnId: number) => void;
-  secretInput: (sessionId: string, requestId: string, signal: AbortSignal) => Promise<{ text: string }>;
+  /** The core's two-phase secret fill (host/browser/command `secret_precheck` / `secret_fill`). */
+  secretFill: {
+    precheck: (sessionId: string, requestId: string) => { text: string };
+    fill: (sessionId: string, requestId: string, secret: SecretFillValue, signal: AbortSignal) => Promise<{ text: string }>;
+  };
+  /** Runtime-only: the saved-login value the core fills Computer Use with, for an admitted fill only. */
+  savedLogin: SavedLoginHost;
   /** Runtime-only ask_user handoff facts (host-agent.ts HANDOFF_PAGE_ACTIONS). */
   handoffPage: (
     sessionId: string,
@@ -127,12 +135,22 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
             text: `Browser task cleanup complete: ${options.finishTurn(owner, Number(turn_id), { aborted })} temporary page(s) closed.`,
           }));
         }
-        // Runtime-only: fill the secret the user handed this desktop for the
-        // request (secret-input.ts); the reply is 'provided' or 'skipped' only.
-        if (command.action === 'secret_input') {
-          const requestId = String((input as Record<string, unknown>).request_id || '');
-          return options.secretInput(browserSessionId(session_id), requestId, signal);
+        // Runtime-only, from the core that holds the user's value: check the bound page with no value
+        // on the wire (`secret_precheck`), then fill it (`secret_fill`); each answers its outcome only.
+        if (command.action === 'secret_precheck' || command.action === 'secret_fill') {
+          const fields = input as Record<string, unknown>;
+          const requestId = String(fields.request_id || '');
+          if (command.action === 'secret_precheck') return options.secretFill.precheck(browserSessionId(session_id), requestId);
+          const secret = { value: String(fields.value ?? ''), username: String(fields.username ?? ''), save: fields.save === true };
+          return options.secretFill.fill(browserSessionId(session_id), requestId, secret, signal);
         }
+        // Runtime-only, from the core that runs a Computer Use saved-login fill: admit the fill, hand over its
+        // one value (exact origin, admitted fill only), release it when its turn settles.
+        if (command.action === 'saved_login_admit') return options.savedLogin.admit(browserSessionId(session_id), input as Record<string, unknown>);
+        if (command.action === 'saved_login_release') return options.savedLogin.release(browserSessionId(session_id), input as Record<string, unknown>);
+        if (command.action === 'saved_login_check') return options.savedLogin.check(browserSessionId(session_id), input as Record<string, unknown>);
+        if (command.action === 'saved_login_type') return options.savedLogin.type(browserSessionId(session_id), input as Record<string, unknown>);
+        if (command.action === 'saved_login_value') return options.savedLogin.value(browserSessionId(session_id), input as Record<string, unknown>);
         // Runtime-only: bind a secret request to its page, list a sign-in page's
         // masked saved logins, or say where a page is now; no value moves.
         if (HANDOFF_PAGE_ACTIONS.has(String(command.action))) {

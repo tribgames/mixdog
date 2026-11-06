@@ -219,6 +219,10 @@ pub(crate) enum ProducerMsg {
     Compacted {
         turn: TurnId,
         compaction: Compaction,
+        /// The header fields the compaction sets with it (a manual compaction's `compaction`
+        /// record, its reset reading, its re-armed reminders), written in the one meta record
+        /// that counts the compaction. `None`: the record counts one more `compactCount`.
+        header: Option<mixdog_store::schema::record::HeaderChange>,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
     ContextRewound {
@@ -471,6 +475,7 @@ impl RunPort {
         self.send(ProducerMsg::Compacted {
             turn: self.turn.clone(),
             compaction,
+            header: None,
             ack,
         })
         .await?;

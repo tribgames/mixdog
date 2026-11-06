@@ -1,0 +1,30 @@
+{
+  "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-secret-host.mjs --tree <tree>)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 11231,
+      "path": "host-replies.json",
+      "sha256": "9290932f534fde2859ed0afb07f4c16787129c9d0ae5ad75b91318a7ace326b1"
+    }
+  ],
+  "product": {
+    "appsSha256": "25355d908927cf4dc23a2142d48d7a62d462f97cb7058a301af564aa8fa01551",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9237,
+    "refComparison": {
+      "closestCommit": "433c7dfbb0d6763b0200667fabbf7f76e3f4abc7",
+      "commitFilesMissingFromTree": 5,
+      "exact": false,
+      "filesDifferingFromCommit": 14
+    },
+    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-secret-host.mjs",
+  "set": "secret-host",
+  "totalBytes": 11231
+}

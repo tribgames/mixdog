@@ -1214,3 +1214,16 @@ pub fn forced_target_budget(input: &StatusInput<'_>) -> Option<f64> {
         _ => None,
     }
 }
+
+mod commit;
+
+pub use commit::Archived;
+pub use commit::CONFIG_KEYS as COMPACTION_CONFIG_KEYS;
+pub use commit::CommitInput;
+pub use commit::Committed;
+pub use commit::Failed;
+pub use commit::SummaryFacts;
+pub use commit::TRANSCRIPT_MOVED_ERROR;
+pub use commit::commit_compaction;
+pub use commit::failed_compaction;
+pub use commit::usage_totals;

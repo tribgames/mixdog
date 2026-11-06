@@ -57,7 +57,7 @@ async function listen(server: Server): Promise<number> {
 async function scenario(origin: string, native: boolean): Promise<void> {
   const mode = native ? 'native view' : 'pixel surface';
   const parent = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true } });
-  const browser = createBrowserHost(parent, { remoteSession: false, requestApproval: async () => true });
+  const browser = createBrowserHost(parent, { hostId: 'test-host', remoteSession: false, requestApproval: async () => true });
   try {
     await parent.loadURL('data:text/html,<p>shell</p>');
     browser.setBridgeEnabled(true);

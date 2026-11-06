@@ -30,6 +30,16 @@ mod status;
 
 pub use rows::AttachmentBytes;
 pub use status::After;
+pub use status::Archived;
+pub use status::COMPACTION_CONFIG_KEYS;
+pub use status::CommitInput;
+pub use status::Committed;
+pub use status::Failed;
+pub use status::SummaryFacts;
+pub use status::TRANSCRIPT_MOVED_ERROR;
+pub use status::commit_compaction;
+pub use status::failed_compaction;
+pub use status::usage_totals;
 pub use status::COMPACT_NO_WINDOW;
 pub use status::CompactionPlan;
 pub use status::Route;

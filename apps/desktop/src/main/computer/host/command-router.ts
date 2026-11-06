@@ -163,6 +163,8 @@ export function createCommandRouter(host: CommandRouterHost) {
     const response = await deliverInput(command, action, isMutation, prepared, sequenceRefs);
     actionTimings.delivery_ms = elapsedMs(deliveryStartedAt);
     assertExecutionNotAborted();
+    // A step of a fill the core runs answers the worker's response as it is: nothing settles around it.
+    if (command.saved_login_step) return { text: '', saved_login_response: response };
     if (!response.ok) throw new Error(response.error || 'computer command failed');
     return await settleInputRun(host, policy, { run, prepared, response, semanticTargetIdentity, commandStartedAt });
   }

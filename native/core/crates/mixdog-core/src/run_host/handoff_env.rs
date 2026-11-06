@@ -199,9 +199,32 @@ mod tests {
         }
     }
 
+    /// A computer fill never asks the desktop.
+    struct NoDesktop;
+
+    #[async_trait]
+    impl mixdog_core_api::HostChannel for NoDesktop {
+        async fn request(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<Value, mixdog_core_api::HostError> {
+            unreachable!("a computer fill sends nothing to the desktop")
+        }
+        fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
+            unreachable!("a computer fill sends nothing to the desktop")
+        }
+    }
+
+    #[async_trait]
+    impl mixdog_core_api::ClaimedHostChannel for NoDesktop {
+        async fn request_claimed(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(mixdog_core_api::HostClaim, Value), mixdog_core_api::HostError> {
+            unreachable!("a computer fill sends nothing to the desktop")
+        }
+        async fn request_to(&self, _: &mixdog_core_api::HostClaim, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<Value, mixdog_core_api::HostError> {
+            unreachable!("a computer fill sends nothing to the desktop")
+        }
+    }
+
     /// The one place that builds the fill.
     fn fill_over(slots: &Arc<SecretSlots>, helper: &Arc<Helper>) -> Arc<SecretFill> {
-        Arc::new(SecretFill::new(slots.clone(), Arc::new(NothingHeld), Arc::new(HelperCommands(helper.clone()))))
+        Arc::new(SecretFill::new(slots.clone(), Arc::new(NothingHeld), Arc::new(HelperCommands(helper.clone())), Arc::new(NoDesktop)))
     }
 
     struct Rig {

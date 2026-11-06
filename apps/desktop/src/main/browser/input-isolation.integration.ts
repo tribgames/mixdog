@@ -68,7 +68,7 @@ async function run(): Promise<void> {
         preload: join(directory, 'fixture-preload.cjs'),
       },
     });
-    host = createBrowserHost(parent, {
+    host = createBrowserHost(parent, { hostId: 'test-host',
       remoteSession: false,
       requestApproval: async () => true,
       chooseBrowserFiles: async () => ({ canceled: false, filePaths: [chosenFile] }),

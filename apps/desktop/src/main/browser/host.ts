@@ -55,6 +55,7 @@ import { BACKGROUND_RECLAIM_INTERVAL_MS } from './command';
 import { createBrowserCommandToolkit } from './command-toolkit';
 import type { BrowserCredentialFillResult } from './credential-autofill';
 import { createBrowserHostAgent } from './host-agent';
+import type { SavedLoginWorkerPort } from './saved-login-host';
 import { createBrowserHostFoundation } from './host-foundation';
 import type { BrowserPermissionPolicyStore } from './permissions';
 import {
@@ -220,6 +221,8 @@ export function createBrowserHost(
     /** The session's work runs on a remote server (ssh window), not this PC;
      *  private-network navigation stays blocked for it. */
     remoteSession: boolean;
+    /** This desktop's host id (host/claim): the core's secret fill is answered with it. */
+    hostId: string;
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
     requestApproval?: (request: BrowserApprovalRequest, signal?: AbortSignal) => Promise<boolean>;
     chooseBrowserFiles?: (multiple: boolean) => Promise<{ canceled: boolean; filePaths: string[] }>;
@@ -235,6 +238,8 @@ export function createBrowserHost(
     publishRemoteImportProgress?: (progress: DesktopBrowserImportProgress) => Promise<void>;
     /** Sign in with a saved login by itself (the `browserAutoSignIn` setting). */
     autoSignIn?: () => boolean;
+    /** The computer host, for the worker steps of a saved-login fill the core runs. */
+    savedLoginWorker?: SavedLoginWorkerPort;
     /** Sites may ask to connect a HID device (the `browserHidDevices` setting). */
     hidDevices?: () => boolean;
     /** The saved site-permission defaults and exceptions, and where a
@@ -306,6 +311,7 @@ export function createBrowserHost(
     onDiagnostic: options.onDiagnostic,
   });
   const agent = createBrowserHostAgent({
+    hostId: options.hostId,
     base,
     tools,
     lifecycle,
@@ -314,6 +320,7 @@ export function createBrowserHost(
     retainGuest,
     onDiagnostic: options.onDiagnostic,
     autoSignInEnabled: options.autoSignIn,
+    savedLoginWorker: options.savedLoginWorker,
   });
 
   // Pages nobody displays or drives for long are unloaded (URLs kept) and

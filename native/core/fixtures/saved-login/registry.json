@@ -1,0 +1,608 @@
+{
+  "cases": [
+    {
+      "name": "passwords are redacted for every session, longest first",
+      "results": [
+        true,
+        "x [saved login] y [saved login] z [saved login]",
+        true,
+        "again [saved login] [saved login]"
+      ],
+      "steps": [
+        {
+          "op": "remember",
+          "spellings": [
+            "pass",
+            "pass word",
+            "pa\"ss",
+            ""
+          ],
+          "turn": {
+            "session": "s1",
+            "turn": 1
+          }
+        },
+        {
+          "op": "redact",
+          "text": "x pass word y pass z pa\"ss"
+        },
+        {
+          "op": "remember",
+          "spellings": [
+            "pass"
+          ],
+          "turn": {
+            "session": "s1",
+            "turn": 1
+          }
+        },
+        {
+          "op": "redact",
+          "text": "again [saved login] pass"
+        }
+      ]
+    },
+    {
+      "name": "an invalid fill or no spelling registers nothing",
+      "results": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        "aaa"
+      ],
+      "steps": [
+        {
+          "op": "remember",
+          "spellings": [
+            "aaa"
+          ],
+          "turn": {
+            "session": "",
+            "turn": 1
+          }
+        },
+        {
+          "op": "remember",
+          "spellings": [
+            "aaa"
+          ],
+          "turn": {
+            "session": "s1",
+            "turn": 0
+          }
+        },
+        {
+          "op": "remember",
+          "spellings": [
+            "aaa"
+          ],
+          "turn": {
+            "session": "s1",
+            "turn": 1.5
+          }
+        },
+        {
+          "op": "remember",
+          "spellings": [],
+          "turn": {
+            "session": "s1",
+            "turn": 1
+          }
+        },
+        {
+          "op": "remember",
+          "spellings": [
+            ""
+          ],
+          "turn": {
+            "session": "s1",
+            "turn": 1
+          }
+        },
+        {
+          "op": "redact",
+          "text": "aaa"
+        }
+      ]
+    },
+    {
+      "name": "a marker already in the text is kept and a secret holding marker text is replaced whole",
+      "results": [
+        true,
+        "q [saved login] w [saved login] [saved login]"
+      ],
+      "steps": [
+        {
+          "op": "remember",
+          "spellings": [
+            "a[saved login]b",
+            "xyz"
+          ],
+          "turn": {
+            "session": "s1",
+            "turn": 1
+          }
+        },
+        {
+          "op": "redact",
+          "text": "q a[saved login]b w [saved login] xyz"
+        }
+      ]
+    },
+    {
+      "name": "pixel guards are armed once per fill, window and process",
+      "results": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        [
+          {
+            "pid": "4242",
+            "session": "s1",
+            "turn": 1,
+            "windowId": "HWND:0x1"
+          },
+          {
+            "pid": "4242",
+            "session": "s2",
+            "turn": 3,
+            "windowId": "hwnd:0x1"
+          }
+        ]
+      ],
+      "steps": [
+        {
+          "guard": {
+            "pid": "4242",
+            "session": "s1",
+            "turn": 1,
+            "windowId": ""
+          },
+          "op": "arm"
+        },
+        {
+          "guard": {
+            "pid": "",
+            "session": "s1",
+            "turn": 1,
+            "windowId": "hwnd:0x1"
+          },
+          "op": "arm"
+        },
+        {
+          "guard": {
+            "pid": "4242",
+            "session": "s1",
+            "turn": 0,
+            "windowId": "hwnd:0x1"
+          },
+          "op": "arm"
+        },
+        {
+          "guard": {
+            "pid": "4242",
+            "session": "s1",
+            "turn": 1,
+            "windowId": "HWND:0x1"
+          },
+          "op": "arm"
+        },
+        {
+          "guard": {
+            "pid": "4242",
+            "session": "s1",
+            "turn": 1,
+            "windowId": "hwnd:0x1"
+          },
+          "op": "arm"
+        },
+        {
+          "guard": {
+            "pid": "4242",
+            "session": "s2",
+            "turn": 3,
+            "windowId": "hwnd:0x1"
+          },
+          "op": "arm"
+        },
+        {
+          "op": "guards"
+        }
+      ]
+    },
+    {
+      "name": "a fill is admitted until its turn settles",
+      "results": [
+        "the request names no runtime owner and agent turn to scope its protection to",
+        "the request names no runtime owner and agent turn to scope its protection to",
+        "admitted",
+        true,
+        false,
+        null,
+        false,
+        {
+          "settledAtOnce": true
+        },
+        "its agent turn has already ended",
+        "its agent turn has already ended",
+        "admitted",
+        "admitted"
+      ],
+      "steps": [
+        {
+          "fill": {
+            "session": "",
+            "turn": 1
+          },
+          "name": "a",
+          "op": "admit"
+        },
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 0
+          },
+          "name": "a",
+          "op": "admit"
+        },
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 2
+          },
+          "name": "a",
+          "op": "admit"
+        },
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 2
+          },
+          "op": "admitted"
+        },
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 3
+          },
+          "op": "admitted"
+        },
+        {
+          "name": "a",
+          "op": "finish"
+        },
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 2
+          },
+          "op": "admitted"
+        },
+        {
+          "op": "settle",
+          "turn": {
+            "session": "s1",
+            "turn": 2
+          }
+        },
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 2
+          },
+          "name": "b",
+          "op": "admit"
+        },
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 1
+          },
+          "name": "b",
+          "op": "admit"
+        },
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 3
+          },
+          "name": "c",
+          "op": "admit"
+        },
+        {
+          "fill": {
+            "session": "s2",
+            "turn": 1
+          },
+          "name": "d",
+          "op": "admit"
+        }
+      ]
+    },
+    {
+      "name": "settling a turn retires the passwords and guards of it and older turns of that session only",
+      "results": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        {
+          "settledAtOnce": true
+        },
+        "one-pass [saved login] [saved login]",
+        [
+          {
+            "pid": "2",
+            "session": "s1",
+            "turn": 2,
+            "windowId": "w2"
+          },
+          {
+            "pid": "3",
+            "session": "s2",
+            "turn": 1,
+            "windowId": "w3"
+          }
+        ],
+        {
+          "settledAtOnce": true
+        },
+        "one-pass two-pass [saved login]",
+        [
+          {
+            "pid": "3",
+            "session": "s2",
+            "turn": 1,
+            "windowId": "w3"
+          }
+        ]
+      ],
+      "steps": [
+        {
+          "op": "remember",
+          "spellings": [
+            "one-pass"
+          ],
+          "turn": {
+            "session": "s1",
+            "turn": 1
+          }
+        },
+        {
+          "op": "remember",
+          "spellings": [
+            "two-pass"
+          ],
+          "turn": {
+            "session": "s1",
+            "turn": 2
+          }
+        },
+        {
+          "op": "remember",
+          "spellings": [
+            "other-pass"
+          ],
+          "turn": {
+            "session": "s2",
+            "turn": 1
+          }
+        },
+        {
+          "guard": {
+            "pid": "1",
+            "session": "s1",
+            "turn": 1,
+            "windowId": "w1"
+          },
+          "op": "arm"
+        },
+        {
+          "guard": {
+            "pid": "2",
+            "session": "s1",
+            "turn": 2,
+            "windowId": "w2"
+          },
+          "op": "arm"
+        },
+        {
+          "guard": {
+            "pid": "3",
+            "session": "s2",
+            "turn": 1,
+            "windowId": "w3"
+          },
+          "op": "arm"
+        },
+        {
+          "op": "settle",
+          "turn": {
+            "session": "s1",
+            "turn": 1
+          }
+        },
+        {
+          "op": "redact",
+          "text": "one-pass two-pass other-pass"
+        },
+        {
+          "op": "guards"
+        },
+        {
+          "op": "settle",
+          "turn": {
+            "session": "s1",
+            "turn": 5
+          }
+        },
+        {
+          "op": "redact",
+          "text": "one-pass two-pass other-pass"
+        },
+        {
+          "op": "guards"
+        }
+      ]
+    },
+    {
+      "name": "a settlement waits for the fills it covers that are still running",
+      "results": [
+        "admitted",
+        true,
+        true,
+        {
+          "settledAtOnce": false
+        },
+        "[saved login]",
+        [
+          {
+            "pid": "1",
+            "session": "s1",
+            "turn": 1,
+            "windowId": "w1"
+          }
+        ],
+        null,
+        null,
+        "late-pass",
+        []
+      ],
+      "steps": [
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 1
+          },
+          "name": "run",
+          "op": "admit"
+        },
+        {
+          "op": "remember",
+          "spellings": [
+            "late-pass"
+          ],
+          "turn": {
+            "session": "s1",
+            "turn": 1
+          }
+        },
+        {
+          "guard": {
+            "pid": "1",
+            "session": "s1",
+            "turn": 1,
+            "windowId": "w1"
+          },
+          "op": "arm"
+        },
+        {
+          "op": "settle",
+          "turn": {
+            "session": "s1",
+            "turn": 1
+          }
+        },
+        {
+          "op": "redact",
+          "text": "late-pass"
+        },
+        {
+          "op": "guards"
+        },
+        {
+          "name": "run",
+          "op": "finish"
+        },
+        {
+          "op": "awaitSettle"
+        },
+        {
+          "op": "redact",
+          "text": "late-pass"
+        },
+        {
+          "op": "guards"
+        }
+      ]
+    },
+    {
+      "name": "a session that ends is settled through its newest turn",
+      "results": [
+        true,
+        true,
+        true,
+        null,
+        "gone-pass [saved login]",
+        [],
+        "its agent turn has already ended",
+        "admitted"
+      ],
+      "steps": [
+        {
+          "op": "remember",
+          "spellings": [
+            "gone-pass"
+          ],
+          "turn": {
+            "session": "s1",
+            "turn": 2
+          }
+        },
+        {
+          "op": "remember",
+          "spellings": [
+            "kept-pass"
+          ],
+          "turn": {
+            "session": "s2",
+            "turn": 9
+          }
+        },
+        {
+          "guard": {
+            "pid": "1",
+            "session": "s1",
+            "turn": 2,
+            "windowId": "w1"
+          },
+          "op": "arm"
+        },
+        {
+          "op": "forget",
+          "session": "s1"
+        },
+        {
+          "op": "redact",
+          "text": "gone-pass kept-pass"
+        },
+        {
+          "op": "guards"
+        },
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 2
+          },
+          "name": "x",
+          "op": "admit"
+        },
+        {
+          "fill": {
+            "session": "s1",
+            "turn": 3
+          },
+          "name": "y",
+          "op": "admit"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,177 @@
+{
+  "cases": [
+    {
+      "command": {
+        "mode": "screen"
+      },
+      "guards": [],
+      "name": "no guard allows any capture",
+      "outcome": "allowed",
+      "pidReads": 0,
+      "pids": {},
+      "windowId": "w1"
+    },
+    {
+      "command": {
+        "mode": "ax"
+      },
+      "guards": [
+        {
+          "pid": "10",
+          "session": "s1",
+          "turn": 1,
+          "windowId": "w1"
+        }
+      ],
+      "name": "ax mode carries no pixels",
+      "outcome": "allowed",
+      "pidReads": 0,
+      "pids": {},
+      "windowId": "w1"
+    },
+    {
+      "command": {
+        "mode": "screen"
+      },
+      "guards": [
+        {
+          "pid": "10",
+          "session": "s1",
+          "turn": 1,
+          "windowId": "HWND:0x1"
+        }
+      ],
+      "name": "the guarded window is withheld, case-insensitively",
+      "outcome": "capture_withheld: pixels of a browser a saved-login password was filled into are withheld until the end of this agent turn; read it with mode \"ax\" or capture in a later turn",
+      "pidReads": 0,
+      "pids": {},
+      "windowId": "hwnd:0x1"
+    },
+    {
+      "command": {
+        "mode": "screen"
+      },
+      "guards": [
+        {
+          "pid": "10",
+          "session": "s1",
+          "turn": 1,
+          "windowId": "w1"
+        },
+        {
+          "pid": "10",
+          "session": "s2",
+          "turn": 4,
+          "windowId": "w2"
+        }
+      ],
+      "name": "another window of the guarded process is withheld",
+      "outcome": "capture_withheld: pixels of a browser a saved-login password was filled into are withheld until the end of this agent turn; read it with mode \"ax\" or capture in a later turn",
+      "pidReads": 1,
+      "pids": {
+        "w9": "10"
+      },
+      "windowId": "w9"
+    },
+    {
+      "command": {
+        "mode": "screen"
+      },
+      "guards": [
+        {
+          "pid": "10",
+          "session": "s1",
+          "turn": 1,
+          "windowId": "w1"
+        }
+      ],
+      "name": "a window of another process is allowed",
+      "outcome": "allowed",
+      "pidReads": 1,
+      "pids": {
+        "w9": "11"
+      },
+      "windowId": "w9"
+    },
+    {
+      "command": {
+        "mode": "screen"
+      },
+      "guards": [
+        {
+          "pid": "10",
+          "session": "s1",
+          "turn": 1,
+          "windowId": "w1"
+        }
+      ],
+      "name": "a window whose process cannot be read is withheld",
+      "outcome": "capture_withheld: pixels of a browser a saved-login password was filled into are withheld until the end of this agent turn; read it with mode \"ax\" or capture in a later turn",
+      "pidReads": 1,
+      "pids": {
+        "w9": "throw"
+      },
+      "windowId": "w9"
+    },
+    {
+      "command": {
+        "mode": "screen"
+      },
+      "guards": [
+        {
+          "pid": "10",
+          "session": "s1",
+          "turn": 1,
+          "windowId": "w1"
+        }
+      ],
+      "name": "a window with no process id is withheld",
+      "outcome": "capture_withheld: pixels of a browser a saved-login password was filled into are withheld until the end of this agent turn; read it with mode \"ax\" or capture in a later turn",
+      "pidReads": 1,
+      "pids": {},
+      "windowId": "w9"
+    },
+    {
+      "command": {
+        "mode": "screen"
+      },
+      "guards": [
+        {
+          "pid": "10",
+          "session": "s1",
+          "turn": 1,
+          "windowId": "w1"
+        }
+      ],
+      "name": "a full-screen capture is withheld by any guard",
+      "outcome": "capture_withheld: pixels of a browser a saved-login password was filled into are withheld until the end of this agent turn; read it with mode \"ax\" or capture in a later turn",
+      "pidReads": 0,
+      "pids": {},
+      "windowId": ""
+    },
+    {
+      "command": {
+        "mode": "screen"
+      },
+      "guards": [
+        {
+          "pid": "10",
+          "session": "s1",
+          "turn": 1,
+          "windowId": "w1"
+        },
+        {
+          "pid": "11",
+          "session": "s2",
+          "turn": 2,
+          "windowId": "w1"
+        }
+      ],
+      "name": "every guard on the same window needs no process read",
+      "outcome": "capture_withheld: pixels of a browser a saved-login password was filled into are withheld until the end of this agent turn; read it with mode \"ax\" or capture in a later turn",
+      "pidReads": 0,
+      "pids": {},
+      "windowId": "w1"
+    }
+  ]
+}

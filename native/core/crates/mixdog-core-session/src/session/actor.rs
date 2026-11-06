@@ -204,6 +204,7 @@ pub(crate) enum Inbox {
     CommitCompaction {
         snapshot: Vec<mixdog_core_api::ids::ItemId>,
         compaction: super::run::Compaction,
+        header: Option<HeaderChange>,
         tx: oneshot::Sender<Result<super::turn_ops::CompactionCommit, CoreError>>,
     },
 }
@@ -276,6 +277,7 @@ pub(crate) enum JobDone {
 pub(crate) struct CommitRows {
     snapshot: Vec<mixdog_core_api::ids::ItemId>,
     compaction: super::run::Compaction,
+    header: Option<HeaderChange>,
     /// `runs_begun` when the read started: a turn begun since owns the context.
     begun: u64,
     rows: Result<Vec<(mixdog_core_api::ids::ItemId, Value)>, CoreError>,
@@ -2118,6 +2120,7 @@ impl SessionActor {
             ProducerMsg::Compacted {
                 turn,
                 compaction,
+                header,
                 ack,
             } => {
                 // An empty turn id is no turn: a manual compaction's commit (`commit_compaction`).
@@ -2132,11 +2135,16 @@ impl SessionActor {
                 }
                 // `compaction.compactCount`: one more compaction, the epoch of the thread's
                 // window (`compaction-runner.mjs:505`).
-                let mut state = self.projected.header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
-                let count = state.get("compactCount").and_then(Value::as_u64).unwrap_or(0);
-                state.insert("compactCount".into(), json!(count + 1));
-                let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new() };
-                change.set.insert("compaction".into(), Value::Object(state));
+                // A caller that states the header (the manual compaction's `compactionRecord`)
+                // states its `compactCount` too, so the count is not added here.
+                let change = header.unwrap_or_else(|| {
+                    let mut state = self.projected.header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
+                    let count = state.get("compactCount").and_then(Value::as_u64).unwrap_or(0);
+                    state.insert("compactCount".into(), json!(count + 1));
+                    let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new() };
+                    change.set.insert("compaction".into(), Value::Object(state));
+                    change
+                });
                 self.accept_record(
                     Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }),
                     Class::Normal,
@@ -2554,7 +2562,7 @@ impl SessionActor {
                 });
                 let _ = tx.send(plan);
             }
-            Inbox::CommitCompaction { snapshot, compaction, tx } => self.commit_compaction(snapshot, compaction, tx),
+            Inbox::CommitCompaction { snapshot, compaction, header, tx } => self.commit_compaction(snapshot, compaction, header, tx),
             Inbox::QuotaFacts { tx } => {
                 let _ = tx.send(self.resume_check());
             }

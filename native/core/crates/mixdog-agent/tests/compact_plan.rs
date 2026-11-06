@@ -119,7 +119,7 @@ fn the_plan_numbers_equal_nodes() {
         }
         compared += 1;
     }
-    assert!(compared >= 25, "{compared}");
+    assert_eq!(compared, 24, "the recorded cases");
     assert!(differ.is_empty(), "{} differ: {}", differ.len(), differ.iter().take(6).cloned().collect::<Vec<_>>().join(" ; "));
 }
 

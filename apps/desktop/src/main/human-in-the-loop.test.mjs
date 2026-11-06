@@ -9,7 +9,7 @@ import { waitUntil } from './bounded-wait.mjs';
 import { decryptNativePush } from '../shared/native-push-crypto.ts';
 import { sessionAttention } from '../shared/session-attention.ts';
 import { createNotificationPreferencesStore, notificationPreferencesPath } from './notification-preferences.ts';
-import { fillSecretInput } from './browser/host-agent.ts';
+import { fillSecretInput } from './browser/secret-fill-core.test-helper.mjs';
 import { beginComputerOperation } from './human-only-approval.ts';
 import { requiredToolApprovalDecision } from './ipc-validation.ts';
 import { createPushNotifier, heldRequestPushText } from './push-notifier.ts';
@@ -298,7 +298,8 @@ test("the session's lock is checked before the value is used: a refusal drops it
   inputs.provide(REQUEST, SENTINEL);
   const free = boundHost(() => 'https://bank.example/login');
   assert.deepEqual(await fillSecretInput(free.host, 's1', REQUEST, undefined, inputs), { text: 'entered' });
-  assert.deepEqual(free.order, ['lock:s1', 'fill']);
+  // Asked for the pre-check, and again as the value arrives, before the fill.
+  assert.deepEqual(free.order, ['lock:s1', 'lock:s1', 'fill']);
   // Computer Use: the same order.
   inputs.provide(REQUEST, SENTINEL);
   inputs.bindComputer(REQUEST, { sessionId: 's1', windowId: 'hwnd:0x2', ref: 'e7' });
