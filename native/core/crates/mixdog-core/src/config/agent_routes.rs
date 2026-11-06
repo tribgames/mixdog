@@ -101,7 +101,7 @@ impl AgentRoutes {
 
     /// Whether the agent is switched off (`isAgentDisabled`).
     pub fn is_disabled(&self, id: &str) -> bool {
-        disabled_ids(&self.config.agent()).contains(&agent_id_key(id))
+        agent_disabled(&self.config.agent(), id)
     }
 
     /// Switches the agent on or off, keeping its stored model (`saveDisabled`).
@@ -230,6 +230,11 @@ fn agent_id_key(value: &str) -> String {
         }
     }
     out
+}
+
+/// `isAgentDisabled(config, id)` over an agent config document.
+pub(crate) fn agent_disabled(agent: &Map<String, Value>, id: &str) -> bool {
+    disabled_ids(agent).contains(&agent_id_key(id))
 }
 
 /// `disabledAgentIds`: the sorted, de-duplicated, key-normalised list.

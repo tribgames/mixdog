@@ -283,11 +283,17 @@ fn redact_text_or_json(store: &SensitiveStore, session: &str, text: &str) -> Str
     store.redact_text(session, text)
 }
 
+/// `isAttachmentReference`: `/^[a-f0-9]{64}$/` over `String(attachmentRef || '')`; a reference
+/// is an encoding, never text.
+fn is_attachment_reference(part: &Map<String, Value>) -> bool {
+    part.get("attachmentRef").and_then(Value::as_str).is_some_and(|r| r.len() == 64 && r.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+}
+
 fn map_part_text(store: &SensitiveStore, session: &str, part: &Value) -> Value {
     match part {
         Value::String(text) => Value::String(redact_text_or_json(store, session, text)),
         Value::Object(map) => {
-            if map.get("type").and_then(Value::as_str).is_some_and(|t| MEDIA_TYPES.contains(&t)) {
+            if map.get("type").and_then(Value::as_str).is_some_and(|t| MEDIA_TYPES.contains(&t)) || is_attachment_reference(map) {
                 return part.clone();
             }
             for key in ["text", "content"] {

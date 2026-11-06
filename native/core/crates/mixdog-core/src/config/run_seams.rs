@@ -279,7 +279,7 @@ fn buffer_ratio_candidate(percents: &[Option<Value>], ratios: &[Option<Value>]) 
 }
 
 /// `providerTokenCalibration(provider)`.
-fn token_calibration(provider: Option<&Value>, env: &dyn Fn(&str) -> Option<String>) -> f64 {
+pub(crate) fn token_calibration(provider: Option<&Value>, env: &dyn Fn(&str) -> Option<String>) -> f64 {
     let provider = provider.filter(|p| !p.is_null()).map(mixdog_js::value_to_string).unwrap_or_default().to_lowercase();
     let from_env = |name: &str, default: f64| {
         env(name).map(|raw| string_to_number(&raw)).filter(|n| n.is_finite() && *n > 0.0).map_or(default, |n| n.clamp(0.25, 3.0))

@@ -1171,6 +1171,28 @@ async fn a_second_overflow_surfaces_with_the_overflow_text() {
 }
 
 #[tokio::test]
+async fn a_boundary_without_a_window_leaves_the_overflow_budget_and_window_unknown() {
+    // Node: `{provider, compactBoundaryTokens: 10000}` has no `sessionRef.contextWindow`, so the
+    // send-stage overflow carries `budgetTokens: sessionRef.contextWindow` as null.
+    let overflow = || Attempt::Reject(ProviderError::new(ErrorKind::ContextOverflow, DeliveryState::Accepted));
+    let mut h = Harness::new(vec![overflow(), overflow()]);
+    h.compactor = Some(Arc::new(Compactor100 { requests: Mutex::new(Vec::new()), ..Default::default() }));
+    let mut cfg = config();
+    cfg.compact = Some(CompactSettings {
+        auto: true,
+        explicit_boundary: Some(10_000),
+        token_calibration: 1.0,
+        ..CompactSettings::default()
+    });
+    let messages = vec![AgentMessage::user("a"), AgentMessage::user("b"), AgentMessage::user("c")];
+    let failure = h.run(cfg, vec![], messages).run().await.expect_err("overflow");
+    let text = failure.error.to_string();
+    assert!(text.contains("stage=send"), "{text}");
+    assert!(text.contains("budget=unknown"), "{text}");
+    assert!(text.contains("contextWindow=unknown"), "{text}");
+}
+
+#[tokio::test]
 async fn abort_while_the_provider_is_silent_returns_at_once() {
     let h = Harness::new(vec![turn(vec![text("par"), Step::Hang])]);
     let run = h.run(config(), vec![], vec![AgentMessage::user("go")]);

@@ -10,7 +10,7 @@
 
 mod edit;
 mod host;
-mod value;
+pub(crate) mod value;
 
 pub use host::FeatureEffects;
 pub use host::HostParts;

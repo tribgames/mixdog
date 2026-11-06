@@ -16,7 +16,8 @@ use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
 
 use super::assemble::{HostRunParts, HostServices};
 use super::factory::RunHostFactory;
-use super::host_seams::{HostSeams, SeamParts};
+use super::host_seams::{DirectoryParts, HostSeams, SeamParts};
+use super::settings::SettingsSources;
 use super::prewarm::StartupProbes;
 use super::reactions::ReactionTargets;
 use crate::ports::gate::GateEnv;
@@ -39,14 +40,17 @@ pub struct HostParts {
     pub reaction_targets: Arc<ReactionTargets>,
     pub effort_judge: Option<Arc<EffortJudgeModel>>,
     pub seams: SeamParts,
+    pub settings: SettingsSources,
     pub probes: Arc<StartupProbes>,
     pub observed: Arc<StartupObservations>,
 }
 
 /// The session directory over `deps`, whose `runs` is the real run factory.
-pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -> SessionDeps) -> Arc<SessionDirectory> {
-    Arc::new_cyclic(|directory: &Weak<SessionDirectory>| {
-        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, effort_judge, seams, probes, observed } = host;
+pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -> SessionDeps, late: impl FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> DirectoryParts) -> Arc<SessionDirectory> {
+    let mut bound = None;
+    let registry = host.registry.clone();
+    let directory = Arc::new_cyclic(|directory: &Weak<SessionDirectory>| {
+        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, effort_judge, seams, settings, probes, observed } = host;
         let services = HostServices {
             registry,
             clock,
@@ -61,11 +65,17 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
             reaction_targets,
             directory: directory.clone(),
             effort_judge,
-            seams: Arc::new(HostSeams::new(seams)),
+            seams: bound.insert(Arc::new(HostSeams::new(seams))).clone(),
+            settings,
             probes,
             observed,
         };
         let runs: Arc<dyn RunFactory> = Arc::new(RunHostFactory::new(Arc::new(HostRunParts::new(services))));
         SessionDirectory::new(Arc::new(deps(runs)))
-    })
+    });
+    if let Some(seams) = bound {
+        // Bound exactly once, here.
+        let _ = seams.bind(late(&directory, &registry));
+    }
+    directory
 }

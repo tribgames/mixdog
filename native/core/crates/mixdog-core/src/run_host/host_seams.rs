@@ -46,14 +46,18 @@ pub trait CompactorSource: Send + Sync + 'static {
     fn compactor(&self, thread: &ThreadId, header: &Header, input: CompactorInput) -> Option<Arc<dyn Compactor>>;
 }
 
+/// The parts that need the session directory, so they are built after it (the hop writes the session's
+/// header; the compactor reads its rows).
+pub struct DirectoryParts {
+    pub hops: Arc<HopFactory>,
+    pub compactors: Arc<dyn CompactorSource>,
+}
+
 /// The built parts the seams delegate to.
 pub struct SeamParts {
     pub tools: SessionToolBuilder,
     pub todos: TodoViews,
     pub post_tool: Arc<dyn PostToolDispatch>,
-    pub compactors: Arc<dyn CompactorSource>,
-    /// `None`: the install has no route fallback (no `HopSessions` yet); a run then never hops.
-    pub hops: Option<Arc<HopFactory>>,
     /// `None`: no `Skill` tool is registered.
     pub skills: Option<SkillParts>,
     pub config: Arc<dyn ConfigSeams>,
@@ -64,11 +68,17 @@ pub struct SeamParts {
 
 pub struct HostSeams {
     parts: SeamParts,
+    late: std::sync::OnceLock<DirectoryParts>,
 }
 
 impl HostSeams {
     pub fn new(parts: SeamParts) -> Self {
-        Self { parts }
+        Self { parts, late: std::sync::OnceLock::new() }
+    }
+
+    /// Binds the parts built over the directory; a second bind is refused.
+    pub fn bind(&self, late: DirectoryParts) -> Result<(), DirectoryParts> {
+        self.late.set(late)
     }
 }
 
@@ -76,9 +86,10 @@ fn text<'a>(header: &'a Header, key: &str) -> &'a str {
     header.get(key).and_then(Value::as_str).map_or("", mixdog_js::js_trim)
 }
 
+#[async_trait::async_trait]
 impl SessionSeams for HostSeams {
-    fn tools(&self, _thread: &ThreadId, header: &Header, surface: &SessionSurface) -> SessionTools {
-        self.parts.tools.tools(header, surface)
+    async fn tools(&self, _thread: &ThreadId, header: &Header, surface: &SessionSurface) -> Result<SessionTools, String> {
+        self.parts.tools.tools(header, surface).await
     }
 
     fn hidden_agent(&self, agent: Option<&str>) -> bool {
@@ -94,11 +105,11 @@ impl SessionSeams for HostSeams {
     }
 
     fn compactor(&self, thread: &ThreadId, header: &Header, input: CompactorInput) -> Option<Arc<dyn Compactor>> {
-        self.parts.compactors.compactor(thread, header, input)
+        self.late.get()?.compactors.compactor(thread, header, input)
     }
 
     fn hop_host(&self, thread: &ThreadId, header: &Header) -> Option<Arc<dyn HopHost>> {
-        self.parts.hops.as_ref()?.hop_host(thread, header)
+        self.late.get()?.hops.hop_host(thread, header)
     }
 
     fn skill_parts(&self) -> Option<SkillParts> {

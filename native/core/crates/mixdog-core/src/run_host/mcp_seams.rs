@@ -202,13 +202,14 @@ impl SkillSelector for ExplicitSkillSelector {
 }
 
 /// `SkillsListed` over the skill catalog: whether any skill is visible at the folder
-/// (`collectPromptSkillsCached(cwd).length`). The catalog answers from the list it last collected
-/// (`SkillCatalog::any_visible_now`), so the host awaits `catalog.skills()` once at start.
+/// (`collectPromptSkillsCached(cwd).length`). Like Node it collects (cached; an invalidated list
+/// is collected again) before it filters, so a cold start and a skill added since are both exact.
 pub struct CatalogSkillsListed(pub Arc<SkillCatalog>);
 
+#[async_trait]
 impl SkillsListed for CatalogSkillsListed {
-    fn any_for(&self, cwd: &Path) -> bool {
-        self.0.any_visible_now(cwd)
+    async fn any_for(&self, cwd: &Path) -> Result<bool, String> {
+        self.0.visible(cwd).await.map(|skills| !skills.is_empty()).map_err(|error| error.to_string())
     }
 }
 

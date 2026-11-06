@@ -703,6 +703,31 @@ async fn held_command_moves_to_background_and_task_cancels_it() {
     assert!(read.ends_with("\n\n(no new output)"), "{read}");
 }
 
+struct FixedCycle(u64);
+impl OwnerCycles for FixedCycle {
+    fn current(&self, _: &ThreadId) -> u64 {
+        self.0
+    }
+}
+
+/// `hasActiveBackgroundTasks({ surface: 'shell', awaitedOnly, match })` of `background-wait.mjs`:
+/// a command moved to the background is work its owner waits on, in the user cycle it started in;
+/// another owner's, and an ended one, are not.
+#[tokio::test]
+async fn a_background_command_is_work_its_owner_waits_on_in_the_cycle_it_started() {
+    let rig = rig();
+    rig.runtime.set_cycles(Arc::new(FixedCycle(3)));
+    let owner = ThreadId::from("t");
+    assert!(!rig.runtime.has_active(&owner, false, None), "nothing is running yet");
+    rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "sleep 100", "background": true})).await.unwrap();
+    assert!(rig.runtime.has_active(&owner, true, Some(3)));
+    assert!(rig.runtime.has_active(&owner, false, None));
+    assert!(!rig.runtime.has_active(&owner, true, Some(4)), "it started in an earlier cycle than 4");
+    assert!(!rig.runtime.has_active(&ThreadId::from("other"), false, None));
+    rig.task.call(&ctx(&rig, "c2"), serde_json::json!({"action": "cancel", "task_id": "task-c1"})).await.unwrap();
+    assert!(!rig.runtime.has_active(&owner, false, None), "an ended task is not work");
+}
+
 /// The owner's default delivery: what reached `TaskNotifier::finished`.
 #[derive(Default)]
 struct OwnerNotices(std::sync::Mutex<Vec<(String, String)>>);

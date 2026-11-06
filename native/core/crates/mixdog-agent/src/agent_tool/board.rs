@@ -537,6 +537,12 @@ impl JobBoard {
         state.tasks.iter().filter(|t| matches_scope(t, scope, true)).map(Self::snapshot).collect()
     }
 
+    /// `hasActiveBackgroundTasks({ callerSessionId, surface: 'agent' })`: a job the session
+    /// started (its caller, else its owner) is still running. A job with no session is nobody's.
+    pub fn has_running(&self, session_id: &str) -> bool {
+        self.lock().tasks.iter().any(|t| t.status == "running" && t.notify_session.as_deref() == Some(session_id))
+    }
+
     pub fn cleanup_jobs(&self, scope: &Scope, force: bool) -> u64 {
         let mut state = self.lock();
         let count = |state: &State| state.tasks.iter().filter(|t| matches_scope(t, scope, true)).count();

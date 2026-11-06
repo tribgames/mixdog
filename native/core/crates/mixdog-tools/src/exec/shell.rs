@@ -855,7 +855,7 @@ impl ShellTool {
             runtime.release(&job.id);
             return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
         }
-        if job.detach(runtime.now_ms()) {
+        if job.detach(runtime.now_ms(), runtime.cycle_of(&job.owner)) {
             runtime.promote(&job.id);
             // A promoted command's tee file is consumed (deleted) when it settles.
             if let Some(tee) = tee_path.clone() {

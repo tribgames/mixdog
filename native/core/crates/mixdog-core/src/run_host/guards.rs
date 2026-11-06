@@ -120,6 +120,10 @@ impl TodoView for HostTodoView {
         awaiting_background_work(self.work.as_ref(), &self.cycles, &self.session_id).await
     }
 
+    async fn user_waiting(&self) -> bool {
+        self.todos.user_waiting(&self.thread)
+    }
+
     fn is_mutation(&self, call: &ToolCall) -> bool {
         is_mutating_call(&call.name, &call.arguments)
     }
@@ -156,6 +160,7 @@ impl SessionGuards {
     /// does; an active Goal keeps it for its audit.
     pub async fn begin_turn(&self, genuine: bool) {
         self.guards.begin_turn(genuine);
+        self.view.todos.turn_started(&self.view.thread);
         if !genuine {
             return;
         }

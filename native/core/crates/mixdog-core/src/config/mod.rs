@@ -27,6 +27,7 @@ mod seams;
 mod service;
 
 pub use run_seams::{ConfigRunSeams, EnvReader};
+pub(crate) use run_seams::token_calibration;
 pub use seams::ConfigFeatureGate;
 pub use service::ConfigService;
 pub(crate) use service::set_worktree_settings;
@@ -65,6 +66,7 @@ pub use settings::NoEffects;
 pub use settings::Settings;
 pub use settings::SettingsEffects;
 pub use settings::SettingsEnv;
+pub(crate) use agent_routes::agent_disabled;
 pub(crate) use agent_routes::bot_migration;
 pub(crate) use agent_routes::is_store_bot;
 pub use agent_routes::AgentRoutes;

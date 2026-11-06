@@ -54,6 +54,12 @@ pub struct AssembleInput<'a> {
     pub slot: Option<Arc<dyn mixdog_agent::env::Yielder>>,
     /// The trusted text a routine's skill is selected from (`AgentTurn.skill_selection`).
     pub skill_selection: Option<String>,
+    /// The session's stored rows before the turn's input.
+    pub prior: &'a [Value],
+    /// The turn's prompt text, trimmed.
+    pub request: &'a str,
+    /// A runtime-injected turn (a completion notice, queued work), not a user's prompt.
+    pub injected: bool,
     /// The worker turn's own completion hook (`AgentTurn.hooks.notify`): `assemble` puts it on the
     /// `ToolEnv`, so it reaches every tool call. `None` for a turn no job owns.
     pub notify: Option<mixdog_core_api::domain::tool::ToolNotify>,
@@ -432,6 +438,14 @@ impl RunObserver for PortObserver {
 
 // ---- the turn ----------------------------------------------------------------------------------------
 
+/// `promptContentText(input.prompt).trim()`: a string, or the text parts joined by a newline.
+fn prompt_text(body: &Value) -> String {
+    match body.get("content") {
+        Some(Value::String(text)) => text.trim().to_owned(),
+        Some(Value::Array(parts)) => parts.iter().filter_map(|p| p.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n").trim().to_owned(),
+        _ => String::new(),
+    }
+}
 async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, .. } = run;
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
@@ -445,7 +459,14 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     let surface_now = surface.borrow().clone();
     let hints = ToolHints::start(progress.subscribe(), port.clone());
     let tool_progress = RunToolProgress::new(progress.clone());
-    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, notify, progress: tool_progress }).await {
+    let stored = match context.read().await {
+        Ok(stored) => stored,
+        Err(error) => return failed(format!("model context unreadable: {error:?}"), Value::Null),
+    };
+    let prior: Vec<Value> = stored.iter().map(|(_, body)| body.clone()).collect();
+    let request = prompt_text(&input_body);
+    let injected = input_body.pointer("/meta/source").is_some_and(Value::is_string);
+    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, prior: &prior, request: &request, injected, notify, progress: tool_progress }).await {
         Ok(assembled) => assembled,
         Err(error) => return RunOutcome::Failed(error),
     };
@@ -455,10 +476,6 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     // The turn's workspace is final: take the baseline in the background; no tool runs before it.
     review.start(&worktree);
 
-    let stored = match context.read().await {
-        Ok(stored) => stored,
-        Err(error) => return failed(format!("model context unreadable: {error:?}"), Value::Null),
-    };
     let input = match message_of(&input_body) {
         Ok(input) => input,
         Err(error) => return failed(format!("the turn's input row is not a model message: {error}"), input_body),
@@ -948,13 +965,15 @@ mod tests {
         }
     }
 
-    struct NoCompactors;
-    impl super::super::host_seams::CompactorSource for NoCompactors {
-        fn compactor(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header, _: super::super::assemble::CompactorInput) -> Option<Arc<dyn mixdog_agent::env::Compactor>> {
+    struct NoWorld;
+    impl super::super::compactors::CompactionWorld for NoWorld {
+        fn facts(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> super::super::compactors::CompactionFacts {
+            unreachable!("the test's settings leave compaction off")
+        }
+        fn compaction_config(&self) -> Option<Value> {
             None
         }
     }
-
     struct NoMcp;
     impl super::super::session_tools::SessionMcp for NoMcp {
         fn tools(&self, _: &std::path::Path) -> Vec<Arc<dyn Tool>> {
@@ -963,9 +982,10 @@ mod tests {
     }
 
     struct NoSkills;
+    #[async_trait]
     impl super::super::session_tools::SkillsListed for NoSkills {
-        fn any_for(&self, _: &std::path::Path) -> bool {
-            false
+        async fn any_for(&self, _: &std::path::Path) -> Result<bool, String> {
+            Ok(false)
         }
     }
 
@@ -1021,10 +1041,111 @@ mod tests {
         }
     }
 
-    /// The same turn through the real `HostRunParts` (`build_directory`): the provider from the
-    /// registry, the surface's tools, the policy gate and the tool-result reuse, artifacts and hooks.
+    struct Pricing;
+    impl mixdog_ai::registry::accounting::UsagePricing for Pricing {
+        fn price_usage(&self, args: &mixdog_ai::catalog::UsageArgs) -> mixdog_ai::catalog::PricedUsage {
+            mixdog_ai::catalog::PricedUsage { input: args.input_tokens, cost_usd: None, rates: serde_json::Map::new() }
+        }
+    }
+
+    #[derive(Default)]
+    struct Ledger(Mutex<Vec<mixdog_ai::registry::accounting::UsageRow>>);
+    #[async_trait]
+    impl mixdog_ai::registry::accounting::UsageSink for Ledger {
+        async fn record_queued(&self, row: mixdog_ai::registry::accounting::UsageRow) -> Result<(), String> {
+            lock(&self.0).push(row);
+            Ok(())
+        }
+    }
+
+    struct NoSkillNames;
+    #[async_trait]
+    impl mixdog_mcp::skill_select::SkillNames for NoSkillNames {
+        async fn names(&self, _: &std::path::Path) -> Result<std::collections::HashSet<String>, String> {
+            Ok(Default::default())
+        }
+    }
+
+    struct NoHopSessions;
+    impl super::super::hop_host::HopSessions for NoHopSessions {
+        fn open(&self, _: &ThreadId) -> Option<Arc<dyn super::super::hop_host::HopSession>> {
+            None
+        }
+    }
+
+    struct NoWiring;
+    impl super::super::hop_host::HopWiring for NoWiring {
+        fn wiring(&self, _: &Value, _: &Arc<dyn ProviderAdapter>) -> (Option<mixdog_agent::effort::EffortWiring>, Option<mixdog_agent::text_only::TextOnlyInput>) {
+            (None, None)
+        }
+    }
+
+    struct NoBots;
+    impl super::super::route_chain::BotRoutes for NoBots {
+        fn bot_route(&self, _: &str) -> Option<Option<Value>> {
+            None
+        }
+        fn stored_bot_route(&self, _: &str) -> Option<Value> {
+            None
+        }
+    }
+
+    struct Offline;
+    #[async_trait]
+    impl mixdog_ai::transport::http::HttpSend for Offline {
+        async fn send(&self, _: mixdog_core_api::domain::provider::WireRequest) -> Result<mixdog_ai::transport::http::HttpResponse, ProviderError> {
+            Err(ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Transient, DeliveryState::NotSent))
+        }
+    }
+
+    struct NoMarks;
+    impl super::super::settings::HeartbeatMarks for NoMarks {
+        fn is_heartbeat(&self, _: &str) -> bool {
+            false
+        }
+    }
+    struct NoCeilings;
+    impl super::super::settings::OutputCeilingSource for NoCeilings {
+        fn ceilings(&self, _: &str, _: &str, _: &mixdog_store::schema::record::Header) -> super::super::settings::OutputCeilings {
+            Default::default()
+        }
+    }
+    struct AutoOff;
+    impl super::super::settings::AutoEffortSource for AutoOff {
+        fn mode_on(&self) -> bool {
+            false
+        }
+        fn base_setting(&self) -> Option<Value> {
+            None
+        }
+        fn steps_enabled(&self) -> bool {
+            true
+        }
+    }
+    struct NoAttachmentText;
+    #[async_trait]
+    impl mixdog_agent::attachments::AttachmentText for NoAttachmentText {
+        async fn text_of(&self, _: &mixdog_core_api::domain::provider::ContentPart) -> Result<Option<String>, Box<ProviderError>> {
+            Ok(None)
+        }
+    }
+    fn named(name: &str) -> Arc<dyn Tool> {
+        let spec = ToolSpec {
+            name: name.into(),
+            aliases: Vec::new(),
+            description: name.into(),
+            input_schema: json!({ "type": "object" }),
+            annotations: ToolAnnotations { read_only_hint: Some(true), idempotent_hint: Some(true), ..ToolAnnotations::default() },
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        };
+        Arc::new(Echo(spec))
+    }
+
+    /// The done-when turn: `TurnPath::new` over test implementations of the missing owner traits, a
+    /// scripted provider behind the accounted registry, a tool call, the stored rows and the ledger row.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_turn_runs_through_the_real_assembly() {
+    async fn a_turn_runs_through_the_turn_path() {
         let provider = Arc::new(Scripted {
             id: ProviderId::from("scripted"),
             policy: RetryPolicy::codex_default(),
@@ -1042,58 +1163,85 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let tokens = mixdog_rt::testing::tokens();
-        let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
-        let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(OneProvider(provider.clone()))));
-        registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), "scripted")).await.unwrap();
-        let spec = ToolSpec {
-            name: "list".into(),
-            aliases: Vec::new(),
-            description: "list".into(),
-            input_schema: json!({ "type": "object" }),
-            annotations: ToolAnnotations { read_only_hint: Some(true), idempotent_hint: Some(true), ..ToolAnnotations::default() },
-            parallel_safe: true,
-            exclusive_with: Vec::new(),
-        };
-        let pool: Vec<Arc<dyn Tool>> = vec![Arc::new(Echo(spec))];
+        let ledger = Arc::new(Ledger::default());
+        let sink: Arc<dyn mixdog_ai::registry::accounting::UsageSink> = ledger.clone();
+        let accounting = mixdog_ai::registry::accounted::AccountingDeps::new(Arc::new(Pricing), Arc::new(move || Some(sink.clone())));
+        let pool: Vec<Arc<dyn Tool>> = vec![named("list"), named("Skill")];
         let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(MockProcessManager::default());
         let clock: Arc<dyn Clock> = Arc::new(Fixed);
         let connectors: Arc<dyn mixdog_tools::policy::ConnectorPermissions> = mixdog_mcp::permissions::ConnectorPolicy::new(
             workspace.path().to_path_buf(),
             mixdog_mcp::permissions::PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io },
         );
-        let host = super::super::boot::HostParts {
-            registry,
+        let data = workspace.path().join("data");
+        let judge = mixdog_services::effort_judge::judge::EffortJudgeModel::with_options(
+            mixdog_services::effort_judge::model::ModelConfig::in_data_dir(&data, workspace.path().join("no-ort.dll")),
+            tokens.cpu_bulk,
+            mixdog_services::effort_judge::judge::JudgeOptions { tick: Default::default(), manifest: None, progress: None },
+        )
+        .unwrap();
+        let hook_bus = mixdog_mcp::hook_bus::HookBus::new(data.clone(), tokens.maintenance_io, processes.clone(), None, None, None);
+        let parts = super::super::turn_path::TurnPathParts {
+            tokens: tokens.clone(),
             clock: clock.clone(),
+            paths: mixdog_store::paths::Paths { plugin_root: workspace.path().join("plugin"), data_dir: data },
+            provider_builder: Arc::new(OneProvider(provider.clone())),
+            accounting,
+            effort_judge: judge,
             files: Arc::new(MockFileService::default()),
-            processes: processes.clone(),
-            io,
+            processes,
             policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
             connectors,
             resolver: Arc::new(PoolResolver(pool.clone())),
             gate_env: Arc::new(Env),
             blobs: Arc::new(NoBlobs),
-            reaction_targets: Arc::default(),
-            effort_judge: None,
-            seams: super::super::host_seams::SeamParts {
-                tools: super::super::session_tools::SessionToolBuilder::new(pool, Arc::new(NoMcp), Arc::new(NoSkills)),
-                todos: crate::ports::todo_view::TodoViews::new(rig.todos.clone(), Arc::new(rig.goals.clone()), rig.work.clone(), Arc::default()),
-                post_tool: Arc::new(NoPostTool),
-                compactors: Arc::new(NoCompactors),
-                hops: None,
-                skills: None,
-                config: Arc::new(Config),
-                ladder: Arc::new(NoLadder),
-                images: None,
-                paths: mixdog_store::paths::Paths { plugin_root: workspace.path().join("plugin"), data_dir: workspace.path().join("data") },
-            },
-            probes: Arc::new(super::super::prewarm::StartupProbes::new(io, processes)),
-            observed: Arc::new(crate::prompt::probes::StartupObservations::new(clock)),
+            tool_pool: pool,
+            mcp: Arc::new(NoMcp),
+            skills_listed: Arc::new(NoSkills),
+            skill_names: Arc::new(NoSkillNames),
+            ext_pool: Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(4)),
+            hook_bus,
+            hook_common: Arc::new(|_| mixdog_mcp::hook_bus::HookCommon::default()),
+            goals: rig.goals.clone(),
+            todos: rig.todos.clone(),
+            work: rig.work.clone(),
+            cycles: Arc::default(),
+            config: Arc::new(Config),
+            settings: super::super::settings::SettingsSources { wiring: Arc::new(NoWiring), attachments: Arc::new(NoAttachmentText), heartbeats: Arc::new(NoMarks), ceilings: Arc::new(NoCeilings), auto_effort: Arc::new(AutoOff) },
+            ladder: Arc::new(NoLadder),
+            deps: Box::new({
+                let store = rig.store.clone();
+                let rig_deps = rig.deps_parts(store);
+                move |runs| {
+                    let mut deps = rig_deps;
+                    deps.runs = runs;
+                    deps
+                }
+            }),
+            compaction: Arc::new(NoWorld),
+            hops: Box::new({
+                let registry_dir = workspace.path().join("catalog");
+                move |_directory, registry| {
+                    let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+                    let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), registry_dir, io);
+                    let catalog = futures::executor::block_on(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata));
+                    super::super::hop_host::HopFactory::new(
+                        super::super::hop_host::HopDeps {
+                            registry: registry.clone(),
+                            catalog: Arc::new(catalog),
+                            config: Arc::new(serde_json::Map::new),
+                            bots: Arc::new(NoBots),
+                            errors: Arc::new(|e| e.message.clone()),
+                            wiring: Arc::new(NoWiring),
+                        },
+                        Arc::new(NoHopSessions),
+                    )
+                }
+            }),
         };
-        let directory = super::super::boot::build_directory(host, |runs| {
-            let mut deps = rig.deps_parts(rig.store.clone());
-            deps.runs = runs;
-            deps
-        });
+        let path = super::super::turn_path::TurnPath::new(parts).expect("turn path");
+        path.registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), "scripted")).await.unwrap();
+        let directory = path.directory.clone();
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
@@ -1124,13 +1272,15 @@ mod tests {
                 .collect()
         };
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while roles().len() < 4 {
-            assert!(tokio::time::Instant::now() < deadline, "the turn did not settle: {:?}", roles());
+        while roles().len() < 4 || lock(&ledger.0).len() < 2 {
+            assert!(tokio::time::Instant::now() < deadline, "the turn did not settle: {:?} ledger={}", roles(), lock(&ledger.0).len());
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         assert_eq!(roles(), ["user", "assistant", "tool", "assistant"]);
         let requests = lock(&provider.requests).clone();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[1].messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool]);
+        let rows = lock(&ledger.0).clone();
+        assert!(rows.iter().all(|r| r.provider == "scripted" && r.model == "m" && r.session_id == id.as_str()), "{rows:?}");
     }
 }
