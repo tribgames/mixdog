@@ -40,7 +40,9 @@ use tokio::sync::mpsc;
 
 use crate::compat;
 use crate::compose::ComposedCore;
+use crate::lifecycle::ReleaseBudgets;
 use crate::lifecycle::new_instance_id;
+use crate::lifecycle::supervise_async;
 
 /// The server and its connection table over one composed core.
 #[derive(Clone)]
@@ -224,12 +226,21 @@ pub struct Shutdown {
 }
 
 impl Shutdown {
-    /// Refuses new connections, closes the open ones with 1001, then runs
-    /// [`ComposedCore::stop`]. Resolves once the core's stop steps are done.
+    /// Refuses new connections, closes the open ones with 1001, then runs the stop of
+    /// [`ComposedCore::stop`] as the daemon's release does: the extension host close and the
+    /// registered stop steps, each under its release budget. Resolves once both are done or over
+    /// budget (the step is then named in the log and abandoned).
     pub async fn run(&self) {
+        self.run_with(ReleaseBudgets::default()).await;
+    }
+
+    async fn run_with(&self, budgets: ReleaseBudgets) {
         self.refusing.store(true, Ordering::Release);
         self.hub.close_all();
-        self.core.stop().await;
+        let core = self.core.clone();
+        supervise_async("closeExtHost", budgets.close_ext_host, async move { core.close_ext_host().await }).await;
+        let core = self.core.clone();
+        supervise_async("stopSteps", budgets.close_data_handles, async move { core.run_stop_steps().await }).await;
     }
 }
 
@@ -414,6 +425,18 @@ mod tests {
             .unwrap();
         assert_eq!(code, Some(CloseCode::InvalidFrame));
         drop(resume);
+    }
+
+    /// The wedged stop step blocks on a future nobody resolves and its budget is zero, so it is over
+    /// budget the moment it starts; `run_with` still returns.
+    #[tokio::test]
+    async fn a_wedged_stop_step_does_not_hold_the_headless_shutdown() {
+        let dir = tempfile::tempdir().unwrap();
+        let (core, outgoing) = core(dir.path()).await;
+        core.on_stop("wedged", std::future::pending());
+        let (_connector, shutdown) = serve_in_process(core, outgoing).unwrap();
+        let budgets = ReleaseBudgets { close_data_handles: std::time::Duration::ZERO, ..ReleaseBudgets::default() };
+        shutdown.run_with(budgets).await;
     }
 
     #[tokio::test]

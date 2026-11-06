@@ -104,9 +104,22 @@ pub struct AssistantText {
     pub replay: String,
 }
 
+/// The background shell jobs a timeout reap stopped (`takeStoppedShellJobs`): `stopped` are
+/// confirmed gone, `stopping` were killed but their processes are not yet confirmed gone.
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+pub struct StoppedShellJobs {
+    pub stopped: Vec<String>,
+    pub stopping: Vec<String>,
+}
+
 /// The session manager, as a worker's turn uses it.
 #[async_trait]
 pub trait TurnSessions: Send + Sync {
+    /// `takeStoppedShellJobs(sessionId)`: the shells the progress watchdog's stop of this
+    /// session's turn ended, read once for the owner's handoff. None by default.
+    fn take_stopped_shell_jobs(&self, _session_id: &str) -> StoppedShellJobs {
+        StoppedShellJobs::default()
+    }
     /// `session.messages.length` (`resolveHandoffMessageStartIndex`), read from the store.
     async fn message_count(&self, session_id: &str) -> usize;
     /// The assistant rows appended from message index `start` on, read from the store.
@@ -187,6 +200,8 @@ pub struct TurnOutcome {
     /// `status === 'done'`: the turn finished; otherwise it was stopped or failed.
     pub done: bool,
     pub result: Option<TurnResult>,
+    /// The progress watchdog stopped the turn (`isAgentProgressWatchdogAbortError(abortCause)`).
+    pub stalled: bool,
 }
 
 pub trait TurnListener: Send + Sync {

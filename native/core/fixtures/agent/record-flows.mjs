@@ -154,6 +154,9 @@ const { providerRosterFiles } = await load('src/runtime/shared/llm/provider-cata
 const { resolvePluginData } = await load('src/runtime/shared/plugin-paths.mjs');
 const { rmSync } = await import('node:fs');
 const { _resetTurnSnapshotForTest } = await load('src/runtime/shared/turn-snapshot.mjs');
+const { AgentStallAbortError } = await load('src/runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs');
+const { armTurnTimeout, reapTurnShellJobs, takeStoppedShellJobs } = await load('src/runtime/agent/orchestrator/session/manager/turn-reap.mjs');
+const { runtimeState } = await load('src/runtime/agent/orchestrator/session/manager/runtime-state.mjs');
 
 /** The loader hook's report of the real review store's calls (see flow-hooks.mjs). */
 const reviewSpy = (calls) => (kind, args, result) => {
@@ -209,6 +212,66 @@ const ATTACHMENT_PARTS = [
   null,
 ];
 
+/** The progress watchdog's idle-stop sentence (`evaluateAgentWatchdogAbort`). */
+const STALE = 'agent task stale (600000ms without stream/tool progress)';
+
+/** Background shells registered when a stalled turn's world opens: offsets are ms from the clock,
+ *  the turn's ask started 5 s before it (`askOffset`). `kill` is what the job's cancel hook
+ *  confirms: `confirmed` / `unconfirmed` set a kill outcome, `none` leaves a promoted job. */
+const SHELL_JOBS = [
+  { id: 'old', startedOffset: -20000, kill: 'confirmed' },
+  { id: 'mine-a', startedOffset: -3000, kill: 'confirmed' },
+  { id: 'mine-b', startedOffset: -1000, kill: 'unconfirmed' },
+  { id: 'mine-c', startedOffset: 0, kill: 'none' },
+  { id: 'theirs', startedOffset: -1000, session: 'sess_other', kill: 'confirmed' },
+];
+const ASK_OFFSET = -5000;
+const SHELL_SESSION = 'sess_w1';
+let shellWorlds = 0;
+let dryWorlds = 0;
+/** Task ids carry a per-world prefix; the golden names the jobs by their own ids. */
+const unprefixed = (value) => JSON.parse(JSON.stringify(value).replace(/real\d+_/g, ''));
+
+/** Registers `jobs` as running background shells; returns their task ids. */
+function registerShellJobs(prefix, jobs) {
+  return jobs.map((job) => {
+    const taskId = `${prefix}${job.id}`;
+    bg.registerBackgroundTask({
+      taskId,
+      startedAtMs: START + job.startedOffset,
+      surface: 'shell',
+      label: job.id,
+      meta: { sessionId: job.session ?? SHELL_SESSION },
+      cancel: () => {
+        const task = bg.getBackgroundTask(taskId);
+        if (job.kill === 'confirmed') task.cancelOutcome = Promise.resolve({ terminated: true });
+        else if (job.kill === 'unconfirmed') task.cancelOutcome = Promise.resolve({ terminated: false });
+      },
+    });
+    return taskId;
+  });
+}
+
+/** The watchdog's stop of the session's turn: the reap armed before the abort, and the sweep after
+ *  the turn unwound (`armTurnTimeout`, `reapTurnShellJobs`). */
+function reapStalledTurn() {
+  armTurnTimeout(SHELL_SESSION);
+  reapTurnShellJobs(SHELL_SESSION, runtimeState.get(SHELL_SESSION));
+}
+
+/** What real Node's reap leaves for the handoff, from a world of its own (the reap is one-shot per
+ *  task): the stopped / stopping job ids the Rust host takes as its answer. */
+async function dryReap(scenario) {
+  const prefix = `dry${(dryWorlds += 1)}_`;
+  registerShellJobs(prefix, scenario.shellJobs);
+  runtimeState.set(SHELL_SESSION, { askStartedAt: START + ASK_OFFSET, closed: false, controller: new AbortController() });
+  reapStalledTurn();
+  const taken = await takeStoppedShellJobs(SHELL_SESSION);
+  runtimeState.delete(SHELL_SESSION);
+  const alias = (ids) => ids.map((id) => id.slice(prefix.length));
+  return { stopped: alias(taken.stopped), stopping: alias(taken.stopping) };
+}
+
 const spawnScenarios = [
   { name: 'a_spawn_runs_to_completion', args: { agent: 'worker', prompt: 'do it', tag: 'scout' }, steps: [{ tool: 'diff-1' }, { terminal: { content: 'done' } }, { return: { content: 'done' } }] },
   { name: 'a_generated_tag_is_used', args: { agent: 'worker', prompt: 'do it' }, nextTag: 'worker-7', steps: [{ return: { content: 'ok' } }] },
@@ -242,6 +305,17 @@ const spawnScenarios = [
   { name: 'a_respawn_is_marked', args: { agent: 'worker', prompt: 'p', tag: 't' }, respawned: true, steps: [{ return: { content: 'ok' } }] },
   { name: 'an_abnormal_finish_fails_the_job', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ return: { content: '', termination: 'empty' } }] },
   { name: 'a_throwing_turn_fails_the_job', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ throw: { message: 'turn broke' } }] },
+  // The progress watchdog stopped the turn (a real `AgentStallAbortError`): what the owner gets.
+  { name: 'a_stalled_turn_hands_its_partial_output_to_the_owner', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ say: 'first half' }, { say: 'second half' }, { stall: STALE }] },
+  { name: 'a_stall_may_carry_its_own_handoff', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ say: 'ignored' }, { stall: STALE, partialHandoff: 'carried text' }] },
+  { name: 'a_stall_with_an_empty_own_handoff_fails_the_job', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ say: 'unused' }, { stall: STALE, partialHandoff: '' }] },
+  { name: 'a_stall_with_no_output_fails_the_job', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ stall: 'agent first transport stale (120000ms)' }] },
+  { name: 'a_first_output_stall_with_output_hands_it_over', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ say: 'some text' }, { stall: 'agent first semantic response stale (600000ms)' }] },
+  { name: 'a_row_of_only_a_dot_is_no_output', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ say: '.' }, { stall: STALE }] },
+  { name: 'an_abort_that_is_not_a_stall_fails_the_job', args: { agent: 'worker', prompt: 'p', tag: 't' }, steps: [{ say: 'some text' }, { throw: { message: 'This operation was aborted' } }] },
+  { name: 'a_stall_names_the_shell_jobs_it_stopped', args: { agent: 'worker', prompt: 'p', tag: 't' }, shellJobs: SHELL_JOBS, steps: [{ say: 'half done' }, { stall: STALE }] },
+  { name: 'a_stall_with_no_output_names_the_shell_jobs_on_the_error', args: { agent: 'worker', prompt: 'p', tag: 't' }, shellJobs: SHELL_JOBS, steps: [{ stall: STALE }] },
+  { name: 'a_stall_names_no_shell_job_when_the_turn_started_none', args: { agent: 'worker', prompt: 'p', tag: 't' }, shellJobs: [{ id: 'old', startedOffset: -20000, kill: 'confirmed' }, { id: 'theirs', startedOffset: -1000, session: 'sess_other', kill: 'confirmed' }], steps: [{ say: 'half done' }, { stall: STALE }] },
 ];
 
 function newSpawnWorld(scenario) {
@@ -265,6 +339,8 @@ function newSpawnWorld(scenario) {
     }
     return holds[n];
   };
+  const shellIds = scenario.shellJobs ? registerShellJobs(`real${(shellWorlds += 1)}_`, scenario.shellJobs) : [];
+  if (scenario.shellJobs) runtimeState.set(SHELL_SESSION, { askStartedAt: START + ASK_OFFSET, closed: false, controller: new AbortController() });
   const mgr = {
     getSession: (id) =>
       sessionsById[id] ?? (id === 'lead' && (scenario.acting || scenario.chain) ? { id: 'lead', agent: scenario.acting || '', turnBotChain: scenario.chain || [] } : null),
@@ -277,6 +353,13 @@ function newSpawnWorld(scenario) {
         else if (step.terminal) hooks.onTerminalResult?.(turnResult(step.terminal));
         else if (step.return) return turnResult(step.return);
         else if (step.throw) throw new Error(step.throw.message);
+        else if (step.say !== undefined) session.messages.push({ role: 'assistant', content: step.say });
+        else if (step.stall !== undefined) {
+          if (scenario.shellJobs) reapStalledTurn();
+          const error = new AgentStallAbortError(step.stall);
+          if (step.partialHandoff !== undefined) error.partialHandoff = step.partialHandoff;
+          throw error;
+        }
       }
       return turnResult({ content: '' });
     },
@@ -368,7 +451,7 @@ function newSpawnWorld(scenario) {
     prepareSpawn,
     runSpawn: runner.runSpawn,
   });
-  return { root, source, agents, config, calls, notices, session, mgr, release: (n) => hold(n).resolve(), prepareSpawn, deferred, setJob: (j) => void (job = j), getJob: () => job };
+  return { root, source, agents, config, calls, notices, session, shellIds, mgr, release: (n) => hold(n).resolve(), prepareSpawn, deferred, setJob: (j) => void (job = j), getJob: () => job };
 }
 
 /** What the real helpers answer about an agent, which the Rust side takes as its host's answers. */
@@ -394,9 +477,11 @@ function hostAnswers(w, scenario) {
 const spawn = [];
 for (const scenario of spawnScenarios) {
   clock = START;
+  if (scenario.shellJobs) scenario.dry = await dryReap(scenario);
   const w = newSpawnWorld(scenario);
   const context = { callerSessionId: 'lead', ownerSessionId: scenario.owner ?? 'lead', clientHostPid: 4242, cwd: scenario.callerCwd || '/work' };
   const host = hostAnswers(w, scenario);
+  if (scenario.shellJobs) host.stoppedShellJobs = scenario.dry;
   const lockOwner = scenario.lockOwner ?? 'lead';
   if (scenario.lock) gate.setWorkspaceCwdLock(lockOwner, scenario.lock);
   // A populated provider-model cache: the roster file the window lookup reads.
@@ -416,6 +501,11 @@ for (const scenario of spawnScenarios) {
   await settle();
   await settle();
   if (scenario.lock) gate.setWorkspaceCwdLock(lockOwner, null);
+  const shellStatuses = scenario.shellJobs ? Object.fromEntries(w.shellIds.map((id) => [id.replace(/^real\d+_/, ''), bg.getBackgroundTask(id)?.status ?? null])) : null;
+  if (scenario.shellJobs) {
+    runtimeState.delete(SHELL_SESSION);
+    bg.cancelBackgroundTasks({ surface: 'shell', notify: false, reason: 'recorder cleanup' });
+  }
   for (const file of rosterFiles) rmSync(file, { force: true });
   const final = task
     ? idOf(
@@ -450,10 +540,18 @@ for (const scenario of spawnScenarios) {
       createThrows: scenario.createThrows || null,
       cancel: scenario.cancel || null,
       steps: scenario.steps || [],
+      ...(scenario.shellJobs ? { shellJobs: scenario.shellJobs, askOffset: ASK_OFFSET } : {}),
       canonical: scenario.surface !== 'none',
     },
     host,
-    result: { startError, pending, calls: idOf(w.calls, task?.taskId), notices: idOf(w.notices, task?.taskId), final },
+    result: {
+      startError,
+      pending,
+      calls: unprefixed(idOf(w.calls, task?.taskId)),
+      notices: unprefixed(idOf(w.notices, task?.taskId)),
+      final: unprefixed(final),
+      ...(shellStatuses ? { shellTasks: shellStatuses } : {}),
+    },
   });
 }
 write('spawn.json', spawn);

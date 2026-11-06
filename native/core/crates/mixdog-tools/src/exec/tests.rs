@@ -1214,3 +1214,59 @@ async fn a_kill_that_cannot_be_sent_holds_the_row_and_a_later_kill_clears_it() {
     assert!(control.hold("task-x").is_none());
     assert!(control.hold("task-y").is_some(), "the other job is still held");
 }
+
+/// `turn-reap.mjs` over background shells (`record-agent-watchdog.mjs`, `reaps`): the watchdog's
+/// stop of a turn ends the shells the turn started (at or after its ask, its own session's only)
+/// without waiting, and the handoff splits them into confirmed gone and still stopping, exactly
+/// as real Node did. A kill that cannot be sent is Node's unconfirmed kill.
+#[tokio::test]
+async fn a_stalled_turns_reap_stops_and_splits_the_shells_as_node_did() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let golden: JsonValue =
+        serde_json::from_str(include_str!("../../../../fixtures/agent-watchdog/golden.json")).unwrap();
+    let names = |value: &JsonValue| -> std::collections::BTreeSet<String> {
+        value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect()
+    };
+    for case in golden["reaps"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let rig = rig();
+        let clock = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut config = rig.runtime.config.clone_for_test();
+        config.now_ms = {
+            let clock = clock.clone();
+            Arc::new(move || clock.load(SeqCst))
+        };
+        let runtime = ExecRuntime::new(config);
+        let shell = ShellTool::new(runtime.clone());
+        let control = ShellControl::new(runtime.clone(), rig.manager.clone());
+        let owner = ThreadId::from(case["session"].as_str().unwrap());
+        let now = 1_000_000_i64;
+        for job in case["jobs"].as_array().unwrap() {
+            clock.store((now + job["startedOffset"].as_i64().unwrap()) as u64, SeqCst);
+            let mut call = ctx(&rig, job["id"].as_str().unwrap());
+            call.thread_id = ThreadId::from(job["session"].as_str().unwrap_or(owner.as_str()));
+            shell.call(&call, serde_json::json!({"command": "sleep 100", "background": true})).await.unwrap();
+        }
+        rig.processes.refuse_kill.store(case["kill"] == "unconfirmed", SeqCst);
+        control.reap_since(&owner, (now + case["askOffset"].as_i64().unwrap()) as u64);
+        let reaped = names(&case["cancelled"]);
+        if case["kill"] != "unconfirmed" {
+            for id in &reaped {
+                let job = runtime.get(&owner, &format!("task-{id}")).unwrap();
+                tokio::time::timeout(std::time::Duration::from_secs(5), job.settled()).await.unwrap();
+            }
+        }
+        for job in case["jobs"].as_array().unwrap() {
+            let id = job["id"].as_str().unwrap();
+            let session = ThreadId::from(job["session"].as_str().unwrap_or(owner.as_str()));
+            let running = runtime.get(&session, &format!("task-{id}")).unwrap().is_running();
+            let held = control.tasks().get(&format!("task-{id}")).unwrap().termination_unconfirmed;
+            assert_eq!(!(running && !held), reaped.contains(id), "{name}: {id} stopped or held");
+        }
+        let (stopped, stopping) = control.take_reaped(&owner);
+        let strip = |ids: Vec<String>| ids.into_iter().map(|id| id.trim_start_matches("task-").to_owned()).collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(strip(stopped), names(&case["stopped"]), "{name}: stopped");
+        assert_eq!(strip(stopping), names(&case["stopping"]), "{name}: stopping");
+        assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
+    }
+}

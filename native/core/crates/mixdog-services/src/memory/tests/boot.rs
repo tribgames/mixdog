@@ -39,6 +39,10 @@ async fn a_started_stack_serves_the_close_ingest_and_the_turn_search_copy() {
         progress: None,
         sensitive: Arc::new(SensitiveStore::default()),
         lane: mixdog_rt::testing::tokens().durability_io,
+        maintenance: mixdog_rt::testing::tokens().maintenance_io,
+        transcripts: None,
+        processes: crate::tidy::process::Processes::for_tests(),
+        cancel: tokio_util::sync::CancellationToken::new(),
     })
     .await
     .expect("memory starts");

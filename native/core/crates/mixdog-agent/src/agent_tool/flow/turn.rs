@@ -4,9 +4,9 @@
 //! (abnormal-empty finishes promoted to errors), the cancelled turn's partial handoff and
 //! terminal accounting.
 //!
-//! Not ported: the watchdog's partial handoff and the stopped shell jobs it names. Both exist
-//! only for a turn the progress watchdog aborted on silence (or a turn timeout reaping its jobs);
-//! a user's abort never reaches them (`armTurnTimeoutOnProviderError` skips an aborted turn).
+//! A turn the progress watchdog aborted on silence hands its owner the partial output behind the
+//! stop (`watchdogStoppedHandoff`) and names the background shells the stop ended
+//! (`takeStoppedShellJobs`); a user's abort never reaches that branch.
 
 use std::sync::Arc;
 
@@ -21,6 +21,7 @@ use super::reconcile::JobHandle;
 use super::reconcile::TerminalHook;
 use super::reconcile::reconcile_cancelled;
 use super::reconcile::reconcile_failed;
+use super::reconcile::reconcile_watchdog_partial;
 use super::reconcile::reconcile_finally;
 use super::result::WorkerResult;
 use super::result::completion_value;
@@ -35,6 +36,9 @@ use super::seams::TurnReviews;
 use super::seams::TurnSessions;
 use super::seams::WorkerInbox;
 use super::worker_turns::TurnOwner;
+use crate::agent_tool::watchdog::is_watchdog_abort;
+use crate::agent_tool::watchdog::stopped_handoff;
+use crate::agent_tool::watchdog::stopped_jobs_note;
 
 /// A prepared worker's turn.
 pub struct TurnPlan {
@@ -131,7 +135,7 @@ impl TurnRunner {
             hooks: TurnHooks { submission_id, notify: worker_notify(self.inbox.clone(), &plan.session_id), on_tool_result, on_terminal_result },
             slot: job.and_then(|j| j.slot()),
         };
-        let failure = match self.sessions.run_turn(request).await {
+        let mut failure = match self.sessions.run_turn(request).await {
             Ok(result) => {
                 // The early preview does not promise body suppression, so the board's
                 // notification fires exactly once with output via the reconcile/finally path.
@@ -157,7 +161,31 @@ impl TurnRunner {
             *status = FinalStatus::Cancelled;
             return Err(failure.message);
         }
+        // The watchdog stopped the turn on silence: with partial output the owner gets it as the
+        // result and the job fails as stalled; without any, the stop is the failure below.
+        if is_watchdog_abort(&failure.message) {
+            let rows = self.sessions.assistant_texts(&plan.session_id, start).await;
+            if let Some(partial) = turn_partial_handoff(failure.partial_handoff.as_deref(), &rows).filter(|p| !p.is_empty()) {
+                *status = FinalStatus::Idle;
+                let mut value = plan.identity.clone();
+                let jobs = self.sessions.take_stopped_shell_jobs(&plan.session_id);
+                value.insert("content".into(), Value::String(stopped_handoff(&failure.message, &partial, &jobs.stopped, &jobs.stopping)));
+                value.insert("stallAbort".into(), Value::Bool(true));
+                let value = WorkerResult { value: Value::Object(value), error: None };
+                if let Some(job) = job {
+                    job.set_terminal_value(value.clone());
+                    reconcile_watchdog_partial(job, &value);
+                }
+                return Ok(value);
+            }
+        }
         *status = FinalStatus::Error;
+        // `noteStoppedShellJobsOnError`: a failure with no partial output still names the shells
+        // the stop ended, so the owner learns them.
+        let jobs = self.sessions.take_stopped_shell_jobs(&plan.session_id);
+        if let Some(note) = stopped_jobs_note(&jobs.stopped, &jobs.stopping) {
+            failure.message = format!("{} {note}", failure.message);
+        }
         if let Some(job) = job {
             reconcile_failed(job, &failure, &plan.identity);
         }

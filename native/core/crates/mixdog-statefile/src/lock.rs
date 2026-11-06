@@ -168,8 +168,10 @@ fn read_owner(path: &Path) -> Owner {
     }
 }
 
+/// Whether a process with this pid exists (`process.kill(pid, 0)`): only "no such process"
+/// proves it gone, so a process this one may not signal exists.
 #[cfg(unix)]
-fn process_exists(pid: u32) -> bool {
+pub fn process_exists(pid: u32) -> bool {
     // SAFETY: signal 0 only checks that the process can be signalled.
     if unsafe { libc::kill(pid as libc::pid_t, 0) } == 0 {
         return true;
@@ -177,8 +179,10 @@ fn process_exists(pid: u32) -> bool {
     io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
 }
 
+/// Whether a process with this pid exists (`process.kill(pid, 0)`): only "no such process"
+/// proves it gone, so a process this one may not signal exists.
 #[cfg(windows)]
-fn process_exists(pid: u32) -> bool {
+pub fn process_exists(pid: u32) -> bool {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
     use windows_sys::Win32::Foundation::GetLastError;

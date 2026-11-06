@@ -14,12 +14,13 @@ use serde_json::Map;
 use serde_json::Value;
 
 use super::host::BROWSER_UNAVAILABLE;
+use super::host::HostCommandError;
 use super::host::HostCommands;
+use super::host::command_cancelled;
 use super::host::browser_output;
 use super::host::command_error;
 use crate::orch::schema::value_error;
 use crate::orch::util::JsStr;
-use crate::orch::util::cancelled;
 use crate::orch::util::invalid;
 use crate::orch::util::spec_from_def;
 
@@ -668,13 +669,10 @@ impl Tool for BrowserTool {
         if input.to_string().len() > MAX_REQUEST_BYTES {
             return Err(invalid("input", format!("browser command exceeds {MAX_REQUEST_BYTES} bytes")));
         }
-        let answer = tokio::select! {
-            biased;
-            _ = ctx.cancel.cancelled() => return Err(cancelled()),
-            r = self.host.browser(&ctx.thread_id, &call.action, input) => r,
-        };
-        match answer {
+        match self.host.browser(&ctx.thread_id, &call.action, input, &ctx.cancel).await {
             Ok(value) => browser_output(&value),
+            // An observation can be asked again; a state-changing action may already have run.
+            Err(HostCommandError::Cancelled) => Err(command_cancelled("browser", !OBSERVATION_ACTIONS.contains(&&*call.action))),
             Err(error) => Err(command_error(BROWSER_UNAVAILABLE, error)),
         }
     }

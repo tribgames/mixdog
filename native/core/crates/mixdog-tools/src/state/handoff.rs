@@ -282,8 +282,8 @@ impl HandoffUserTool {
     }
 
     /// A value from the host's page facts, `None` when the desktop is absent or refuses.
-    async fn page(&self, thread: &ThreadId, action: &str, input: Value) -> Option<Value> {
-        let value = self.host.browser(thread, action, input).await.ok()?;
+    async fn page(&self, thread: &ThreadId, action: &str, input: Value, cancel: &mixdog_rt::CancellationToken) -> Option<Value> {
+        let value = self.host.browser(thread, action, input, cancel).await.ok()?;
         value.is_object().then_some(value)
     }
 
@@ -300,7 +300,7 @@ impl HandoffUserTool {
             if !h.identity.tab.is_empty() {
                 input["tab"] = json!(h.identity.tab);
             }
-            let facts = self.page(thread, "secret_bind", input).await;
+            let facts = self.page(thread, "secret_bind", input, &ctx.cancel).await;
             let origin = facts.as_ref().and_then(|f| f.get("origin")).and_then(Value::as_str).filter(|o| !o.is_empty());
             let form = facts.as_ref().and_then(|f| f.get("form")).and_then(Value::as_str).filter(|o| !o.is_empty());
             let refused = match (origin, form) {
@@ -354,7 +354,7 @@ impl HandoffUserTool {
             "user_skipped".to_owned()
         } else {
             let filled = if h.surface == "browser" {
-                let value = self.page(thread, "secret_input", json!({"request_id": request_id})).await;
+                let value = self.page(thread, "secret_input", json!({"request_id": request_id}), &ctx.cancel).await;
                 value.and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default()
             } else {
                 self.env
@@ -378,7 +378,7 @@ impl HandoffUserTool {
         let fill_id = h.login.as_ref().map(|_| (self.ids)()).unwrap_or_default();
         let accounts = match &h.login {
             Some(login) => self
-                .page(thread, "login_accounts", tab_input(json!({"url": login.url, "request_id": fill_id})))
+                .page(thread, "login_accounts", tab_input(json!({"url": login.url, "request_id": fill_id})), &ctx.cancel)
                 .await
                 .and_then(|v| v.get("accounts").cloned())
                 .filter(|a| a.as_array().is_some_and(|a| !a.is_empty())),
@@ -405,7 +405,7 @@ impl HandoffUserTool {
             return Err(cancelled());
         }
         let page_url = if decided(&resolution).is_some() && h.surface == "browser" {
-            self.page(thread, "page_url", tab_input(json!({})))
+            self.page(thread, "page_url", tab_input(json!({})), &ctx.cancel)
                 .await
                 .and_then(|v| v.get("url").and_then(Value::as_str).map(str::to_owned))
                 .unwrap_or_default()

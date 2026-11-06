@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use super::recall::{CASES, Provider, SEED, load_seed};
 use crate::memory::embed::engine::EmbedConfig;
 use crate::memory::embed::provider::EmbeddingProvider;
+use crate::memory::ingest::embed_flush::RawEmbedFlush;
 use crate::memory::ingest::{SessionIngest, system_now};
 use crate::memory::pg::db::Schema;
 use crate::memory::recall::period::Clock;
@@ -129,7 +130,7 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
         estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
         trace: None,
     });
-    let ingest = SessionIngest::new(db.clone(), None, None, system_now(), mixdog_rt::testing::tokens().durability_io);
+    let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, system_now(), mixdog_rt::testing::tokens().durability_io);
     let memory = Arc::new(LocalMemory::new(db, pg.dir.path().join("data"), recall.clone(), ingest, mixdog_rt::testing::tokens().durability_io));
     let service = MemoryService::new(memory, Arc::new(Sessions { session: None, cwd: None, title: String::new() }));
 
@@ -157,7 +158,7 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
         title: String::new(),
     };
     let scoped_db = service_db(&pg).await;
-    let ingest = SessionIngest::new(scoped_db.clone(), None, None, system_now(), mixdog_rt::testing::tokens().durability_io);
+    let ingest = SessionIngest::new(scoped_db.clone(), Arc::new(RawEmbedFlush::new(scoped_db.clone(), None)), None, system_now(), mixdog_rt::testing::tokens().durability_io);
     let service = MemoryService::new(
         Arc::new(LocalMemory::new(scoped_db, pg.dir.path().join("data"), recall.clone(), ingest, mixdog_rt::testing::tokens().durability_io)),
         Arc::new(sessions),

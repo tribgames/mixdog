@@ -268,7 +268,7 @@ impl SessionTitles {
         let title = compact_session_title(&raw);
         self.log(&format!("generated id={id} stage={} title={}", stage.name(), serde_json::to_string(&title).unwrap_or_default()));
         if !title.is_empty() {
-            self.promote(id, &title, stage).await.map_err(|error| TitleError::Failed(error))?;
+            self.promote(id, &title, stage).await.map_err(TitleError::Failed)?;
         }
         Ok(())
     }
@@ -457,7 +457,7 @@ impl StoredTitles {
                 ("title".to_owned(), json!(normalized)),
                 ("titleLocked".to_owned(), json!(true)),
                 ("titleSource".to_owned(), json!("ai")),
-                ("titleUpdatedAt".to_owned(), json!(self.clock.now_ms() as i64)),
+                ("titleUpdatedAt".to_owned(), json!(self.clock.now_ms())),
             ]);
             match self.threads.patch_header_if(&thread, expect, set, Vec::new()).await {
                 Ok(None) => return Ok(AiTitle::Set(normalized)),
@@ -514,7 +514,7 @@ impl TitlePromote for StoredTitles {
             let set = Map::from_iter([
                 ("title".to_owned(), json!(normalized)),
                 ("generatedTitleStage".to_owned(), json!(stage)),
-                ("titleUpdatedAt".to_owned(), json!(self.clock.now_ms() as i64)),
+                ("titleUpdatedAt".to_owned(), json!(self.clock.now_ms())),
             ]);
             match self.threads.patch_header_if(&thread, expect, set, Vec::new()).await {
                 Ok(None) => return Ok(true),

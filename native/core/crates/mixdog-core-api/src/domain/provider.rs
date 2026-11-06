@@ -802,6 +802,13 @@ pub trait WireCodec: Send + Sync {
 
 /// One attempt's event stream. Ends with `Ok(Completed)` or one `Err`.
 /// Dropping it aborts the attempt.
+/// A provider's first-response budget (`{ transportMs, semanticMs }`), both positive.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FirstResponseBudget {
+    pub transport_ms: i64,
+    pub semantic_ms: i64,
+}
+
 #[async_trait]
 pub trait ModelStream: Send {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>>;
@@ -847,6 +854,14 @@ pub trait ProviderAdapter: Send + Sync {
     /// `provider.nativeDocuments`: `Some(false)` means the provider takes no document block of any
     /// kind, so every document variant is lowered to text. Unset by default.
     fn native_documents(&self) -> Option<bool> {
+        None
+    }
+    /// `provider.firstResponseBudget(model, { modelParameters })`: the longest one send to `model`
+    /// may wait for its response headers and its first output, which the progress watchdog's
+    /// first-response deadlines are floored above. `None` keeps the watchdog's default window. An
+    /// adapter that has a window of its own (a model proxy reporting one, a priority tier with a
+    /// longer first chunk) declares it here.
+    fn first_response_budget(&self, _model: &str, _parameters: Option<&JsonValue>) -> Option<FirstResponseBudget> {
         None
     }
 }

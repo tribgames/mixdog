@@ -227,7 +227,7 @@ fn mcp_server_trigger(server: &str, tools: &[Value], instructions: &Value) -> St
     if derived.is_empty() { format!("{} MCP server tools.", title_case_server(server)) } else { compact_manifest_text(&derived, 98) }
 }
 
-fn server_label(server: &str) -> String {
+pub(super) fn server_label(server: &str) -> String {
     sanitize_name(&format!("mcp__{server}"))
 }
 

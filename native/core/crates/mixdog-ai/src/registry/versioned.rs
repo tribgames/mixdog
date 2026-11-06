@@ -80,6 +80,9 @@ impl ProviderAdapter for VersionedAdapter {
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         self.inner.wire_routing()
     }
+    fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
+        self.inner.first_response_budget(model, parameters)
+    }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.versions.warm(self.dialect).await;

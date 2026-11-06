@@ -15,6 +15,7 @@ use mixdog_core_api::ids::Method;
 use base64::engine::general_purpose::STANDARD;
 use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::ToolError;
+use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
@@ -22,7 +23,10 @@ use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
 use serde_json::Value;
 
+use mixdog_rt::CancellationToken;
+
 use crate::orch::util::action_failed;
+use crate::orch::util::cancelled;
 use crate::orch::util::unavailable;
 
 /// The JSON-RPC code the host answers a failed command with.
@@ -43,15 +47,18 @@ pub enum HostCommandError {
         message: String,
         timing: Option<Value>,
     },
+    /// The caller's token fired while the command waited on the desktop.
+    Cancelled,
 }
 
 /// The typed `host/*` command channel for one thread: the server's outgoing router resolves the
 /// thread's host claimant and keeps the JSON-RPC error intact.
 #[async_trait]
 pub trait HostCommands: Send + Sync {
-    async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError>;
+    /// Ends with `HostCommandError::Cancelled` when `cancel` fires first, abandoning the request.
+    async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError>;
     /// `cwd` is the session's working directory (`options.cwd`), which the pane resolves files against.
-    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError>;
+    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError>;
 }
 
 /// The real [`HostCommands`]: `host/browser/command` and `host/visualize/command` over the
@@ -70,9 +77,12 @@ impl ChannelHostCommands {
         capability: HostCapability,
         method: Method,
         params: Value,
+        cancel: &CancellationToken,
     ) -> Result<JsonValue, HostCommandError> {
-        match self.channel.request(capability, method, params).await {
+        match self.channel.request_scoped(capability, method, params, cancel).await {
             Ok(value) => Ok(value),
+            // The channel answers a cancel as `capabilityUnavailable{cancelled}`; the token says which it was.
+            Err(HostError::Core(CoreError::CapabilityUnavailable { .. })) if cancel.is_cancelled() => Err(HostCommandError::Cancelled),
             Err(HostError::Rpc { code, message, data }) => Err(HostCommandError::Rpc {
                 code,
                 message,
@@ -93,14 +103,14 @@ impl ChannelHostCommands {
 
 #[async_trait]
 impl HostCommands for ChannelHostCommands {
-    async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
+    async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
         let params = serde_json::json!({ "threadId": thread, "action": action, "input": input });
-        self.command(HostCapability::Browser, Method("host/browser/command"), params).await
+        self.command(HostCapability::Browser, Method("host/browser/command"), params, cancel).await
     }
 
-    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
+    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
         let params = serde_json::json!({ "sessionId": thread, "cwd": cwd, "action": action, "input": input });
-        self.command(HostCapability::Visualize, Method("host/visualize/command"), params).await
+        self.command(HostCapability::Visualize, Method("host/visualize/command"), params, cancel).await
     }
 }
 
@@ -108,6 +118,7 @@ impl HostCommands for ChannelHostCommands {
 /// is the pipeline's marker), or the fixed unavailable wording without a host.
 pub fn command_error(tool_unavailable: &str, error: HostCommandError) -> ToolError {
     match error {
+        HostCommandError::Cancelled => cancelled(),
         HostCommandError::NoHost => unavailable("desktopHost", tool_unavailable),
         HostCommandError::Rpc { message, .. } => {
             let message = if mixdog_js::js_trim(&message).is_empty() {
@@ -118,6 +129,14 @@ pub fn command_error(tool_unavailable: &str, error: HostCommandError) -> ToolErr
             action_failed("browser", message)
         }
     }
+}
+
+/// A command the caller's cancel ended, in Node's words (`browser-bridge/client.mjs` `settleFailure`,
+/// `visualize-bridge/client.mjs`): `<tool> command cancelled`, and for a state-changing action
+/// (`may_have_run`) that it may already have executed and was not replayed.
+pub fn command_cancelled(tool: &str, may_have_run: bool) -> ToolError {
+    let tail = if may_have_run { "; the action may have executed and was not replayed" } else { "" };
+    ToolError::new(ToolErrorCode::Cancelled, format!("Error: {tool} command cancelled{tail}"))
 }
 
 fn bad(message: &str) -> ToolError {
@@ -190,13 +209,29 @@ mod tests {
         let commands = ChannelHostCommands::new(channel.clone());
         let thread = ThreadId::from("t1");
         assert_eq!(
-            commands.browser(&thread, "open", json!({})).await,
+            commands.browser(&thread, "open", json!({}), &CancellationToken::new()).await,
             Err(HostCommandError::NoHost)
         );
         assert_eq!(
-            commands.visualize(&thread, "/w", "open", json!({})).await,
+            commands.visualize(&thread, "/w", "open", json!({}), &CancellationToken::new()).await,
             Err(HostCommandError::NoHost)
         );
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_caller_ends_the_command_as_cancelled_not_as_a_missing_host() {
+        use mixdog_core_api::mock::MockHostChannel;
+
+        let commands = ChannelHostCommands::new(Arc::new(MockHostChannel::default()));
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        assert_eq!(commands.browser(&ThreadId::from("t1"), "open", json!({}), &cancel).await, Err(HostCommandError::Cancelled));
+        assert_eq!(command_cancelled("browser", false).message_for_model, "Error: browser command cancelled");
+        assert_eq!(
+            command_cancelled("browser", true).message_for_model,
+            "Error: browser command cancelled; the action may have executed and was not replayed"
+        );
+        assert_eq!(command_cancelled("visualize", false).message_for_model, "Error: visualize command cancelled");
     }
 
     #[test]

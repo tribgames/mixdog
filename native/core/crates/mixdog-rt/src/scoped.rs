@@ -71,9 +71,55 @@ impl<'a> Scope<'a> {
     }
 }
 
+impl Scope<'_> {
+    /// [`Scope::run`] for a callee that can wind itself down: when cancel or the deadline ends
+    /// the wait, `on_end` fires the callee's own token and the work keeps `grace` more to return
+    /// (partial output, a killed process tree) before it is dropped. A result inside the grace
+    /// is `Done`; otherwise the original ending is reported.
+    pub async fn run_with_grace<F: Future + Unpin>(self, work: &mut F, grace: std::time::Duration, on_end: impl FnOnce()) -> Scoped<F::Output> {
+        let ended = match self.run(&mut *work).await {
+            Scoped::Done(out) => return Scoped::Done(out),
+            ended => ended,
+        };
+        on_end();
+        match Scope::new().deadline(Some(Instant::now() + grace)).run(work).await {
+            Scoped::Done(out) => Scoped::Done(out),
+            _ => ended,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_callee_that_returns_inside_the_grace_keeps_its_result() {
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let signalled = CancellationToken::new();
+        let mut work = Box::pin({
+            let signalled = signalled.clone();
+            async move {
+                signalled.cancelled().await;
+                "partial"
+            }
+        });
+        let out = Scope::new()
+            .cancel(&cancel)
+            .run_with_grace(&mut work, std::time::Duration::from_secs(60), || signalled.cancel())
+            .await;
+        assert_eq!(out, Scoped::Done("partial"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_callee_that_ignores_its_signal_is_dropped_when_the_grace_ends() {
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let mut work = Box::pin(std::future::pending::<()>());
+        let out = Scope::new().cancel(&cancel).run_with_grace(&mut work, std::time::Duration::from_millis(1500), || {}).await;
+        assert_eq!(out, Scoped::Cancelled);
+    }
 
     #[tokio::test]
     async fn a_cancelled_token_releases_a_wait_that_never_ends() {
@@ -90,7 +136,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_wins_over_the_deadline_and_work_that_is_pending_loses_to_both() {
+    async fn cancel_wins_over_the_deadline_and_over_finished_work() {
         let cancel = CancellationToken::new();
         cancel.cancel();
         let out = Scope::new().cancel(&cancel).deadline(Some(Instant::now())).run(async { 1 }).await;

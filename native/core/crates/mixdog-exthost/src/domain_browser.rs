@@ -46,7 +46,7 @@ impl DomainService for BrowserService {
         if let Some(input) = req.params.get("input") {
             command.insert("input".into(), input.clone());
         }
-        let result = forward(&*self.channel, HostCapability::Browser, "browser", "host/browser/command", Value::Object(command)).await?;
+        let result = forward(&*self.channel, HostCapability::Browser, "browser", "host/browser/command", Value::Object(command), &req.ctx.cancel).await?;
         Ok(Reply::Value(result))
     }
 

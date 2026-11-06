@@ -55,6 +55,7 @@ pub use lock::LockError;
 pub use lock::LockOpts;
 pub use lock::default_timeout;
 pub use lock::lock_path;
+pub use lock::process_exists;
 pub use publish::Opts;
 pub use publish::PublishFailure;
 pub use publish::Step;

@@ -2,3 +2,4 @@
 
 pub mod cluster;
 pub mod db;
+pub mod runtime_install;

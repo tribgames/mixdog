@@ -6860,5 +6860,2553 @@
         "result": null
       }
     }
+  },
+  {
+    "name": "a_stalled_turn_hands_its_partial_output_to_the_owner",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "say": "first half"
+        },
+        {
+          "say": "second half"
+        },
+        {
+          "stall": "agent task stale (600000ms without stream/tool progress)"
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<result>\n[Agent stopped by the progress watchdog: agent task stale (600000ms without stream/tool progress). The output below is partial.]\n\nfirst half\n\nsecond half\n</result>\n<error>stalled: the progress watchdog stopped the turn</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "stalled: the progress watchdog stopped the turn",
+        "terminalReason": "agent-watchdog-partial",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "[Agent stopped by the progress watchdog: agent task stale (600000ms without stream/tool progress). The output below is partial.]\n\nfirst half\n\nsecond half",
+          "stallAbort": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_stall_may_carry_its_own_handoff",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "say": "ignored"
+        },
+        {
+          "stall": "agent task stale (600000ms without stream/tool progress)",
+          "partialHandoff": "carried text"
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<result>\n[Agent stopped by the progress watchdog: agent task stale (600000ms without stream/tool progress). The output below is partial.]\n\ncarried text\n</result>\n<error>stalled: the progress watchdog stopped the turn</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "stalled: the progress watchdog stopped the turn",
+        "terminalReason": "agent-watchdog-partial",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "[Agent stopped by the progress watchdog: agent task stale (600000ms without stream/tool progress). The output below is partial.]\n\ncarried text",
+          "stallAbort": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_stall_with_an_empty_own_handoff_fails_the_job",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "say": "unused"
+        },
+        {
+          "stall": "agent task stale (600000ms without stream/tool progress)",
+          "partialHandoff": ""
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>The agent went stale after 10m without new stream/tool progress.</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "The agent went stale after 10m without new stream/tool progress.",
+        "terminalReason": "agent-stream-stalled",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_stall_with_no_output_fails_the_job",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "stall": "agent first transport stale (120000ms)"
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>Agent watchdog stopped the run: no model response in 2m.</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "Agent watchdog stopped the run: no model response in 2m.",
+        "terminalReason": "agent-stream-stalled",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_first_output_stall_with_output_hands_it_over",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "say": "some text"
+        },
+        {
+          "stall": "agent first semantic response stale (600000ms)"
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<result>\n[Agent stopped by the progress watchdog: agent first semantic response stale (600000ms). The output below is partial.]\n\nsome text\n</result>\n<error>stalled: the progress watchdog stopped the turn</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "stalled: the progress watchdog stopped the turn",
+        "terminalReason": "agent-watchdog-partial",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "[Agent stopped by the progress watchdog: agent first semantic response stale (600000ms). The output below is partial.]\n\nsome text",
+          "stallAbort": true
+        }
+      }
+    }
+  },
+  {
+    "name": "a_row_of_only_a_dot_is_no_output",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "say": "."
+        },
+        {
+          "stall": "agent task stale (600000ms without stream/tool progress)"
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>The agent went stale after 10m without new stream/tool progress.</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "The agent went stale after 10m without new stream/tool progress.",
+        "terminalReason": "agent-stream-stalled",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "an_abort_that_is_not_a_stall_fails_the_job",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "say": "some text"
+        },
+        {
+          "throw": {
+            "message": "This operation was aborted"
+          }
+        }
+      ],
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>This operation was aborted</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "This operation was aborted",
+        "terminalReason": "agent-stream-stalled",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      }
+    }
+  },
+  {
+    "name": "a_stall_names_the_shell_jobs_it_stopped",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "say": "half done"
+        },
+        {
+          "stall": "agent task stale (600000ms without stream/tool progress)"
+        }
+      ],
+      "shellJobs": [
+        {
+          "id": "old",
+          "startedOffset": -20000,
+          "kill": "confirmed"
+        },
+        {
+          "id": "mine-a",
+          "startedOffset": -3000,
+          "kill": "confirmed"
+        },
+        {
+          "id": "mine-b",
+          "startedOffset": -1000,
+          "kill": "unconfirmed"
+        },
+        {
+          "id": "mine-c",
+          "startedOffset": 0,
+          "kill": "none"
+        },
+        {
+          "id": "theirs",
+          "startedOffset": -1000,
+          "session": "sess_other",
+          "kill": "confirmed"
+        }
+      ],
+      "askOffset": -5000,
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      },
+      "stoppedShellJobs": {
+        "stopped": [
+          "mine-a",
+          "mine-c"
+        ],
+        "stopping": [
+          "mine-b"
+        ]
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<result>\n[Agent stopped by the progress watchdog: agent task stale (600000ms without stream/tool progress). The output below is partial.]\n[Stopped its background shell jobs: mine-a, mine-c.] [Still stopping its background shell jobs: mine-b.]\n\nhalf done\n</result>\n<error>stalled: the progress watchdog stopped the turn</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "stalled: the progress watchdog stopped the turn",
+        "terminalReason": "agent-watchdog-partial",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "[Agent stopped by the progress watchdog: agent task stale (600000ms without stream/tool progress). The output below is partial.]\n[Stopped its background shell jobs: mine-a, mine-c.] [Still stopping its background shell jobs: mine-b.]\n\nhalf done",
+          "stallAbort": true
+        }
+      },
+      "shellTasks": {
+        "old": "running",
+        "mine-a": "cancelled",
+        "mine-b": "cancelled",
+        "mine-c": "cancelled",
+        "theirs": "running"
+      }
+    }
+  },
+  {
+    "name": "a_stall_with_no_output_names_the_shell_jobs_on_the_error",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "stall": "agent task stale (600000ms without stream/tool progress)"
+        }
+      ],
+      "shellJobs": [
+        {
+          "id": "old",
+          "startedOffset": -20000,
+          "kill": "confirmed"
+        },
+        {
+          "id": "mine-a",
+          "startedOffset": -3000,
+          "kill": "confirmed"
+        },
+        {
+          "id": "mine-b",
+          "startedOffset": -1000,
+          "kill": "unconfirmed"
+        },
+        {
+          "id": "mine-c",
+          "startedOffset": 0,
+          "kill": "none"
+        },
+        {
+          "id": "theirs",
+          "startedOffset": -1000,
+          "session": "sess_other",
+          "kill": "confirmed"
+        }
+      ],
+      "askOffset": -5000,
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      },
+      "stoppedShellJobs": {
+        "stopped": [
+          "mine-a",
+          "mine-c"
+        ],
+        "stopping": [
+          "mine-b"
+        ]
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:error",
+        "emit:stop:error",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<error>The agent went stale after 10m without new stream/tool progress.</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "The agent went stale after 10m without new stream/tool progress.",
+        "terminalReason": "agent-stream-stalled",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": null
+      },
+      "shellTasks": {
+        "old": "running",
+        "mine-a": "cancelled",
+        "mine-b": "cancelled",
+        "mine-c": "cancelled",
+        "theirs": "running"
+      }
+    }
+  },
+  {
+    "name": "a_stall_names_no_shell_job_when_the_turn_started_none",
+    "scenario": {
+      "args": {
+        "agent": "worker",
+        "prompt": "p",
+        "tag": "t"
+      },
+      "callerCwd": "/work",
+      "context": {
+        "callerSessionId": "lead",
+        "ownerSessionId": "lead",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "respawned": false,
+      "config": {
+        "default": "main-preset",
+        "presets": [
+          {
+            "id": "main-preset",
+            "name": "MAIN",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high"
+          }
+        ],
+        "agents": {
+          "worker": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          },
+          "ctx": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxtok": {
+            "provider": "openai",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          },
+          "ctxw": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextPercent": 40
+          },
+          "ctxwtok": {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "contextTokens": 300000
+          }
+        }
+      },
+      "tags": {},
+      "nextTag": "worker-1",
+      "lock": null,
+      "lockOwner": "lead",
+      "owner": "lead",
+      "window": null,
+      "ensureThrows": null,
+      "effectiveCwd": null,
+      "createThrows": null,
+      "cancel": null,
+      "steps": [
+        {
+          "say": "half done"
+        },
+        {
+          "stall": "agent task stale (600000ms without stream/tool progress)"
+        }
+      ],
+      "shellJobs": [
+        {
+          "id": "old",
+          "startedOffset": -20000,
+          "kill": "confirmed"
+        },
+        {
+          "id": "theirs",
+          "startedOffset": -1000,
+          "session": "sess_other",
+          "kill": "confirmed"
+        }
+      ],
+      "askOffset": -5000,
+      "canonical": true
+    },
+    "host": {
+      "agent": {
+        "name": "worker",
+        "defined": true,
+        "disabled": false,
+        "kind": null,
+        "contact": false,
+        "permission": null,
+        "candidates": [
+          {
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium"
+          }
+        ]
+      },
+      "delegation": {
+        "chain": [
+          "lead"
+        ],
+        "acting": "lead"
+      },
+      "stoppedShellJobs": {
+        "stopped": [],
+        "stopping": []
+      }
+    },
+    "result": {
+      "startError": null,
+      "pending": {
+        "tag": "t",
+        "agent": "worker",
+        "preset": "agent-worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "medium",
+        "clientHostPid": 4242
+      },
+      "calls": [
+        "status",
+        "refresh",
+        "resolveTag:t:false",
+        [
+          "createChild",
+          {
+            "spec": {
+              "agent": "worker",
+              "presetName": "AGENT WORKER",
+              "preset": {
+                "id": "agent-worker",
+                "name": "AGENT WORKER",
+                "type": "agent",
+                "provider": "openai",
+                "model": "gpt-5",
+                "fallbackSource": {
+                  "agent": "worker"
+                },
+                "effort": "medium",
+                "fast": false,
+                "tools": "full"
+              },
+              "runtimeSpec": {
+                "runtime": "openai",
+                "options": {
+                  "lane": "agent",
+                  "agentId": "t"
+                }
+              },
+              "owner": "agent",
+              "cwd": "/work",
+              "sourceType": "cli",
+              "sourceName": "worker",
+              "parentSessionId": "lead",
+              "ownerSessionId": "lead",
+              "visibility": "agent-only",
+              "clientHostPid": 4242,
+              "agentTag": "t",
+              "mcpScopeId": null
+            },
+            "prompt": "p",
+            "tag": "t"
+          }
+        ],
+        [
+          "bindTag",
+          "t",
+          "sess_w1",
+          {
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "idle",
+            "stage": "idle"
+          }
+        ],
+        [
+          "upsert",
+          "t",
+          "sess_w1",
+          {
+            "tag": "t",
+            "sessionId": "sess_w1",
+            "agent": "worker",
+            "preset": "agent-worker",
+            "provider": "openai",
+            "model": "gpt-5",
+            "effort": "medium",
+            "fast": false,
+            "status": "running",
+            "stage": "running",
+            "task_id": "job",
+            "startedAt": "2026-03-01T10:00:00.000Z",
+            "turnStartedAt": "2026-03-01T10:00:00.000Z"
+          }
+        ],
+        "status",
+        "claim",
+        [
+          "reviewBegin",
+          "lead",
+          "sess_w1",
+          {
+            "tag": "t",
+            "agent": "worker"
+          }
+        ],
+        "emit:start",
+        [
+          "ask",
+          "p",
+          "/work"
+        ],
+        "release:idle",
+        "emit:stop:idle",
+        "unload:agent-turn-complete",
+        "status"
+      ],
+      "notices": [
+        {
+          "session": "lead",
+          "text": "<task-notification>\n<task-id>job</task-id>\n<tag>t</tag>\n<status>failed</status>\n<summary>Agent \"t\" failed</summary>\n<result>\n[Agent stopped by the progress watchdog: agent task stale (600000ms without stream/tool progress). The output below is partial.]\n\nhalf done\n</result>\n<error>stalled: the progress watchdog stopped the turn</error>\n</task-notification>"
+        }
+      ],
+      "final": {
+        "status": "failed",
+        "error": "stalled: the progress watchdog stopped the turn",
+        "terminalReason": "agent-watchdog-partial",
+        "meta": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "clientHostPid": 4242
+        },
+        "label": "t",
+        "notified": true,
+        "result": {
+          "tag": "t",
+          "sessionId": "sess_w1",
+          "agent": "worker",
+          "preset": "agent-worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "medium",
+          "fast": false,
+          "content": "[Agent stopped by the progress watchdog: agent task stale (600000ms without stream/tool progress). The output below is partial.]\n\nhalf done",
+          "stallAbort": true
+        }
+      },
+      "shellTasks": {
+        "old": "running",
+        "theirs": "running"
+      }
+    }
   }
 ]

@@ -31,6 +31,7 @@ use mixdog_rt::LaneToken;
 use mixdog_rt::Scope;
 
 use super::SessionLanes;
+use super::control::Ctl;
 use super::frames::encode;
 use super::seams::ContextStep;
 use super::seams::ThreadStore;
@@ -205,11 +206,6 @@ pub(crate) enum ProducerMsg {
         item: ItemCommit,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
-    Approval {
-        turn: TurnId,
-        ask: ApprovalAsk,
-        reply: oneshot::Sender<ApprovalResolution>,
-    },
     TakeSteers {
         turn: TurnId,
         request: DrainRequest,
@@ -317,6 +313,8 @@ pub struct RunPort {
     /// The run's token: it ends every wait of the port except the commits, whose rows an abort
     /// still writes.
     pub(crate) cancel: CancellationToken,
+    /// The actor's control lane, for what must not queue behind the producers (approvals).
+    pub(crate) ctl: mpsc::Sender<Ctl>,
     /// The header's `providerState` as acked at turn start.
     pub(crate) provider: Option<ProviderState>,
 }
@@ -493,12 +491,16 @@ impl ApprovalGate for RunPort {
     async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
         let interrupted = || ApprovalResolution::Interrupted { at: 0 };
         let (reply, rx) = oneshot::channel();
-        let msg = ProducerMsg::Approval {
-            turn: self.turn.clone(),
-            ask,
-            reply,
-        };
-        match self.call(msg, rx).await {
+        let msg = Ctl::Approval { turn: self.turn.clone(), ask, reply };
+        // The control lane, not the producer lane (RL §6.2): back-pressure on the producers
+        // cannot hold an approval.
+        let asked = self
+            .scoped(async {
+                self.ctl.send(msg).await.map_err(|_| RunError::Closed)?;
+                rx.await.map_err(|_| RunError::Closed)
+            })
+            .await;
+        match asked {
             Ok(resolution) => resolution,
             Err(RunError::Cancelled) => ApprovalResolution::Cancelled { at: 0 },
             Err(_) => interrupted(),
@@ -514,8 +516,9 @@ mod cancel_tests {
 
     use super::*;
 
-    fn port(lane: usize) -> (RunPort, mpsc::Receiver<ProducerMsg>, CancellationToken) {
+    fn port(lane: usize) -> (RunPort, mpsc::Receiver<ProducerMsg>, mpsc::Receiver<Ctl>, CancellationToken) {
         let (tx, rx) = mpsc::channel(lane);
+        let (ctl, ctl_rx) = mpsc::channel(4);
         let cancel = CancellationToken::new();
         let port = RunPort {
             thread: ThreadId::from("t"),
@@ -523,9 +526,10 @@ mod cancel_tests {
             tx,
             input: watch::channel(InputState::Pending).1,
             cancel: cancel.clone(),
+            ctl,
             provider: None,
         };
-        (port, rx, cancel)
+        (port, rx, ctl_rx, cancel)
     }
 
     fn ask() -> ApprovalAsk {
@@ -547,7 +551,7 @@ mod cancel_tests {
 
     #[tokio::test]
     async fn a_send_blocked_on_a_full_lane_ends_at_cancel() {
-        let (port, _actor, cancel) = port(1);
+        let (port, _actor, _ctl, cancel) = port(1);
         port.notice("fills the lane".into()).await.expect("room for one");
         let blocked = tokio::spawn({
             let port = port.clone();
@@ -559,7 +563,7 @@ mod cancel_tests {
 
     #[tokio::test]
     async fn an_ack_the_actor_never_sends_ends_at_cancel() {
-        let (port, _actor, cancel) = port(4);
+        let (port, _actor, _ctl, cancel) = port(4);
         let compacting = tokio::spawn({
             let port = port.clone();
             async move { port.compacted(compaction()).await }
@@ -569,13 +573,16 @@ mod cancel_tests {
     }
 
     #[tokio::test]
-    async fn an_approval_waiting_behind_a_full_lane_resolves_cancelled() {
-        let (port, _actor, cancel) = port(1);
+    async fn an_approval_rides_the_control_lane_past_a_full_producer_lane_and_ends_at_cancel() {
+        let (port, _actor, mut ctl, cancel) = port(1);
         port.notice("fills the lane".into()).await.expect("room for one");
         let asking = tokio::spawn({
             let port = port.clone();
             async move { port.request(ask()).await }
         });
+        // The actor reads only its control lane (the producers are held back by the outbox): the
+        // approval is there although the producer lane is full.
+        assert!(matches!(ctl.recv().await, Some(Ctl::Approval { .. })));
         cancel.cancel();
         assert!(matches!(asking.await.unwrap(), ApprovalResolution::Cancelled { .. }));
     }

@@ -1,9 +1,10 @@
 //! What an agent's status card says about its progress (Node `session-runtime/services/
 //! agent-task-status.mjs`): the stage, what it last did, how long it has been silent, the
-//! watchdog's budgets and a one-line diagnosis. Everything here is *reported*: the stale
-//! verdict is a sentence on the card (`stale: task stale (…)`), never an action. Nothing in
-//! this module aborts, kills or fails a task, and no timer drives it; it is a function of the
-//! runtime facts the host hands in and the clock at the read.
+//! watchdog's budgets and a one-line diagnosis. The stale verdict is a sentence on the card
+//! (`stale: task stale (…)`). Nothing in this module aborts, kills or fails a task, and no timer
+//! drives it; it is a function of the runtime facts the host hands in and the clock at the read.
+//! The run host's sweep (`run_host::watchdog`) applies [`stale_report`] to an unattended run and
+//! aborts it with the sentence.
 
 use mixdog_js::js_trim;
 use mixdog_tools::exec::most_significant_duration;
@@ -179,8 +180,8 @@ fn silent_for(now: i64, snapshot: Option<&Snapshot>, runtime: Option<&RuntimeFac
     positive_seconds(now, last)
 }
 
-/// `evaluateAgentWatchdogAbort`, as a report: the sentence the policy would stop the agent
-/// with, or `None`. Reading it stops nothing.
+/// `evaluateAgentWatchdogAbort`: the sentence the policy stops the agent with, or `None`.
+/// Reading it stops nothing; the sweep that aborts an unattended run uses it as the abort reason.
 pub fn stale_report(snapshot: &Snapshot, now: i64, policy: &WatchdogPolicy) -> Option<String> {
     // A turn blocked on the user's approval is waiting on a person, not stalled.
     if snapshot.awaiting_user {

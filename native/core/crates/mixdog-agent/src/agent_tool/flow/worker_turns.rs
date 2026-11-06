@@ -5,10 +5,10 @@
 //! reads it. Turns are keyed by their own id, so an earlier turn's late settle never touches the
 //! next one.
 //!
-//! Not ported: the idle-progress watchdog the Node owner arms once a turn's ask has started
-//! (`progressWatchdogs`, `watchdogPolicyFor`), and with it the stall verdict of a settled turn
-//! and the in-turn progress stamps the watchdog's sweep drove. A turn is never stopped for
-//! silence here; the row's live progress is read from the session (`Workers::live`).
+//! The idle-progress watchdog the Node owner arms once a turn's ask has started is the run
+//! host's sweep (`run_host::watchdog`); a turn it stopped settles its row as a stall
+//! (`settledWorkerStatus`). Not ported: the in-turn progress stamps the Node sweep drove; the
+//! row's live progress is read from the session (`Workers::live`).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,6 +16,8 @@ use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
+
+use crate::agent_tool::watchdog::WATCHDOG_STALL_FAILURE;
 
 use super::reconcile::FinalStatus;
 use super::reconcile::JobHandle;
@@ -103,19 +105,19 @@ impl TurnOwner for WorkerTurns {
     }
 }
 
-/// A settled turn's row status (`settledTurnStatus`, minus the watchdog's stall verdict): only a
-/// cancel of the turn's job reads cancelled; any other unfinished turn (a pane stop included)
-/// and an abnormal empty finish are errors.
-fn settled_turn_status(outcome: &TurnOutcome, agent: &str, job: Option<&JobHandle>) -> FinalStatus {
+/// A settled turn's row status and whether the watchdog stopped it (`settledTurnStatus`): only a
+/// cancel of the turn's job reads cancelled; a watchdog stop of an unfinished turn is a stall;
+/// any other unfinished turn (a pane stop included) and an abnormal empty finish are errors.
+fn settled_turn_status(outcome: &TurnOutcome, agent: &str, job: Option<&JobHandle>) -> (FinalStatus, bool) {
     if job.is_some_and(JobHandle::is_cancelled) {
-        return FinalStatus::Cancelled;
+        return (FinalStatus::Cancelled, false);
     }
     if !outcome.done {
-        return FinalStatus::Error;
+        return (FinalStatus::Error, outcome.stalled);
     }
     match &outcome.result {
-        Some(result) if abnormal_empty_finish_error(result, agent).is_some() => FinalStatus::Error,
-        _ => FinalStatus::Idle,
+        Some(result) if abnormal_empty_finish_error(result, agent).is_some() => (FinalStatus::Error, false),
+        _ => (FinalStatus::Idle, false),
     }
 }
 
@@ -131,7 +133,7 @@ impl WorkerTurns {
     }
 
     /// `settledWorkerStatus` then the write: the row settles on the turn's real outcome.
-    fn settle_row(&self, session_id: &str, status: FinalStatus, job: Option<&JobHandle>) {
+    fn settle_row(&self, session_id: &str, status: FinalStatus, stalled: bool, job: Option<&JobHandle>) {
         let restarted = job.is_some_and(|j| j.is_cancelled() && j.terminal_reason().as_deref() == Some(PROCESS_RESTART_FAILURE));
         let mut update = if restarted {
             RowUpdate {
@@ -139,6 +141,14 @@ impl WorkerTurns {
                 stage: Some("failed".into()),
                 failure_reason: Some(PROCESS_RESTART_FAILURE.into()),
                 task_id: job.map(|j| Some(j.task_id().to_owned())),
+                ..RowUpdate::default()
+            }
+        } else if stalled {
+            // A watchdog stop is a failure whatever partial output it handed back.
+            RowUpdate {
+                status: Some("failed".into()),
+                stage: Some("failed".into()),
+                failure_reason: Some(WATCHDOG_STALL_FAILURE.into()),
                 ..RowUpdate::default()
             }
         } else {
@@ -187,8 +197,8 @@ impl WorkerTurns {
             }
         };
         let agent = self.inner.names.agent(&owner.session_id).unwrap_or_default();
-        let status = settled_turn_status(&outcome, &agent, job.as_deref());
-        self.settle_row(&owner.session_id, status, job.as_deref());
+        let (status, stalled) = settled_turn_status(&outcome, &agent, job.as_deref());
+        self.settle_row(&owner.session_id, status, stalled, job.as_deref());
     }
 
     /// Observes `session_id`'s turns through the route that runs them; `false` when that route
@@ -265,7 +275,7 @@ impl Claim {
             state.current.is_none() && state.started == *started_before
         };
         if settle {
-            turns.settle_row(&self.session_id, status, self.job.as_deref());
+            turns.settle_row(&self.session_id, status, false, self.job.as_deref());
         }
     }
 }

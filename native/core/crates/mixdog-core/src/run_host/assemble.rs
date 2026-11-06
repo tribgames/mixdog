@@ -95,6 +95,15 @@ pub trait SessionSeams: Send + Sync + 'static {
     async fn tools(&self, thread: &ThreadId, header: &Header, surface: &mixdog_tools::policy::SessionSurface) -> Result<SessionTools, String>;
     /// `getHiddenAgent(agent)`. Owner: WP-CONFIG (agent store).
     fn hidden_agent(&self, agent: Option<&str>) -> bool;
+    /// `getHiddenAgent(agent).stallCap.idleSeconds`: an internal agent's own idle budget.
+    fn stall_cap_idle_seconds(&self, _agent: Option<&str>) -> Option<i64> {
+        None
+    }
+    /// `readAgentFirstResponseTimeoutMs(agent)`: the agent definition's own first-response
+    /// deadline (0 turns it off); `None` when it sets none.
+    async fn first_response_timeout_ms(&self, _agent: &str) -> Option<i64> {
+        None
+    }
     /// The todo list, goal and background work as the turn guards read them. Owner:
     /// WP-SESSION-PORTS (`TodoStore`, `GoalPort`) over `run_host::guards::HostTodoView`.
     fn todo_view(&self, thread: &ThreadId, header: &Header) -> Arc<dyn TodoView>;
@@ -162,6 +171,9 @@ pub struct HostServices {
     pub probes: Arc<super::prewarm::StartupProbes>,
     /// The process-wide probe cache (`prompt::probes`).
     pub observed: Arc<mixdog_core_prompt::prompt::probes::StartupObservations>,
+    /// The runtime's shell control, which the progress watchdog's stop reaps a turn's shells
+    /// through; `None` reaps nothing.
+    pub shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
 }
 
 mod session_view;
@@ -305,6 +317,26 @@ impl HostRunParts {
 
 #[async_trait]
 impl RunParts for HostRunParts {
+    fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {
+        self.services.seams.stall_cap_idle_seconds(agent)
+    }
+
+    fn reap_turn_shells(&self, thread: &ThreadId, since_ms: i64) {
+        if let Some(shells) = &self.services.shells {
+            shells.reap_since(&mixdog_protocol::ThreadId::from(thread.as_str()), since_ms.max(0) as u64);
+        }
+    }
+
+    fn reset_turn_shells(&self, thread: &ThreadId) {
+        if let Some(shells) = &self.services.shells {
+            shells.reset_reaped(&mixdog_protocol::ThreadId::from(thread.as_str()));
+        }
+    }
+
+    async fn first_response_timeout_ms(&self, agent: &str) -> Option<i64> {
+        self.services.seams.first_response_timeout_ms(agent).await
+    }
+
     async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
         let s = &self.services;
         let seams = &s.seams;

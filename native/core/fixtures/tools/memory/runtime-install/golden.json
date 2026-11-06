@@ -1,0 +1,1619 @@
+{
+  "recordedOn": "win32-x64",
+  "node": "v22.20.0",
+  "version": "pg16.4+pgvector-0.8.2",
+  "key": "pg16.4+pgvector-0.8.2-1008bbadbeb5",
+  "stale_lock_ms": 600000,
+  "archive": {
+    "file": "runtime.tar.gz",
+    "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+    "size": 302,
+    "entries": [
+      "bin/\r",
+      "bin/initdb.exe\r",
+      "bin/pg_ctl.exe\r",
+      "bin/postgres.exe\r",
+      "lib/\r",
+      "lib/libpq.dll\r",
+      "share/\r",
+      "share/postgres.bki\r"
+    ]
+  },
+  "platformKeys": [
+    {
+      "platform": "win32",
+      "arch": "arm64",
+      "candidates": [
+        "win32-arm64",
+        "win32-x64"
+      ]
+    },
+    {
+      "platform": "win32",
+      "arch": "x64",
+      "candidates": [
+        "win32-x64"
+      ]
+    },
+    {
+      "platform": "linux",
+      "arch": "arm64",
+      "candidates": [
+        "linux-arm64"
+      ]
+    },
+    {
+      "platform": "linux",
+      "arch": "x64",
+      "candidates": [
+        "linux-x64"
+      ]
+    },
+    {
+      "platform": "darwin",
+      "arch": "arm64",
+      "candidates": [
+        "darwin-arm64"
+      ]
+    },
+    {
+      "platform": "darwin",
+      "arch": "x64",
+      "candidates": [
+        "darwin-x64"
+      ]
+    }
+  ],
+  "tarEntries": [
+    {
+      "name": "regular files and directories",
+      "entries": [
+        "bin/",
+        "bin/postgres"
+      ],
+      "details": [
+        "drw-r--r--  0 0      0           5 Jan  1  2020 bin/",
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 bin/postgres"
+      ],
+      "outcome": "ok"
+    },
+    {
+      "name": "dot and double slash segments",
+      "entries": [
+        "./bin//x"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 ./bin//x"
+      ],
+      "outcome": "ok"
+    },
+    {
+      "name": "symlink inside",
+      "entries": [
+        "lib/a",
+        "lib/b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 lib/a",
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 lib/b -> a"
+      ],
+      "outcome": "ok"
+    },
+    {
+      "name": "symlink up and back in",
+      "entries": [
+        "lib/a",
+        "share/b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 lib/a",
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 share/b -> ../lib/a"
+      ],
+      "outcome": "ok"
+    },
+    {
+      "name": "symlink to a directory entry",
+      "entries": [
+        "lib/",
+        "x"
+      ],
+      "details": [
+        "drw-r--r--  0 0      0           5 Jan  1  2020 lib/",
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 x -> lib"
+      ],
+      "outcome": "ok"
+    },
+    {
+      "name": "symlink target missing",
+      "entries": [
+        "x"
+      ],
+      "details": [
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 x -> nowhere"
+      ],
+      "outcome": "[runtime-fetcher] tar link target is unsafe: x"
+    },
+    {
+      "name": "symlink out of the tree",
+      "entries": [
+        "lib/a",
+        "lib/x"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 lib/a",
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 lib/x -> ../../a"
+      ],
+      "outcome": "[runtime-fetcher] tar link target is unsafe: lib/x"
+    },
+    {
+      "name": "symlink absolute target",
+      "entries": [
+        "x"
+      ],
+      "details": [
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 x -> /etc/passwd"
+      ],
+      "outcome": "[runtime-fetcher] tar link target is unsafe: x"
+    },
+    {
+      "name": "symlink backslash target",
+      "entries": [
+        "x"
+      ],
+      "details": [
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 x -> a\\b"
+      ],
+      "outcome": "[runtime-fetcher] tar link target is unsafe: x"
+    },
+    {
+      "name": "symlink drive target",
+      "entries": [
+        "x"
+      ],
+      "details": [
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 x -> C:foo"
+      ],
+      "outcome": "[runtime-fetcher] tar link target is unsafe: x"
+    },
+    {
+      "name": "symlink with no marker",
+      "entries": [
+        "x"
+      ],
+      "details": [
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 x"
+      ],
+      "outcome": "[runtime-fetcher] tar link target is unsafe: x"
+    },
+    {
+      "name": "symlink with empty target",
+      "entries": [
+        "x"
+      ],
+      "details": [
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 x -> "
+      ],
+      "outcome": "[runtime-fetcher] tar link target is unsafe: x"
+    },
+    {
+      "name": "hard link inside",
+      "entries": [
+        "a",
+        "b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 a",
+        "hrw-r--r--  0 0      0           5 Jan  1  2020 b link to a"
+      ],
+      "outcome": "ok"
+    },
+    {
+      "name": "hard link missing",
+      "entries": [
+        "b"
+      ],
+      "details": [
+        "hrw-r--r--  0 0      0           5 Jan  1  2020 b link to a"
+      ],
+      "outcome": "[runtime-fetcher] tar link target is unsafe: b"
+    },
+    {
+      "name": "arrow in the name",
+      "entries": [
+        "a -> b",
+        "c"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 a -> b",
+        "lrw-r--r--  0 0      0           5 Jan  1  2020 c -> a -> b"
+      ],
+      "outcome": "[runtime-fetcher] tar link target is unsafe: c"
+    },
+    {
+      "name": "character device",
+      "entries": [
+        "dev"
+      ],
+      "details": [
+        "crw-r--r--  0 0      0           5 Jan  1  2020 dev"
+      ],
+      "outcome": "[runtime-fetcher] tar entry type is unsafe: dev"
+    },
+    {
+      "name": "fifo",
+      "entries": [
+        "f"
+      ],
+      "details": [
+        "prw-r--r--  0 0      0           5 Jan  1  2020 f"
+      ],
+      "outcome": "[runtime-fetcher] tar entry type is unsafe: f"
+    },
+    {
+      "name": "leading spaces in detail",
+      "entries": [
+        "a"
+      ],
+      "details": [
+        "   -rw-r--r-- 0 0 0 5 Jan  1  2020 a"
+      ],
+      "outcome": "ok"
+    },
+    {
+      "name": "parent segment",
+      "entries": [
+        "a/../b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 a/../b"
+      ],
+      "outcome": "[runtime-fetcher] tar entry path validation failed (unsafe entry): a/../b"
+    },
+    {
+      "name": "leading parent",
+      "entries": [
+        "../b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 ../b"
+      ],
+      "outcome": "[runtime-fetcher] tar entry path validation failed (unsafe entry): ../b"
+    },
+    {
+      "name": "absolute entry",
+      "entries": [
+        "/b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 /b"
+      ],
+      "outcome": "[runtime-fetcher] tar entry path validation failed (unsafe entry): /b"
+    },
+    {
+      "name": "backslash entry",
+      "entries": [
+        "a\\b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 a\\b"
+      ],
+      "outcome": "[runtime-fetcher] tar entry path validation failed (unsafe entry): a\\b"
+    },
+    {
+      "name": "drive entry",
+      "entries": [
+        "C:/b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 C:/b"
+      ],
+      "outcome": "[runtime-fetcher] tar entry path validation failed (unsafe entry): C:/b"
+    },
+    {
+      "name": "drive letter without slash",
+      "entries": [
+        "c:b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 c:b"
+      ],
+      "outcome": "[runtime-fetcher] tar entry path validation failed (unsafe entry): c:b"
+    },
+    {
+      "name": "nul in entry",
+      "entries": [
+        "a\u0000b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 a\u0000b"
+      ],
+      "outcome": "[runtime-fetcher] tar entry path validation failed (unsafe entry): a\u0000b"
+    },
+    {
+      "name": "empty entry",
+      "entries": [
+        ""
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 "
+      ],
+      "outcome": "[runtime-fetcher] tar entry path validation failed (unsafe entry): "
+    },
+    {
+      "name": "listings disagree",
+      "entries": [
+        "a",
+        "b"
+      ],
+      "details": [
+        "-rw-r--r--  0 0      0           5 Jan  1  2020 a"
+      ],
+      "outcome": "[runtime-fetcher] tar listings disagree; refusing extraction"
+    },
+    {
+      "name": "no entries",
+      "entries": [],
+      "details": [],
+      "outcome": "ok"
+    }
+  ],
+  "install": [
+    {
+      "name": "fresh-install",
+      "note": "an empty data dir downloads, verifies, extracts, stamps, publishes; the old runtime and dead staging are collected",
+      "seed": [
+        {
+          "path": "runtime/runtime-pg15.0+pgvector-0.1.0/bin/postgres.exe",
+          "text": "fake postgres executable\n"
+        },
+        {
+          "path": "runtime/runtime-pg15.0+pgvector-0.1.0/lib/libpq.dll",
+          "text": "lib\n"
+        },
+        {
+          "path": "runtime/runtime-pg15.0+pgvector-0.1.0/.version-sha256",
+          "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "path": "runtime/active-version",
+          "text": "pg15.0+pgvector-0.1.0"
+        },
+        {
+          "path": "runtime/staging-dead",
+          "dir": true
+        },
+        {
+          "path": "runtime/staging-dead.lock",
+          "text": "999999999 1\n"
+        },
+        {
+          "path": "runtime/staging-dead.tar.gz",
+          "text": "partial"
+        }
+      ],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {
+        "/ok.tar.gz": "archive"
+      },
+      "outcome": {
+        "ok": {
+          "runtimeDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "pgBinDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "libDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "sharePath": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share",
+          "version": "pg16.4+pgvector-0.8.2"
+        }
+      },
+      "requests": [
+        "{base}/ok.tar.gz"
+      ],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/active-version",
+          "kind": "file",
+          "text": "pg16.4+pgvector-0.8.2-1008bbadbeb5"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/.version-sha256",
+          "kind": "file",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/initdb.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/pg_ctl.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/postgres.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib/libpq.dll",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share/postgres.bki",
+          "kind": "file"
+        }
+      ]
+    },
+    {
+      "name": "cache-hit-keyed",
+      "note": "active-version names version-sha12 and the stamp matches: no request",
+      "seed": [
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/postgres.exe",
+          "text": "fake postgres executable\n"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib/libpq.dll",
+          "text": "lib\n"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/.version-sha256",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/active-version",
+          "text": "pg16.4+pgvector-0.8.2-1008bbadbeb5"
+        }
+      ],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {
+        "/ok.tar.gz": "archive"
+      },
+      "outcome": {
+        "ok": {
+          "runtimeDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "pgBinDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "libDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "sharePath": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share",
+          "version": "pg16.4+pgvector-0.8.2"
+        }
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/active-version",
+          "kind": "file",
+          "text": "pg16.4+pgvector-0.8.2-1008bbadbeb5"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/.version-sha256",
+          "kind": "file",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/postgres.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib/libpq.dll",
+          "kind": "file"
+        }
+      ]
+    },
+    {
+      "name": "cache-hit-bare-version",
+      "note": "an install from before keyed names keeps its bare version name and stays valid",
+      "seed": [
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2/bin/postgres.exe",
+          "text": "fake postgres executable\n"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2/lib/libpq.dll",
+          "text": "lib\n"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2/.version-sha256",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/active-version",
+          "text": "pg16.4+pgvector-0.8.2"
+        }
+      ],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {
+        "/ok.tar.gz": "archive"
+      },
+      "outcome": {
+        "ok": {
+          "runtimeDir": "runtime/runtime-pg16.4+pgvector-0.8.2",
+          "pgBinDir": "runtime/runtime-pg16.4+pgvector-0.8.2/bin",
+          "libDir": "runtime/runtime-pg16.4+pgvector-0.8.2/lib",
+          "sharePath": "runtime/runtime-pg16.4+pgvector-0.8.2/share",
+          "version": "pg16.4+pgvector-0.8.2"
+        }
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/active-version",
+          "kind": "file",
+          "text": "pg16.4+pgvector-0.8.2"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2/.version-sha256",
+          "kind": "file",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2/bin",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2/bin/postgres.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2/lib",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2/lib/libpq.dll",
+          "kind": "file"
+        }
+      ]
+    },
+    {
+      "name": "reinstall-zeroed-postgres",
+      "note": "a stamped tree whose postgres executable is NUL-filled is not complete",
+      "seed": [
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/postgres.exe",
+          "zeros": 64
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib/libpq.dll",
+          "text": "lib\n"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/.version-sha256",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/active-version",
+          "text": "pg16.4+pgvector-0.8.2-1008bbadbeb5"
+        }
+      ],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {
+        "/ok.tar.gz": "archive"
+      },
+      "outcome": {
+        "ok": {
+          "runtimeDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "pgBinDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "libDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "sharePath": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share",
+          "version": "pg16.4+pgvector-0.8.2"
+        }
+      },
+      "requests": [
+        "{base}/ok.tar.gz"
+      ],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/active-version",
+          "kind": "file",
+          "text": "pg16.4+pgvector-0.8.2-1008bbadbeb5"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/.version-sha256",
+          "kind": "file",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/initdb.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/pg_ctl.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/postgres.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib/libpq.dll",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share/postgres.bki",
+          "kind": "file"
+        }
+      ]
+    },
+    {
+      "name": "reinstall-other-stamp",
+      "note": "the stamp names another digest: a fresh install replaces the tree",
+      "seed": [
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/postgres.exe",
+          "text": "fake postgres executable\n"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib/libpq.dll",
+          "text": "lib\n"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/.version-sha256",
+          "text": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "path": "runtime/active-version",
+          "text": "pg16.4+pgvector-0.8.2-1008bbadbeb5"
+        }
+      ],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {
+        "/ok.tar.gz": "archive"
+      },
+      "outcome": {
+        "ok": {
+          "runtimeDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "pgBinDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "libDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "sharePath": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share",
+          "version": "pg16.4+pgvector-0.8.2"
+        }
+      },
+      "requests": [
+        "{base}/ok.tar.gz"
+      ],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/active-version",
+          "kind": "file",
+          "text": "pg16.4+pgvector-0.8.2-1008bbadbeb5"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/.version-sha256",
+          "kind": "file",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/initdb.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/pg_ctl.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/postgres.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib/libpq.dll",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share/postgres.bki",
+          "kind": "file"
+        }
+      ]
+    },
+    {
+      "name": "bad-checksum",
+      "note": "the download is not the digest the manifest names: nothing is published, the partial files are gone",
+      "seed": [],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "size": 302
+          }
+        }
+      },
+      "serve": {
+        "/ok.tar.gz": "archive"
+      },
+      "outcome": {
+        "error": "[runtime-fetcher] sha256 mismatch for {data}\\runtime\\staging-{tag}.tar.gz: expected cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, got 1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+      },
+      "requests": [
+        "{base}/ok.tar.gz"
+      ],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "http-404",
+      "note": "a 4xx answer is terminal and the only candidate fails",
+      "seed": [],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/missing.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] asset download HTTP 404 (terminal) — {base}/missing.tar.gz"
+      },
+      "requests": [
+        "{base}/missing.tar.gz"
+      ],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "stale-locks",
+      "note": "entry GC keeps what a live, fresh lock guards and collects the rest; the active runtime is a cache hit",
+      "seed": [
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/postgres.exe",
+          "text": "fake postgres executable\n"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib/libpq.dll",
+          "text": "lib\n"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/.version-sha256",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/active-version",
+          "text": "pg16.4+pgvector-0.8.2-1008bbadbeb5"
+        },
+        {
+          "path": "runtime/runtime-other",
+          "dir": true
+        },
+        {
+          "path": "runtime/runtime-leftover-file",
+          "text": "x"
+        },
+        {
+          "path": "runtime/staging-live",
+          "dir": true
+        },
+        {
+          "path": "runtime/staging-live.lock",
+          "text": "{self} {now}\n"
+        },
+        {
+          "path": "runtime/staging-deadpid",
+          "dir": true
+        },
+        {
+          "path": "runtime/staging-deadpid.lock",
+          "text": "999999999 {now}\n"
+        },
+        {
+          "path": "runtime/staging-old",
+          "dir": true
+        },
+        {
+          "path": "runtime/staging-old.lock",
+          "text": "{self} 1\n",
+          "age_ms": 660000
+        },
+        {
+          "path": "runtime/staging-edge",
+          "dir": true
+        },
+        {
+          "path": "runtime/staging-edge.lock",
+          "text": "{self} 1\n",
+          "age_ms": 540000
+        },
+        {
+          "path": "runtime/staging-nolock",
+          "dir": true
+        },
+        {
+          "path": "runtime/staging-garbage",
+          "dir": true
+        },
+        {
+          "path": "runtime/staging-garbage.lock",
+          "text": "garbage\n"
+        },
+        {
+          "path": "runtime/staging-garbage-old",
+          "dir": true
+        },
+        {
+          "path": "runtime/staging-garbage-old.lock",
+          "text": "garbage\n",
+          "age_ms": 660000
+        },
+        {
+          "path": "runtime/staging-orphan.lock",
+          "text": "999999999 {now}\n"
+        },
+        {
+          "path": "runtime/staging-orphan-live.lock",
+          "text": "{self} {now}\n"
+        },
+        {
+          "path": "runtime/staging-dl.tar.gz",
+          "text": "partial"
+        },
+        {
+          "path": "runtime/staging-dl.lock",
+          "text": "{self} {now}\n"
+        },
+        {
+          "path": "runtime/staging-dl2.tar.gz",
+          "text": "partial"
+        },
+        {
+          "path": "runtime/staging-dl2.lock",
+          "text": "999999999 {now}\n"
+        },
+        {
+          "path": "runtime/unrelated",
+          "text": "kept"
+        }
+      ],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "ok": {
+          "runtimeDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "pgBinDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "libDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "sharePath": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share",
+          "version": "pg16.4+pgvector-0.8.2"
+        }
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/active-version",
+          "kind": "file",
+          "text": "pg16.4+pgvector-0.8.2-1008bbadbeb5"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/.version-sha256",
+          "kind": "file",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/postgres.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib/libpq.dll",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/staging-dl.lock",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/staging-dl.tar.gz",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/staging-edge",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/staging-edge.lock",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/staging-garbage",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/staging-garbage.lock",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/staging-live",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/staging-live.lock",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/staging-orphan-live.lock",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/unrelated",
+          "kind": "file"
+        }
+      ]
+    },
+    {
+      "name": "missing-platform-asset",
+      "note": "the manifest has no asset for this platform",
+      "seed": [],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "freebsd-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          },
+          "aix-ppc64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302,
+            "unsupported": true
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] memory runtime not available on win32-x64: no runtime asset for this platform/arch in the manifest. Supported: freebsd-x64. Memory is disabled on this platform; the rest of mixdog continues to work."
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "no-assets-at-all",
+      "seed": [],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] memory runtime not available on win32-x64: no runtime asset for this platform/arch in the manifest. Supported: (none). Memory is disabled on this platform; the rest of mixdog continues to work."
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "platform-marked-unsupported",
+      "seed": [],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302,
+            "unsupported": true
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] memory runtime not available on win32-x64: this platform/arch is marked unsupported (no validated runtime asset). Memory is disabled on this platform; the rest of mixdog continues to work."
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "unusable-asset-placeholder-sha",
+      "seed": [],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "TBD",
+            "size": 302
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] memory runtime not available on win32-x64: this platform/arch is marked unsupported (no validated runtime asset). Memory is disabled on this platform; the rest of mixdog continues to work."
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "unusable-asset-uppercase-sha",
+      "seed": [],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008BBADBEB58702CEF251CADECE7A499BBFEE0D328753E364C3E474519A655B",
+            "size": 302
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] memory runtime not available on win32-x64: this platform/arch is marked unsupported (no validated runtime asset). Memory is disabled on this platform; the rest of mixdog continues to work."
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "unusable-asset-zero-size",
+      "seed": [],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 0
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] memory runtime not available on win32-x64: this platform/arch is marked unsupported (no validated runtime asset). Memory is disabled on this platform; the rest of mixdog continues to work."
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "unusable-asset-fractional-size",
+      "seed": [],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "{base}/ok.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 10.5
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] memory runtime not available on win32-x64: this platform/arch is marked unsupported (no validated runtime asset). Memory is disabled on this platform; the rest of mixdog continues to work."
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "unusable-asset-empty-url",
+      "seed": [],
+      "env": {},
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] memory runtime not available on win32-x64: this platform/arch is marked unsupported (no validated runtime asset). Memory is disabled on this platform; the rest of mixdog continues to work."
+      },
+      "requests": [],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "candidates-all-fail",
+      "note": "repositories named in the environment are tried in order after the manifest url",
+      "seed": [],
+      "env": {
+        "MIXDOG_RUNTIME_RELEASE_REPOSITORY": " o1/r1, o2/r2;tribgames/mixdog\to1/r1 "
+      },
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "https://github.com/tribgames/mixdog/releases/download/runtime-vTEST/a.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] asset download HTTP 404 (terminal) — https://github.com/o2/r2/releases/download/runtime-vTEST/a.tar.gz"
+      },
+      "requests": [
+        "https://github.com/tribgames/mixdog/releases/download/runtime-vTEST/a.tar.gz",
+        "https://github.com/o1/r1/releases/download/runtime-vTEST/a.tar.gz",
+        "https://github.com/o2/r2/releases/download/runtime-vTEST/a.tar.gz"
+      ],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    },
+    {
+      "name": "candidates-second-serves",
+      "seed": [],
+      "env": {
+        "RUNTIME_RELEASE_REPOSITORY": "o1/r1 o2/r2"
+      },
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "https://github.com/tribgames/mixdog/releases/download/runtime-vTEST/a.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {
+        "/gh/o1/r1/releases/download/runtime-vTEST/a.tar.gz": "archive"
+      },
+      "outcome": {
+        "ok": {
+          "runtimeDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "pgBinDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "libDir": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "sharePath": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share",
+          "version": "pg16.4+pgvector-0.8.2"
+        }
+      },
+      "requests": [
+        "https://github.com/tribgames/mixdog/releases/download/runtime-vTEST/a.tar.gz",
+        "https://github.com/o1/r1/releases/download/runtime-vTEST/a.tar.gz"
+      ],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/active-version",
+          "kind": "file",
+          "text": "pg16.4+pgvector-0.8.2-1008bbadbeb5"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/.version-sha256",
+          "kind": "file",
+          "text": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/initdb.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/pg_ctl.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/bin/postgres.exe",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/lib/libpq.dll",
+          "kind": "file"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share",
+          "kind": "dir"
+        },
+        {
+          "path": "runtime/runtime-pg16.4+pgvector-0.8.2-1008bbadbeb5/share/postgres.bki",
+          "kind": "file"
+        }
+      ]
+    },
+    {
+      "name": "candidates-first-env-name-wins",
+      "seed": [],
+      "env": {
+        "MIXDOG_RUNTIME_RELEASE_REPOSITORY": "o1/r1",
+        "RUNTIME_RELEASE_REPOSITORY": "o9/r9"
+      },
+      "manifest": {
+        "schema_version": 1,
+        "release_tag": "runtime-vTEST",
+        "pg": {
+          "major": 16,
+          "minor": 4
+        },
+        "pgvector": {
+          "version": "0.8.2"
+        },
+        "assets": {
+          "win32-x64": {
+            "url": "https://github.com/tribgames/mixdog/releases/download/runtime-vTEST/a.tar.gz",
+            "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b",
+            "size": 302
+          }
+        }
+      },
+      "serve": {},
+      "outcome": {
+        "error": "[runtime-fetcher] asset download HTTP 404 (terminal) — https://github.com/o1/r1/releases/download/runtime-vTEST/a.tar.gz"
+      },
+      "requests": [
+        "https://github.com/tribgames/mixdog/releases/download/runtime-vTEST/a.tar.gz",
+        "https://github.com/o1/r1/releases/download/runtime-vTEST/a.tar.gz"
+      ],
+      "tree": [
+        {
+          "path": "runtime",
+          "kind": "dir"
+        }
+      ]
+    }
+  ]
+}

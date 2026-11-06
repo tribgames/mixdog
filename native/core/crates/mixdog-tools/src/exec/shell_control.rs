@@ -124,23 +124,62 @@ impl ShellControl {
     /// The close does not wait for a confirmation.
     pub fn cancel_owned(&self, owner: &ThreadId) {
         for job in self.runtime.list(owner) {
-            if !job.is_running() {
-                continue;
-            }
-            if job.survivors {
-                let runtime = self.runtime.clone();
-                drop(mixdog_rt::spawn("shell-owner-close", TaskClass::Work, async move {
-                    match &runtime.config.survivors {
-                        Some(watch) if watch.kill(&job.handle).await => runtime.finish_survivors(&job, true).await,
-                        _ => runtime.hold_unconfirmed(&job),
-                    }
-                }));
-            } else if !send_kill(&self.runtime, &*self.processes, &job) {
-                // A kill that cannot be sent leaves the shell running and held, as a stop's would;
-                // the close records an outcome only for a tombstone (`record`), which Rust never plants.
-                self.runtime.hold_unconfirmed(&job);
+            if job.is_running() {
+                self.kill_without_waiting(job);
             }
         }
         self.tasks().owner_closed(owner.as_str());
+    }
+
+    /// The kill of one running job that does not wait for a confirmation.
+    fn kill_without_waiting(&self, job: Arc<super::jobs::Job>) {
+        if job.survivors {
+            let runtime = self.runtime.clone();
+            drop(mixdog_rt::spawn("shell-owner-close", TaskClass::Work, async move {
+                match &runtime.config.survivors {
+                    Some(watch) if watch.kill(&job.handle).await => runtime.finish_survivors(&job, true).await,
+                    _ => runtime.hold_unconfirmed(&job),
+                }
+            }));
+        } else if !send_kill(&self.runtime, &*self.processes, &job) {
+            // A kill that cannot be sent leaves the shell running and held, as a stop's would;
+            // the close records an outcome only for a tombstone (`record`), which Rust never plants.
+            self.runtime.hold_unconfirmed(&job);
+        }
+    }
+
+    /// `armTurnShellReap` / `reap` (`turn-reap.mjs`): a turn abandoned by a timeout or stall stops
+    /// the background shells it started (those at or after `since_ms`, so a user's earlier work
+    /// stays) and the survivors its commands left running, without waiting for a confirmation.
+    /// The stopped jobs are remembered for [`Self::take_reaped`]. A second call (after the turn
+    /// has unwound) sweeps what the turn registered while stopping.
+    pub fn reap_since(&self, owner: &ThreadId, since_ms: u64) {
+        let started: std::collections::HashSet<String> =
+            self.owned_background(owner).into_iter().filter(|row| row.started_at_ms >= since_ms).map(|row| row.task_id).collect();
+        let mut stopped = Vec::new();
+        for job in self.runtime.list(owner) {
+            if job.is_running() && started.contains(&job.id) {
+                stopped.push(job.id.clone());
+                self.kill_without_waiting(job);
+            }
+        }
+        self.runtime.note_reaped(owner, stopped);
+    }
+
+    /// `resetTurnShellReap`: a new turn owns the session; nothing earlier is reported for it.
+    pub fn reset_reaped(&self, owner: &ThreadId) {
+        self.runtime.take_reaped(owner);
+    }
+
+    /// `takeStoppedShellJobs`: the jobs the reap stopped, split by what is known now. `stopped`
+    /// are confirmed gone (no live job, termination confirmed); `stopping` were killed but their
+    /// processes are not yet confirmed gone.
+    pub fn take_reaped(&self, owner: &ThreadId) -> (Vec<String>, Vec<String>) {
+        let (mut stopped, mut stopping) = (Vec::new(), Vec::new());
+        for id in self.runtime.take_reaped(owner) {
+            let gone = self.tasks().get(&id).is_none_or(|row| row.status != TaskStatus::Running && !row.termination_unconfirmed);
+            if gone { stopped.push(id) } else { stopping.push(id) }
+        }
+        (stopped, stopping)
     }
 }

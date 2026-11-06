@@ -100,6 +100,19 @@ impl AgentExplorer {
     pub fn new(host: Arc<dyn ExplorerHost>, env: &RunEnv, tool_env: ToolEnv) -> Self {
         Self { host, env: isolated_env(env), tool_env }
     }
+
+    /// The explorer of a host with no run around it: the process's clock, jitter, retry wait and
+    /// decider.
+    pub fn standalone(
+        host: Arc<dyn ExplorerHost>,
+        clock: Arc<dyn crate::env::Clock>,
+        jitter: Arc<dyn crate::env::JitterSource>,
+        waiter: Arc<dyn crate::env::RetryWait>,
+        decider: Arc<dyn mixdog_core_api::domain::retry::RetryDecider>,
+        tool_env: ToolEnv,
+    ) -> Self {
+        Self { host, env: crate::one_shot::isolated(clock, jitter, waiter, decider), tool_env }
+    }
 }
 
 /// The answer text of the request in flight, for salvage when the deadline cuts it.
@@ -221,7 +234,8 @@ impl ExploreRunner for AgentExplorer {
             effort: route.effort.clone(),
             fast: route.fast,
             model_parameters: route.model_parameters.clone(),
-            parent_session_id: route.owner_session_id.clone(),
+            // `ownerSessionId: ctx.callerSessionId`: the thread that called `explore`.
+            parent_session_id: route.owner_session_id.clone().or_else(|| Some(run.thread.as_str().to_owned())),
             prompt_cache_scope: Some(crate::cache_scope::SHARED.to_owned()),
             ..Default::default()
         };

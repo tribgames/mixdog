@@ -50,6 +50,8 @@ pub use stall::StallMonitor;
 pub use stall::StallReporter;
 pub use stall::tokio_post;
 pub use supervisor::ReleaseBudgets;
+pub use supervisor::StepEnd;
+pub use supervisor::supervise_async;
 
 pub(crate) use machine::ct_eq;
 pub(crate) use machine::hex;

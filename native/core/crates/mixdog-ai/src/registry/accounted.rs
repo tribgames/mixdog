@@ -226,6 +226,9 @@ impl ProviderAdapter for AccountedAdapter {
     fn native_documents(&self) -> Option<bool> {
         self.inner.native_documents()
     }
+    fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
+        self.inner.first_response_budget(model, parameters)
+    }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let accounting = self.open(&request).await;

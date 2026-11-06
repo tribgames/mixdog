@@ -12,8 +12,8 @@
 //! Every call is idempotent (the first terminal state wins, so the outer reject path cannot
 //! notify twice) and reporting on a turn never breaks it.
 //!
-//! Not ported: the progress watchdog's partial handoff (`reconcileJobWatchdogPartial`). It
-//! reconciles a turn the watchdog aborted on silence; nothing aborts a turn on silence here.
+//! A turn the progress watchdog stopped on silence that still has partial output reconciles as
+//! a failure carrying that output ([`reconcile_watchdog_partial`]).
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -33,6 +33,7 @@ use crate::agent_tool::board::Completion;
 use crate::agent_tool::board::JobBoard;
 use crate::agent_tool::board::JobSnapshot;
 use crate::agent_tool::scope::Scope;
+use crate::agent_tool::watchdog::WATCHDOG_STOP_ERROR;
 use mixdog_tools::orch::agent::TaskResult;
 
 /// How a worker turn ended, as the runner tracks it (`finalStatus`).
@@ -152,6 +153,20 @@ pub fn reconcile_cancelled(job: &JobHandle, identity: &Map<String, Value>, conte
         TaskResult::Json(Value::Object(value))
     });
     job.board.settle_cancelled(&job.task_id, result);
+}
+
+/// `reconcileJobWatchdogPartial`: the watchdog stopped the turn but it left partial output; the
+/// owner is told the task FAILED (stalled), with the output it produced before the stop.
+pub fn reconcile_watchdog_partial(job: &JobHandle, value: &WorkerResult) {
+    job.board.reconcile(
+        &job.task_id,
+        Completion {
+            result: Some(value.task_result()),
+            error: Some(WATCHDOG_STOP_ERROR.to_owned()),
+            terminal_reason: Some("agent-watchdog-partial".to_owned()),
+            ..Completion::new("failed")
+        },
+    );
 }
 
 /// `reconcileJobStreamStalled`: a turn that threw. A failure after answers the turn went on past

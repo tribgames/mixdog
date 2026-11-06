@@ -1,7 +1,9 @@
 //! Streamed file download: the response is written to a partial file, counted
 //! against a byte limit and an expected size, flushed to disk and reported as
 //! progress. A 4xx answer is terminal; any other failure is retried a few
-//! times at once (no sleeps: nothing here waits on a clock).
+//! times at once by [`download_to_file`] (the model install). A caller that needs Node's
+//! timed schedule (the Postgres runtime's 180 s attempts and 1 s / 3 s / 9 s waits) runs
+//! [`download_once`] under its own loop.
 
 use std::path::Path;
 
@@ -31,7 +33,8 @@ pub enum DownloadError {
 }
 
 impl DownloadError {
-    fn terminal(&self) -> bool {
+    /// A 4xx answer or a cancel: retrying cannot change it.
+    pub fn is_terminal(&self) -> bool {
         match self {
             Self::Http { status, .. } => (400..500).contains(status),
             Self::Cancelled => true,
@@ -113,6 +116,19 @@ async fn attempt(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &Canc
     Ok(downloaded)
 }
 
+/// One attempt at `spec.url`; a failed attempt leaves no file.
+pub async fn download_once(
+    spec: &Spec<'_>,
+    progress: Option<&ProgressSink>,
+    cancel: &CancellationToken,
+) -> Result<u64, DownloadError> {
+    let outcome = attempt(spec, progress, cancel).await;
+    if outcome.is_err() {
+        let _ = fsio::remove_file(spec.lane, spec.dest).await;
+    }
+    outcome
+}
+
 /// Downloads `spec.url` to `spec.dest`; a failed download leaves no file.
 pub async fn download_to_file(
     spec: &Spec<'_>,
@@ -121,11 +137,10 @@ pub async fn download_to_file(
 ) -> Result<u64, DownloadError> {
     let mut last = DownloadError::Cancelled;
     for _ in 0..=RETRIES {
-        match attempt(spec, progress, cancel).await {
+        match download_once(spec, progress, cancel).await {
             Ok(bytes) => return Ok(bytes),
             Err(error) => {
-                let _ = fsio::remove_file(spec.lane, spec.dest).await;
-                if error.terminal() {
+                if error.is_terminal() {
                     return Err(error);
                 }
                 last = error;

@@ -32,6 +32,13 @@ use super::view::SessionView;
 
 /// Messages of the actor's control lane, polled before everything else.
 pub(crate) enum Ctl {
+    /// A run's approval request. It rides the control lane (RL §6.2) so a producer lane the actor
+    /// stopped reading, while the durability window is full, cannot hold it.
+    Approval {
+        turn: TurnId,
+        ask: mixdog_core_api::domain::approval::ApprovalAsk,
+        reply: tokio::sync::oneshot::Sender<mixdog_protocol::ApprovalResolution>,
+    },
     /// The run's token is already cancelled; the actor resolves the run's own requests.
     Abort { turn: TurnId },
     /// Steer entries were pushed into the active run's steer queue.

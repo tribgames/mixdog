@@ -419,3 +419,23 @@ async fn the_catalog_shows_the_avatars_of_rows_lead_and_archived_agents() {
     let who = agents.archived_identity("pal").await.unwrap().unwrap();
     assert_eq!((who.name.as_str(), who.avatar["kind"].as_str()), ("Pal", Some("mascot")));
 }
+
+/// `readAgentFirstResponseTimeoutMs` over the worlds real Node answered
+/// (`benchmarks/rust-core/recorders/record-agent-watchdog.mjs`): user copy against shipped, 0,
+/// negative, non-numeric, absent, flat files, a deleted agent and a store bot.
+#[tokio::test]
+async fn an_agents_first_response_deadline_is_what_node_read() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-watchdog/golden.json");
+    let golden: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    for recorded in golden["firstResponse"].as_array().unwrap() {
+        let world = json!({
+            "shipped": recorded["shipped"], "data": recorded["data"],
+            "config": {}, "evidence": {}, "main": null, "owns": false,
+        });
+        let (_dir, agents) = open_world(&world).await;
+        for (id, want) in recorded["answers"].as_object().unwrap() {
+            let got = agents.first_response_timeout_ms(id).await.unwrap();
+            assert_eq!(got, want.as_i64(), "{} / {id:?}", recorded["name"]);
+        }
+    }
+}

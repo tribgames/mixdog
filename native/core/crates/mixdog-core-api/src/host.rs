@@ -41,14 +41,19 @@ pub enum HostCapability {
 
 impl HostCapability {
     /// The longest a `host/*` request to this capability may stay unanswered while its claimant
-    /// stays connected (a modal dialog, a wedged handler). One table for the whole channel:
-    /// `Outgoing::ask` is the only place that enforces it. A request that outlives it fails as
-    /// `capabilityUnavailable{desktopHost, timedOut}`.
-    pub const fn deadline(self) -> Duration {
+    /// stays connected (a modal dialog, a wedged handler), where Node bounds it; `None` where
+    /// Node does not, and the caller's cancel is then the only end. One table for the whole
+    /// channel: `Outgoing::ask` is the only place that enforces it. A request that outlives it
+    /// fails as `capabilityUnavailable{desktopHost, timedOut}`.
+    ///
+    /// Node's values: `systemProxy` 3 s (`apps/desktop/src/main/system-proxy.ts:16`
+    /// `SYSTEM_PROXY_RESOLVE_TIMEOUT_MS`, applied at `desktop-service.ts:1120`); the notification
+    /// status read 3 s (`desktop-service.ts:842`). Browser, visualize, files, updater, power and
+    /// the model proxy have none in Node: a browser takeover may wait for a person for minutes.
+    pub const fn deadline(self) -> Option<Duration> {
         match self {
-            Self::Notifications | Self::SystemProxy | Self::Power => Duration::from_secs(30),
-            Self::Browser | Self::Visualize | Self::Files => Duration::from_secs(300),
-            Self::Updater | Self::ModelProxy => Duration::from_secs(600),
+            Self::SystemProxy | Self::Notifications => Some(Duration::from_secs(3)),
+            Self::Browser | Self::Visualize | Self::Files | Self::Updater | Self::Power | Self::ModelProxy => None,
         }
     }
 }

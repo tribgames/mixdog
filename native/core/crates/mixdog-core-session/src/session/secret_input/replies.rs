@@ -67,8 +67,8 @@ impl RedactingHostCommands {
 
 #[async_trait]
 impl HostCommands for RedactingHostCommands {
-    async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
-        match self.inner.browser(thread, action, input).await {
+    async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+        match self.inner.browser(thread, action, input, cancel).await {
             Ok(mut reply) => {
                 if let Some(Value::String(text)) = reply.get_mut("text") {
                     *text = self.redactor.redact(thread, text);
@@ -82,8 +82,8 @@ impl HostCommands for RedactingHostCommands {
         }
     }
 
-    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue) -> Result<JsonValue, HostCommandError> {
-        self.inner.visualize(thread, cwd, action, input).await
+    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+        self.inner.visualize(thread, cwd, action, input, cancel).await
     }
 }
 
@@ -176,13 +176,13 @@ mod tests {
 
     #[async_trait]
     impl HostCommands for Page {
-        async fn browser(&self, _: &ThreadId, _: &str, _: JsonValue) -> Result<JsonValue, HostCommandError> {
+        async fn browser(&self, _: &ThreadId, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
             match &self.failure {
                 Some(message) => Err(HostCommandError::Rpc { code: -32000, message: message.clone(), timing: Some(json!({ "ms": 3 })) }),
                 None => Ok(self.reply.clone()),
             }
         }
-        async fn visualize(&self, _: &ThreadId, _: &str, _: &str, _: JsonValue) -> Result<JsonValue, HostCommandError> {
+        async fn visualize(&self, _: &ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
             Ok(self.reply.clone())
         }
     }
@@ -235,15 +235,15 @@ mod tests {
         let secrets = remembering("S1", VALUE);
         let reply = json!({ "text": format!("field shows {VALUE}!"), "url": format!("https://x.test/?q={VALUE}"), "n": 3 });
         let shown = RedactingHostCommands::new(Arc::new(Page { reply: reply.clone(), failure: None }), secrets.clone());
-        let got = shown.browser(&ThreadId::from("S1"), "read", json!({})).await.unwrap();
+        let got = shown.browser(&ThreadId::from("S1"), "read", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap();
         assert_eq!(got["text"], "field shows [redacted]!");
         assert_eq!((&got["url"], &got["n"]), (&reply["url"], &reply["n"]), "only the reply text is redacted, as Node does");
-        let other = shown.browser(&ThreadId::from("S2"), "read", json!({})).await.unwrap();
+        let other = shown.browser(&ThreadId::from("S2"), "read", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap();
         assert_eq!(other, reply, "another session's reply is untouched");
         let failing = RedactingHostCommands::new(Arc::new(Page { reply: json!({}), failure: Some(format!("typed {VALUE} failed")) }), secrets);
-        let error = failing.browser(&ThreadId::from("S1"), "read", json!({})).await.unwrap_err();
+        let error = failing.browser(&ThreadId::from("S1"), "read", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap_err();
         assert_eq!(error, HostCommandError::Rpc { code: -32000, message: "typed [redacted] failed".into(), timing: Some(json!({ "ms": 3 })) });
-        assert_eq!(failing.visualize(&ThreadId::from("S1"), "/p", "x", json!({})).await.unwrap(), json!({}));
+        assert_eq!(failing.visualize(&ThreadId::from("S1"), "/p", "x", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap(), json!({}));
     }
 
     #[tokio::test]
@@ -342,8 +342,8 @@ mod tests {
         );
         let stored = Mutex::new(Vec::<String>::new());
         let keep = |text: String| stored.lock().unwrap().push(text);
-        keep(page.browser(&thread, "read", json!({})).await.unwrap().to_string());
-        keep(format!("{:?}", broken.browser(&thread, "read", json!({})).await.unwrap_err()));
+        keep(page.browser(&thread, "read", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap().to_string());
+        keep(format!("{:?}", broken.browser(&thread, "read", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap_err()));
         keep(format!("{:?}", ok_screen.run(click(), CancellationToken::new()).await.unwrap()));
         keep(format!("{:?}", screen.run(click(), CancellationToken::new()).await.unwrap_err()));
         let stored = stored.into_inner().unwrap();

@@ -146,7 +146,7 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Value {
     // The engine wrote in place: run the invalidation a pipeline write would have run.
     let changed_paths: Vec<_> = changed.iter().map(|f| full_path_for(&o.cwd, f)).collect();
     if let Some(host) = &o.host {
-        host.note_written(&changed_paths, o.session_id.as_deref());
+        host.note_written(&changed_paths, o.session_id.as_deref()).await;
         if let (Some(session), Some(baselines)) = (o.session_id.as_deref(), baselines) {
             let mut written = read_files(o.lane, changed_paths.clone()).await;
             let changes: Vec<FileChange> = changed_paths.iter().filter_map(|p| Some(FileChange { full_path: p.clone(), before: baselines.get(p)?.clone(), after: written.remove(p)? })).collect();

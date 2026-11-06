@@ -32,6 +32,8 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 use super::live_turn::LiveTurnPublisher;
+use super::watchdog::Watchdog;
+use mixdog_agent::agent_tool::watchdog::{is_watchdog_abort, resolve_policy, AgentKind, Overrides};
 use super::message_row::{message_of, row_of};
 use mixdog_core_run::run_host::progress::ProgressPublisher;
 use mixdog_core_run::run_host::progress::StreamKind;
@@ -144,6 +146,25 @@ pub struct Assembled {
 pub trait RunParts: Send + Sync + 'static {
     /// The turn's host parts; a refusal fails the turn with its error.
     async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError>;
+
+    /// `getHiddenAgent(agent).stallCap.idleSeconds`: an internal agent's own idle budget, which
+    /// the progress watchdog honours.
+    fn stall_cap_idle_seconds(&self, _agent: Option<&str>) -> Option<i64> {
+        None
+    }
+
+    /// `readAgentFirstResponseTimeoutMs(agent)`: the agent definition's own first-response
+    /// deadline for the progress watchdog.
+    async fn first_response_timeout_ms(&self, _agent: &str) -> Option<i64> {
+        None
+    }
+
+    /// `armTurnShellReap` / `reapTurnShellJobs`: the progress watchdog stopped the turn, so the
+    /// background shells it started at or after `since_ms` are stopped with it.
+    fn reap_turn_shells(&self, _thread: &ThreadId, _since_ms: i64) {}
+
+    /// `resetTurnShellReap`: a new turn owns the thread; nothing earlier is reported for it.
+    fn reset_turn_shells(&self, _thread: &ThreadId) {}
 }
 
 pub struct RunHostFactory {
@@ -467,7 +488,7 @@ pub(crate) fn system_messages(header: &mixdog_store::schema::record::Header) -> 
 }
 
 async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
-    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, skill_selection: routine_selection, input: submitted, input_item, .. } = run;
+    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, skill_selection: routine_selection, input: submitted, input_item, .. } = run;
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
         Some(turn) => {
             let hook = turn.hooks.notify;
@@ -477,7 +498,9 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
         None => (None, routine_selection, None, None),
     };
     let surface_now = surface.borrow().clone();
+    parts.reset_turn_shells(&thread);
     let hints = ToolHints::start(progress.subscribe(), port.clone());
+    let watched = progress.subscribe();
     let tool_progress = RunToolProgress::new(progress.clone());
     let mut stored = match context.read().await {
         Ok(stored) => stored,
@@ -537,6 +560,31 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
 
     let progress = Arc::new(ProgressPublisher::new(progress, clock.clone()));
     progress.ask_start();
+    let asked_at = clock.now_ms();
+    // The progress watchdog judges the model work from the ask on, and only a run no person is
+    // attached to (Node arms it per worker turn once the ask has started).
+    let watchdog = if unattended {
+        let agent = header.get("agent").and_then(Value::as_str).filter(|name| !name.is_empty());
+        let model = header.get("model").and_then(Value::as_str).unwrap_or_default();
+        let budget = provider.first_response_budget(model, header.get("modelParameters").filter(|parameters| parameters.is_object()));
+        // `agentWatchdogOverrides`: the agent definition's first-response deadline and the routed
+        // model's first-response budget.
+        let overrides = Overrides {
+            first_transport_timeout_ms: match agent {
+                Some(name) => parts.first_response_timeout_ms(name).await,
+                None => None,
+            },
+            provider_first_byte_timeout_ms: budget.map(|b| b.transport_ms),
+            provider_first_output_timeout_ms: budget.map(|b| b.semantic_ms),
+            ..Overrides::default()
+        };
+        let kind = AgentKind { name: agent, hidden: config.hidden_agent, stall_cap_idle_seconds: parts.stall_cap_idle_seconds(agent) };
+        let policy = resolve_policy(kind, overrides, &|name: &str| std::env::var(name).ok());
+        let (reaper, reaped_thread) = (parts.clone(), thread.clone());
+        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move || reaper.reap_turn_shells(&reaped_thread, asked_at))
+    } else {
+        None
+    };
     let (shown_tx, mut shown_rx) = mpsc::unbounded_channel::<Shown>();
     let shown_port = port.clone();
     drop(mixdog_rt::spawn("run-shown", TaskClass::Work, async move {
@@ -558,7 +606,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
 
     config.thread_id = thread.clone();
     config.turn_id = turn.clone();
-    config.signal = Some(signal);
+    config.signal = Some(signal.clone());
     config.first_request_after = Some(Ticket(0));
     let gate: Arc<dyn ToolGate> = Arc::new(ReviewGate::new(review, gate(GateContext { observer: observer.clone(), cancel: cancel.clone(), guards: guards.clone(), approvals: Arc::new(port.clone()) })));
     let skills = skills.map(|build| build(SkillContext { gate: gate.clone(), env: tool_env.clone(), cancel: cancel.clone() }));
@@ -585,6 +633,8 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
         images,
     };
     let result = Run::new(env, cancel.clone(), provider, tools, tool_env, config, messages, carry).run().await;
+    // The model work is over: the watchdog, which judges only that, stops here.
+    drop(watchdog);
     closing.end_reasoning();
     // No hint is published once the run's outcome is on its way: the run owns the runtime section.
     hints.finish().await;
@@ -618,6 +668,14 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
         Err(failure) => {
             sink.flush().await;
             sink.live.clear();
+            // The watchdog's abort is a stalled failure, not a user's interrupt: its sentence is
+            // the error, and the partial output the sink just flushed goes to the owner.
+            if signal.is_aborted() && is_watchdog_abort(&signal.reason()) {
+                // The turn has unwound: sweep what it registered while stopping (`reapTurnShellJobs`).
+                parts.reap_turn_shells(&thread, asked_at);
+                progress.error();
+                return failed(signal.reason(), Value::Null);
+            }
             if matches!(failure.error, AgentError::Aborted) || cancel.is_cancelled() {
                 progress.cancelling();
                 return RunOutcome::Interrupted;
@@ -1039,6 +1097,7 @@ mod tests {
     }
 
     struct Config;
+    #[async_trait]
     impl super::super::host_seams::ConfigSeams for Config {
         fn hidden_agent(&self, _: Option<&str>) -> bool {
             false
@@ -1334,6 +1393,7 @@ mod tests {
             config: Arc::new(Config),
             settings: super::super::settings::SettingsSources { wiring: Arc::new(NoWiring), attachments: Arc::new(NoAttachmentText), heartbeats: Arc::new(NoMarks), ceilings: Arc::new(NoCeilings), auto_effort: Arc::new(AutoOff) },
             ladder: Arc::new(NoLadder),
+            shells: None,
             deps: Box::new({
                 let store = rig.store.clone();
                 let rig_deps = rig.deps_parts(store);

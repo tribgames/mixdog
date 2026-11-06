@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-agent-watchdog.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 233231,
+      "path": "golden.json",
+      "sha256": "82da6a6eb45762f4ae75d3e4ff7f3e11adbd50ab59ce090cf947ebcea703eeb8"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "6980bd51e55b32ec5ccfee5d575179c93f81f7c5",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 9248
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-watchdog.mjs",
+  "set": "agent-watchdog",
+  "totalBytes": 233231
+}

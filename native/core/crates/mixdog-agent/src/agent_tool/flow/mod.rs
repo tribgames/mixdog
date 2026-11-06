@@ -3,8 +3,10 @@
 //! `session-runtime/services/agent-tool/{spawn-flow/,send-flow.mjs,worker-turns.mjs,
 //! job-task-reconcile.mjs,notify*}`). What they borrow from the session side is in [`seams`].
 //!
-//! The progress watchdog is not ported: it decides a turn's death from silence or elapsed time,
-//! and nothing here stops a turn for either. Progress is reported (`agent_tool::progress`).
+//! The progress watchdog stops an unattended turn that goes silent (`agent_tool::watchdog` for its
+//! policy, `run_host::watchdog` for the sweep); an attended turn is never stopped for silence.
+//! What a stopped turn hands its owner is settled in [`turn`] and [`reconcile`]. Progress is
+//! reported by `agent_tool::progress`.
 
 pub mod early;
 pub mod handoff;

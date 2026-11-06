@@ -339,7 +339,7 @@ impl TidyTool {
             }
         }
         let host = self.host.write_host();
-        let outcome = apply_structural_fixes(self.processes.durability(), host.as_ref(), run.cwd, &by_file, run.session_id).await;
+        let outcome = apply_structural_fixes(self.processes.durability(), host.as_ref(), run.cwd, &by_file, run.session_id, run.cancel).await;
         structural["applied"] = json!(outcome.applied);
         if !outcome.rejected.is_empty() {
             structural["rejected"] = json!(outcome.rejected);

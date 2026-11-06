@@ -26,9 +26,29 @@ pub fn hidden_agent_traits(name: &str) -> Option<(Option<String>, Option<String>
     Some((text("kind"), text("toolSchemaProfile")))
 }
 
+/// `getHiddenAgent(name).stallCap.idleSeconds`: the internal agent's own idle budget in seconds,
+/// when it names a positive one (`resolveAgentStallThresholds` reads `> 0`).
+pub fn hidden_agent_stall_cap_idle_seconds(name: &str) -> Option<i64> {
+    let raw: Value = serde_json::from_str(AGENTS).unwrap_or(Value::Null);
+    let entry = raw.get("agents")?.as_array()?.iter().rev().find(|e| e.get("agent").and_then(Value::as_str) == Some(name))?;
+    let seconds = entry.get("stallCap")?.get("idleSeconds")?.as_f64()?;
+    (seconds > 0.0).then_some(seconds as i64)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{hidden_agent_traits, hidden_agents};
+    use super::{hidden_agent_stall_cap_idle_seconds, hidden_agent_traits, hidden_agents};
+
+    #[test]
+    fn the_stall_caps_are_what_node_read_off_the_internal_agents() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-watchdog/golden.json");
+        let golden: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let caps = golden["stallCaps"].as_object().unwrap();
+        assert!(!caps.is_empty());
+        for (name, recorded) in caps {
+            assert_eq!(hidden_agent_stall_cap_idle_seconds(name), recorded.as_i64(), "{name}");
+        }
+    }
 
     #[test]
     fn the_traits_of_an_internal_agent_are_its_kind_and_profile() {

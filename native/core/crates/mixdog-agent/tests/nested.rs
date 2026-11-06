@@ -84,7 +84,8 @@ impl GateSession for Session {
     async fn facts(&self) -> SessionFacts {
         SessionFacts {
             agent_id: "mailer".into(),
-            acting_bot: None,
+            // A bot's own session: the only one a `needs_approval` connector tool asks in.
+            acting_bot: Some("mailer".into()),
             contact_bot: None,
             connector_agent_id: "mailer".into(),
             run: None,

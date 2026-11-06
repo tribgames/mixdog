@@ -256,7 +256,9 @@ fn the_tool_list_a_turn_sees_follows_node() {
 
 struct Fixed(CallResolution);
 
+#[async_trait]
 impl CatalogView for Fixed {
+    async fn announce(&self, _: &ThreadId, _: &[String]) {}
     fn available(&self, _: &ThreadId) -> Vec<ToolDoc> {
         Vec::new()
     }
@@ -272,7 +274,7 @@ impl CatalogView for Fixed {
     fn mcp_server_members(&self, _: &ThreadId, _: &str) -> Vec<String> {
         Vec::new()
     }
-    fn instructions_for(&self, _: &[String]) -> String {
+    fn instructions_for(&self, _: &ThreadId, _: &[String]) -> String {
         String::new()
     }
     fn resolve_call(&self, _: &ThreadId, _: &str) -> CallResolution {

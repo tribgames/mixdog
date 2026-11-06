@@ -550,6 +550,13 @@ impl AgentDefinitions {
         self.job(move |folders, lane| folders.avatar_of(lane, &id)).await
     }
 
+    /// `readAgentFirstResponseTimeoutMs(id)`: the definition's own first-response deadline, read
+    /// afresh (Node caches it for the 5 s front matter TTL; a run reads it once, at its start).
+    pub async fn first_response_timeout_ms(&self, id: &str) -> Result<Option<i64>, AgentsError> {
+        let id = id.to_owned();
+        self.job(move |folders, lane| folders.first_response_timeout_ms(lane, &id)).await
+    }
+
     /// `readAgentDefinitionKind(id)`: the kind read afresh from the front matter alone (no body
     /// needed), with the home thread's greeting deciding an unmarked user copy.
     pub async fn definition_kind(&self, id: &str) -> Result<Option<String>, AgentsError> {

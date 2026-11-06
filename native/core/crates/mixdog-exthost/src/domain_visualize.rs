@@ -291,7 +291,7 @@ impl DomainService for VisualizeService {
         let mut input = valid.clone();
         input.shift_remove("action");
         let sent = json!({ "action": action, "input": input });
-        let result = forward(&*self.channel, HostCapability::Visualize, "visualize", "host/visualize/command", sent).await?;
+        let result = forward(&*self.channel, HostCapability::Visualize, "visualize", "host/visualize/command", sent, &req.ctx.cancel).await?;
         if !relay {
             return Ok(Reply::Value(result));
         }

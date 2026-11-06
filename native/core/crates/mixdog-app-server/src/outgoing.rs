@@ -259,8 +259,8 @@ impl Outgoing {
     }
 
     /// One request to `claimant`, answered or failed as its connection ends. The wait ends at
-    /// the capability's deadline (`timedOut`) or when `cancel` fires (`cancelled`), whichever the
-    /// claimant's silence outlasts; the request is forgotten then, so a late answer is dropped.
+    /// the capability's deadline, if it has one (`timedOut`), or when `cancel` fires
+    /// (`cancelled`); the request is forgotten then, so a late answer is dropped.
     async fn ask(
         &self,
         claimant: Arc<Connection>,
@@ -285,7 +285,7 @@ impl Outgoing {
             Some(cancel) => Scope::new().cancel(cancel),
             None => Scope::new(),
         };
-        match scope.deadline(Some(Instant::now() + capability.deadline())).run(reply).await {
+        match scope.deadline(capability.deadline().map(|limit| Instant::now() + limit)).run(reply).await {
             Scoped::Done(Ok(reply)) => reply,
             Scoped::Done(Err(_)) => Err(desktop_host_unavailable("claimantClosed").into()),
             Scoped::Cancelled => Err(desktop_host_unavailable("cancelled").into()),

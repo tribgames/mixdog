@@ -24,7 +24,6 @@ use serde_json::Value;
 use tokio::task::JoinHandle;
 
 use crate::memory::clean::clean_memory_text;
-use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::error::Result;
 use crate::memory::ingest::embed_flush::RawEmbedFlush;
 use crate::memory::ingest::ordinals::{OrdinalStore, PriorMatcher, SessionState, identity_hash};
@@ -47,7 +46,7 @@ pub fn system_now() -> NowMs {
 
 struct Inner {
     db: Db,
-    flush: RawEmbedFlush,
+    flush: Arc<RawEmbedFlush>,
     session_cwd: Option<PathBuf>,
     now: NowMs,
     #[allow(clippy::disallowed_types, reason = "a session's ingests are held across the awaited write on purpose: they run in call order, as Node's promise chain")]
@@ -104,9 +103,11 @@ fn parse_ts_to_ms(value: Option<&Value>, fallback_ms: i64) -> i64 {
 }
 
 impl SessionIngest {
-    pub fn new(db: Db, provider: Option<Arc<EmbeddingProvider>>, session_cwd: Option<PathBuf>, now: NowMs, lane: DurabilityIo) -> Self {
+    /// `flush` is the database's one flusher (`MemoryStack::embed_flush`): Node shares its
+    /// embedding cache state and prune clock per db handle.
+    pub fn new(db: Db, flush: Arc<RawEmbedFlush>, session_cwd: Option<PathBuf>, now: NowMs, lane: DurabilityIo) -> Self {
         Self(Arc::new(Inner {
-            flush: RawEmbedFlush::new(db.clone(), provider),
+            flush,
             db,
             session_cwd,
             now,
