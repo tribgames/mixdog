@@ -76,11 +76,20 @@ fn usage_of(spec: &Value) -> Usage {
     }
 }
 
+/// Node's unbound default account is `default`.
+struct UnboundRoster;
+
+#[async_trait]
+impl crate::registry::accounted::AccountOf for UnboundRoster {
+    async fn of(&self, _: &str) -> Result<String, String> {
+        Ok("default".into())
+    }
+}
+
 fn identity(case: &Value, started_at: i64) -> SendIdentity {
     let text = |key: &str| case.get(key).and_then(Value::as_str).map(str::to_owned);
     let provider = text("provider").unwrap();
     let model = text("model").unwrap();
-    let provider_name = provider.clone();
     SendIdentity {
         provider: provider.clone(),
         model: model.clone(),
@@ -92,8 +101,7 @@ fn identity(case: &Value, started_at: i64) -> SendIdentity {
         source_type: "lead".into(),
         input_tokens_inclusive: case.get("inputExcludesCache") != Some(&json!(true)),
         request_service_tier: String::new(),
-        // The account the send is bound to; Node's unbound default is `default`.
-        account: Ok(if crate::accounts::ACCOUNT_PROVIDERS.contains(&provider_name.as_str()) { "default".into() } else { String::new() }),
+        account: Ok(String::new()),
         request_id: "<req>".into(),
         started_at,
     }
@@ -105,7 +113,8 @@ async fn rows_of(case: &Value) -> Vec<Value> {
     let stream_ms = end.get("streamMs").and_then(Value::as_i64).unwrap_or(1500);
     let sink = Arc::new(Collect::default());
     let mut accounting = SendAccounting::new(identity(case, started_at), Arc::new(Unpriced), Some(sink.clone()))
-        .with_sources(Arc::new(move || started_at + stream_ms), Arc::new(|| "<random>".into()));
+        .with_sources(Arc::new(move || started_at + stream_ms), Arc::new(|| "<random>".into()))
+        .with_account(Arc::new(UnboundRoster));
     for attempt in case.get("abandoned").and_then(Value::as_array).into_iter().flatten() {
         let model = attempt.get("model").and_then(Value::as_str).map(str::to_owned);
         accounting.note_abandoned(&usage_of(&attempt["usage"]), model);
@@ -428,6 +437,48 @@ mod through_the_registry {
     impl crate::registry::accounted::AccountOf for DefaultAccount {
         async fn of(&self, _: &str) -> Result<String, String> {
             Ok("default".into())
+        }
+    }
+
+    /// The roster's current account, switchable.
+    struct Roster(Mutex<String>);
+    #[async_trait]
+    impl crate::registry::accounted::AccountOf for Roster {
+        async fn of(&self, _: &str) -> Result<String, String> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+    }
+
+    /// `usage-accounting.mjs:161` reads `currentProviderAccountId` while the row is built, after
+    /// the send: an account switched mid-request is the one recorded. A provider without
+    /// accounts records none.
+    #[tokio::test]
+    async fn the_row_records_the_account_current_when_it_is_written() {
+        for (provider, want) in [("openai-oauth", "second"), ("openai", "")] {
+            let sink = Arc::new(Collect::default());
+            let ledger: Arc<dyn UsageSink> = sink.clone();
+            let roster = Arc::new(Roster(Mutex::new("first".into())));
+            let mut deps = AccountingDeps::new(Arc::new(Unpriced), Arc::new(move || Some(ledger.clone())));
+            deps.account = roster.clone();
+            let script: Script = vec![
+                Ok(StreamEvent::Usage(usage_of(&json!({"inputTokens": 10, "outputTokens": 5})))),
+                Ok(StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None }),
+            ];
+            let registry = ProviderRegistry::new(Arc::new(Builder(Mutex::new(vec![script])))).with_accounting(deps);
+            registry.init_providers(&crate::service::admin_route::ensure_provider_enabled(&Map::new(), provider)).await.unwrap();
+            let adapter = registry.get(provider).await.unwrap();
+            let request = ModelRequest {
+                model: "m".into(),
+                messages: Vec::new(),
+                tools: Vec::new(),
+                options: RequestOptions { session_id: Some("s".into()), request_kind: Some("lead".into()), ..RequestOptions::default() },
+            };
+            let mut stream = adapter.attempt(Arc::new(request)).await.unwrap();
+            *roster.0.lock().unwrap() = "second".into();
+            while stream.next().await.is_some() {}
+            let rows = rows_of_sink(&sink);
+            assert_eq!(rows.len(), 1, "{provider}");
+            assert_eq!(rows[0]["account"], want, "{provider}");
         }
     }
 

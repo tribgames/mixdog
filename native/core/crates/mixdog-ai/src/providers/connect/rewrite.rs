@@ -176,4 +176,9 @@ impl ProviderAdapter for HttpAdapter {
     fn models(&self) -> Option<&dyn ModelListing> {
         self.listing.as_deref()
     }
+
+    /// Grok, the local runtime and a custom provider's engines (`provider.nativePdf = false`).
+    fn native_pdf(&self) -> bool {
+        false
+    }
 }

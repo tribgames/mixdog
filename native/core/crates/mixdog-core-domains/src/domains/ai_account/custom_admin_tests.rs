@@ -172,6 +172,7 @@ pub(super) async fn world(env: HashMap<String, String>) -> World {
         pace: Arc::new(SystemPace),
         gzip_lane: tokens.cpu_bulk,
         client_version: "1.0.0".into(),
+        client_versions: None,
         grok_client_version: None,
         cursor_client_version: None,
         antigravity_client_version: "1.0.0".into(),

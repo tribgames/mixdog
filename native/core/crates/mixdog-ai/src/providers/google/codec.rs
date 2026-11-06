@@ -55,7 +55,7 @@ pub enum Target {
     Antigravity {
         origin: String,
         project: String,
-        client_version: String,
+        client_version: crate::client_versions::Live,
     },
 }
 
@@ -136,7 +136,7 @@ impl GoogleCodec {
     pub fn antigravity(
         origin: impl Into<String>,
         project: impl Into<String>,
-        client_version: impl Into<String>,
+        client_version: impl Into<crate::client_versions::Live>,
         traits: Arc<dyn ModelTraits>,
     ) -> Self {
         Self {
@@ -319,7 +319,7 @@ impl GoogleCodec {
             }
             Target::Antigravity { origin, project, client_version } => {
                 headers.push(("accept".into(), "text/event-stream".into()));
-                headers.push(("user-agent".into(), antigravity_user_agent(client_version)));
+                headers.push(("user-agent".into(), antigravity_user_agent(&client_version.get())));
                 let contents = inner["contents"].as_array().cloned().unwrap_or_default();
                 inner["sessionId"] = json!(session_id(&contents));
                 (

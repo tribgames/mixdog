@@ -82,7 +82,7 @@ pub struct GrokListing {
     credential: Arc<dyn Credential>,
     /// Classifies a refused listing request like a refused turn.
     codec: Arc<dyn WireCodec>,
-    client_version: String,
+    client_version: crate::client_versions::Live,
     effort_rule: Arc<dyn XaiEffortRule>,
     /// The metadata enrichment and the picker sanitizer the listing ends with.
     lookup: ListingLookup,
@@ -93,7 +93,7 @@ impl GrokListing {
         http: Arc<dyn HttpSend>,
         credential: Arc<dyn Credential>,
         codec: Arc<dyn WireCodec>,
-        client_version: String,
+        client_version: crate::client_versions::Live,
         effort_rule: Arc<dyn XaiEffortRule>,
         lookup: ListingLookup,
     ) -> Self {
@@ -305,7 +305,7 @@ impl ModelListing for GrokListing {
         let (name, value) = self.credential.header(false).await?.ok_or_else(|| malformed("no credential"))?;
         let bearer = vec![(name, value)];
         let mut proxy_headers = bearer.clone();
-        proxy_headers.extend(identity_headers(&self.client_version));
+        proxy_headers.extend(identity_headers(&self.client_version.get()));
         let (api, proxy) = futures::future::join(
             self.items(format!("{INFERENCE_BASE_URL}/models"), bearer),
             self.items(format!("{PROXY_BASE_URL}/models"), proxy_headers),

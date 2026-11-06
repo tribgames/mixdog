@@ -24,6 +24,8 @@ use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
 
+use super::accounted::AccountOf;
+use crate::accounts::ACCOUNT_PROVIDERS;
 use crate::catalog::PricedUsage;
 use crate::catalog::PricingCatalog;
 use crate::catalog::UsageArgs;
@@ -191,8 +193,9 @@ pub struct SendIdentity {
     pub input_tokens_inclusive: bool,
     /// The tier the last wire attempt sent.
     pub request_service_tier: String,
-    /// The provider account the send is bound to (account providers only), or why it could not
-    /// be read: every row of the send then fails to record.
+    /// The account when the send has no roster attached ([`SendAccounting::with_account`]), which
+    /// reads it for every row written instead; the error text is what Node's read throws inside the
+    /// row's write, failing every row of the send.
     pub account: Result<String, String>,
     pub request_id: String,
     pub started_at: i64,
@@ -507,6 +510,8 @@ pub struct SendAccounting {
     sink: Option<Arc<dyn UsageSink>>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
     new_id: Arc<dyn Fn() -> String + Send + Sync>,
+    /// Read for every row written (`usage-accounting.mjs:161`), not once for the send.
+    account: Option<Arc<dyn AccountOf>>,
     abandoned: Vec<Abandoned>,
 }
 
@@ -551,8 +556,15 @@ impl SendAccounting {
                     .map_or(0, |d| d.as_millis() as i64)
             }),
             new_id: Arc::new(random_uuid),
+            account: None,
             abandoned: Vec::new(),
         }
+    }
+
+    /// The roster each row's account is read from.
+    pub fn with_account(mut self, account: Arc<dyn AccountOf>) -> Self {
+        self.account = Some(account);
+        self
     }
 
     /// Replaces the clock and the random id source (tests).
@@ -604,11 +616,16 @@ impl SendAccounting {
         }
         let stream_ms = completed.map_or(0.0, |c| (c.stream_ended_at - identity.started_at) as f64);
         // `currentProviderAccountId` throws inside the row's construction: nothing is written.
-        let account = match &identity.account {
-            Ok(account) => account.clone(),
+        let read = match &self.account {
+            Some(roster) if ACCOUNT_PROVIDERS.contains(&identity.provider.as_str()) => roster.of(&identity.provider).await,
+            Some(_) => Ok(String::new()),
+            None => identity.account.clone(),
+        };
+        let account = match read {
+            Ok(account) => account,
             Err(error) => {
                 tracing::error!("[usage-ledger] RECORD NOT SAVED: {error}");
-                recorded.error = Some(error.clone());
+                recorded.error = Some(error);
                 return;
             }
         };

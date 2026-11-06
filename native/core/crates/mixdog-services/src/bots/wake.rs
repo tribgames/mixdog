@@ -11,6 +11,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
+use super::beat::{Change, HeartbeatStore};
 use super::heartbeat::HeartbeatSessions;
 use super::ids::MIXY_AGENT_ID;
 use super::owned::never_cancelled;
@@ -32,9 +33,6 @@ pub trait WakeHost: Send + Sync {
 
     /// `closeSession(id, 'heartbeat-finished')`: whether a durable tombstone was written.
     async fn close_hidden_session(&self, session_id: &str) -> Result<bool, String>;
-
-    /// A close that did not land, for a later retry.
-    async fn unreleased(&self, session_id: &str);
 
     /// `deliverAgentMessage(agentId, { runId, text })`: queues the reply for her home chat.
     async fn deliver(&self, agent_id: &str, run_id: &str, text: &str) -> Result<(), String>;
@@ -62,12 +60,14 @@ pub struct MixyWake {
     routines: Arc<RoutineRuntime>,
     host: Arc<dyn WakeHost>,
     marks: Arc<HeartbeatSessions>,
+    /// Where a close that did not land is kept for a later retry.
+    state: Arc<HeartbeatStore>,
 }
 
 impl MixyWake {
     /// `marks` is the process's one `HeartbeatSessions`, the instance every reader of the mark shares.
-    pub fn new(routines: Arc<RoutineRuntime>, host: Arc<dyn WakeHost>, marks: Arc<HeartbeatSessions>) -> Self {
-        Self { routines, host, marks }
+    pub fn new(routines: Arc<RoutineRuntime>, host: Arc<dyn WakeHost>, marks: Arc<HeartbeatSessions>, state: Arc<HeartbeatStore>) -> Self {
+        Self { routines, host, marks, state }
     }
 
     pub async fn wake(&self, items: &WakeItems) -> Result<WakeOutcome, String> {
@@ -83,8 +83,12 @@ impl MixyWake {
         }
         self.marks.mark(&session_id);
         let outcome = self.turn(&session_id, items).await;
-        // Nothing runs on in it: delegation is refused there, and the close stops the shell commands it left running.
-        self.release(&session_id).await;
+        // Nothing runs on in it: delegation is refused there, and the close stops the shell
+        // commands it left running. A keep that fails supersedes the outcome, as a throw in
+        // Node's `finally` does.
+        if !self.release_hidden(&session_id).await {
+            self.state.update(Change::KeepUnreleased { id: session_id.clone() }).await?;
+        }
         outcome
     }
 
@@ -113,8 +117,9 @@ impl MixyWake {
         Ok(WakeOutcome { quiet: false, session_id: session_id.into(), text: Some(text.into()) })
     }
 
-    /// `releaseHidden`: the mark ends once the close lands.
-    async fn release(&self, session_id: &str) {
+    /// `releaseHidden`: closes hidden session `session_id`; true once the close landed, which
+    /// ends the mark.
+    pub async fn release_hidden(&self, session_id: &str) -> bool {
         let closed = match self.host.close_hidden_session(session_id).await {
             Ok(closed) => closed,
             Err(error) => {
@@ -126,8 +131,8 @@ impl MixyWake {
             self.marks.unmark(session_id);
         } else {
             tracing::warn!("mixdog heartbeat: closing {session_id} did not land; it is retried");
-            self.host.unreleased(session_id).await;
         }
+        closed
     }
 }
 
@@ -157,13 +162,13 @@ mod tests {
 
     use super::*;
     use crate::bots::TurnSettle;
+    use crate::bots::state_json::StateJson;
     use crate::bots::tests::fixture;
 
     #[derive(Default)]
     struct Sessions {
         closes: Mutex<Vec<(String, bool)>>,
         lands: Mutex<bool>,
-        unreleased: Mutex<Vec<String>>,
         delivered: Mutex<Vec<(String, String, String)>>,
         marks: Mutex<Option<Arc<HeartbeatSessions>>>,
     }
@@ -186,9 +191,6 @@ mod tests {
             self.closes.lock().unwrap().push((session_id.into(), marked));
             Ok(*self.lands.lock().unwrap())
         }
-        async fn unreleased(&self, session_id: &str) {
-            self.unreleased.lock().unwrap().push(session_id.into());
-        }
         async fn deliver(&self, agent_id: &str, run_id: &str, text: &str) -> Result<(), String> {
             self.delivered.lock().unwrap().push((agent_id.into(), run_id.into(), text.into()));
             Ok(())
@@ -199,20 +201,21 @@ mod tests {
         WakeItems { items: vec!["a build failed".into()], proposals: vec!["p1".into()], ..Default::default() }
     }
 
-    async fn rig(lands: bool) -> (crate::bots::tests::Fixture, Arc<Sessions>, Arc<HeartbeatSessions>, MixyWake) {
+    async fn rig(lands: bool) -> (crate::bots::tests::Fixture, Arc<Sessions>, Arc<HeartbeatSessions>, Arc<HeartbeatStore>, MixyWake) {
         let f = fixture().await;
         let marks = HeartbeatSessions::new();
         *f.host.marks.lock().unwrap() = Some(marks.clone());
         let sessions = Arc::new(Sessions::default());
         *sessions.lands.lock().unwrap() = lands;
         *sessions.marks.lock().unwrap() = Some(marks.clone());
-        let wake = MixyWake::new(f.rt.clone(), sessions.clone(), marks.clone());
-        (f, sessions, marks, wake)
+        let store = HeartbeatStore::new(StateJson::new(f._dir.path().join("heartbeat.json"), mixdog_rt::testing::tokens().durability_io));
+        let wake = MixyWake::new(f.rt.clone(), sessions.clone(), marks.clone(), store.clone());
+        (f, sessions, marks, store, wake)
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_wake_marks_the_session_through_its_turn_and_until_the_close_lands() {
-        let (f, sessions, marks, wake) = rig(true).await;
+        let (f, sessions, marks, store, wake) = rig(true).await;
         f.host.settles.lock().unwrap().push_back(TurnSettle::Done { result: "  Two builds are red.  ".into() });
         let outcome = wake.wake(&items()).await.unwrap();
 
@@ -227,24 +230,24 @@ mod tests {
         assert_eq!(*sessions.closes.lock().unwrap(), [("sess_hidden_beat".to_string(), true)], "still marked when the close was asked");
         assert!(!marks.is_marked("sess_hidden_beat"), "the landed close ends the mark");
         assert_eq!(*sessions.delivered.lock().unwrap(), [("lead".to_string(), "heartbeat_sess_hidden_beat".to_string(), "Two builds are red.".to_string())]);
-        assert!(sessions.unreleased.lock().unwrap().is_empty());
+        assert!(store.state().await.unreleased.is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_close_that_does_not_land_keeps_the_mark_and_is_retried_later() {
-        let (f, sessions, marks, wake) = rig(false).await;
+        let (f, sessions, marks, store, wake) = rig(false).await;
         f.host.settles.lock().unwrap().push_back(TurnSettle::Done { result: "HEARTBEAT_QUIET".into() });
         let outcome = wake.wake(&items()).await.unwrap();
 
         assert_eq!(outcome, WakeOutcome { quiet: true, session_id: "sess_hidden_beat".into(), text: None });
         assert!(sessions.delivered.lock().unwrap().is_empty(), "a quiet reply reaches nobody");
         assert!(marks.is_marked("sess_hidden_beat"), "an open session stays limited");
-        assert_eq!(*sessions.unreleased.lock().unwrap(), ["sess_hidden_beat"]);
+        assert_eq!(store.state().await.unreleased, ["sess_hidden_beat"]);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_failed_turn_still_closes_the_session_and_ends_the_mark() {
-        let (f, sessions, marks, wake) = rig(true).await;
+        let (f, sessions, marks, _store, wake) = rig(true).await;
         f.host.settles.lock().unwrap().push_back(TurnSettle::Failed("boom".into()));
         assert_eq!(wake.wake(&items()).await.unwrap_err(), "boom");
         assert_eq!(sessions.closes.lock().unwrap().len(), 1);

@@ -1,0 +1,36 @@
+{
+  "cases": 8,
+  "command": "node benchmarks/rust-core/recorders/record-session-usage.mjs --tree <tree>",
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 8122,
+      "path": "golden.json",
+      "sha256": "c62f75c8e55db82b6176793229a0e87bda57ff6cf3ee4290b20e6147d06c96f3"
+    },
+    {
+      "bytes": 155648,
+      "path": "ledger.sqlite",
+      "sha256": "2ceee0d1b2cfc1c53d0e323cb50a2ca3ab688daa9bd634f058f80a8395c03165"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34407
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-usage.mjs",
+  "set": "session-usage",
+  "totalBytes": 163770
+}

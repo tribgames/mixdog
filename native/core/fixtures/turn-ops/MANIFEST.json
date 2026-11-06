@@ -1,0 +1,45 @@
+{
+  "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-turn-ops.mjs --tree <tree>)",
+  "fileCount": 4,
+  "files": [
+    {
+      "bytes": 1085,
+      "path": "agent-control.json",
+      "sha256": "c14b6f34fc1d744d385419494901c3d0901a3ee309a6f1f115f50d635f25ff4c"
+    },
+    {
+      "bytes": 314870,
+      "path": "composer-image.json",
+      "sha256": "e18998f7866c020be4e97abff69fa74d3a1d1214f95694dcdf80626b4b09ce46"
+    },
+    {
+      "bytes": 42087,
+      "path": "secret-slots.json",
+      "sha256": "e8c112d35da65f33b66348f6ed5519ba35f32c56e2151f72c1280653c5c01f98"
+    },
+    {
+      "bytes": 15441,
+      "path": "staged-originals.json",
+      "sha256": "3d6a1af3e96be1ee2d4906fa53e28e20f62c45598df84966d01213e69817a225"
+    }
+  ],
+  "product": {
+    "appsSha256": "04b921c4ae348576f68a0a015207ce668e374e6d3cae8c8fdeff8ff229de0afa",
+    "commit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9241,
+    "refComparison": {
+      "closestCommit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "fe011afe5d124af46cf84b357af7c5486a9a3ccfec753e29d13d9251507b8cd2",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-turn-ops.mjs",
+  "set": "turn-ops",
+  "totalBytes": 373483
+}

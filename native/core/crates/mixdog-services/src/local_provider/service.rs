@@ -58,6 +58,12 @@ impl LocalProviderService {
         self.provider.subscribe()
     }
 
+    /// The text of the last installation command that failed, `None` when the last one did not
+    /// (`localSettings.status().installationCommandError`); the tool-module settings report it.
+    pub fn installation_command_error(&self) -> Option<String> {
+        self.command_error.lock().unwrap().clone()
+    }
+
     pub(super) async fn settings_view(&self) -> Result<Value, ProviderError> {
         let mut status = self.provider.status().await?;
         status["installationCommandError"] = json!(self.command_error.lock().unwrap().clone());

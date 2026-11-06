@@ -42,8 +42,9 @@ pub trait ConfigSeams: Send + Sync + 'static {
 /// The compaction pipeline of a session's route: [`super::compactors::SessionCompactors`] is the
 /// implementation (`FreshCompactor::for_session` over the session's `FreshParts`, `TriggerSeams`,
 /// fork source and `summary_routes`).
+#[async_trait::async_trait]
 pub trait CompactorSource: Send + Sync + 'static {
-    fn compactor(&self, thread: &ThreadId, header: &Header, input: CompactorInput) -> Option<Arc<dyn Compactor>>;
+    async fn compactor(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> Option<Arc<dyn Compactor>>;
 }
 
 /// The parts that need the session directory, so they are built after it (the hop writes the session's
@@ -104,8 +105,8 @@ impl SessionSeams for HostSeams {
         self.parts.post_tool.clone()
     }
 
-    fn compactor(&self, thread: &ThreadId, header: &Header, input: CompactorInput) -> Option<Arc<dyn Compactor>> {
-        self.late.get()?.compactors.compactor(thread, header, input)
+    async fn compactor(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> Option<Arc<dyn Compactor>> {
+        self.late.get()?.compactors.compactor(thread, header, prior, input).await
     }
 
     fn hop_host(&self, thread: &ThreadId, header: &Header) -> Option<Arc<dyn HopHost>> {

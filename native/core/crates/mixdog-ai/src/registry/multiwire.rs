@@ -126,6 +126,11 @@ impl ProviderAdapter for MultiWireAdapter {
         Some(self)
     }
 
+    /// A custom provider behind several wires (`createCustomProvider`: `provider.nativePdf = false`).
+    fn native_pdf(&self) -> bool {
+        false
+    }
+
     fn release_session(&self, session_id: &str) {
         for (_, engine) in &self.engines {
             engine.release_session(session_id);

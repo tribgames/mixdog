@@ -165,7 +165,7 @@ pub struct ShellJob {
     pub owner_session_id: Option<String>,
 }
 
-fn within(folder: &str, path: &str) -> bool {
+pub(crate) fn within(folder: &str, path: &str) -> bool {
     let norm = |s: &str| s.replace('\\', "/").to_lowercase();
     let (a, b) = (norm(folder.trim_end_matches(['/', '\\'])), norm(path));
     !path.is_empty() && (b == a || b.starts_with(&format!("{a}/")))

@@ -1,0 +1,81 @@
+{
+ "live": {
+  "provider": "openai",
+  "model": "gpt-5",
+  "messages": 2,
+  "known": true,
+  "fits": true,
+  "used": 12,
+  "limit": 272000,
+  "percent": 1,
+  "willCompact": false,
+  "sourceSessionId": "sess_live",
+  "reason": ""
+ },
+ "small": {
+  "provider": "openai",
+  "model": "gpt-5",
+  "messages": 2,
+  "known": true,
+  "fits": true,
+  "used": 74,
+  "limit": 272000,
+  "percent": 1,
+  "willCompact": false,
+  "sourceSessionId": "sess_small",
+  "reason": ""
+ },
+ "big": {
+  "provider": "openai",
+  "model": "gpt-5",
+  "messages": 2,
+  "known": true,
+  "fits": false,
+  "used": 455009,
+  "limit": 272000,
+  "percent": 168,
+  "willCompact": true,
+  "sourceSessionId": "sess_big",
+  "reason": ""
+ },
+ "missing": {
+  "provider": "openai",
+  "model": "gpt-5",
+  "messages": 0,
+  "known": true,
+  "fits": true,
+  "used": 0,
+  "limit": 272000,
+  "percent": 0,
+  "willCompact": false,
+  "sourceSessionId": "sess_none",
+  "reason": ""
+ },
+ "selected": {
+  "provider": "openai",
+  "model": "gpt-5",
+  "messages": 2,
+  "known": true,
+  "fits": false,
+  "used": 455009,
+  "limit": 272000,
+  "percent": 168,
+  "willCompact": true,
+  "sourceSessionId": "sess_big",
+  "reason": ""
+ },
+ "noroute": {
+  "provider": "openai",
+  "model": "gpt-5",
+  "messages": 2,
+  "known": true,
+  "fits": true,
+  "used": 74,
+  "limit": 272000,
+  "percent": 1,
+  "willCompact": false,
+  "sourceSessionId": "sess_small",
+  "reason": ""
+ }
+}
+

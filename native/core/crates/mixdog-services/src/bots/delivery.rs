@@ -4,6 +4,14 @@
 //! (owned-automation-run.mjs `redeliverRoutine`, `recoverRoutineDeliveries`,
 //! `retryRoutineDelivery`).
 
+pub mod env;
+#[cfg(test)]
+mod golden_tests;
+pub mod home;
+pub mod queue;
+mod relay;
+pub mod rows;
+
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;

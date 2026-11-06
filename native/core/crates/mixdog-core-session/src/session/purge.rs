@@ -28,7 +28,10 @@ use super::delete::DeleteSeams;
 use super::delete::PurgeHook;
 use super::delete::PurgeHooks;
 use super::gateway_routes::GatewaySessionRoutes;
+use super::shell_jobs::OwnedShells;
+use super::tool_events::ToolEventsLog;
 use super::worktree::WorktreeMaintenance;
+use mixdog_store::schema::record::Header;
 use mixdog_core_base::state::SectionFeedState;
 
 /// The owners the purge hooks drop a deleted session's state from.
@@ -217,11 +220,20 @@ pub struct SessionDeletion {
     pub board: JobBoard,
     /// `statusRoutes` (`clearGatewaySessionRoute`).
     pub gateway_routes: GatewaySessionRoutes,
+    /// The shells a closing session owns (`cancelOwnedShellTrees`).
+    pub shells: Arc<dyn OwnedShells>,
+    /// `<data>/tool-events.log`, the close metric.
+    pub tool_events: Arc<ToolEventsLog>,
 }
 
 #[async_trait]
 impl DeleteSeams for SessionDeletion {
+    fn session_closed(&self, session_id: &str, reason: &str, header: &Header) {
+        self.tool_events.session_closed(session_id, header, reason);
+    }
+
     async fn release_session_work(&self, session_id: &str, reason: &str) {
+        self.shells.cancel_owned(&ThreadId::from(session_id));
         let cancel = CancelAll {
             reason: reason.to_owned(),
             execution_session_id: Some(session_id.to_owned()),

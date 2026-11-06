@@ -2,6 +2,7 @@
 //! Workspace domain (DS §4): text codec, file-match ranking and the watch registry.
 //! The OS watcher, search sessions, transfers and LSP are not implemented yet.
 
+pub mod browse;
 pub mod catalog;
 pub mod claims;
 pub mod editorcfg;

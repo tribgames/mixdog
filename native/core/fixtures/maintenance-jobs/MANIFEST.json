@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-maintenance-jobs.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 35674,
+      "path": "golden.json",
+      "sha256": "fa621b6a628675266d168b05a514bfc2a4bc1ac38d1a60af29445493f1c752bc"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34407
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-maintenance-jobs.mjs",
+  "set": "maintenance-jobs",
+  "totalBytes": 35674
+}

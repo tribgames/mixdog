@@ -9,6 +9,13 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_core_api::CoreError;
+use mixdog_core_api::CoreRequest;
+use mixdog_core_api::DomainService;
+use mixdog_core_api::Reply;
+use mixdog_core_api::ids::ConnectionId;
+use mixdog_core_api::ids::Method;
+use mixdog_core_api::service::Admit;
 use mixdog_protocol::ThreadId;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Value;
@@ -42,6 +49,8 @@ struct Entry {
     claim_by: Instant,
     deadline: Instant,
     done: Option<oneshot::Sender<Outcome>>,
+    /// Woken by the claim, which moves the deadline; a stored permit keeps a wake that comes early.
+    claimed: Arc<tokio::sync::Notify>,
 }
 
 pub struct SetupRequests {
@@ -113,6 +122,7 @@ impl SetupRequests {
         }
         entry.owner = Some(owner.to_owned());
         entry.deadline = Instant::now() + self.execution_timeout;
+        entry.claimed.notify_one();
         Some(json!({ "id": id, "args": entry.args, "scope": "desktop-host" }))
     }
 
@@ -126,12 +136,15 @@ impl SetupRequests {
                 _ => return Ok(false),
             }
         }
-        let Some(map) = receipt.as_object() else {
-            return Err(PortError::Failed { capability: "setup".into(), message: "setup receipt is required".into() });
+        // `typeof receipt === 'object'` holds for an array too, which has neither key.
+        let (error, result) = match receipt {
+            Value::Object(map) => (map.get("error"), map.get("result")),
+            Value::Array(_) => (None, None),
+            _ => return Err(PortError::Failed { capability: "setup".into(), message: "setup receipt is required".into() }),
         };
-        let outcome = match map.get("error").filter(|e| truthy(e)) {
+        let outcome = match error.filter(|e| truthy(e)) {
             Some(error) => Err(mixdog_js::value_to_string(error)),
-            None => Ok(map.get("result").cloned().unwrap_or(Value::Null)),
+            None => Ok(result.cloned().unwrap_or(Value::Null)),
         };
         Ok(self.finish(id, outcome))
     }
@@ -150,6 +163,7 @@ impl SetupDesktop for SetupRequests {
     async fn request(&self, thread: &ThreadId, args: &Value) -> Result<DesktopAnswer, PortError> {
         let id = uuid::Uuid::new_v4().to_string();
         let (done, outcome) = oneshot::channel();
+        let claimed = Arc::new(tokio::sync::Notify::new());
         let now = Instant::now();
         self.pending.lock().expect("setup requests").insert(
             id.clone(),
@@ -160,6 +174,7 @@ impl SetupDesktop for SetupRequests {
                 claim_by: now + self.claim_timeout,
                 deadline: now + self.claim_timeout,
                 done: Some(done),
+                claimed: claimed.clone(),
             },
         );
         let _guard = Pending { requests: self, id: id.clone() };
@@ -168,12 +183,13 @@ impl SetupDesktop for SetupRequests {
         }
         tokio::pin!(outcome);
         loop {
-            let (deadline, claimed) = {
+            let (deadline, is_claimed) = {
                 let pending = self.pending.lock().expect("setup requests");
-                let Some(entry) = pending.get(&id) else { break };
-                (entry.deadline, entry.owner.is_some())
+                // Finished while this task was not polling: its outcome is already sent.
+                pending.get(&id).map_or((Instant::now(), false), |entry| (entry.deadline, entry.owner.is_some()))
             };
             tokio::select! {
+                biased;
                 result = &mut outcome => {
                     return match result {
                         Ok(Ok(value)) => Ok(DesktopAnswer::Done(value)),
@@ -181,10 +197,12 @@ impl SetupDesktop for SetupRequests {
                         Err(_) => Ok(DesktopAnswer::Unclaimed(NOT_CLAIMED.into())),
                     };
                 }
+                // A claim moved the deadline: wait on the new one.
+                () = claimed.notified() => continue,
                 () = tokio::time::sleep_until(deadline) => {
                     let (now_claimed, now_deadline) = {
                         let pending = self.pending.lock().expect("setup requests");
-                        pending.get(&id).map_or((claimed, deadline), |e| (e.owner.is_some(), e.deadline))
+                        pending.get(&id).map_or((is_claimed, deadline), |e| (e.owner.is_some(), e.deadline))
                     };
                     if now_deadline > Instant::now() {
                         continue;
@@ -200,6 +218,69 @@ impl SetupDesktop for SetupRequests {
             }
         }
         Ok(DesktopAnswer::Unclaimed(NOT_CLAIMED.into()))
+    }
+}
+
+/// The claimant's side as the three `config/*SetupRequest` methods, over the broker the setup
+/// tool's desktop requests go through. The request belongs to the thread the call names.
+pub struct SetupRequestsService {
+    requests: Arc<SetupRequests>,
+}
+
+const SETUP_REQUEST_METHODS: &[&str] =
+    &["config/isSetupRequestActive", "config/claimSetupRequest", "config/completeSetupRequest"];
+
+impl SetupRequestsService {
+    pub fn new(requests: Arc<SetupRequests>) -> Self {
+        Self { requests }
+    }
+}
+
+fn text(params: &Value, key: &'static str) -> Result<String, CoreError> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| CoreError::InvalidParams { path: format!("params.{key}").into(), expected: "string".into() })
+}
+
+#[async_trait]
+impl DomainService for SetupRequestsService {
+    fn methods(&self) -> &'static [&'static str] {
+        SETUP_REQUEST_METHODS
+    }
+
+    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let params = &req.params;
+        let id = text(params, "id")?;
+        let owner = text(params, "owner")?;
+        // A call without a thread has no session: the broker's `getSessionId()` is empty and no
+        // request belongs to it.
+        let thread = params.get("threadId").and_then(Value::as_str).map(ThreadId::from);
+        let value = match req.method.as_str() {
+            "config/isSetupRequestActive" => {
+                json!(thread.is_some_and(|thread| self.requests.is_active(&thread, &id, &owner)))
+            }
+            "config/claimSetupRequest" => {
+                thread.and_then(|thread| self.requests.claim(&thread, &id, &owner)).unwrap_or(Value::Null)
+            }
+            "config/completeSetupRequest" => {
+                let receipt = params.get("receipt").cloned().unwrap_or(Value::Null);
+                match self.requests.complete(&id, &owner, &receipt) {
+                    Ok(done) => json!(done),
+                    Err(PortError::Failed { message, .. }) => {
+                        return Err(mixdog_core_base::support::failed("config", message));
+                    }
+                    Err(other) => unreachable!("complete fails only on the receipt: {other:?}"),
+                }
+            }
+            other => return Err(mixdog_core_base::support::wrong_method("setup requests", other)),
+        };
+        Ok(Reply::Value(value))
+    }
+
+    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
+        Admit::Accepted
     }
 }
 

@@ -7,6 +7,7 @@
 mod core_memory;
 mod embeddings;
 mod ingest;
+mod jobs;
 mod recall;
 mod sensitive;
 mod service;

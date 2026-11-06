@@ -1039,3 +1039,66 @@ async fn a_real_background_command_is_cancelled_through_the_task_tool() {
     let read = body(rig.task.call(&c, serde_json::json!({"action": "read", "task_id": "task-r4"})).await);
     assert!(read.contains("status: cancelled\nexit_code: 137\n"), "{read}");
 }
+
+/// Starts a background `command` of `thread` under the task id `task-<call>`.
+async fn background_of(rig: &Rig, call: &str, thread: &str, command: &str) {
+    let mut c = ctx(rig, call);
+    c.thread_id = ThreadId::from(thread);
+    rig.shell.call(&c, serde_json::json!({"command": command, "background": true})).await.unwrap();
+}
+
+/// `task-tool-stop-all-shells.test.mjs` and `task-tool-stop-shell-job.test.mjs`: a session lists
+/// and stops its own background shells only; the answers are the structured ones the surfaces read.
+#[tokio::test]
+async fn a_session_stops_only_its_own_background_shells_with_the_structured_answers() {
+    let rig = rig();
+    let control = ShellControl::new(rig.runtime.clone(), rig.manager.clone());
+    let (owner, other) = (ThreadId::from("sess_stopall_owner"), ThreadId::from("sess_stopall_other"));
+    assert!(control.list_stoppable(&owner).is_empty());
+    assert_eq!(control.stop_jobs(&owner).await, serde_json::json!({ "stopped": 0, "stopping": 0 }));
+
+    background_of(&rig, "a", owner.as_str(), "npm run dev").await;
+    background_of(&rig, "b", owner.as_str(), "tail -f log").await;
+    background_of(&rig, "f", other.as_str(), "sleep 999").await;
+    let listed = control.list_stoppable(&owner);
+    assert_eq!(listed.iter().map(|job| job.task_id.as_str()).collect::<Vec<_>>(), ["task-a", "task-b"]);
+    assert_eq!(listed[0], StoppableJob { task_id: "task-a".into(), command: "npm run dev".into() });
+    assert_eq!(control.list_stoppable(&other).len(), 1);
+
+    assert_eq!(control.stop_job(&owner, "  ").await, serde_json::json!({ "stopped": false, "error": "task_id is required" }));
+    // Another session's job reads as unknown and keeps running.
+    assert_eq!(
+        control.stop_job(&other, "task-a").await,
+        serde_json::json!({ "stopped": false, "error": "task not found: task-a" })
+    );
+    assert!(rig.runtime.get(&owner, "task-a").unwrap().is_running());
+    assert_eq!(control.stop_job(&owner, " task-a ").await, serde_json::json!({ "stopped": true }));
+    // An ended task is not a failed stop: it says how it ended.
+    assert_eq!(
+        control.stop_job(&owner, "task-a").await,
+        serde_json::json!({ "stopped": false, "finished": true, "error": "task already cancelled: task-a" })
+    );
+
+    assert_eq!(control.stop_jobs(&owner).await, serde_json::json!({ "stopped": 1, "stopping": 0 }));
+    assert!(rig.runtime.get(&other, "task-f").unwrap().is_running(), "another session keeps its job");
+    assert!(control.list_stoppable(&owner).is_empty());
+}
+
+/// `cancelOwnedShellTrees` + `noteShellOwnerSessionClosed` (`session-close.mjs:184`): a closing
+/// session's shells are killed, another session's are not, and what remains is flagged as
+/// closed-owner work.
+#[tokio::test]
+async fn a_closing_session_kills_its_shells_and_flags_the_owner_closed() {
+    let rig = rig();
+    let control = ShellControl::new(rig.runtime.clone(), rig.manager.clone());
+    let (owner, other) = (ThreadId::from("sess_closing"), ThreadId::from("sess_bystander"));
+    background_of(&rig, "x", owner.as_str(), "sleep 100").await;
+    background_of(&rig, "y", other.as_str(), "sleep 100").await;
+    control.cancel_owned(&owner);
+    let gone = rig.runtime.get(&owner, "task-x").unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), gone.settled()).await.unwrap();
+    assert_eq!(gone.status(), JobStatus::Cancelled);
+    assert!(rig.runtime.get(&other, "task-y").unwrap().is_running());
+    assert!(control.tasks().get("task-x").unwrap().owner_closed);
+    assert!(!control.tasks().get("task-y").unwrap().owner_closed);
+}

@@ -129,6 +129,7 @@ pub struct Assembled {
     /// it; `reactions` reads its message facts from the same value.
     pub rows: Arc<StoredRows>,
     pub tail: Option<Arc<dyn TailReminder>>,
+    pub side: Option<Arc<dyn mixdog_agent::env::SendTap>>,
     pub step_judge: Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>,
     pub artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     pub images: Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>,
@@ -452,6 +453,18 @@ fn prompt_text(body: &Value) -> String {
         _ => String::new(),
     }
 }
+/// The request's system messages: the header's prompt fields, in Node's order and tiers (WP-PROMPT).
+pub(crate) fn system_messages(header: &mixdog_store::schema::record::Header) -> Vec<AgentMessage> {
+    mixdog_core_prompt::prompt::blocks::request_system_messages(header)
+        .into_iter()
+        .map(|wire| {
+            let mut message = AgentMessage::user_content(Content::Text(String::new()));
+            message.message = wire;
+            message
+        })
+        .collect()
+}
+
 async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, .. } = run;
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
@@ -477,7 +490,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
         Err(error) => return RunOutcome::Failed(error),
     };
     let Assembled {
-        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, step_judge, artifacts, images, blobs, carry,
+        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, blobs, carry,
     } = assembled;
     // The turn's workspace is final: take the baseline in the background; no tool runs before it.
     review.start(&worktree);
@@ -490,14 +503,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
     let streaming = Arc::new(Mutex::new(None));
     let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), clock.clone(), blobs, on_tool_result);
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
-    let mut messages: Vec<AgentMessage> = mixdog_core_prompt::prompt::blocks::request_system_messages(&header)
-        .into_iter()
-        .map(|wire| {
-            let mut message = AgentMessage::user_content(Content::Text(String::new()));
-            message.message = wire;
-            message
-        })
-        .collect();
+    let mut messages = system_messages(&header);
     for (iid, body) in stored {
         // A stored row the codec cannot read fails the turn: dropping it would change the context.
         let message = match message_of(&body) {
@@ -558,6 +564,7 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
         reuse,
         reactions,
         tail,
+        side,
         step_judge,
         artifacts,
         images,
@@ -749,6 +756,7 @@ mod tests {
                 reaction_scope: None,
                 rows: Arc::default(),
                 tail: None,
+                side: None,
                 step_judge: None,
                 artifacts: None,
                 images: None,
@@ -1167,6 +1175,9 @@ mod tests {
                     StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                 ],
                 vec![StreamEvent::TextDelta("listed".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                // The side question's answer, then the answer after the saved request was forgotten.
+                vec![StreamEvent::TextDelta(" it listed the path ".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                vec![StreamEvent::TextDelta("rebuilt".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
             ])),
             requests: Mutex::new(Vec::new()),
         });
@@ -1185,13 +1196,16 @@ mod tests {
         );
         let data = workspace.path().join("data");
         let judge = mixdog_services::effort_judge::judge::EffortJudgeModel::with_options(
-            mixdog_services::effort_judge::model::ModelConfig::in_data_dir(&data, workspace.path().join("no-ort.dll")),
+            mixdog_services::effort_judge::model::ModelConfig::in_data_dir(&data, mixdog_services::effort_judge::model::OrtRuntime::Library(workspace.path().join("no-ort.dll"))),
             tokens.cpu_bulk,
             mixdog_services::effort_judge::judge::JudgeOptions { tick: Default::default(), manifest: None, progress: None },
         )
         .unwrap();
         let compaction = super::super::compaction_world::tests::services(workspace.path(), json!({}), Arc::default()).await;
         let hook_bus = mixdog_mcp::hook_bus::HookBus::new(data.clone(), tokens.maintenance_io, processes.clone(), None, None, None);
+        let store = Arc::new(super::super::side_question_store::SideQuestionStore::new());
+        let next = super::super::next_request_source::NextRequestSource::new();
+        let (kept, side_store, side_next) = (store.clone(), store.clone(), next.clone());
         let parts = super::super::turn_path::TurnPathParts {
             tokens: tokens.clone(),
             clock: clock.clone(),
@@ -1199,6 +1213,15 @@ mod tests {
             provider_builder: Arc::new(OneProvider(provider.clone())),
             accounting,
             effort_judge: judge,
+            side: super::super::side_requests::SideRequests {
+                store: kept,
+                caching: Arc::new(|_, _| false),
+                docs: compaction.docs.clone(),
+                reader: compaction.reader.clone(),
+                facts: compaction.attachment_facts.clone(),
+                clock: clock.clone(),
+            },
+            next,
             files: Arc::new(MockFileService::default()),
             processes,
             policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
@@ -1229,6 +1252,7 @@ mod tests {
                 move |runs| {
                     let mut deps = rig_deps;
                     deps.runs = runs;
+                    deps.side = Arc::new(super::super::side_question_store::SideQuestionService::new(side_store, side_next));
                     deps
                 }
             }),
@@ -1296,5 +1320,29 @@ mod tests {
         assert_eq!(requests[1].messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool]);
         let rows = lock(&ledger.0).clone();
         assert!(rows.iter().all(|r| r.provider == "scripted" && r.model == "m" && r.session_id == id.as_str()), "{rows:?}");
+
+        // `thread/askSide` end to end: the real service forks the request the loop saved, on a scope of
+        // its own, and the answer comes back trimmed without entering the transcript.
+        let asked = handle.request(request("thread/askSide", json!({ "opId": "op-side", "question": " what did it list? " }), "op-side")).await.expect("thread/askSide");
+        let Reply::Value(asked) = asked else { panic!("thread/askSide answers a value") };
+        assert_eq!(asked["text"], "it listed the path");
+        let requests = lock(&provider.requests).clone();
+        let fork = requests.last().expect("the fork's request");
+        assert_eq!(requests.len(), 3);
+        assert_eq!(fork.messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::User], "the saved request, its reply, the question");
+        assert!(fork.options.transport_scope.as_deref().is_some_and(|scope| scope.starts_with(&format!("{}#side:", id.as_str()))), "{:?}", fork.options.transport_scope);
+        assert_eq!(roles(), ["user", "assistant", "tool", "assistant"], "the question never enters the transcript");
+        assert_eq!(lock(&ledger.0).len(), 3, "the fork's usage row is the provider's own accounting row");
+
+        // With no saved request (a restart, a forgotten one) the question forks the request the next turn
+        // would send, rebuilt from the stored rows by the turn's own assembly.
+        store.forget(&id);
+        let rebuilt = handle.request(request("thread/askSide", json!({ "opId": "op-side-2", "question": "again?" }), "op-side-2")).await.expect("thread/askSide");
+        let Reply::Value(rebuilt) = rebuilt else { panic!("thread/askSide answers a value") };
+        assert_eq!(rebuilt["text"], "rebuilt");
+        let requests = lock(&provider.requests).clone();
+        let fork = requests.last().expect("the rebuilt fork");
+        assert_eq!(fork.messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::User]);
+        assert_eq!((fork.model.as_str(), fork.options.session_id.as_deref()), ("m", Some(id.as_str())));
     }
 }

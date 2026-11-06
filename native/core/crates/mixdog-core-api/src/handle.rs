@@ -19,6 +19,10 @@ pub trait CoreHandle: Send + Sync + 'static {
     /// The `app` feed (`app/subscribe`, window [`crate::feed::Window::Fixed`]).
     fn app_feed(&self) -> Arc<dyn FeedSource>;
 
+    /// The live scoped feed `id` (`<kind>:<key>`), or `None` when no such feed is held by its
+    /// owner (`feed/subscribe`, window [`crate::feed::Window::Fixed`]).
+    fn scoped_feed(&self, id: &crate::ids::FeedId) -> Option<Arc<dyn FeedSource>>;
+
     fn ops(&self) -> &dyn OpIndex;
 
     /// The service that claims exactly `method` ([`DomainService::methods`]); `None` when no

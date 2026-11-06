@@ -28,6 +28,12 @@ mod completions;
 mod control;
 pub mod delete;
 pub mod purge;
+pub mod sub_agent_retention;
+#[cfg(test)]
+mod sub_agent_retention_tests;
+pub mod shell_jobs;
+pub mod tool_events;
+pub mod workspace_sight;
 pub mod gateway_routes;
 pub mod effort_prewarm;
 mod directory;
@@ -47,13 +53,19 @@ pub mod route_setup;
 mod ops;
 mod outbox;
 mod pending;
+mod reads;
 pub mod prompt_history;
+pub mod session_title;
 pub mod quota_lane;
+pub mod quota_resume_scheduler;
+#[cfg(test)]
+mod quota_resume_scheduler_tests;
 pub mod run;
 mod seams;
 mod state;
 mod store;
 mod surface;
+pub mod terminal_host;
 mod transcript;
 pub mod turn_snapshot;
 pub mod user_text;
@@ -64,6 +76,10 @@ pub mod route_cell;
 pub mod session_options;
 mod view;
 pub mod worktree;
+pub mod inheritance;
+pub mod turn_ops;
+#[cfg(test)]
+mod turn_ops_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
@@ -166,6 +182,12 @@ pub struct SessionDeps {
     pub turn_starts: Arc<dyn TurnStarts>,
     /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.
     pub turn_review: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
+    /// The saved requests and the fork behind `thread/askSide` and `thread/cancelSide`.
+    pub side: Arc<dyn turn_ops::SideQuestions>,
+    /// The compaction engine and hooks behind `thread/compact/start`.
+    pub compaction: Arc<dyn turn_ops::ManualCompaction>,
+    /// The target route's compaction policy `thread/inheritancePreflight` measures a conversation on.
+    pub inherit: Arc<dyn inheritance::InheritanceFit>,
     /// The route change the session applies: a clear takes its environment reset from it.
     pub route_change: Arc<dyn route_session::RouteChange>,
     /// What `thread/delete` does outside the session and its store.

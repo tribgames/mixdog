@@ -112,6 +112,11 @@ impl AnthropicModel {
         let mut record = ModelRecord::new(self.id.clone());
         record.picker.release_date.clone_from(&self.release_date);
         record.picker.reasoning_options = self.reasoning_options();
+        // `reasoningOptions` is always an array on an Anthropic row, empty for a model that takes
+        // no effort; `thinkingTypes` only when the row declares one.
+        record.efforts_stated = true;
+        record.thinking_adaptive = self.thinking_adaptive;
+        record.thinking_enabled = self.thinking_enabled;
         record.picker.tier = Some(
             match self.tier {
                 Tier::Dated => "dated",

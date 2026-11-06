@@ -225,7 +225,7 @@ mod tests {
                 data_dir: dir.to_path_buf(),
                 user_data_dir: dir.join("userdata"),
                 js_runtime: crate::js_runtime::fixture(dir),
-                ort_library: None,
+                ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
                 host: outgoing.clone(),
             },
         )

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use mixdog_core_base::feed::CoreScopedFeeds;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::effort_judge::judge::JudgeOptions;
-use mixdog_services::effort_judge::model::ModelConfig;
+use mixdog_services::effort_judge::model::{ModelConfig, OrtRuntime};
 use mixdog_services::memory::embed::config::DEFAULT_MODEL_ID;
 use mixdog_services::memory::embed::engine::EmbedConfig;
 use mixdog_services::memory::embed::provider::EmbeddingProvider;
@@ -133,6 +133,8 @@ impl ThreadOpGates for NoThreadGates {
 pub struct ComposedCore {
     base: MockCore,
     app_feed: Arc<CoreFeed>,
+    /// Every scoped feed a service created, found by id for `feed/subscribe`.
+    feed_index: Arc<CoreScopedFeeds>,
     ops: CoreOpIndex,
     domains: Domains,
     mocked: &'static [&'static str],
@@ -140,7 +142,7 @@ pub struct ComposedCore {
     exec_events: std::sync::Mutex<Option<ExecEvents>>,
     ext_host: Arc<ExtHostPool>,
     file_service: Arc<dyn FileService>,
-    models: Option<Models>,
+    models: Models,
     catalog: CatalogHost,
     tidy_processes: Processes,
     stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
@@ -173,26 +175,30 @@ fn node_platform() -> &'static str {
 /// a change to either bumps the same counter the section publisher watches.
 pub struct Models {
     pub tick: StateTick,
-    pub embeddings: Arc<EmbeddingProvider>,
+    /// Unbuilt only where onnxruntime ships no binding (`OrtRuntime::NoBinding`), as Node has none there.
+    pub embeddings: Option<Arc<EmbeddingProvider>>,
     pub effort_judge: Arc<EffortJudgeModel>,
 }
 
 /// Graph sessions the embedder keeps so concurrent embeds do not queue on one another.
 const EMBED_SESSIONS: usize = 2;
 
-fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: PathBuf) -> Result<Models, ComposeError> {
+fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime) -> Result<Models, ComposeError> {
     let tick = StateTick::default();
-    let embeddings = Arc::new(EmbeddingProvider::with_tick(
+    let embeddings = match &ort_library {
+        OrtRuntime::Library(library) => Some(Arc::new(EmbeddingProvider::with_tick(
         EmbedConfig {
             model_id: DEFAULT_MODEL_ID.into(),
             cache_dir: data_dir.join("models"),
-            ort_library: ort_library.clone(),
+            ort_library: library.clone(),
             dtype: None,
             sessions: EMBED_SESSIONS,
             lane: tokens.cpu_bulk,
         },
         tick.clone(),
-    ));
+        ))),
+        OrtRuntime::NoBinding => None,
+    };
     let effort_judge = EffortJudgeModel::with_options(
         ModelConfig::in_data_dir(data_dir, ort_library),
         tokens.cpu_bulk,
@@ -230,9 +236,9 @@ impl ComposedCore {
         &self.catalog
     }
 
-    /// The embedding and effort-judge models, when the ONNX Runtime library is known.
-    pub fn models(&self) -> Option<&Models> {
-        self.models.as_ref()
+    /// The embedding and effort-judge models.
+    pub fn models(&self) -> &Models {
+        &self.models
     }
 
     /// The core's stop step for the extension host: closes it and returns once every worker
@@ -289,6 +295,10 @@ impl CoreHandle for ComposedCore {
 
     fn app_feed(&self) -> Arc<dyn FeedSource> {
         self.app_feed.clone()
+    }
+
+    fn scoped_feed(&self, id: &FeedId) -> Option<Arc<dyn FeedSource>> {
+        self.feed_index.find(id)
     }
 
     fn ops(&self) -> &dyn OpIndex {
@@ -388,9 +398,8 @@ pub struct ComposeConfig {
     /// The desktop profile folder (editor backups, `User/settings.json`).
     pub user_data_dir: PathBuf,
     pub js_runtime: JsRuntime,
-    /// The ONNX Runtime shared library (install layout); `None` leaves the embedding and
-    /// effort-judge models unbuilt.
-    pub ort_library: Option<PathBuf>,
+    /// The ONNX Runtime shared library (install layout), or that the platform has no binding.
+    pub ort_library: OrtRuntime,
     /// The server's host channel (`Outgoing`), built before the core: what the browser and
     /// visualize domains forward their commands through.
     pub host: Arc<dyn HostChannel>,
@@ -403,10 +412,11 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
     let (state, _) = CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite"))
         .map_err(ComposeError::State)?;
-    let scoped_feeds: Arc<dyn ScopedFeeds> = Arc::new(CoreScopedFeeds::new(
+    let feed_index = Arc::new(CoreScopedFeeds::new(
         FeedLimits { ring_bytes: APP_RING_BYTES, max_snapshot_bytes: MAX_SNAPSHOT_BYTES },
         tokens.cpu_interactive,
     ));
+    let scoped_feeds: Arc<dyn ScopedFeeds> = feed_index.clone();
     let js = &js_runtime;
     let entry = js.package_root.join("src").join("skill-script-entry.mjs");
     let skill_runtime = ExecSkillRuntime {
@@ -448,7 +458,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         host,
     })?;
     let file_service: Arc<dyn FileService> = Arc::new(LocalFileService::new());
-    let models = ort_library.map(|ort_library| build_models(tokens, data_dir, ort_library)).transpose()?;
+    let models = build_models(tokens, data_dir, ort_library)?;
     // The listing sources are built from the full provider config; the config domain supplies it
     // when it lands, until then only the models.dev metadata is refreshed.
     let catalog = build_catalog(tokens, data_dir, Vec::new()).await.map_err(ComposeError::Catalog)?;
@@ -476,6 +486,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
     Ok(ComposedCore {
         base: MockCore::new(&[], MockLimits::default()),
         app_feed,
+        feed_index,
         ops: CoreOpIndex::new(gates, Arc::new(NoThreadGates)),
         domains,
         mocked,
@@ -521,7 +532,7 @@ mod tests {
                 data_dir: dir.path().to_path_buf(),
                 user_data_dir: dir.path().join("userdata"),
                 js_runtime: crate::js_runtime::fixture(dir.path()),
-                ort_library: None,
+                ort_library: OrtRuntime::NoBinding,
                 host: host.clone(),
             },
         )
@@ -562,7 +573,7 @@ mod tests {
                 data_dir: dir.path().to_path_buf(),
                 user_data_dir: dir.path().join("userdata"),
                 js_runtime: crate::js_runtime::fixture(dir.path()),
-                ort_library: None,
+                ort_library: OrtRuntime::NoBinding,
                 host: Arc::new(MockHostChannel::default()),
             },
         )

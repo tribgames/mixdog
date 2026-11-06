@@ -27,6 +27,7 @@ use super::avatar::avatar_update;
 use super::avatar::is_image_file;
 use super::avatar::normalize_agent_avatar;
 use super::avatar::poster_file;
+use super::avatar::shown;
 use super::avatar::state_path;
 use super::connectors::ApprovedToolChange;
 use super::connectors::assert_not_widened;
@@ -34,6 +35,7 @@ use super::connectors::policy_input;
 use super::files::DELETED_MARKER;
 use super::files::FIXED_SLOTS;
 use super::files::Folders;
+use super::files::LEAD_ID;
 use super::files::Lane;
 use super::files::entry_file;
 use super::files::entry_path;
@@ -87,6 +89,34 @@ fn read_manifest_for_update(lane: &InLane<DurabilityIo>, dir: &Path) -> Result<M
             "{} is damaged and has no good copy to restore; it was left untouched. Fix or delete the file, then save again",
             file.display()
         )),
+    }
+}
+
+/// `setLeadConnectorPolicy(next)`: Mixy's `agent.json` takes the policy (`None` removes it),
+/// every other key kept.
+pub(super) fn set_lead_connectors(lane: &InLane<DurabilityIo>, dir: &Path, next: Option<Value>) -> Result<(), String> {
+    let mut manifest = read_manifest_for_update(lane, dir)?;
+    match next {
+        Some(policy) => {
+            manifest.insert("connectors".into(), policy);
+        }
+        None => {
+            manifest.shift_remove("connectors");
+        }
+    }
+    std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
+    write_manifest(lane, &dir.join("agent.json"), &manifest)
+}
+
+/// `assertManifestWritable(file)`: a read-only `agent.json` is a standing refusal, not a
+/// transient lock; it is refused up front.
+pub(super) fn assert_writable(file: &Path) -> Result<(), String> {
+    let code = if cfg!(windows) { "EPERM" } else { "EACCES" };
+    let refused = || format!("{} is not writable ({code}); make it writable, then save again", file.display());
+    match std::fs::metadata(file) {
+        Ok(meta) if meta.permissions().readonly() => Err(refused()),
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(refused()),
+        _ => Ok(()),
     }
 }
 
@@ -436,7 +466,8 @@ fn sync_avatar_files(lane: &InLane<DurabilityIo>, dir: &Path, avatar: Option<&Va
     Ok(())
 }
 
-/// What delete and restore need, read on an interactive job.
+/// What delete, restore and purge need, read on an interactive job.
+#[derive(Clone)]
 pub(super) struct LifecyclePlan {
     pub id: String,
     dir: PathBuf,
@@ -533,6 +564,85 @@ pub(super) fn restore_files(plan: &LifecyclePlan) -> Result<(), String> {
     }
     remove_file(&dir.join(DELETED_MARKER));
     Ok(())
+}
+
+/// The start of `purgeUnlocked`: the refusals, with the folder to act on.
+pub(super) fn plan_purge(folders: &Folders, lane: &Lane, agent_id: &str) -> Result<LifecyclePlan, String> {
+    let id = agent_editor_id(agent_id);
+    if id.is_empty() || folders.hidden.contains(&id) || is_fixed(&id) {
+        return Err(format!("unknown agent \"{agent_id}\""));
+    }
+    Ok(LifecyclePlan { dir: folders.user_dir(lane, &id), shipped: folders.shipped_dir(&id), id })
+}
+
+/// `purgeUnlocked`'s eligibility and the first write of `purgeFiles`: `false` when there is
+/// nothing to purge (a live agent, or one deleted before archiving existed); otherwise the
+/// purge marker is down, so a restore is refused from here on.
+pub(super) fn purge_begin(lane: &InLane<DurabilityIo>, plan: &LifecyclePlan) -> Result<bool, String> {
+    let dir = &plan.dir;
+    // A marker beside a live definition is only removed.
+    if !purge_pending(dir) {
+        remove_file(&dir.join(PURGING_MARKER));
+        if !is_archived(dir) {
+            return Ok(false);
+        }
+    }
+    write_text(lane, &dir.join(PURGING_MARKER), "purging\n", &state::Opts::default())?;
+    Ok(true)
+}
+
+/// `purgeFiles`: everything the agent left goes.
+pub(super) fn purge_remove(plan: &LifecyclePlan) -> Result<(), String> {
+    match std::fs::remove_dir_all(&plan.dir) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.to_string()),
+        _ => Ok(()),
+    }
+}
+
+/// `purgeFiles` for a starter whose packaged copy still resolves: only its tombstone stays, so
+/// the packaged copy stays gone.
+pub(super) fn purge_tombstone(lane: &InLane<DurabilityIo>, plan: &LifecyclePlan) -> Result<(), String> {
+    std::fs::create_dir_all(&plan.dir).map_err(|error| error.to_string())?;
+    write_text(lane, &plan.dir.join(DELETED_MARKER), "deleted\n", &state::Opts::default())
+}
+
+/// `readAvatarImage(dir, file)`: one state image as a data URL, with its still first frame
+/// (`""` when it has none).
+fn avatar_image(dir: &Path, file: &str) -> Option<Value> {
+    let read = |path: String| std::fs::read(dir.join(path)).ok().and_then(|bytes| shown(&bytes));
+    let image = read(state_path(file))?;
+    let poster = if image.animated && !is_image_file(file) { read(state_path(&poster_file(file))) } else { None };
+    let poster = poster.filter(|poster| poster.still_png).map_or_else(String::new, |poster| poster.url);
+    Some(serde_json::json!({ "file": file, "url": image.url, "poster": poster }))
+}
+
+/// `getAgentAvatarImage`: a custom avatar's images as data URLs by state, `Null` for an agent
+/// that is internal or has no custom avatar, or no idle image.
+pub(super) fn avatar_images(folders: &Folders, lane: &Lane, agent_id: &str) -> Value {
+    let id = agent_editor_id(agent_id);
+    if id.is_empty() || folders.hidden.contains(&id) {
+        return Value::Null;
+    }
+    // Mixy's face lives in her identity folder, beside no AGENT.md.
+    let lead = id == LEAD_ID;
+    let dir = if lead { folders.identity_dir(lane) } else { folders.user_dir(lane, &id) };
+    // An archived agent's face stays readable for its archived chat.
+    let archived = !lead && is_archived(&dir);
+    let avatar = if lead || archived {
+        manifest_of(&dir).get("avatar").and_then(normalize_agent_avatar).unwrap_or(Value::Null)
+    } else {
+        folders.avatar_of(lane, &id)
+    };
+    if avatar["kind"] != "custom" || (!lead && !archived && !folders.has_user_file(lane, &id)) {
+        return Value::Null;
+    }
+    let mut states = Map::new();
+    for (state, file) in avatar["states"].as_object().into_iter().flatten() {
+        if let Some(image) = file.as_str().and_then(|file| avatar_image(&dir, file)) {
+            states.insert(state.clone(), image);
+        }
+    }
+    if states.contains_key("idle") { serde_json::json!({ "states": states }) } else { Value::Null }
 }
 
 /// What `getAgentDefinition` reads from the files besides the definition and the routes.

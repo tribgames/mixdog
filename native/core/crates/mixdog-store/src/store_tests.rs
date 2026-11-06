@@ -1947,3 +1947,104 @@ async fn model_switches_follow_their_anchor_row() {
     );
     assert_eq!(pages, expected);
 }
+
+fn session_list_golden() -> serde_json::Value {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-list/golden.json");
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+/// `isLeadVisibleRow` over the list rows Node's `_sessionSummary` built (preview and message
+/// count included).
+#[test]
+fn the_lead_visibility_predicate_equals_nodes() {
+    use crate::sqlite::lead::is_lead_visible_row;
+    let golden = session_list_golden();
+    for entry in golden["sessions"].as_array().unwrap() {
+        let summary = entry["summary"].as_object().unwrap();
+        assert_eq!(is_lead_visible_row(summary), entry["leadVisible"], "{}", entry["record"]["id"]);
+    }
+}
+
+/// `decodeCatalogCursor` / `encodeCatalogCursor`: accepted and refused cursors, and the cursor Node
+/// names after a row.
+#[test]
+fn catalog_cursors_equal_nodes() {
+    use crate::sqlite::lead::{decode_catalog_cursor, encode_catalog_cursor};
+    let golden = session_list_golden();
+    for case in golden["cursors"].as_array().unwrap() {
+        let got = decode_catalog_cursor(case["cursor"].as_str());
+        match case.get("error") {
+            Some(_) => assert!(got.is_err(), "{}", case["cursor"]),
+            None => {
+                let want = case["decoded"].as_object().map(|d| (d["activity"].as_f64().unwrap(), d["id"].as_str().unwrap().to_owned()));
+                assert_eq!(got.unwrap().map(|c| (c.activity, c.id)), want, "{}", case["cursor"]);
+            }
+        }
+    }
+    for walk in golden["walks"].as_array().unwrap() {
+        for page in walk["pages"].as_array().unwrap() {
+            let Some(next) = page["nextCursor"].as_str() else { continue };
+            let after = decode_catalog_cursor(Some(next)).unwrap().unwrap();
+            let last = golden["sessions"].as_array().unwrap().iter().find(|s| s["record"]["id"].as_str() == Some(after.id.as_str()));
+            let row = last.unwrap()["summary"].as_object().unwrap();
+            assert_eq!(encode_catalog_cursor(row), next);
+        }
+    }
+}
+
+/// The pages `listStoredSessionSummaryPage` answers: order, the limit rules, `nextCursor`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lead_pages_equal_nodes() {
+    use crate::sqlite::lead::decode_catalog_cursor;
+    use crate::sqlite::lead::encode_catalog_cursor;
+    let env = Env::new();
+    let golden = session_list_golden();
+    for entry in golden["sessions"].as_array().unwrap() {
+        let mut header = entry["record"].as_object().unwrap().clone();
+        header.remove("messages");
+        let id = header["id"].as_str().unwrap().to_owned();
+        env.store.upsert(CatalogHead { session: id, log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.unwrap();
+    }
+    for walk in golden["walks"].as_array().unwrap() {
+        // `listStoredSessionSummaryPage`: `floor(Number(limit))`, 1..=1000, else 50.
+        let size = match walk["limit"].as_f64().map(f64::floor) {
+            Some(n) if n > 0.0 => n.min(1000.0) as usize,
+            _ => 50,
+        };
+        for page in walk["pages"].as_array().unwrap() {
+            let after = decode_catalog_cursor(page["cursor"].as_str()).unwrap();
+            let got = env.store.lead_page(after, crate::sqlite::lead::LeadFilter::default(), size).await.unwrap();
+            let ids: Vec<&str> = got.rows.iter().map(|r| r.row["id"].as_str().unwrap()).collect();
+            let want: Vec<&str> = page["ids"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+            assert_eq!(ids, want, "limit {} cursor {}", walk["limit"], page["cursor"]);
+            let next = got.more.then(|| encode_catalog_cursor(&got.rows.last().unwrap().row));
+            assert_eq!(next.as_deref(), page["nextCursor"].as_str());
+        }
+    }
+}
+/// `thread/list`'s `archived` and `cwd` filters apply before the page is cut.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lead_pages_filter_before_they_are_cut() {
+    use crate::sqlite::lead::LeadFilter;
+    let env = Env::new();
+    for (id, updated, cwd, archived_at) in [("f1", 30, "C:/a", 5), ("f2", 20, "C:/b", 0), ("f3", 10, "C:/a", 0)] {
+        let mut h = head(id, "task", "Title");
+        h.header.insert("updatedAt".into(), updated.into());
+        h.header.insert("cwd".into(), cwd.into());
+        if archived_at > 0 {
+            h.header.insert("archivedAt".into(), archived_at.into());
+        }
+        env.store.upsert(h, DirtyMark::Clear).await.unwrap();
+    }
+    let ids = |page: crate::sqlite::lead::LeadPage| page.rows.iter().map(|r| r.row["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    let all = env.store.lead_page(None, LeadFilter::default(), 10).await.unwrap();
+    assert_eq!(ids(all), ["f1", "f2", "f3"]);
+    let live = env.store.lead_page(None, LeadFilter { archived: Some(false), cwd: None }, 10).await.unwrap();
+    assert_eq!(ids(live), ["f2", "f3"]);
+    let archived = env.store.lead_page(None, LeadFilter { archived: Some(true), cwd: None }, 10).await.unwrap();
+    assert_eq!((ids(archived.clone()), archived.rows[0].archived), (vec!["f1".to_owned()], true));
+    let here = env.store.lead_page(None, LeadFilter { archived: Some(false), cwd: Some("C:/a".into()) }, 1).await.unwrap();
+    assert_eq!((ids(here.clone()), here.more), (vec!["f3".to_owned()], false));
+    let cut = env.store.lead_page(None, LeadFilter { archived: None, cwd: Some("C:/a".into()) }, 1).await.unwrap();
+    assert_eq!((ids(cut.clone()), cut.more), (vec!["f1".to_owned()], true));
+}

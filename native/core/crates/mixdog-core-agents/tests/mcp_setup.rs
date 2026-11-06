@@ -118,29 +118,29 @@ impl Runtime {
 
 #[async_trait]
 impl McpRuntime for Runtime {
-    fn catalog(&self) -> Catalog {
+    async fn catalog(&self) -> Catalog {
         self.catalog_now()
     }
 
-    fn status(&self) -> Value {
+    async fn status(&self) -> Value {
         let rows: Vec<Value> = self.catalog_now().servers.iter().map(|(name, cfg)| json!({"name": name, "enabled": cfg.get("enabled") != Some(&json!(false)), "transport": cfg.get("type")})).collect();
         json!({"servers": rows, "connectedCount": 0})
     }
 
-    fn server_config(&self, name: &str) -> Result<Value, String> {
+    async fn server_config(&self, name: &str) -> Result<Value, String> {
         let catalog = self.catalog_now();
         let config = catalog.servers.get(name.trim()).ok_or_else(|| format!("MCP server not configured: {}", name.trim()))?;
         Ok(json!({"name": name.trim(), "source": "config", "enabled": config.get("enabled") != Some(&json!(false)), "config": config}))
     }
 
-    fn plugins_status(&self) -> Value {
+    async fn plugins_status(&self) -> Value {
         json!({"plugins": []})
     }
 
     async fn await_keychain_prewarm(&self) {}
-    fn reload_full_config(&self) {}
+    async fn reload_full_config(&self) {}
 
-    fn oauth_state(&self, _: &Value) -> Option<OAuthState> {
+    async fn oauth_state(&self, _: &Value) -> Option<OAuthState> {
         None
     }
 

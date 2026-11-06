@@ -52,7 +52,8 @@ pub struct HostParts {
     pub local_provider: Arc<LocalProvider>,
     /// `LocalProviderService`'s last installation command error.
     pub installation_command_error: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-    pub embedder: Arc<EmbeddingProvider>,
+    /// `None` where onnxruntime ships no binding (`OrtRuntime::NoBinding`): Node has no embedder there.
+    pub embedder: Option<Arc<EmbeddingProvider>>,
     pub judge: Arc<EffortJudgeModel>,
     pub judge_manifest: Manifest,
     /// The tick the embedder and the judge were built with.
@@ -132,7 +133,7 @@ impl ToolModulesHost for ServicesToolModulesHost {
         let embedder = parts.embedder.clone();
         // The info readers stat and read files.
         let read = parts.read_lane.submit(&CancellationToken::new(), move |_| {
-            (embedder.info(), judge.status(), which("git", None, None).is_some())
+            (embedder.map_or(Value::Null, |embedder| embedder.info()), judge.status(), which("git", None, None).is_some())
         });
         // A full or stopped lane reads as nothing installed; the next tick reads again.
         let nothing = || {
@@ -180,12 +181,9 @@ impl ToolModulesHost for ServicesToolModulesHost {
     ) -> Result<(), String> {
         match name {
             "memory" => {
-                self.parts
-                    .embedder
-                    .install(None, &self.cancel)
-                    .await
-                    .map_err(|error| error.to_string())?;
-                self.parts.embedder.warmup().await.map(drop)
+                let embedder = self.parts.embedder.as_ref().ok_or("the ONNX runtime is not supported on this platform")?;
+                embedder.install(None, &self.cancel).await.map_err(|error| error.to_string())?;
+                embedder.warmup().await.map(drop)
             }
             "office" => {
                 self.parts.effects.prepare_office_fonts().await;

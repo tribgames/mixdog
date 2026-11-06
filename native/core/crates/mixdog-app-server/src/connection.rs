@@ -197,6 +197,13 @@ impl Connection {
             .is_some_and(|sub| sub.live)
     }
 
+    /// A desktop window: `initialize` declared kind `desktop`, and the app feed is live on it.
+    pub(crate) fn is_desktop_on(&self, feed: &FeedId) -> bool {
+        self.session()
+            .is_some_and(|session| session.client.kind == mixdog_protocol::ConnectionKind::Desktop)
+            && self.is_live_on(feed)
+    }
+
     /// Whether a server request of `thread` shown on `surface` is for this connection
     /// (P §8.3): a subscriber of either feed, or an `approvalsInbox` connection.
     pub(crate) fn is_eligible(&self, thread: &FeedId, surface: &FeedId) -> bool {

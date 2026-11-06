@@ -329,10 +329,10 @@ fn slim_providers(providers: Option<&Value>) -> Doc {
         let Some(provider) = value.as_object() else { continue };
         let probe_unavailable = provider.get("credentialProbeUnavailable") == Some(&Value::Bool(true));
         let mut slim = Doc::new();
-        if let Some(enabled) = provider.get("enabled").filter(|v| v.is_boolean()) {
-            if !(probe_unavailable && enabled == &Value::Bool(false)) {
-                slim.insert("enabled".into(), enabled.clone());
-            }
+        if let Some(enabled) = provider.get("enabled").filter(|v| v.is_boolean())
+            && !(probe_unavailable && enabled == &Value::Bool(false))
+        {
+            slim.insert("enabled".into(), enabled.clone());
         }
         if let Some(base) = provider.get("baseURL").filter(|v| is_truthy(v)) {
             slim.insert("baseURL".into(), base.clone());

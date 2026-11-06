@@ -41,6 +41,9 @@ pub struct HostParts {
     /// The one table the react tool (`SessionReactions`) records into.
     pub reaction_targets: Arc<ReactionTargets>,
     pub effort_judge: Option<Arc<EffortJudgeModel>>,
+    pub side: super::side_requests::SideRequests,
+    /// The source of a thread's next request, bound to the directory and the assembly here.
+    pub next: Arc<super::next_request_source::NextRequestSource>,
     pub seams: SeamParts,
     pub settings: SettingsSources,
     pub probes: Arc<StartupProbes>,
@@ -52,7 +55,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
     let mut bound = None;
     let registry = host.registry.clone();
     let directory = Arc::new_cyclic(|directory: &Weak<SessionDirectory>| {
-        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, effort_judge, seams, settings, probes, observed } = host;
+        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, effort_judge, side, next, seams, settings, probes, observed } = host;
         let services = HostServices {
             registry,
             clock,
@@ -67,12 +70,15 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
             reaction_targets,
             directory: directory.clone(),
             effort_judge,
+            side,
             seams: bound.insert(Arc::new(HostSeams::new(seams))).clone(),
             settings,
             probes,
             observed,
         };
-        let runs: Arc<dyn RunFactory> = Arc::new(RunHostFactory::new(Arc::new(HostRunParts::new(services))));
+        let parts = Arc::new(HostRunParts::new(services));
+        next.bind(directory.clone(), parts.clone());
+        let runs: Arc<dyn RunFactory> = Arc::new(RunHostFactory::new(parts));
         SessionDirectory::new(Arc::new(deps(runs)))
     });
     if let Some(seams) = bound {

@@ -25,9 +25,11 @@ pub mod hidden_agents;
 mod schema;
 mod seams;
 mod service;
+mod watch;
 
 pub use seams::ConfigFeatureGate;
 pub use service::ConfigService;
+pub use watch::ConfigWatcher;
 pub use service::set_worktree_settings;
 pub use seams::ConfigLocalProviderSettings;
 pub use seams::ConfigVoiceEnabled;

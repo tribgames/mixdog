@@ -57,14 +57,14 @@ pub const CLIENT_VERSION_FLOOR: &str = "1.0.70";
 
 /// Points the xAI request at the proxy and adds the CLI identity headers.
 pub struct GrokRewriter {
-    pub client_version: String,
+    pub client_version: crate::client_versions::Live,
     pub credential: Arc<GrokCredential>,
 }
 
 impl Rewriter for GrokRewriter {
     fn rewrite(&self, mut wire: WireRequest, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         let opts = &request.options;
-        wire.headers.extend(identity_headers(&self.client_version));
+        wire.headers.extend(identity_headers(&self.client_version.get()));
         let mut add = |name: &str, value: String| wire.headers.push((name.to_owned(), value));
         // The session id is Mixdog's own; no Grok conversation id is made up.
         if let Some(session) = opts.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -98,16 +98,16 @@ pub fn codec(client_version: &str) -> Arc<dyn WireCodec> {
 pub fn adapter(
     http: Arc<dyn HttpSend>,
     credential: Arc<GrokCredential>,
-    client_version: Option<String>,
+    client_version: Option<crate::client_versions::Live>,
     retry_policy: RetryPolicy,
     lookup: ListingLookup,
 ) -> HttpAdapter {
-    let client_version = client_version.unwrap_or_else(|| CLIENT_VERSION_FLOOR.to_owned());
+    let client_version = client_version.unwrap_or_else(|| CLIENT_VERSION_FLOOR.into());
     let rewriter = GrokRewriter {
         client_version: client_version.clone(),
         credential: credential.clone(),
     };
-    let codec: Arc<dyn WireCodec> = Arc::new(RewriteCodec::new(codec(&client_version), rewriter));
+    let codec: Arc<dyn WireCodec> = Arc::new(RewriteCodec::new(codec(&client_version.get()), rewriter));
     let listing = GrokListing::new(
         http.clone(),
         credential.clone(),

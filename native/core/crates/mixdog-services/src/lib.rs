@@ -9,6 +9,7 @@ pub mod media;
 pub mod memory;
 pub mod model_install;
 pub mod scheduler;
+pub mod task_reports;
 pub mod tidy;
 pub mod voice;
 pub mod webhooks;

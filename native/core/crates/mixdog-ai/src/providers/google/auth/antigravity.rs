@@ -79,21 +79,9 @@ const REFRESH_SKEW_MS: u64 = 5 * 60_000;
 /// `onboardUser` operations are polled at most this many times.
 const ONBOARD_POLLS: u32 = 30;
 
-/// `version: X.Y.Z` from an electron-builder update manifest.
+/// `version: X.Y.Z` from an electron-builder update manifest (`parseAntigravityManifestVersion`).
 pub fn parse_manifest_version(text: &str) -> Option<String> {
-    for line in text.lines() {
-        let Some(rest) = line.trim_start().strip_prefix("version") else {
-            continue;
-        };
-        let Some(rest) = rest.trim_start().strip_prefix(':') else {
-            continue;
-        };
-        let value = rest.split('#').next().unwrap_or("").trim().trim_matches(['"', '\'']);
-        let numeric = value.split('.').count() == 3
-            && value.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
-        return numeric.then(|| value.to_owned());
-    }
-    None
+    crate::client_versions::parse_antigravity_manifest_version(text)
 }
 
 // ---------------------------------------------------------------------------

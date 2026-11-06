@@ -21,6 +21,9 @@ use mixdog_core_api::call::Subscribe;
 use mixdog_core_api::error::CoreError;
 use mixdog_core_api::error::Precondition;
 use mixdog_core_api::feed::ScopedFeeds;
+use mixdog_core_api::host::HostCapability;
+use mixdog_core_api::host::HostChannel;
+use mixdog_core_api::host::HostError;
 use mixdog_core_api::feed::Window;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
@@ -220,6 +223,8 @@ pub struct WorkspaceService {
     user_data: PathBuf,
     tracked: Arc<dyn crate::zip::TrackedFiles>,
     state: mixdog_store::state::CoreState,
+    /// The desktop host's channel, for the methods only an Electron window can answer.
+    host: OnceLock<Arc<dyn HostChannel>>,
 }
 
 fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
@@ -276,6 +281,7 @@ impl WorkspaceService {
             backups: Arc::new(crate::editorcfg::Backups::new(&deps.user_data_dir)),
             user_data: deps.user_data_dir,
             state: deps.state,
+            host: OnceLock::new(),
         });
         let _ = service.me.set(Arc::downgrade(&service));
         Ok(service)
@@ -283,6 +289,30 @@ impl WorkspaceService {
 
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
+    }
+
+    /// Connects the host channel `projectFs/captureSnapshot` and `projectFs/localPageUrl` go
+    /// through; without one they answer `capabilityUnavailable`. Set once.
+    pub fn set_host(&self, host: Arc<dyn HostChannel>) {
+        let _ = self.host.set(host);
+    }
+
+    /// One `host/*` request to the desktop's file capability, its failure mapped to the coded
+    /// domain error every host-forwarded method answers with.
+    async fn host_files(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        let Some(host) = self.host.get() else {
+            return Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() });
+        };
+        match host.request(HostCapability::Files, Method(method), params).await {
+            Ok(value) => Ok(value),
+            Err(HostError::Core(error)) => Err(error),
+            Err(HostError::Rpc { message, .. }) => Err(CoreError::DomainError {
+                domain: "workspace".into(),
+                code: Some("HOST_COMMAND_FAILED".into()),
+                message: Some(message.into()),
+                detail: None,
+            }),
+        }
     }
 
     pub fn open_os_watches(&self) -> usize {
@@ -428,6 +458,11 @@ impl WorkspaceService {
             "projectFs/entryPath" => {
                 let root = self.root(params).await?;
                 value(json!({ "path": project_entry_path(&root, s(params, "rel")?)?.to_string_lossy() }))
+            }
+            "projectFs/browseDirs" => {
+                let path = s(params, "path")?.to_owned();
+                let include_hidden = params.get("includeHidden").and_then(Value::as_bool);
+                value(run_fallible(self.lanes.interactive, &cancel, move || crate::browse::browse_dirs(&path, include_hidden)).await?)
             }
             "projectFs/readLocal" => {
                 let path = s(params, "path")?.to_owned();
@@ -946,6 +981,22 @@ impl DomainService for WorkspaceService {
         if let (Some(scope), Some(op)) = (op_scope(req.method.as_str()), req.op.as_ref()) {
             return this.with_op(&req, scope, op.to_string()).await;
         }
+        let host_method = match req.method.as_str() {
+            "projectFs/captureSnapshot" => Some("host/capture/fileSnapshot"),
+            "projectFs/localPageUrl" => Some("host/localPage/url"),
+            _ => None,
+        };
+        if let Some(host_method) = host_method {
+            // The path is confined here; the window only renders it.
+            let confined = async {
+                let root = this.root(&req.params).await?;
+                let rel = s(&req.params, "rel")?;
+                project_entry_path(&root, rel)?;
+                Ok::<_, WsError>(json!({ "root": root.to_string_lossy(), "rel": rel }))
+            };
+            let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
+            return this.host_files(host_method, host_params).await.map(Reply::Value);
+        }
         this.dispatch(&req, None).await.map_err(|e| this.map_error(&req, e))
     }
 
@@ -968,6 +1019,9 @@ impl DomainService for WorkspaceService {
             "projectFs/entryPath",
             "projectFs/readLocal",
             "projectFs/statLocal",
+            "projectFs/browseDirs",
+            "projectFs/captureSnapshot",
+            "projectFs/localPageUrl",
             "projectFs/writeText",
             "projectFs/writeTextBatch",
             "projectFs/create",

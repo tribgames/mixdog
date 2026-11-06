@@ -1,0 +1,2607 @@
+{
+  "scenarios": {
+    "cap": {
+      "cleaned": [
+        "sess_ancient"
+      ],
+      "live": [],
+      "openPruned": [
+        "sess_n300",
+        "sess_n301"
+      ],
+      "remaining": 300,
+      "rows": [
+        {
+          "ageMs": 1296000000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_ancient",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 1000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n000",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 1700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n001",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 2400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n002",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 3100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n003",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 3800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n004",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 4500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n005",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 5200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n006",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 5900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n007",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 6600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n008",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 7300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n009",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 8000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n010",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 8700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n011",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 9400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n012",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 10100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n013",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 10800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n014",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 11500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n015",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 12200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n016",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 12900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n017",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 13600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n018",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 14300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n019",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 15000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n020",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 15700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n021",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 16400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n022",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 17100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n023",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 17800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n024",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 18500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n025",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 19200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n026",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 19900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n027",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 20600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n028",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 21300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n029",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 22000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n030",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 22700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n031",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 23400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n032",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 24100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n033",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 24800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n034",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 25500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n035",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 26200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n036",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 26900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n037",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 27600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n038",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 28300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n039",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 29000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n040",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 29700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n041",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 30400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n042",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 31100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n043",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 31800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n044",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 32500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n045",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 33200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n046",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 33900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n047",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 34600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n048",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 35300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n049",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 36000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n050",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 36700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n051",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 37400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n052",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 38100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n053",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 38800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n054",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 39500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n055",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 40200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n056",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 40900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n057",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 41600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n058",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 42300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n059",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 43000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n060",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 43700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n061",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 44400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n062",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 45100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n063",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 45800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n064",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 46500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n065",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 47200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n066",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 47900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n067",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 48600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n068",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 49300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n069",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 50000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n070",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 50700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n071",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 51400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n072",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 52100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n073",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 52800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n074",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 53500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n075",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 54200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n076",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 54900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n077",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 55600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n078",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 56300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n079",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 57000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n080",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 57700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n081",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 58400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n082",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 59100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n083",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 59800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n084",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 60500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n085",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 61200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n086",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 61900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n087",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 62600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n088",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 63300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n089",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 64000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n090",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 64700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n091",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 65400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n092",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 66100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n093",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 66800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n094",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 67500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n095",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 68200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n096",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 68900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n097",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 69600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n098",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 70300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n099",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 71000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n100",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 71700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n101",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 72400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n102",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 73100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n103",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 73800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n104",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 74500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n105",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 75200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n106",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 75900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n107",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 76600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n108",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 77300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n109",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 78000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n110",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 78700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n111",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 79400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n112",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 80100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n113",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 80800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n114",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 81500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n115",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 82200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n116",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 82900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n117",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 83600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n118",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 84300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n119",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 85000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n120",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 85700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n121",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 86400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n122",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 87100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n123",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 87800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n124",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 88500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n125",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 89200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n126",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 89900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n127",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 90600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n128",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 91300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n129",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 92000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n130",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 92700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n131",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 93400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n132",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 94100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n133",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 94800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n134",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 95500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n135",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 96200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n136",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 96900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n137",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 97600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n138",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 98300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n139",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 99000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n140",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 99700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n141",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 100400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n142",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 101100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n143",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 101800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n144",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 102500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n145",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 103200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n146",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 103900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n147",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 104600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n148",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 105300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n149",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 106000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n150",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 106700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n151",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 107400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n152",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 108100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n153",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 108800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n154",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 109500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n155",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 110200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n156",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 110900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n157",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 111600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n158",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 112300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n159",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 113000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n160",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 113700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n161",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 114400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n162",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 115100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n163",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 115800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n164",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 116500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n165",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 117200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n166",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 117900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n167",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 118600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n168",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 119300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n169",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 120000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n170",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 120700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n171",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 121400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n172",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 122100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n173",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 122800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n174",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 123500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n175",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 124200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n176",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 124900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n177",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 125600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n178",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 126300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n179",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 127000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n180",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 127700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n181",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 128400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n182",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 129100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n183",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 129800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n184",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 130500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n185",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 131200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n186",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 131900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n187",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 132600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n188",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 133300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n189",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 134000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n190",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 134700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n191",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 135400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n192",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 136100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n193",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 136800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n194",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 137500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n195",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 138200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n196",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 138900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n197",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 139600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n198",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 140300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n199",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 141000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n200",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 141700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n201",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 142400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n202",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 143100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n203",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 143800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n204",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 144500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n205",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 145200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n206",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 145900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n207",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 146600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n208",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 147300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n209",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 148000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n210",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 148700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n211",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 149400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n212",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 150100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n213",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 150800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n214",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 151500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n215",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 152200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n216",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 152900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n217",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 153600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n218",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 154300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n219",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 155000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n220",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 155700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n221",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 156400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n222",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 157100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n223",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 157800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n224",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 158500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n225",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 159200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n226",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 159900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n227",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 160600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n228",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 161300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n229",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 162000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n230",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 162700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n231",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 163400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n232",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 164100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n233",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 164800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n234",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 165500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n235",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 166200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n236",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 166900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n237",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 167600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n238",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 168300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n239",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 169000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n240",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 169700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n241",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 170400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n242",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 171100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n243",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 171800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n244",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 172500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n245",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 173200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n246",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 173900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n247",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 174600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n248",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 175300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n249",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 176000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n250",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 176700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n251",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 177400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n252",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 178100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n253",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 178800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n254",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 179500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n255",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 180200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n256",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 180900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n257",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 181600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n258",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 182300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n259",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 183000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n260",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 183700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n261",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 184400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n262",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 185100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n263",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 185800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n264",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 186500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n265",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 187200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n266",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 187900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n267",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 188600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n268",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 189300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n269",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 190000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n270",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 190700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n271",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 191400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n272",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 192100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n273",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 192800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n274",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 193500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n275",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 194200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n276",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 194900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n277",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 195600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n278",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 196300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n279",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 197000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n280",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 197700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n281",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 198400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n282",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 199100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n283",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 199800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n284",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 200500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n285",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 201200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n286",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 201900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n287",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 202600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n288",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 203300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n289",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 204000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n290",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 204700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n291",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 205400,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n292",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 206100,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n293",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 206800,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n294",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 207500,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n295",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 208200,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n296",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 208900,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n297",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 209600,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n298",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 210300,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n299",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 211000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n300",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 211700,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_n301",
+          "owner": "",
+          "status": "idle"
+        }
+      ],
+      "tombstonesCleaned": []
+    },
+    "idleClose": {
+      "cleaned": [
+        "sess_old"
+      ],
+      "live": [
+        "sess_live"
+      ],
+      "openPruned": [],
+      "remaining": 2,
+      "rows": [
+        {
+          "ageMs": 360000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_old",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 120000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_fresh",
+          "owner": "",
+          "status": "idle"
+        },
+        {
+          "ageMs": 1800000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_live",
+          "owner": "",
+          "status": "idle"
+        }
+      ],
+      "tombstonesCleaned": []
+    },
+    "ownedAndScratch": {
+      "cleaned": [],
+      "live": [],
+      "openPruned": [
+        "sess_blank"
+      ],
+      "remaining": 2,
+      "rows": [
+        {
+          "ageMs": 540000000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_chat",
+          "owner": "user",
+          "status": "idle"
+        },
+        {
+          "ageMs": 3660000,
+          "closed": false,
+          "conversation": 0,
+          "id": "sess_blank",
+          "owner": "user",
+          "status": "idle"
+        },
+        {
+          "ageMs": 1800000,
+          "closed": false,
+          "conversation": 0,
+          "id": "sess_young",
+          "owner": "user",
+          "status": "idle"
+        }
+      ],
+      "tombstonesCleaned": []
+    },
+    "permanent": {
+      "cleaned": [],
+      "live": [],
+      "openPruned": [],
+      "remaining": 1,
+      "rows": [
+        {
+          "ageMs": 5999940000,
+          "closed": true,
+          "conversation": 2,
+          "id": "sess_home_lead",
+          "owner": "",
+          "status": "closed"
+        },
+        {
+          "ageMs": 5999940000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_home_watcher",
+          "owner": "cli",
+          "status": "idle"
+        }
+      ],
+      "tombstonesCleaned": [
+        "sess_home_lead"
+      ]
+    },
+    "running": {
+      "cleaned": [
+        "sess_zombie"
+      ],
+      "live": [],
+      "openPruned": [],
+      "remaining": 1,
+      "rows": [
+        {
+          "ageMs": 540000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_quiet",
+          "owner": "",
+          "status": "running"
+        },
+        {
+          "ageMs": 660000,
+          "closed": false,
+          "conversation": 2,
+          "id": "sess_zombie",
+          "owner": "",
+          "status": "running"
+        }
+      ],
+      "tombstonesCleaned": []
+    },
+    "tombstones": {
+      "cleaned": [],
+      "live": [
+        "sess_held"
+      ],
+      "openPruned": [],
+      "remaining": 2,
+      "rows": [
+        {
+          "ageMs": 3660000,
+          "closed": true,
+          "conversation": 2,
+          "id": "sess_old",
+          "owner": "user",
+          "status": "closed"
+        },
+        {
+          "ageMs": 3540000,
+          "closed": true,
+          "conversation": 2,
+          "id": "sess_young",
+          "owner": "user",
+          "status": "closed"
+        },
+        {
+          "ageMs": 5400000,
+          "closed": true,
+          "conversation": 2,
+          "id": "sess_held",
+          "owner": "user",
+          "status": "closed"
+        }
+      ],
+      "tombstonesCleaned": [
+        "sess_old"
+      ]
+    }
+  },
+  "tombstoneMaxAgeMs": 3600000,
+  "ttlMs": 300000
+}

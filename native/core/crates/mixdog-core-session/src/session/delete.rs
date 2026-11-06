@@ -104,8 +104,13 @@ pub trait DeleteSeams: Send + Sync {
     /// `releaseSessionWork(id, reason)`: `cancelBackgroundTasks({ reason, notify: false,
     /// executionSessionId: id })` (this session's own tasks, not the sessions it delegated to),
     /// then `statusRoutes.clearGatewaySessionRoute(id)`; returns once both have landed, as
-    /// Node's synchronous calls have.
+    /// Node's synchronous calls have. The shells the session owns are cancelled with them
+    /// (`cancelOwnedShellProcesses`, `session-close.mjs:184`).
     async fn release_session_work(&self, session_id: &str, reason: &str);
+    /// The close planted its tombstone (`markSessionClosed`): the `[session-close]` line of
+    /// `tool-events.log` from the session's stored `header` (`_logSessionCloseMetric`). `reason` is
+    /// the close reason (`desktop-session-delete`), not the abort text.
+    fn session_closed(&self, session_id: &str, reason: &str, header: &mixdog_store::schema::record::Header);
     /// `forgetSessionSearch(id)`, not awaited.
     fn forget_session_search(&self, session_id: &str);
     /// `releaseDeletedWorktree(id)`: the worktree maintenance's `cleanupDeletedSession`, off the
@@ -190,6 +195,7 @@ pub(crate) async fn delete_session_if_idle(
         Ok(hold) => hold,
         Err(refusal) => return refuse(refusal),
     };
+    deps.deletion.session_closed(id, AUTO_DELETE_REASON, &hold.header());
     if !remove(directory, &thread, meta.cwds, hold).await {
         return refuse("delete-failed");
     }
@@ -292,6 +298,7 @@ pub(crate) async fn delete_session(directory: &super::directory::DirInner, id: &
     let Ok(hold) = directory.close_for_delete(&thread, &reason, false).await? else {
         return Ok(false);
     };
+    deps.deletion.session_closed(id, DELETE_REASON, &hold.header());
     deps.deletion.release_session_work(id, DELETE_REASON).await;
     if !remove(directory, &thread, meta.cwds, hold).await {
         return Ok(false);

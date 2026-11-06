@@ -562,6 +562,7 @@ struct Harness {
     gate: Arc<dyn ToolGate>,
     compactor: Option<Arc<Compactor100>>,
     tail: Option<Arc<dyn TailReminder>>,
+    side: Option<Arc<dyn mixdog_agent::env::SendTap>>,
     reuse: Option<Arc<dyn ResultReuse>>,
     route: Option<Arc<dyn RouteFallback>>,
     cancel: CancellationToken,
@@ -580,6 +581,7 @@ impl Harness {
             gate: Arc::new(AllowAll),
             compactor: None,
             tail: None,
+            side: None,
             reuse: None,
             route: None,
             cancel: CancellationToken::new(),
@@ -615,6 +617,7 @@ impl Harness {
             reuse: self.reuse.clone(),
             reactions: None,
             tail: self.tail.clone(),
+            side: self.side.clone(),
             step_judge: None,
             artifacts: None,
             images: None,
@@ -2236,4 +2239,41 @@ async fn a_turn_cancelled_in_the_slot_wait_reads_its_sources_reason() {
         let failure = task.await.unwrap().expect_err("the slot was not taken back");
         assert!(matches!(&failure.error, AgentError::Admission(text) if text == want), "{source}: {:?}", failure.error);
     }
+}
+/// The side-question capture of each logical send: opened with the request, settled with its reply.
+#[derive(Default)]
+struct SideLog(Mutex<Vec<String>>);
+
+struct SideTicket(Arc<SideLog>);
+
+struct SideTap(Arc<SideLog>);
+
+impl mixdog_agent::env::SendTap for SideTap {
+    fn begin(&self, request: &mixdog_core_api::domain::provider::ModelRequest) -> Box<dyn mixdog_agent::env::SendTicket> {
+        self.0.0.lock().unwrap().push(format!("begin:{}", request.messages.len()));
+        Box::new(SideTicket(self.0.clone()))
+    }
+}
+
+impl mixdog_agent::env::SendTicket for SideTicket {
+    fn settle(self: Box<Self>, response: &mixdog_agent::response::ModelResponse) {
+        self.0.0.lock().unwrap().push(format!("settle:{}", response.content));
+    }
+
+    fn discard(self: Box<Self>) {
+        self.0.0.lock().unwrap().push("discard".to_owned());
+    }
+}
+
+#[tokio::test]
+async fn each_send_is_captured_with_its_request_and_settled_with_its_reply() {
+    let log = Arc::new(SideLog::default());
+    let mut h = Harness::new(vec![
+        turn(vec![text("first"), done(StopReason::EndTurn)]),
+        turn(vec![text("second"), done(StopReason::EndTurn)]),
+    ]);
+    h.side = Some(Arc::new(SideTap(log.clone())));
+    h.steer.push(DrainStage::Terminal, "one more thing");
+    finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    assert_eq!(*log.0.lock().unwrap(), ["begin:1", "settle:first", "begin:3", "settle:second"]);
 }

@@ -1,0 +1,134 @@
+//! `thread/inheritancePreflight` (`inheritancePreflight` of `session-runtime/lifecycle/
+//! inheritance.mjs`): the read-only verdict of whether another session's conversation fits the
+//! heir this session would open, on the route it would open with. The fit math runs on the
+//! target route's compaction policy, which the host owns ([`InheritanceFit`]).
+
+use async_trait::async_trait;
+use mixdog_core_api::CoreError;
+use mixdog_core_api::Reply;
+use mixdog_core_api::ThreadHandle;
+use mixdog_core_api::call::CallContext;
+use mixdog_core_api::call::CoreRequest;
+use mixdog_core_api::ids::Method;
+use mixdog_core_api::ids::ThreadId;
+use mixdog_app_protocol::v2::params::ThreadInheritancePreflightParams;
+use serde_json::Map;
+use serde_json::Value;
+use serde_json::json;
+
+use super::SessionDirectory;
+
+/// The heir's route (`inheritanceRouteTarget`): only a route naming a provider and a model has one.
+pub struct InheritTarget {
+    pub provider: String,
+    pub model: String,
+    /// A window picked on this route (`selectedContextWindow`), kept only when the route is the
+    /// session's own.
+    pub selected_context_window: Option<u64>,
+    /// The session whose tool surface sizes the heir's request reserve (`session.tools`).
+    pub tools_of: Option<ThreadId>,
+}
+
+/// What the target route's compaction policy says of a conversation
+/// (`resolveWorkerCompactPolicy`, `currentContextEstimateTokens`).
+pub struct FitBasis {
+    /// `policy.triggerTokens`.
+    pub limit: u64,
+    /// `currentContextEstimateTokens(estimateMessagesTokens(messages), policy)`.
+    pub used: u64,
+    /// `inheritanceCompactionPlan(target) !== null`: the route has a boundary to compact toward.
+    pub compactable: bool,
+}
+
+/// The host side of the preflight.
+#[async_trait]
+pub trait InheritanceFit: Send + Sync {
+    /// `None` for an unmeasurable route: no boundary metadata, or auto-compaction off.
+    async fn basis(&self, target: &InheritTarget, messages: &[Value]) -> Option<FitBasis>;
+}
+
+fn clean(value: Option<&Value>) -> String {
+    value.and_then(Value::as_str).map(|text| mixdog_js::js_trim(text).to_owned()).unwrap_or_default()
+}
+
+/// `inheritableMessages`: system blocks belong to the session that built them.
+fn inheritable(messages: Vec<Value>) -> Vec<Value> {
+    messages.into_iter().filter(|message| message.get("role").and_then(Value::as_str) != Some("system")).collect()
+}
+
+/// `inheritanceFitMessage`.
+fn fit_message(provider: &str, model: &str, used: u64, limit: u64) -> String {
+    let route = [provider, model].iter().filter(|part| !part.is_empty()).copied().collect::<Vec<_>>().join("/");
+    let route = if route.is_empty() { "the selected model" } else { route.as_str() };
+    format!("inheritFrom: the full conversation needs {used} tokens but {route} allows {limit} before compaction")
+}
+
+impl SessionDirectory {
+    async fn read_of(&self, thread: &ThreadId, method: &'static str) -> Result<Value, CoreError> {
+        let ctx = CallContext::internal("inheritance");
+        let handle = self.open_handle(thread, &ctx).await?;
+        match handle.request(CoreRequest { method: Method(method), params: json!({ "threadId": thread }), op: None, ctx }).await? {
+            Reply::Value(value) => Ok(value),
+            Reply::Subscribe(_) => Err(CoreError::Internal { incident_id: "inheritance-subscribed".into() }),
+        }
+    }
+
+    pub(super) async fn inheritance_preflight(&self, params: &Value) -> Result<Value, CoreError> {
+        let params: ThreadInheritancePreflightParams = serde_json::from_value(params.clone())
+            .map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadInheritancePreflightParams".into() })?;
+        let current = params.thread_id.as_ref();
+        let header = match current {
+            Some(thread) => self.read_of(thread, "thread/header/read").await?.get("header").and_then(Value::as_object).cloned().unwrap_or_default(),
+            None => Map::new(),
+        };
+        let requested = params.selection.as_ref().filter(|selection| selection.is_object());
+        let route = |key: &str| clean(requested.and_then(|selection| selection.get(key)));
+        let (own_provider, own_model) = (clean(header.get("provider")), clean(header.get("model")));
+        let provider = Some(route("provider")).filter(|name| !name.is_empty()).unwrap_or_else(|| own_provider.clone());
+        let model = Some(route("model")).filter(|name| !name.is_empty()).unwrap_or_else(|| own_model.clone());
+        let id = params.source_thread_id.as_ref().map(|id| mixdog_js::js_trim(id.as_str()).to_owned()).filter(|id| !id.is_empty());
+        let id = id.or_else(|| current.map(|thread| mixdog_js::js_trim(thread.as_str()).to_owned()).filter(|id| !id.is_empty()));
+        let messages = match &id {
+            Some(id) => match self.read_of(&ThreadId::from(id.clone()), "thread/messages/read").await {
+                Ok(value) => value.get("messages").and_then(Value::as_array).cloned().unwrap_or_default(),
+                Err(CoreError::ThreadNotFound { .. }) => Vec::new(),
+                Err(error) => return Err(error),
+            },
+            None => Vec::new(),
+        };
+        let carried = inheritable(messages);
+        // A picked window belongs to the route that picked it; another provider/model pair falls
+        // back to that model's own default.
+        let selected_context_window = (provider == own_provider && model == own_model)
+            .then(|| mixdog_agent::agent_tool::scope::positive_int(header.get("selectedContextWindow")))
+            .flatten();
+        let basis = if provider.is_empty() || model.is_empty() {
+            None
+        } else {
+            let target = InheritTarget { provider: provider.clone(), model: model.clone(), selected_context_window, tools_of: current.cloned() };
+            self.deps().inherit.basis(&target, &carried).await
+        };
+        // `inheritanceFit`: the base names the target's route, empty when it has none.
+        let (name, tag) = if provider.is_empty() || model.is_empty() { (String::new(), String::new()) } else { (provider, model) };
+        let mut out = Map::new();
+        out.insert("provider".into(), json!(name));
+        out.insert("model".into(), json!(tag));
+        out.insert("messages".into(), json!(carried.len()));
+        let (known, fits, used, limit) = match &basis {
+            Some(basis) if basis.limit > 0 => (true, basis.used < basis.limit, basis.used, basis.limit),
+            _ => (false, true, 0, 0),
+        };
+        out.insert("known".into(), json!(known));
+        out.insert("fits".into(), json!(fits));
+        out.insert("used".into(), json!(used));
+        out.insert("limit".into(), json!(limit));
+        out.insert("percent".into(), if known { json!(((used as f64 / limit as f64) * 100.0).ceil().max(0.0) as u64) } else { Value::Null });
+        // An oversized conversation is compacted for the heir rather than refused.
+        let will_compact = known && !fits && basis.as_ref().is_some_and(|basis| basis.compactable);
+        out.insert("willCompact".into(), json!(will_compact));
+        out.insert("sourceSessionId".into(), id.map_or(Value::Null, Value::from));
+        let reason = if known && !fits && !will_compact { fit_message(&name, &tag, used, limit) } else { String::new() };
+        out.insert("reason".into(), json!(reason));
+        Ok(Value::Object(out))
+    }
+}

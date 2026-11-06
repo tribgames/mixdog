@@ -27,6 +27,7 @@ use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
+use mixdog_statefile::WriteLane;
 use serde_json::Map;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -211,14 +212,16 @@ pub fn permission(loaded: &Loaded, server: &str, tool: &str, connector_of_server
     }
 }
 
+/// One project's switched-off connectors in `project-connectors.json`.
 #[derive(Clone, PartialEq, Eq, Debug)]
-struct ProjectOff {
-    root: String,
-    off: BTreeSet<String>,
+pub struct ProjectOff {
+    pub root: String,
+    pub off: BTreeSet<String>,
 }
 
+/// What `project-connectors.json` holds.
 #[derive(Clone, PartialEq, Eq, Debug)]
-enum Projects {
+pub enum Projects {
     Absent,
     Roots(Vec<ProjectOff>),
     DenyAll,
@@ -236,8 +239,8 @@ fn lone_policy(manifest: &Value) -> Result<Loaded, String> {
     })
 }
 
-#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn is_present(_lane: &InLane<MaintenanceIo>, path: &Path) -> bool {
+#[allow(clippy::disallowed_methods, reason = "runs as a lane job (InLane proof)")]
+fn is_present<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> bool {
     path.exists()
 }
 
@@ -245,8 +248,8 @@ fn is_present(_lane: &InLane<MaintenanceIo>, path: &Path) -> bool {
 /// that cannot be read is `deny`; a damaged one (empty, NUL-filled, torn, or a shape `parse`
 /// refuses) falls back to its last good copy `<file>.bak` and, without one, is `deny` — it never
 /// fails open.
-fn read_policy_file<T>(
-    lane: &InLane<MaintenanceIo>,
+fn read_policy_file<L: WriteLane, T>(
+    lane: &InLane<L>,
     path: &Path,
     parse: impl Fn(&Value) -> Result<T, String>,
     absent: T,
@@ -275,6 +278,28 @@ fn read_agent_policy(lane: &InLane<MaintenanceIo>, path: &Path) -> Loaded {
     read_policy_file(lane, path, lone_policy, Loaded::Absent, Loaded::DenyAll)
 }
 
+/// The `connectors` field of an `agent.json`, as the file holds it.
+#[derive(Clone, PartialEq, Debug)]
+pub enum RawPolicy {
+    /// No file or no field: every connector is on.
+    Absent,
+    /// The field, which parses as a policy.
+    Field(Value),
+    /// A policy that cannot be trusted.
+    DenyAll,
+}
+
+/// `readConnectorsFile(path)` with the stored field kept as written (the agent editor edits
+/// it in JavaScript's key order): the same recovery as [`read_agent_policy`].
+pub fn read_raw_policy<L: WriteLane>(lane: &InLane<L>, path: &Path) -> RawPolicy {
+    let parse = |manifest: &Value| {
+        let field = manifest.get("connectors").filter(|field| !field.is_null());
+        parse_connector_policy(field)?;
+        Ok(field.map_or(RawPolicy::Absent, |field| RawPolicy::Field(field.clone())))
+    };
+    read_policy_file(lane, path, parse, RawPolicy::Absent, RawPolicy::DenyAll)
+}
+
 fn projects_of(raw: &Value) -> Result<Projects, String> {
     let object = raw.as_object().ok_or("projects must be an object")?;
     let projects = match object.get("projects") {
@@ -296,7 +321,8 @@ fn projects_of(raw: &Value) -> Result<Projects, String> {
     Ok(Projects::Roots(out))
 }
 
-fn read_projects(lane: &InLane<MaintenanceIo>, path: &Path) -> Projects {
+/// `readProjectConnectorsFile`: the project policy file.
+pub fn read_projects<L: WriteLane>(lane: &InLane<L>, path: &Path) -> Projects {
     read_policy_file(lane, path, projects_of, Projects::Absent, Projects::DenyAll)
 }
 
@@ -433,6 +459,11 @@ impl ConnectorPolicy {
             .filter_map(|c| Some((c.name.clone(), c.connector.clone()?)))
             .collect();
         self.connectors.store(Arc::new(map));
+    }
+
+    /// `serverConnector(name)`: the catalog connector configured server `server` connects.
+    pub fn connector_of(&self, server: &str) -> Option<String> {
+        self.connectors.load().get(server).cloned()
     }
 
     pub fn set_resolver(&self, resolver: Resolver) {

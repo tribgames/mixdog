@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
+pub mod lead;
 #[cfg(test)]
 mod model_tests;
 #[cfg(test)]

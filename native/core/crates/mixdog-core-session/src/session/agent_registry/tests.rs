@@ -328,6 +328,15 @@ async fn tags_resolve_inside_the_callers_scope_only() {
     assert_eq!(rows, ["sess_b"]);
 }
 
+/// The owners whose shells a close cancelled.
+#[derive(Default)]
+struct ClosedShells(Mutex<Vec<String>>);
+impl crate::session::shell_jobs::OwnedShells for ClosedShells {
+    fn cancel_owned(&self, owner: &mixdog_core_api::ids::ThreadId) {
+        self.0.lock().unwrap().push(owner.as_str().to_owned());
+    }
+}
+
 #[derive(Default)]
 struct Statusline(Mutex<Vec<String>>);
 impl AgentStatusline for Statusline {
@@ -390,9 +399,13 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
 
     let statusline = Arc::new(Statusline::default());
     let threads = Arc::new(SessionThreads::new(directory.clone()));
-    let sessions = AgentSessions::new(directory.clone(), threads, registry.clone(), statusline.clone(), rig.clock.clone());
+    let shells = Arc::new(ClosedShells::default());
+    let read_state = Arc::new(mixdog_tools::fs::ReadState::default());
+    let sessions = AgentSessions::new(directory.clone(), threads, registry.clone(), statusline.clone(), rig.clock.clone(), shells.clone(), read_state.clone());
     let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: true };
     assert!(sessions.close_session(&id, "cli-agent-close", options).await);
+    // `cancelOwnedShellTrees(id)` (`session-close.mjs:184`).
+    assert_eq!(*shells.0.lock().unwrap(), [id.clone()]);
     eventually(|| idle(&handle).then_some(())).await;
     let header = handle.cell.header.load_full();
     assert_eq!(header["ownerClosedAt"], json!(NOW));
@@ -438,7 +451,15 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     eventually(|| handle.cell.run.load().is_some().then_some(())).await;
 
     let threads = Arc::new(SessionThreads::new(directory.clone()));
-    let sessions = AgentSessions::new(directory.clone(), threads, registry, Arc::new(Statusline::default()), rig.clock.clone());
+    let sessions = AgentSessions::new(
+        directory.clone(),
+        threads,
+        registry,
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    );
     let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: false };
     assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
     eventually(|| idle(&handle).then_some(())).await;

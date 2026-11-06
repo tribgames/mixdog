@@ -87,7 +87,7 @@ pub trait AccessToken: Send + Sync {
 pub struct CursorTarget {
     pub api_url: String,
     pub access_token: String,
-    pub client_version: String,
+    pub client_version: crate::client_versions::Live,
     pub selection: ModelSelection,
     pub conversation_id: String,
 }
@@ -152,7 +152,7 @@ impl WireCodec for CursorCodec {
             transport: TransportKind::Http2,
             method: "POST".to_owned(),
             url: format!("{}{RUN_PATH}", self.target.api_url.trim_end_matches('/')),
-            headers: rpc_headers(&self.target.access_token, &self.target.client_version, false),
+            headers: rpc_headers(&self.target.access_token, &self.target.client_version.get(), false),
             body: frame::encode(&self.run.message, 0),
         })
     }
@@ -307,7 +307,7 @@ impl ModelStream for CursorStream {
 pub struct CursorAdapter {
     id: ProviderId,
     api_url: String,
-    client_version: String,
+    client_version: crate::client_versions::Live,
     http: Arc<dyn HttpSend>,
     bidi: Arc<dyn BidiOpen>,
     tokens: Arc<dyn AccessToken>,
@@ -357,7 +357,7 @@ impl CursorAdapter {
     pub fn new(
         provider: &str,
         api_url: Option<String>,
-        client_version: Option<String>,
+        client_version: Option<crate::client_versions::Live>,
         http: Arc<dyn HttpSend>,
         bidi: Arc<dyn BidiOpen>,
         tokens: Arc<dyn AccessToken>,
@@ -365,7 +365,7 @@ impl CursorAdapter {
         Self {
             id: ProviderId::from(provider),
             api_url: api_url.unwrap_or_else(|| API_URL.to_owned()),
-            client_version: client_version.unwrap_or_else(|| CLIENT_VERSION_FLOOR.to_owned()),
+            client_version: client_version.unwrap_or_else(|| CLIENT_VERSION_FLOOR.into()),
             http,
             bidi,
             tokens,
@@ -397,7 +397,7 @@ impl CursorAdapter {
                 transport: TransportKind::Http2,
                 method: "POST".to_owned(),
                 url: format!("{}{AVAILABLE_MODELS_PATH}", self.api_url.trim_end_matches('/')),
-                headers: rpc_headers(access_token, &self.client_version, true),
+                headers: rpc_headers(access_token, &self.client_version.get(), true),
                 body: models::available_models_request(),
             })
             .await?;
@@ -490,6 +490,10 @@ impl ProviderAdapter for CursorAdapter {
 
     fn models(&self) -> Option<&dyn ModelListing> {
         Some(self)
+    }
+
+    fn native_pdf(&self) -> bool {
+        false
     }
 
     fn codec(&self) -> &dyn WireCodec {

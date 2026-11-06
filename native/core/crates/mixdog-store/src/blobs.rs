@@ -205,18 +205,27 @@ impl BlobStore {
             Err(e) => return Err(GcError::Io(err(IoOp::List, &dir)(e))),
         };
         let mut deleted = Vec::new();
+        let mut removed_leftover = false;
         for entry in entries {
             let entry = entry.map_err(|e| GcError::Io(err(IoOp::List, &dir)(e)))?;
             let name = entry.file_name().to_string_lossy().into_owned();
+            let path = entry.path();
+            if is_writer_leftover(&name) {
+                // A writer that died between create and rename: gone once it is as old as a
+                // collectable blob. Node ignores one it cannot stat or unlink.
+                let aged = entry.metadata().and_then(|m| m.modified()).is_ok_and(|modified| now.duration_since(modified).unwrap_or_default() >= min_age);
+                removed_leftover |= aged && std::fs::remove_file(&path).is_ok();
+                continue;
+            }
             let Ok(digest) = Digest::try_from(format!("{DIGEST_PREFIX}{name}")) else {
                 continue;
             };
-            let path = entry.path();
             let modified = entry
                 .metadata()
                 .and_then(|m| m.modified())
                 .map_err(|e| GcError::Io(err(IoOp::Read, &path)(e)))?;
-            if now.duration_since(modified).unwrap_or_default() <= min_age {
+            // Node collects a blob whose mtime is at or before `now - min_age`.
+            if now.duration_since(modified).unwrap_or_default() < min_age {
                 continue;
             }
             if referenced(&digest)? {
@@ -235,11 +244,32 @@ impl BlobStore {
             drop(pins);
             deleted.push(digest);
         }
-        if !deleted.is_empty() {
+        if !deleted.is_empty() || removed_leftover {
             crate::fsio::sync_dir(&dir).map_err(GcError::Io)?;
         }
         Ok(deleted)
     }
+}
+
+fn is_lower_hex(bytes: &[u8]) -> bool {
+    bytes.iter().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// A file a blob writer leaves behind when it dies before its rename: Node's
+/// `.?<64 hex>.<anything>.tmp` and `<64 hex>.mixdog-tmp-<hex>`, and this store's own
+/// `.<64 hex>.tmp-<16 hex>` ([`crate::fsio::is_tmp_name`]).
+fn is_writer_leftover(name: &str) -> bool {
+    let bare = name.strip_prefix('.').unwrap_or(name).as_bytes();
+    if bare.len() < 66 || !is_lower_hex(&bare[..64]) || bare[64] != b'.' {
+        return false;
+    }
+    let rest = &bare[65..];
+    let dotted_prefix = name.len() != bare.len();
+    let tagged = !dotted_prefix
+        && rest.strip_prefix(b"mixdog-tmp-").is_some_and(|tail| !tail.is_empty() && is_lower_hex(tail));
+    let own = dotted_prefix && crate::fsio::is_tmp_name(name);
+    let dotted = rest.len() > 4 && rest.ends_with(b".tmp");
+    tagged || own || dotted
 }
 
 #[derive(Debug, thiserror::Error)]

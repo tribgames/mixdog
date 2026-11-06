@@ -91,8 +91,9 @@ pub trait WireContext: Send + Sync {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct CodexIdentity {
     pub installation_id: String,
-    pub user_agent: String,
-    pub version: String,
+    /// Both are read per request: the version is the live one (codexClientVersionSync).
+    pub user_agent: crate::client_versions::Live,
+    pub version: crate::client_versions::Live,
     pub beta_features: String,
 }
 

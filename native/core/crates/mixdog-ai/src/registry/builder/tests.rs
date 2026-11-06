@@ -47,6 +47,7 @@ fn builder(dir: &tempfile::TempDir) -> DefaultProviderBuilder {
         pace: Arc::new(crate::oauth::pace::FakePace::default()),
         gzip_lane: tokens.cpu_bulk,
         client_version: "1.0.0".into(),
+        client_versions: None,
         grok_client_version: None,
         cursor_client_version: None,
         antigravity_client_version: "1.0.0".into(),

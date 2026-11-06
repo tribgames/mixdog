@@ -68,6 +68,12 @@ pub struct Outgoing {
     next_host_request: AtomicU64,
 }
 
+impl mixdog_core_api::DesktopPresence for Outgoing {
+    fn desktop_attached(&self) -> bool {
+        self.desktop_attached_on(&FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID))
+    }
+}
+
 struct Claim {
     host: HostId,
     conn: Arc<Connection>,
@@ -125,6 +131,10 @@ impl Outgoing {
 
     pub(crate) fn connection(&self, id: ConnectionId) -> Option<Arc<Connection>> {
         self.connections.shard(&id).get(&id).cloned()
+    }
+
+    pub(crate) fn desktop_attached_on(&self, app_feed: &FeedId) -> bool {
+        self.all_connections().iter().any(|conn| conn.is_desktop_on(app_feed))
     }
 
     fn all_connections(&self) -> Vec<Arc<Connection>> {

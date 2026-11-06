@@ -46,6 +46,9 @@ impl AgentEffects for Effects {
     async fn set_agent_route(&self, _: &str, _: &Value) -> Result<(), String> {
         Ok(())
     }
+    async fn delete_owned_routines(&self, _: &str) -> Result<crate::agents::OwnedRoutines, String> {
+        Ok(crate::agents::OwnedRoutines::default())
+    }
 }
 
 struct Callers;

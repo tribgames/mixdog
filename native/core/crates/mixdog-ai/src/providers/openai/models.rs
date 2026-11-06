@@ -165,6 +165,8 @@ pub fn codex_record(row: &Value) -> Option<ModelRecord> {
     record.picker.default_service_tier =
         row.get("default_service_tier").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
     record.supports_reasoning_effort_updates = row.get("supports_reasoning_effort_updates").and_then(Value::as_bool);
+    // `supportsReasoningSummaries: m?.supports_reasoning_summaries === true`: always stated.
+    record.supports_reasoning_summaries = Some(row.get("supports_reasoning_summaries").and_then(Value::as_bool) == Some(true));
     record.display_name = Some(display.to_owned());
     record.name = Some(display.to_owned());
     record.context_window = positive(row.get("context_window")).or_else(|| positive(row.get("max_context_window")));
@@ -269,7 +271,7 @@ impl ModelListing for OpenAiModels {
                 vec![("Authorization".to_owned(), format!("Bearer {}", credential.bearer))],
             ),
             Route::Codex => {
-                let version = self.codec.identity().map(|i| i.version.as_str()).unwrap_or_default();
+                let version = self.codec.identity().map(|i| i.version.get()).unwrap_or_default();
                 (
                     format!("{CODEX_MODELS_URL}?client_version={version}"),
                     vec![

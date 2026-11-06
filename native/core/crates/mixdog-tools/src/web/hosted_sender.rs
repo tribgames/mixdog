@@ -177,7 +177,7 @@ fn request_of(call: &HostedSearchCall, session_id: &str) -> ModelRequest {
 }
 
 /// The usage object of a result, in the provider-result shape Node returns.
-fn usage_object(usage: &Usage, input_inclusive: bool) -> Value {
+pub fn usage_object(usage: &Usage, input_inclusive: bool) -> Value {
     let prompt =
         if input_inclusive { usage.input_tokens } else { usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens };
     let mut out = Map::new();

@@ -284,6 +284,8 @@ pub struct RequestOptions {
     /// Node `opts.usageSessionId`: a request isolated under its own provider session id (a
     /// compaction's `:compact`) whose spend belongs to this session.
     pub usage_session_id: Option<String>,
+    /// Node `opts.sourceType`: the ledger source of a request that is not a kind the provider is told (a title call is `session-title` while the provider sees a plain request). `request_kind` is the fallback.
+    pub source_type: Option<String>,
 }
 
 /// The session's saved provider-native state (Node `session.providerState`).
@@ -837,6 +839,16 @@ pub trait ProviderAdapter: Send + Sync {
     /// 'session-deleted')`): its connections and per-session transport state go. Nothing to do
     /// for a provider that keeps none.
     fn release_session(&self, _session_id: &str) {}
+    /// `provider.nativePdf !== false` (`providerTakesNativePdf`): the provider takes a PDF as a
+    /// native document block. Each adapter class declares it; one that declares nothing takes it.
+    fn native_pdf(&self) -> bool {
+        true
+    }
+    /// `provider.nativeDocuments`: `Some(false)` means the provider takes no document block of any
+    /// kind, so every document variant is lowered to text. Unset by default.
+    fn native_documents(&self) -> Option<bool> {
+        None
+    }
 }
 
 /// How a logical send ended when it did not succeed.
@@ -999,6 +1011,17 @@ pub struct ModelRecord {
     /// the provider's catalog says (Codex `supports_reasoning_effort_updates`);
     /// `None` when it does not, and the version rule then decides.
     pub supports_reasoning_effort_updates: Option<bool>,
+    /// Whether the model takes reasoning summaries, where the provider's catalog says
+    /// (Codex `supports_reasoning_summaries === true`); `None` when the row states nothing.
+    pub supports_reasoning_summaries: Option<bool>,
+    /// `thinkingTypes.adaptive`: the row declares whether the model takes adaptive thinking.
+    pub thinking_adaptive: Option<bool>,
+    /// `thinkingTypes.enabled`: the row declares whether the model takes a manual thinking budget.
+    pub thinking_enabled: Option<bool>,
+    /// The row states its effort ladder (`Array.isArray(reasoningOptions)`), possibly empty:
+    /// an empty stated ladder means the model takes no effort, a row that states none
+    /// describes nothing.
+    pub efforts_stated: bool,
     /// Whether the model caches prompts: the listing's own word, else the
     /// catalog's (`enrich_listed`).
     pub supports_prompt_caching: Option<bool>,
@@ -1054,6 +1077,10 @@ impl ModelRecord {
             provider_name: None,
             manual: false,
             supports_reasoning_effort_updates: None,
+            supports_reasoning_summaries: None,
+            thinking_adaptive: None,
+            thinking_enabled: None,
+            efforts_stated: false,
             supports_prompt_caching: None,
             context_window: None,
             max_context_window: None,

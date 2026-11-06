@@ -44,7 +44,7 @@ impl BidiOpen for NoRun {
 
 fn adapter(answer: Vec<u8>) -> (Arc<Replay>, CursorAdapter) {
     let http = Arc::new(Replay::new(move |_request: &WireRequest| (200, answer.clone())));
-    let adapter = CursorAdapter::new("cursor-api", None, Some(CLIENT_VERSION_FLOOR.to_owned()), http.clone(), Arc::new(NoRun), Arc::new(Token));
+    let adapter = CursorAdapter::new("cursor-api", None, Some(CLIENT_VERSION_FLOOR.into()), http.clone(), Arc::new(NoRun), Arc::new(Token));
     (http, adapter)
 }
 

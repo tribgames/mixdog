@@ -11,6 +11,7 @@ mod lanes;
 mod hosted_routes;
 mod hosted_search;
 mod hosted_sender;
+pub use hosted_sender::usage_object;
 mod hosted_usage;
 mod http;
 mod pipeline;

@@ -24,7 +24,7 @@ pub struct MessageStats {
     pub last_routine: Value,
 }
 
-fn get<'a>(h: &'a Map<String, Value>, k: &str) -> Option<&'a Value> {
+pub(crate) fn get<'a>(h: &'a Map<String, Value>, k: &str) -> Option<&'a Value> {
     h.get(k)
 }
 
@@ -45,7 +45,7 @@ fn or_null(v: Option<&Value>) -> Value {
 }
 
 /// `String(value || '').trim()` for strings and numbers.
-fn clean(v: Option<&Value>) -> String {
+pub(crate) fn clean(v: Option<&Value>) -> String {
     if !truthy(v) {
         return String::new();
     }
@@ -74,18 +74,27 @@ pub(crate) fn is_stored_session_id(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
+/// `isRootLeadSession`: a Lead whose owner/parent link is none or itself.
+pub fn is_root_lead_session(h: &Map<String, Value>) -> bool {
+    let parent = [get(h, "ownerSessionId"), get(h, "parentSessionId")]
+        .into_iter()
+        .map(clean)
+        .find(|id| is_stored_session_id(id))
+        .unwrap_or_default();
+    clean(get(h, "agent")).to_lowercase() == "lead" && (parent.is_empty() || parent == clean(get(h, "id")))
+}
+
 /// `store-summary-visibility.mjs` `sessionVisibility`.
 pub fn session_visibility(h: &Map<String, Value>) -> &'static str {
+    if is_root_lead_session(h) {
+        return "ordinary";
+    }
     let parent = [get(h, "ownerSessionId"), get(h, "parentSessionId")]
         .into_iter()
         .map(clean)
         .find(|id| is_stored_session_id(id))
         .unwrap_or_default();
     let id = clean(get(h, "id"));
-    let root_lead = clean(get(h, "agent")).to_lowercase() == "lead" && (parent.is_empty() || parent == id);
-    if root_lead {
-        return "ordinary";
-    }
     let declared = {
         let v = get(h, "visibility").filter(|v| truthy(Some(v))).or_else(|| get(h, "sessionVisibility"));
         clean(v).to_lowercase()

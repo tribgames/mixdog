@@ -1,0 +1,1084 @@
+{
+  "T0": 1767258000000,
+  "interval": 3600000,
+  "scenarios": {
+    "blocked": {
+      "decides": 0,
+      "ids": [
+        "sess_daemon_left0",
+        "sess_daemon_left1",
+        "sess_daemon_left2",
+        "sess_daemon_left3",
+        "sess_daemon_left4",
+        "sess_daemon_left5",
+        "sess_daemon_left6",
+        "sess_daemon_left7",
+        "sess_daemon_left8",
+        "sess_daemon_left9",
+        "sess_daemon_left10",
+        "sess_daemon_left11",
+        "sess_daemon_left12",
+        "sess_daemon_left13",
+        "sess_daemon_left14",
+        "sess_daemon_left15",
+        "sess_daemon_left16",
+        "sess_daemon_left17",
+        "sess_daemon_left18",
+        "sess_daemon_left19"
+      ],
+      "steps": [
+        {
+          "at": 1767258000000,
+          "label": "arm",
+          "outcome": "armed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": [
+              "sess_daemon_left0",
+              "sess_daemon_left1",
+              "sess_daemon_left2",
+              "sess_daemon_left3",
+              "sess_daemon_left4",
+              "sess_daemon_left5",
+              "sess_daemon_left6",
+              "sess_daemon_left7",
+              "sess_daemon_left8",
+              "sess_daemon_left9",
+              "sess_daemon_left10",
+              "sess_daemon_left11",
+              "sess_daemon_left12",
+              "sess_daemon_left13",
+              "sess_daemon_left14",
+              "sess_daemon_left15",
+              "sess_daemon_left16",
+              "sess_daemon_left17",
+              "sess_daemon_left18",
+              "sess_daemon_left19"
+            ]
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "blocked",
+          "outcome": "blocked",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": [
+              "sess_daemon_left0",
+              "sess_daemon_left1",
+              "sess_daemon_left2",
+              "sess_daemon_left3",
+              "sess_daemon_left4",
+              "sess_daemon_left5",
+              "sess_daemon_left6",
+              "sess_daemon_left7",
+              "sess_daemon_left8",
+              "sess_daemon_left9",
+              "sess_daemon_left10",
+              "sess_daemon_left11",
+              "sess_daemon_left12",
+              "sess_daemon_left13",
+              "sess_daemon_left14",
+              "sess_daemon_left15",
+              "sess_daemon_left16",
+              "sess_daemon_left17",
+              "sess_daemon_left18",
+              "sess_daemon_left19"
+            ]
+          }
+        }
+      ],
+      "wakes": []
+    },
+    "failedCollection": {
+      "collects": [
+        1767258000000,
+        1767258000000
+      ],
+      "steps": [
+        {
+          "at": 1767258000000,
+          "label": "arm",
+          "outcome": "armed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "broken",
+          "outcome": "failed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "same minute",
+          "outcome": "waiting",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767265200000,
+          "label": "fixed",
+          "outcome": "nothing",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767265200000,
+            "lastBeatAt": 1767265200000,
+            "lastHash": "01cd0a99e10479a70065f012ae75a564e659e7ea435cf139cd4945fc91cb0178",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        }
+      ]
+    },
+    "failedGate": {
+      "collects": [
+        1767258000000,
+        1767258000000
+      ],
+      "steps": [
+        {
+          "at": 1767258000000,
+          "label": "arm",
+          "outcome": "armed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "routine only",
+          "outcome": "woke",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": {
+              "at": 1767261600000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767261600000,
+                "paused": false
+              }
+            },
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767265200000,
+          "label": "judged",
+          "outcome": "woke",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767265200000,
+            "lastBeatAt": 1767265200000,
+            "lastHash": "01cd0a99e10479a70065f012ae75a564e659e7ea435cf139cd4945fc91cb0178",
+            "lastReport": {
+              "at": 1767265200000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767261600000,
+                "paused": false
+              }
+            },
+            "unreleased": []
+          }
+        }
+      ],
+      "wakes": [
+        [
+          "schedule \"daily-news\" failed 3x in a row"
+        ],
+        [
+          "The report draft is ready"
+        ]
+      ]
+    },
+    "idleGate": {
+      "collects": [
+        1767258000000
+      ],
+      "steps": [
+        {
+          "at": 1767258000000,
+          "label": "arm",
+          "outcome": "armed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "29 minutes",
+          "outcome": "deferred",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "30 minutes",
+          "outcome": "nothing",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767261600000,
+            "lastHash": "01cd0a99e10479a70065f012ae75a564e659e7ea435cf139cd4945fc91cb0178",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        }
+      ]
+    },
+    "parseBreaker": {
+      "decides": 4,
+      "notices": [
+        "Heartbeat: the Maintainer model gave 3 unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile."
+      ],
+      "steps": [
+        {
+          "at": 1767258000000,
+          "label": "arm",
+          "outcome": "armed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "unusable 1",
+          "outcome": "retry",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767265200000,
+          "label": "unusable 2",
+          "outcome": "retry",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767265200000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767268800000,
+          "label": "unusable 3",
+          "outcome": "retry",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767268800000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767272400000,
+          "label": "unusable 4",
+          "outcome": "quiet",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767272400000,
+            "lastBeatAt": 1767272400000,
+            "lastHash": "01cd0a99e10479a70065f012ae75a564e659e7ea435cf139cd4945fc91cb0178",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767276000000,
+          "label": "new model",
+          "outcome": "retry",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767276000000,
+            "lastBeatAt": 1767272400000,
+            "lastHash": "01cd0a99e10479a70065f012ae75a564e659e7ea435cf139cd4945fc91cb0178",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        }
+      ]
+    },
+    "providerBreaker": {
+      "decides": 5,
+      "notices": [
+        "Heartbeat: the Maintainer model gave 5 failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile."
+      ],
+      "steps": [
+        {
+          "at": 1767258000000,
+          "label": "arm",
+          "outcome": "armed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "failed 1",
+          "outcome": "retry",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767265200000,
+          "label": "failed 2",
+          "outcome": "retry",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767265200000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767268800000,
+          "label": "failed 3",
+          "outcome": "retry",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767268800000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767272400000,
+          "label": "failed 4",
+          "outcome": "retry",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767272400000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767276000000,
+          "label": "failed 5",
+          "outcome": "retry",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767276000000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767279600000,
+          "label": "routine",
+          "outcome": "woke",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767279600000,
+            "lastBeatAt": 1767279600000,
+            "lastHash": "7dde66db1f6eed9bc9c6c76aa49794d8286936fed304164a816e9e94573b47bd",
+            "lastReport": {
+              "at": 1767279600000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767279600000,
+                "paused": false
+              }
+            },
+            "unreleased": []
+          }
+        }
+      ],
+      "wakes": [
+        [
+          "schedule \"daily-news\" failed 3x in a row"
+        ]
+      ]
+    },
+    "rejectedWake": {
+      "steps": [
+        {
+          "at": 1767258000000,
+          "label": "arm",
+          "outcome": "armed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "rejected",
+          "outcome": "failed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767265200000,
+          "label": "woke",
+          "outcome": "woke",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767265200000,
+            "lastBeatAt": 1767265200000,
+            "lastHash": "7dde66db1f6eed9bc9c6c76aa49794d8286936fed304164a816e9e94573b47bd",
+            "lastReport": {
+              "at": 1767265200000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767265200000,
+                "paused": false
+              }
+            },
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767268800000,
+          "label": "empty",
+          "outcome": "empty",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767268800000,
+            "lastBeatAt": 1767268800000,
+            "lastHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "lastReport": {
+              "at": 1767265200000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767265200000,
+                "paused": false
+              }
+            },
+            "unreleased": []
+          }
+        }
+      ],
+      "wakes": [
+        [
+          "schedule \"daily-news\" failed 3x in a row"
+        ],
+        [
+          "schedule \"daily-news\" failed 3x in a row"
+        ]
+      ]
+    },
+    "retryRelease": {
+      "closes": [
+        "sess_hidden_1"
+      ],
+      "steps": [
+        {
+          "at": 1767258000000,
+          "label": "arm",
+          "outcome": "armed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "wake",
+          "outcome": "woke",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767261600000,
+            "lastHash": "7dde66db1f6eed9bc9c6c76aa49794d8286936fed304164a816e9e94573b47bd",
+            "lastReport": {
+              "at": 1767261600000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767261600000,
+                "paused": false
+              }
+            },
+            "unreleased": [
+              "sess_hidden_1"
+            ]
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "retry",
+          "outcome": "waiting",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767261600000,
+            "lastHash": "7dde66db1f6eed9bc9c6c76aa49794d8286936fed304164a816e9e94573b47bd",
+            "lastReport": {
+              "at": 1767261600000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767261600000,
+                "paused": false
+              }
+            },
+            "unreleased": [
+              "sess_hidden_1"
+            ]
+          }
+        }
+      ]
+    },
+    "routineWake": {
+      "collects": [
+        1767258000000,
+        1767261600000
+      ],
+      "steps": [
+        {
+          "at": 1767258000000,
+          "label": "arm",
+          "outcome": "armed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "wake",
+          "outcome": "woke",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767261600000,
+            "lastHash": "7dde66db1f6eed9bc9c6c76aa49794d8286936fed304164a816e9e94573b47bd",
+            "lastReport": {
+              "at": 1767261600000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767261600000,
+                "paused": false
+              }
+            },
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767265200000,
+          "label": "empty",
+          "outcome": "empty",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767265200000,
+            "lastBeatAt": 1767265200000,
+            "lastHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "lastReport": {
+              "at": 1767261600000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767261600000,
+                "paused": false
+              }
+            },
+            "unreleased": []
+          }
+        },
+        {
+          "at": 1767265200001,
+          "label": "waiting",
+          "outcome": "waiting",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767265200000,
+            "lastBeatAt": 1767265200000,
+            "lastHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "lastReport": {
+              "at": 1767261600000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767261600000,
+                "paused": false
+              }
+            },
+            "unreleased": []
+          }
+        }
+      ],
+      "wakes": [
+        [
+          "schedule \"daily-news\" failed 3x in a row"
+        ]
+      ]
+    },
+    "underCap": {
+      "closes": [
+        "sess_daemon_left0",
+        "sess_daemon_left1",
+        "sess_daemon_left2",
+        "sess_daemon_left3",
+        "sess_daemon_left4",
+        "sess_daemon_left5",
+        "sess_daemon_left6",
+        "sess_daemon_left7",
+        "sess_daemon_left8",
+        "sess_daemon_left9",
+        "sess_daemon_left10",
+        "sess_daemon_left11",
+        "sess_daemon_left12",
+        "sess_daemon_left13",
+        "sess_daemon_left14",
+        "sess_daemon_left15",
+        "sess_daemon_left16",
+        "sess_daemon_left17",
+        "sess_daemon_left18",
+        "sess_daemon_left0",
+        "sess_daemon_left1",
+        "sess_daemon_left2",
+        "sess_daemon_left3",
+        "sess_daemon_left4",
+        "sess_daemon_left5",
+        "sess_daemon_left6",
+        "sess_daemon_left7",
+        "sess_daemon_left8",
+        "sess_daemon_left9",
+        "sess_daemon_left10",
+        "sess_daemon_left11",
+        "sess_daemon_left12",
+        "sess_daemon_left13",
+        "sess_daemon_left14",
+        "sess_daemon_left15",
+        "sess_daemon_left16",
+        "sess_daemon_left17",
+        "sess_daemon_left18"
+      ],
+      "ids": [
+        "sess_daemon_left0",
+        "sess_daemon_left1",
+        "sess_daemon_left2",
+        "sess_daemon_left3",
+        "sess_daemon_left4",
+        "sess_daemon_left5",
+        "sess_daemon_left6",
+        "sess_daemon_left7",
+        "sess_daemon_left8",
+        "sess_daemon_left9",
+        "sess_daemon_left10",
+        "sess_daemon_left11",
+        "sess_daemon_left12",
+        "sess_daemon_left13",
+        "sess_daemon_left14",
+        "sess_daemon_left15",
+        "sess_daemon_left16",
+        "sess_daemon_left17",
+        "sess_daemon_left18"
+      ],
+      "steps": [
+        {
+          "at": 1767258000000,
+          "label": "arm",
+          "outcome": "armed",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 0,
+            "lastBeatAt": 1767258000000,
+            "lastHash": "",
+            "lastReport": null,
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {},
+            "unreleased": [
+              "sess_daemon_left0",
+              "sess_daemon_left1",
+              "sess_daemon_left2",
+              "sess_daemon_left3",
+              "sess_daemon_left4",
+              "sess_daemon_left5",
+              "sess_daemon_left6",
+              "sess_daemon_left7",
+              "sess_daemon_left8",
+              "sess_daemon_left9",
+              "sess_daemon_left10",
+              "sess_daemon_left11",
+              "sess_daemon_left12",
+              "sess_daemon_left13",
+              "sess_daemon_left14",
+              "sess_daemon_left15",
+              "sess_daemon_left16",
+              "sess_daemon_left17",
+              "sess_daemon_left18"
+            ]
+          }
+        },
+        {
+          "at": 1767261600000,
+          "label": "under the cap",
+          "outcome": "woke",
+          "state": {
+            "approvals": 0,
+            "dismissed": [],
+            "lastAppInputAt": 0,
+            "lastAttemptAt": 1767261600000,
+            "lastBeatAt": 1767261600000,
+            "lastHash": "7dde66db1f6eed9bc9c6c76aa49794d8286936fed304164a816e9e94573b47bd",
+            "lastReport": {
+              "at": 1767261600000,
+              "text": "Reported."
+            },
+            "lastUserInputAt": 0,
+            "pending": [],
+            "reviews": {},
+            "routines": {
+              "schedule:daily-news": {
+                "at": 1767261600000,
+                "paused": false
+              }
+            },
+            "unreleased": [
+              "sess_daemon_left0",
+              "sess_daemon_left1",
+              "sess_daemon_left2",
+              "sess_daemon_left3",
+              "sess_daemon_left4",
+              "sess_daemon_left5",
+              "sess_daemon_left6",
+              "sess_daemon_left7",
+              "sess_daemon_left8",
+              "sess_daemon_left9",
+              "sess_daemon_left10",
+              "sess_daemon_left11",
+              "sess_daemon_left12",
+              "sess_daemon_left13",
+              "sess_daemon_left14",
+              "sess_daemon_left15",
+              "sess_daemon_left16",
+              "sess_daemon_left17",
+              "sess_daemon_left18"
+            ]
+          }
+        }
+      ],
+      "wakes": [
+        [
+          "schedule \"daily-news\" failed 3x in a row"
+        ]
+      ]
+    }
+  }
+}

@@ -237,7 +237,7 @@ impl ModelListing for GoogleAdapter {
                 }
             }
             Target::Antigravity { origin, project, client_version } => {
-                let body = self.fetch_listing(&models::antigravity_request(origin, project, client_version)).await?;
+                let body = self.fetch_listing(&models::antigravity_request(origin, project, &client_version.get())).await?;
                 let records = models::antigravity_records(&body, self.codec.traits())?;
                 self.set_roster(&records);
                 Ok(records)

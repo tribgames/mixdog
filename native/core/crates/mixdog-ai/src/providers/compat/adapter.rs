@@ -169,6 +169,12 @@ impl ProviderAdapter for CompatAdapter {
         Some(self)
     }
 
+    /// Every OpenAI-compatible class (`openai-compat.mjs`, the gateways, the OAuth presets) lowers
+    /// a PDF to text.
+    fn native_pdf(&self) -> bool {
+        false
+    }
+
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         // Only a gateway with a model-family table or its own inputs routes
         // models (Node's `PROFILES`); xAI's two wires are the codec's choice.

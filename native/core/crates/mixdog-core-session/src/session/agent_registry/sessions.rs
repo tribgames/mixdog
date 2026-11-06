@@ -16,7 +16,9 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::AgentRegistry;
+use crate::session::shell_jobs::OwnedShells;
 use mixdog_core_ports::ports::threads::ThreadState;
+use mixdog_tools::fs::ReadState;
 use crate::session::Clock;
 use crate::session::SessionDirectory;
 
@@ -31,6 +33,10 @@ pub struct AgentSessions {
     registry: Arc<AgentRegistry>,
     statusline: Arc<dyn AgentStatusline>,
     clock: Arc<dyn Clock>,
+    /// The shells a closing session owns.
+    shells: Arc<dyn OwnedShells>,
+    /// The one read state of the read, edit and apply_patch tools.
+    read_state: Arc<ReadState>,
 }
 
 impl AgentSessions {
@@ -40,8 +46,10 @@ impl AgentSessions {
         registry: Arc<AgentRegistry>,
         statusline: Arc<dyn AgentStatusline>,
         clock: Arc<dyn Clock>,
+        shells: Arc<dyn OwnedShells>,
+        read_state: Arc<ReadState>,
     ) -> Self {
-        Self { directory, threads, registry, statusline, clock }
+        Self { directory, threads, registry, statusline, clock, shells, read_state }
     }
 }
 
@@ -108,20 +116,27 @@ impl Sessions for AgentSessions {
         if self.threads.patch_header(&thread, set, Vec::new()).await.is_err() {
             return false;
         }
-        let Some(handle) = self.directory.handle(&thread) else { return true };
-        if let Some(run) = handle.cell.run.load_full() {
-            let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::close_session_reason(session_id, reason));
+        // `cancelOwnedShellProcesses`: before the runtime entry is cleared, so a close cannot
+        // orphan a tree; the close does not wait for the kills to be confirmed.
+        self.shells.cancel_owned(&thread);
+        if let Some(handle) = self.directory.handle(&thread) {
+            if let Some(run) = handle.cell.run.load_full() {
+                let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::close_session_reason(session_id, reason));
+            }
+            let queued: Vec<String> = handle.cell.queued.load().iter().cloned().collect();
+            for qid in queued {
+                let request = CoreRequest {
+                    method: Method("thread/queue/delete"),
+                    params: json!({ "threadId": thread, "queuedId": qid }),
+                    op: None,
+                    ctx: CallContext::internal("agent-close"),
+                };
+                let _ = handle.request(request).await;
+            }
         }
-        let queued: Vec<String> = handle.cell.queued.load().iter().cloned().collect();
-        for qid in queued {
-            let request = CoreRequest {
-                method: Method("thread/queue/delete"),
-                params: json!({ "threadId": thread, "queuedId": qid }),
-                op: None,
-                ctx: CallContext::internal("agent-close"),
-            };
-            let _ = handle.request(request).await;
-        }
+        // `releaseSessionReadCaches`: pure caches a resumed turn rebuilds from the transcript; the
+        // stored snapshots stay for the resume.
+        self.read_state.release_session(session_id);
         true
     }
 

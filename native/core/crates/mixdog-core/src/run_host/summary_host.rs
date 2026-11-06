@@ -70,6 +70,11 @@ impl SummaryServices {
         Self { deps: Arc::new(deps) }
     }
 
+    /// The title model over the same providers (`generateSessionTitle`).
+    pub fn title_completion(&self) -> crate::run_host::title_completion::TitleCompletion {
+        crate::run_host::title_completion::TitleCompletion::new(self.deps.clone())
+    }
+
     /// The host of one session. `header` names its own route (`provider`, `model`,
     /// `contextWindow`); a Maintainer-only user passes an empty header.
     pub fn host(&self, thread: &ThreadId, header: &Header) -> Arc<dyn SummaryHost> {
@@ -250,7 +255,7 @@ mod tests {
 }
 
 /// No approval surface: a summary offers no tool, so nothing asks.
-struct NoApprovals(Arc<dyn Clock>);
+pub(crate) struct NoApprovals(pub(crate) Arc<dyn Clock>);
 
 #[async_trait]
 impl ApprovalGate for NoApprovals {

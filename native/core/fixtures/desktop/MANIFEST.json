@@ -6,7 +6,7 @@
     "ports": 3,
     "search": 10
   },
-  "fileCount": 31,
+  "fileCount": 35,
   "files": [
     {
       "bytes": 43749,
@@ -64,6 +64,11 @@
       "sha256": "fd7aab315c746866a19c759b87c246d439becc176e710c908b29ae966d875889"
     },
     {
+      "bytes": 125775,
+      "path": "settings/agent-api-twin.json",
+      "sha256": "8502204b005379920205697a92215f28ffe8259ec0d5e936be9ef427ca665dcd"
+    },
+    {
       "bytes": 4388088,
       "path": "settings/agent-definition-actions-twin.json",
       "sha256": "37b244226054ba913f4569c1df173894d4878316354d2c86985b3ae992834030"
@@ -72,6 +77,11 @@
       "bytes": 1287921,
       "path": "settings/agent-definitions-twin.json",
       "sha256": "2cb05c6b3ca683eaf7fbdd869235eb7abe16aefd152a9ff252c736db437be8d6"
+    },
+    {
+      "bytes": 249087,
+      "path": "settings/agent-home-api-twin.json",
+      "sha256": "bb16492f8ae4d2e92dde89585f319e0fa52457867bebb7282c1b1acbda420c49"
     },
     {
       "bytes": 1878785,
@@ -109,6 +119,11 @@
       "sha256": "ef509e02fa3865894ae3172fa432721d6b20964f17d2e1d8068b85ffee92b56a"
     },
     {
+      "bytes": 19656358,
+      "path": "settings/lead-identity-twin.json",
+      "sha256": "ec8a2a8e89e417aed694872d7ded023154fa5fc869f5e1bdc0c89f507e2f7267"
+    },
+    {
       "bytes": 49430,
       "path": "settings/local-provider-status.json",
       "sha256": "6f8040fce2b47743a0c114aa17beb5757e2d0b557a2fa491bd68209b08a0caa7"
@@ -139,6 +154,11 @@
       "sha256": "53f7801b11f9de300941259871aca935fcd1801855476e15f56d32148e26af90"
     },
     {
+      "bytes": 463009,
+      "path": "settings/setup-requests-twin.json",
+      "sha256": "13b862f3a41e0f6b7330c65d3c2aa816e59db95e974fa137fbb04d89a5398542"
+    },
+    {
       "bytes": 2190099,
       "path": "settings/tool-modules-twin.json",
       "sha256": "06db5ffc1f6955e7893c19cc18ac5b2dda1f7e301e174126964d899070bf0d24"
@@ -166,11 +186,11 @@
   ],
   "product": {
     "appsSha256": "04b921c4ae348576f68a0a015207ce668e374e6d3cae8c8fdeff8ff229de0afa",
-    "commit": "bd2393f2a2269ff69713d0cc5cb286835b3bf9bc",
+    "commit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9241,
     "refComparison": {
-      "closestCommit": "bd2393f2a2269ff69713d0cc5cb286835b3bf9bc",
+      "closestCommit": "881fa4c8ac2e8229c6253fa08f9721a66b25d966",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -182,5 +202,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 20229498
+  "totalBytes": 40723727
 }

@@ -157,6 +157,10 @@ fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::domain::provid
     record.provider_name = listed.provider_name;
     record.manual = listed.manual;
     record.supports_reasoning_effort_updates = listed.supports_reasoning_effort_updates;
+    record.supports_reasoning_summaries = listed.supports_reasoning_summaries;
+    record.thinking_adaptive = listed.thinking_adaptive;
+    record.thinking_enabled = listed.thinking_enabled;
+    record.efforts_stated = listed.efforts_stated;
     record.reasoning_content_field = listed.reasoning_content_field;
     record.prompt_caching = tri(listed.supports_prompt_caching);
     record.context_window = listed.context_window;

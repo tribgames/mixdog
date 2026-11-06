@@ -64,6 +64,10 @@ pub struct TurnPathParts {
     pub accounting: AccountingDeps,
     /// The shared effort-judge model (needs the ONNX Runtime library, WP-INTEGRATE).
     pub effort_judge: Arc<EffortJudgeModel>,
+    /// The one side-question store: compaction.requests is built over the same instance.
+    pub side: super::side_requests::SideRequests,
+    /// The source of a thread's next request: the one SideQuestionService (in deps) is built over; bound here.
+    pub next: Arc<super::next_request_source::NextRequestSource>,
     // The tool side.
     pub files: Arc<dyn FileService>,
     pub processes: Arc<dyn ProcessManager>,
@@ -130,7 +134,7 @@ pub struct TurnPath {
 impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
-            tokens, clock, paths, provider_builder, accounting, effort_judge, files, processes, policy, connectors, resolver, run_stamps, agents, allow_all, hub, blobs, tool_pool, mcp,
+            tokens, clock, paths, provider_builder, accounting, effort_judge, side, next, files, processes, policy, connectors, resolver, run_stamps, agents, allow_all, hub, blobs, tool_pool, mcp,
             skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compaction, hops,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
@@ -153,6 +157,8 @@ impl TurnPath {
             blobs,
             reaction_targets: reaction_targets.clone(),
             effort_judge: Some(effort_judge),
+            side,
+            next,
             settings,
             seams: SeamParts {
                 tools: SessionToolBuilder::new(tool_pool, mcp, skills_listed),

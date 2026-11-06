@@ -8,6 +8,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::provider::Content;
+use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ToolCall;
@@ -828,6 +829,21 @@ impl RunObserver for NullObserver {
     }
 }
 
+/// The host's record of the request a logical send is sending (Node `captureSideQuestionRequest`): the
+/// request a `/btw` side question and a compaction summary fork.
+pub trait SendTap: Send + Sync {
+    /// The send starts with `request`: its first attempt's request, before any retry.
+    fn begin(&self, request: &ModelRequest) -> Box<dyn SendTicket>;
+}
+
+/// One captured send, ended exactly once.
+pub trait SendTicket: Send + Sync {
+    /// The send proceeded with `response`.
+    fn settle(self: Box<Self>, response: &crate::response::ModelResponse);
+    /// The send failed or was handed to another round: the request before it is put back.
+    fn discard(self: Box<Self>);
+}
+
 /// Everything a run borrows from its host.
 #[derive(Clone)]
 pub struct RunEnv {
@@ -847,6 +863,8 @@ pub struct RunEnv {
     pub reuse: Option<Arc<dyn ResultReuse>>,
     pub reactions: Option<Arc<dyn Reactions>>,
     pub tail: Option<Arc<dyn TailReminder>>,
+    /// Records the request a logical send is sending (captureSideQuestionRequest).
+    pub side: Option<Arc<dyn SendTap>>,
     pub step_judge: Option<Arc<dyn crate::step_effort::StepEffortJudge>>,
     /// Where oversized tool results are stored (without one they stay inline).
     pub artifacts: Option<Arc<dyn crate::offload::ArtifactStore>>,

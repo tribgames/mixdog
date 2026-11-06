@@ -33,13 +33,26 @@ pub struct ModelConfig {
     /// The folder was named explicitly (`MIXDOG_EFFORT_JUDGE_DIR`): it is used
     /// as it is, without an install stamp.
     pub explicit: bool,
-    /// The ONNX Runtime shared library the embeddings also use.
-    pub ort_library: PathBuf,
+    /// The ONNX Runtime shared library the embeddings also use, or that this platform has none.
+    pub ort_library: OrtRuntime,
+}
+
+/// The runtime the judge loads. `NoBinding` is the platform onnxruntime ships no binding for (macOS Intel,
+/// where Node's `onnxRuntimeSupported()` is false): the judge then answers unsupported and never loads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OrtRuntime {
+    Library(PathBuf),
+    NoBinding,
 }
 
 impl ModelConfig {
+    /// `onnxRuntimeSupported()` for this configuration: the platform has a binding and the library is known.
+    pub fn runtime_supported(&self) -> bool {
+        crate::tool_state::onnx_runtime_supported() && matches!(self.ort_library, OrtRuntime::Library(_))
+    }
+
     /// The default folder under a data directory.
-    pub fn in_data_dir(data_dir: &Path, ort_library: PathBuf) -> Self {
+    pub fn in_data_dir(data_dir: &Path, ort_library: OrtRuntime) -> Self {
         Self { dir: data_dir.join("models").join("effort-judge"), explicit: false, ort_library }
     }
 }
@@ -110,11 +123,12 @@ impl JudgeModel {
     /// first run allocates buffers and is several times slower than the rest.
     #[allow(clippy::disallowed_methods, reason = "a lane-job body: `ensure_loaded` runs it on the lane")]
     pub fn load(config: &ModelConfig) -> Result<Self, JudgeError> {
+        let OrtRuntime::Library(library) = &config.ort_library else { return Err(JudgeError::Unsupported) };
         if !available(config) {
             return Err(JudgeError::NotInstalled(config.dir.display().to_string()));
         }
         let tokenizer = BpeTokenizer::load(&config.dir.join("tokenizer.json"))?;
-        let environment = ort_environment(&config.ort_library).map_err(|e| JudgeError::Load(e.message()))?;
+        let environment = ort_environment(library).map_err(|e| JudgeError::Load(e.message()))?;
         let session = (|| -> ort::Result<Session> {
             let mut builder = Session::builder(environment)?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?

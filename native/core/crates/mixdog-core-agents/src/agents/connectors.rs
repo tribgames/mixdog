@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 
 use mixdog_mcp::connectors::group_id;
 use mixdog_mcp::permissions::Permission;
+use mixdog_mcp::permissions::RawPolicy;
 use mixdog_mcp::permissions::Policy;
 use mixdog_mcp::permissions::parse_connector_policy;
 use serde_json::Map;
@@ -64,17 +65,157 @@ pub(super) fn policy_input(value: &Value) -> Result<Option<Value>, String> {
     if policy.allow.is_some() {
         return Err("a legacy connector list must be migrated before it is saved".into());
     }
-    let off = unique_ids(value.get("off"));
-    let tools = tool_overrides(value.get("tools"));
+    Ok(stored_policy(unique_ids(value.get("off")), &tool_overrides(value.get("tools"))))
+}
+
+/// `storedConnectorPolicy({ off, tools })`: the form a deny-list policy is saved in; `None` when
+/// it switches nothing off (the same as no policy).
+pub(super) fn stored_policy(off: Vec<String>, tools: &Map<String, Value>) -> Option<Value> {
+    let off = utf16_sorted(off.iter().map(|id| clean(&Value::String(id.clone()))).filter(|id| !id.is_empty()).collect());
+    let tools = tool_overrides(Some(&Value::Object(tools.clone())));
     if off.is_empty() && tools.is_empty() {
-        return Ok(None);
+        return None;
     }
     let mut stored = Map::new();
     stored.insert("off".into(), Value::Array(off.into_iter().map(Value::String).collect()));
     if !tools.is_empty() {
         stored.insert("tools".into(), Value::Object(tools));
     }
-    Ok(Some(Value::Object(stored)))
+    Some(Value::Object(stored))
+}
+
+/// A policy as `parseConnectorPolicy` reads it, in JavaScript's key order: `allow` only for a
+/// legacy list.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Parsed {
+    pub allow: Option<Vec<String>>,
+    pub off: Vec<String>,
+    pub tools: Map<String, Value>,
+}
+
+impl Parsed {
+    /// `DENY_ALL_CONNECTORS`: no connector is on.
+    fn deny_all() -> Self {
+        Self { allow: Some(Vec::new()), off: Vec::new(), tools: Map::new() }
+    }
+
+    /// `parseConnectorPolicy(value)` for a field that already passed the shape check
+    /// (`read_raw_policy`); `None` for no policy.
+    pub(super) fn of_field(value: &Value) -> Option<Self> {
+        match value {
+            Value::Null => None,
+            Value::Array(items) => {
+                let mut allow = Vec::new();
+                let mut tools = Map::new();
+                for item in items {
+                    let id = item.get("id").map(clean).unwrap_or_default();
+                    if id.is_empty() {
+                        continue;
+                    }
+                    if item.get("enabled") == Some(&Value::Bool(true)) {
+                        allow.push(id.clone());
+                    }
+                    let wrapped = Value::Object(Map::from_iter([(id.clone(), item.get("tools").cloned().unwrap_or(Value::Null))]));
+                    if let Some(Value::Object(own)) = tool_overrides(Some(&wrapped)).shift_remove(&id)
+                        && let Value::Object(kept) = tools.entry(id).or_insert_with(|| Value::Object(Map::new()))
+                    {
+                        kept.extend(own);
+                    }
+                }
+                Some(Self { allow: Some(utf16_sorted(allow)), off: Vec::new(), tools })
+            }
+            other => Some(Self { allow: None, off: unique_ids(other.get("off")), tools: tool_overrides(other.get("tools")) }),
+        }
+    }
+
+    /// The object Node holds: `{ off, tools }`, with `allow` first for a legacy list.
+    pub fn json(&self) -> Value {
+        let mut out = Map::new();
+        if let Some(allow) = &self.allow {
+            out.insert("allow".into(), Value::Array(allow.iter().cloned().map(Value::String).collect()));
+        }
+        out.insert("off".into(), Value::Array(self.off.iter().cloned().map(Value::String).collect()));
+        out.insert("tools".into(), Value::Object(self.tools.clone()));
+        Value::Object(out)
+    }
+}
+
+/// What an agent's `agent.json` holds as its connector policy (`readConnectorsFile`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Stored {
+    /// No file or no field: every connector is on.
+    Absent,
+    Policy(Parsed),
+    /// A policy that cannot be trusted: no connector is on.
+    DenyAll,
+}
+
+impl Stored {
+    pub(super) fn of_raw(raw: RawPolicy) -> Self {
+        match raw {
+            RawPolicy::Absent => Self::Absent,
+            RawPolicy::Field(field) => Parsed::of_field(&field).map_or(Self::Absent, Self::Policy),
+            RawPolicy::DenyAll => Self::DenyAll,
+        }
+    }
+
+    /// The stored value as the widening check reads `before`: a parsed policy, `None` for none.
+    pub(super) fn before(&self) -> Option<Value> {
+        self.parsed().map(|policy| policy.json())
+    }
+
+    fn parsed(&self) -> Option<Parsed> {
+        match self {
+            Self::Absent => None,
+            Self::Policy(policy) => Some(policy.clone()),
+            Self::DenyAll => Some(Parsed::deny_all()),
+        }
+    }
+
+    /// The policy as the editor returns it: `Null` for none.
+    pub fn json(&self) -> Value {
+        self.parsed().map_or(Value::Null, |policy| policy.json())
+    }
+
+    /// `connectorEnabled(policy, serverId)`.
+    pub fn enabled(&self, server: &str) -> bool {
+        let Some(policy) = self.parsed() else { return true };
+        if policy.allow.as_ref().is_some_and(|allow| !allow.iter().any(|id| id == server)) {
+            return false;
+        }
+        !policy.off.iter().any(|id| id == server)
+    }
+
+    /// `editablePolicyOf(stored)`: a legacy list (or an unreadable policy) as the equivalent deny
+    /// list over the installed connectors, so an edit never widens it; none is an empty one.
+    pub(super) fn editable(&self, installed: &[String]) -> (Vec<String>, Map<String, Value>) {
+        let Some(policy) = self.parsed() else { return (Vec::new(), Map::new()) };
+        let Some(allow) = &policy.allow else { return (policy.off, policy.tools) };
+        let installed = utf16_sorted(installed.iter().map(|id| clean(&Value::String(id.clone()))).filter(|id| !id.is_empty()).collect());
+        let missing = installed.into_iter().filter(|id| !allow.contains(id));
+        let off = utf16_sorted(policy.off.iter().cloned().chain(missing).map(|id| clean(&Value::String(id))).filter(|id| !id.is_empty()).collect());
+        (off, tool_overrides(Some(&Value::Object(policy.tools))))
+    }
+
+    /// The explicit per-tool entries of the policy: connector → tool → permission.
+    pub(super) fn tools(&self) -> Map<String, Value> {
+        self.parsed().map(|policy| policy.tools).unwrap_or_default()
+    }
+}
+
+/// `connectorToolEntries(tools, group, tool)`: the entries for `tool` under connector `group` or
+/// any of its accounts, topmost first (the connector's own, then the lowest-numbered account).
+pub(super) fn tool_entries(tools: &Map<String, Value>, group: &str, tool: &str) -> Vec<Permission> {
+    let account_number = |id: &str| -> u64 {
+        id.rsplit_once('-').filter(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())).and_then(|(_, n)| n.parse().ok()).unwrap_or(0)
+    };
+    let mut found: Vec<(u64, Permission)> = mixdog_js::js_object_keys(tools)
+        .into_iter()
+        .filter(|id| group_id(id) == group)
+        .filter_map(|id| Some((account_number(id), tools[id].get(tool)?.as_str().and_then(Permission::parse)?)))
+        .collect();
+    found.sort_by_key(|(n, _)| *n);
+    found.into_iter().map(|(_, permission)| permission).collect()
 }
 
 fn rank(permission: Permission) -> u8 {

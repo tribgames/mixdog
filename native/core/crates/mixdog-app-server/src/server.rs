@@ -96,6 +96,17 @@ const INITIALIZE: &str = "initialize";
 /// of the method table is a domain service.
 const THREAD_NAMESPACES: [&str; 2] = ["thread", "turn"];
 
+/// Thread reads the directory answers from the stored session, loaded or not: they never open
+/// (load) the thread they name.
+const STORED_READS: [&str; 6] = [
+    "thread/items/list",
+    "thread/items/read",
+    "thread/turns/list",
+    "thread/attachment/list",
+    "thread/modelMessages/list",
+    "thread/finalAnswer/read",
+];
+
 /// What a transport does after handing a message over.
 pub enum Inbound {
     Continue,
@@ -532,6 +543,25 @@ impl Shared {
                     }),
                 })))
             }
+            ClientRequest::FeedSubscribe { params: sub, .. } => {
+                Dispatch::Ready(match self.core.scoped_feed(&sub.feed_id) {
+                    // The feed's scope may end between this lookup and the attach; the attach
+                    // then answers `connectionClosed`, as for any subscription racing a close.
+                    Some(feed) => Ok(Reply::Subscribe(Subscribe {
+                        result: empty_result(),
+                        feed,
+                        window: Window::Fixed,
+                        resume_from: sub.resume_from.map(|position| ResumeFrom {
+                            position: FeedPosition { epoch: position.epoch, seq: position.seq },
+                            window: Window::Fixed,
+                        }),
+                    })),
+                    None => Err(CoreError::InvalidParams {
+                        path: "feedId".into(),
+                        expected: "the id of a live scoped feed".into(),
+                    }),
+                })
+            }
             ClientRequest::FeedUnsubscribe { params, .. } => {
                 Dispatch::Ready(self.unsubscribe(conn, &params.feed_id))
             }
@@ -629,11 +659,11 @@ impl Shared {
                 class,
                 Box::pin(async move {
                     match thread {
-                        Some(id) => {
+                        Some(id) if !STORED_READS.contains(&request.method.0) => {
                             let handle = core.threads().open(&id, &request.ctx).await?;
                             handle.request(request).await
                         }
-                        None => core.threads().request(request).await,
+                        _ => core.threads().request(request).await,
                     }
                 }),
             );

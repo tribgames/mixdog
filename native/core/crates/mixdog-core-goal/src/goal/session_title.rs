@@ -7,7 +7,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 pub const SESSION_TITLE_TIMEOUT_MS: u64 = 10_000;
 
-fn meaningful(text: &str) -> bool {
+pub fn meaningful(text: &str) -> bool {
     text.chars().any(|c| c.is_alphanumeric())
 }
 

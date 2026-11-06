@@ -58,6 +58,7 @@ pub(super) use self::transcript_boundary::live_divider_model_switch;
 pub(super) use self::transcript_boundary::live_model_switch;
 pub(super) use self::transcript_divider::divider_item;
 pub(super) use self::transcript_live::compact_marker_item;
+pub(super) use self::transcript_live::idle_notice_item;
 pub(super) use self::transcript_live::notice_item;
 pub(super) use self::transcript_response::has_body;
 

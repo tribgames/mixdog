@@ -8,15 +8,26 @@
 //! of its status pulse is a speed device and is not ported.
 
 mod avatar;
+mod connector_api;
 mod connectors;
 mod contact_ids;
 mod edit;
 mod files;
+mod permissions;
+mod service;
+#[cfg(test)]
+mod api_tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
 
+pub use connector_api::AgentConnectors;
+pub use connector_api::ConnectorCatalog;
+pub use connector_api::McpConnectors;
 pub use contact_ids::ContactIds;
+pub use permissions::AgentPermissions;
+pub use service::AgentService;
+pub use service::METHODS as AGENT_METHODS;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -34,6 +45,9 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 pub use self::connectors::ApprovedToolChange;
+pub use self::connectors::Parsed;
+pub use self::connectors::Stored;
+use mixdog_mcp::permissions::read_raw_policy;
 pub use self::files::AgentDefinition;
 pub use self::files::ArchivedIdentity;
 pub use self::files::DELETED_MARKER;
@@ -79,6 +93,17 @@ pub trait AgentEffects: Send + Sync {
     /// `setAgentRoute(id, route)`: the route a save carries goes through the route setter
     /// (validation, publishing); the message of a failure.
     async fn set_agent_route(&self, agent_id: &str, route: &Value) -> Result<(), String>;
+    /// `deleteOwnedRoutines(agentId)`: a bot deleted for good takes its schedules and webhooks
+    /// (the channels reload drops their jobs and endpoints); the names removed, or the message
+    /// of a failure.
+    async fn delete_owned_routines(&self, agent_id: &str) -> Result<OwnedRoutines, String>;
+}
+
+/// The schedules and webhooks a purge took with the agent that owned them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OwnedRoutines {
+    pub schedules: Vec<String>,
+    pub webhooks: Vec<String>,
 }
 
 /// `saveAgentDefinition`'s `options`.
@@ -257,13 +282,25 @@ impl AgentDefinitions {
         let planned = payload.clone();
         let target = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned, None)).await?.map_err(AgentsError::Refused)?;
         let turn = lifecycle(&self.folders.data, &target.id).await;
+        self.save_on_turn(&writes, payload, options, &target.id, turn).await
+    }
+
+    /// `saveLocked`: the save of agent `id` on its own turn of the lifecycle queue.
+    async fn save_on_turn(
+        &self,
+        writes: &Writes,
+        payload: &Map<String, Value>,
+        options: SaveOptions,
+        id: &str,
+        turn: Option<mixdog_rt::ChainGuard>,
+    ) -> Result<Value, AgentsError> {
         // The id is fixed before queuing (`resolveSaveTarget`); on its turn what a change ahead
         // left is what is saved over.
-        let (planned, now, fixed) = (payload.clone(), writes.now.clone(), target.id.clone());
+        let (planned, now, fixed) = (payload.clone(), writes.now.clone(), id.to_owned());
         let plan = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned, Some(&fixed))).await?.map_err(AgentsError::Refused)?;
         let (given, id) = (payload.clone(), plan.id.clone());
         let (done, _turn) = self
-            .write_job(&writes, turn, move |folders, lane| edit::save_files(folders, lane, &plan, &given, options.no_widen.then_some(options.approved.as_ref()), &*now))
+            .write_job(writes, turn, move |folders, lane| edit::save_files(folders, lane, &plan, &given, options.no_widen.then_some(options.approved.as_ref()), &*now))
             .await?;
         let done = done.map_err(AgentsError::Refused)?;
         if done.reclaimed {
@@ -311,6 +348,153 @@ impl AgentDefinitions {
             )));
         }
         self.get(&id).await
+    }
+
+    /// `purgeAgentDefinition(agentId)`: deleting an archived agent again. Everything it left goes
+    /// for good, its schedules and webhooks first: a failure there ends the purge with the agent
+    /// still archived and nothing lost, to be retried.
+    pub async fn purge(&self, agent_id: &str) -> Result<Value, AgentsError> {
+        let writes = self.writes()?;
+        let turn = lifecycle(&self.folders.data, &agent_editor_id(agent_id)).await;
+        let wanted = agent_id.to_owned();
+        let plan = self.job(move |folders, lane| edit::plan_purge(folders, lane, &wanted)).await?.map_err(AgentsError::Refused)?;
+        let id = plan.id.clone();
+        let begun = plan.clone();
+        // The marker goes down before the first await: a restore from here on is refused, and a
+        // crash before the folder is removed leaves a purge to finish.
+        let (begin, turn) = self.write_job(&writes, turn, move |_, lane| edit::purge_begin(lane, &begun)).await?;
+        if !begin.map_err(AgentsError::Refused)? {
+            return Ok(json!({ "id": id, "purged": false }));
+        }
+        let routines = writes.effects.delete_owned_routines(&id).await.map_err(AgentsError::Refused)?;
+        let removing = plan.clone();
+        let (removed, turn) = self.write_job(&writes, turn, move |_, _| edit::purge_remove(&removing)).await?;
+        removed.map_err(AgentsError::Refused)?;
+        // `dropAgentRoute`: no dangling route or switch-off may silently disable a later agent of
+        // the same id.
+        self.routes.set_disabled(&id, false).await?;
+        self.routes.clear_route(&id).await?;
+        let wanted = id.clone();
+        let mut turn = turn;
+        if self.job(move |folders, lane| folders.load(lane, &wanted).is_some()).await? {
+            // A starter keeps only its tombstone, so its packaged copy stays gone.
+            let tombstone = plan.clone();
+            let (written, held) = self.write_job(&writes, turn, move |_, lane| edit::purge_tombstone(lane, &tombstone)).await?;
+            written.map_err(AgentsError::Refused)?;
+            turn = held;
+        }
+        // A save that passed its owner check before the bot was archived can land after the first
+        // sweep: swept again now that the bot is gone.
+        let late = writes.effects.delete_owned_routines(&id).await;
+        drop(turn);
+        let swept = late.as_ref().ok();
+        let joined = |first: &[String], second: Option<&Vec<String>>| -> Vec<String> {
+            first.iter().chain(second.into_iter().flatten()).cloned().collect()
+        };
+        let schedules = joined(&routines.schedules, swept.map(|late| &late.schedules));
+        let webhooks = joined(&routines.webhooks, swept.map(|late| &late.webhooks));
+        let mut out = Map::new();
+        out.insert("id".into(), json!(id));
+        out.insert("purged".into(), json!(true));
+        if schedules.len() + webhooks.len() > 0 {
+            out.insert("routines".into(), json!({ "schedules": schedules, "webhooks": webhooks }));
+        }
+        if let Err(message) = late {
+            out.insert("routinesError".into(), json!(message));
+        }
+        Ok(Value::Object(out))
+    }
+
+    /// `getAgentAvatarImage(agentId)`: a custom avatar's images as data URLs by state, `Null`
+    /// without one.
+    pub async fn avatar_image(&self, agent_id: &str) -> Result<Value, AgentsError> {
+        let id = agent_id.to_owned();
+        self.job(move |folders, lane| edit::avatar_images(folders, lane, &id)).await
+    }
+
+    /// `getAgentConnectorPolicy(agentId)`: the policy as the runtime reads it; a broken file or
+    /// field is [`Stored::DenyAll`], never "every connector".
+    pub async fn connector_policy(&self, agent_id: &str) -> Result<Stored, AgentsError> {
+        let writes = self.writes()?;
+        let (wanted, label) = (agent_id.to_owned(), agent_id.to_owned());
+        let file = self
+            .job(move |folders, lane| -> Result<PathBuf, String> {
+                let id = edit::view_id(folders, &wanted)?;
+                if id == LEAD_ID {
+                    return Ok(folders.identity_dir(lane).join("agent.json"));
+                }
+                if folders.load(lane, &id).is_none() {
+                    return Err(format!("agent \"{label}\" not found"));
+                }
+                // The manifest in effect: the user's own copy if any, else the shipped one.
+                let dir = if folders.has_user_file(lane, &id) { folders.user_dir(lane, &id) } else { folders.shipped_dir(&id) };
+                Ok(dir.join("agent.json"))
+            })
+            .await?
+            .map_err(AgentsError::Refused)?;
+        let (raw, _) = self.write_job(&writes, None, move |_, lane| read_raw_policy(lane, &file)).await?;
+        Ok(Stored::of_raw(raw))
+    }
+
+    /// `updateAgentConnectorPolicy(agentId, derive)`: a read-modify-write of the policy as one turn
+    /// of the id's lifecycle queue, like every other writer of its definition. `derive` sees the
+    /// policy as stored when that turn comes and may refuse; what it returns is stored (`Null`
+    /// removes the policy). Every other key — avatar, persona, frontmatter — is kept; for Mixy only
+    /// her `agent.json` is touched. Answers the policy after the write.
+    pub async fn update_connector_policy(
+        &self,
+        agent_id: &str,
+        derive: impl FnOnce(&Stored) -> Result<Value, String> + Send,
+    ) -> Result<Stored, AgentsError> {
+        self.update_connector_policy_with(agent_id, async { Ok(()) }, move |stored, ()| derive(stored)).await
+    }
+
+    /// [`Self::update_connector_policy`] with `snapshot`, a read of the world (the installed
+    /// connectors) taken once the edit's turn has come, so that `derive` judges a state no later
+    /// than the stored policy it edits.
+    pub async fn update_connector_policy_with<S>(
+        &self,
+        agent_id: &str,
+        snapshot: impl Future<Output = Result<S, String>> + Send,
+        derive: impl FnOnce(&Stored, S) -> Result<Value, String> + Send,
+    ) -> Result<Stored, AgentsError> {
+        let writes = self.writes()?;
+        let id = agent_editor_id(agent_id);
+        if id.is_empty() {
+            return Err(AgentsError::Refused(format!("unknown agent \"{agent_id}\"")));
+        }
+        let turn = lifecycle(&self.folders.data, &id).await;
+        let seen = snapshot.await.map_err(AgentsError::Refused)?;
+        let current = self.connector_policy(&id).await?;
+        let next = connectors::policy_input(&derive(&current, seen).map_err(AgentsError::Refused)?).map_err(AgentsError::Refused)?;
+        let wanted = id.clone();
+        let file = self
+            .job(move |folders, lane| {
+                let dir = if wanted == LEAD_ID { folders.identity_dir(lane) } else { folders.user_dir(lane, &wanted) };
+                dir.join("agent.json")
+            })
+            .await?;
+        edit::assert_writable(&file).map_err(AgentsError::Refused)?;
+        if id == LEAD_ID {
+            let dir = file.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+            let (done, _turn) = self.write_job(&writes, turn, move |_, lane| edit::set_lead_connectors(lane, &dir, next)).await?;
+            done.map_err(AgentsError::Refused)?;
+        } else {
+            let Some(definition) = self.load(&id).await? else {
+                return Err(AgentsError::Refused(format!("agent \"{id}\" not found")));
+            };
+            if mixdog_js::js_trim(&definition.body).is_empty() {
+                return Err(AgentsError::Refused("AGENT.md body must not be empty".into()));
+            }
+            let mut payload = Map::new();
+            payload.insert("id".into(), json!(id));
+            payload.insert("name".into(), json!(definition.name));
+            payload.insert("description".into(), json!(definition.description));
+            payload.insert("body".into(), json!(definition.body));
+            payload.insert("connectors".into(), next.unwrap_or(Value::Null));
+            self.save_on_turn(&writes, &payload, SaveOptions::default(), &id, turn).await?;
+        }
+        self.connector_policy(&id).await
     }
 
     async fn job<R: Send + 'static>(&self, work: impl FnOnce(&Folders, &Lane) -> R + Send + 'static) -> Result<R, AgentsError> {

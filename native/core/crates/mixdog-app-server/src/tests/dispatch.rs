@@ -135,6 +135,16 @@ async fn shape_rules_hold_for_every_method() {
 }
 
 #[tokio::test]
+async fn subscribing_to_a_feed_nobody_holds_is_refused() {
+    let rig = Rig::new();
+    let client = rig.ready(1, json!({}));
+    client.request(1, "feed/subscribe", json!({ "feedId": "login:gone" }));
+    let refused = client.response(1).await;
+    assert_eq!(reason(&refused), "invalidParams");
+    assert_eq!(refused["error"]["data"]["path"], json!("feedId"));
+}
+
+#[tokio::test]
 async fn origin_rules_come_from_the_table() {
     let rig = Rig::new();
     let phone = rig.connect(1, Origin::Relay);

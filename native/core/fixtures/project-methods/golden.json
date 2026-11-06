@@ -1,0 +1,907 @@
+{
+  "note": "project/* branch, worktree and connector steps of the real 1.4.5 functions; paths, commit ids and times are masked as <repo>, <data>, <base>, <feat>, <feat2>, <solo>, <sha>, <short>, <time>",
+  "steps": [
+    {
+      "name": "menu: project folder",
+      "ok": {
+        "branches": [
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "dev",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": true,
+            "lastCommitAt": "<time>",
+            "name": "main",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "topic",
+            "remote": false,
+            "upstream": ""
+          }
+        ],
+        "occupancy": [
+          {
+            "branch": "dev",
+            "kind": "free"
+          },
+          {
+            "branch": "main",
+            "kind": "current",
+            "path": "<repo>"
+          },
+          {
+            "branch": "topic",
+            "kind": "free"
+          }
+        ],
+        "retainedWorktree": null,
+        "workspace": {
+          "baseCommit": null,
+          "branch": "main",
+          "cwd": "<repo>",
+          "mergeTarget": null,
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 0,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": null
+        }
+      }
+    },
+    {
+      "error": {
+        "code": "WORKTREE_PROJECT_UNKNOWN",
+        "details": {
+          "projectPath": "<base>/nowhere"
+        },
+        "message": "Project is not available."
+      },
+      "name": "menu: unregistered project"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "projectPath must be a non-empty string."
+      },
+      "name": "menu: blank project path"
+    },
+    {
+      "name": "inspect: unmerged topic",
+      "ok": {
+        "branch": "topic",
+        "commit": "<sha>",
+        "kind": "free",
+        "path": null,
+        "target": "main",
+        "targetCommit": "<sha>",
+        "worktreeId": null
+      }
+    },
+    {
+      "name": "inspect: merged dev",
+      "ok": {
+        "branch": "dev",
+        "commit": "<sha>",
+        "kind": "free",
+        "path": null,
+        "target": "main",
+        "targetCommit": "<sha>",
+        "worktreeId": null
+      }
+    },
+    {
+      "error": {
+        "code": "WORKTREE_MISSING",
+        "details": null,
+        "message": "The local branch no longer exists."
+      },
+      "name": "inspect: unknown branch"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "branch must be a non-empty string."
+      },
+      "name": "inspect: blank branch"
+    },
+    {
+      "error": {
+        "code": "GIT_FAILED",
+        "details": null,
+        "message": "git switch nope failed (exit 128): fatal: invalid reference: nope"
+      },
+      "name": "select: unknown branch"
+    },
+    {
+      "name": "select: already current",
+      "ok": {
+        "branch": "main",
+        "changed": false
+      }
+    },
+    {
+      "name": "select: create from start point",
+      "ok": {
+        "branch": "fresh",
+        "changed": true,
+        "commit": "<sha>"
+      }
+    },
+    {
+      "name": "select: topic",
+      "ok": {
+        "branch": "topic",
+        "changed": true,
+        "commit": "<sha>"
+      }
+    },
+    {
+      "name": "menu: on topic",
+      "ok": {
+        "branches": [
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "dev",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "fresh",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "main",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": true,
+            "lastCommitAt": "<time>",
+            "name": "topic",
+            "remote": false,
+            "upstream": ""
+          }
+        ],
+        "occupancy": [
+          {
+            "branch": "dev",
+            "kind": "free"
+          },
+          {
+            "branch": "fresh",
+            "kind": "free"
+          },
+          {
+            "branch": "main",
+            "kind": "free"
+          },
+          {
+            "branch": "topic",
+            "kind": "current",
+            "path": "<repo>"
+          }
+        ],
+        "retainedWorktree": null,
+        "workspace": {
+          "baseCommit": null,
+          "branch": "topic",
+          "cwd": "<repo>",
+          "mergeTarget": null,
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 0,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": null
+        }
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "create and remote are exclusive."
+      },
+      "name": "select: create and remote"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "startPoint needs create."
+      },
+      "name": "select: start point needs create"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "detach excludes branch, create, remote and startPoint."
+      },
+      "name": "select: detach excludes branch"
+    },
+    {
+      "name": "select: detach",
+      "ok": {
+        "branch": null,
+        "changed": true,
+        "commit": "<sha>",
+        "detached": true
+      }
+    },
+    {
+      "name": "menu: detached",
+      "ok": {
+        "branches": [
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "dev",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "fresh",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "main",
+            "remote": false,
+            "upstream": ""
+          },
+          {
+            "current": false,
+            "lastCommitAt": "<time>",
+            "name": "topic",
+            "remote": false,
+            "upstream": ""
+          }
+        ],
+        "occupancy": [
+          {
+            "branch": "dev",
+            "kind": "free"
+          },
+          {
+            "branch": "fresh",
+            "kind": "free"
+          },
+          {
+            "branch": "main",
+            "kind": "free"
+          },
+          {
+            "branch": "topic",
+            "kind": "free"
+          }
+        ],
+        "retainedWorktree": null,
+        "workspace": {
+          "baseCommit": "<sha>",
+          "branch": null,
+          "cwd": "<repo>",
+          "mergeTarget": null,
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 0,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": null
+        }
+      }
+    },
+    {
+      "name": "select: back to main",
+      "ok": {
+        "branch": "main",
+        "changed": true,
+        "commit": "<sha>"
+      }
+    },
+    {
+      "error": {
+        "code": "WORKTREE_TARGET_MISMATCH",
+        "details": {
+          "current": "main",
+          "target": "dev"
+        },
+        "message": "The project folder is now on \"main\"; confirm the merge again."
+      },
+      "name": "merge: wrong target"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "target must be a non-empty string."
+      },
+      "name": "merge: blank target"
+    },
+    {
+      "name": "merge: topic into main",
+      "ok": {
+        "commit": "<sha>",
+        "merged": true,
+        "target": "main"
+      }
+    },
+    {
+      "name": "inspect: topic now merged",
+      "ok": {
+        "branch": "topic",
+        "commit": "<sha>",
+        "kind": "free",
+        "path": null,
+        "target": "main",
+        "targetCommit": "<sha>",
+        "worktreeId": null
+      }
+    },
+    {
+      "error": {
+        "code": "WORKTREE_CONFIRM_REQUIRED",
+        "details": null,
+        "message": "A merge requires explicit confirmation."
+      },
+      "name": "manage: unconfirmed"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "Unknown branch action."
+      },
+      "name": "manage: unknown action"
+    },
+    {
+      "error": {
+        "code": "WORKTREE_REVISION_CONFLICT",
+        "details": null,
+        "message": "The branch changed; reopen the menu and confirm again."
+      },
+      "name": "manage: stale commit"
+    },
+    {
+      "name": "manage: delete branch",
+      "ok": {
+        "branch": "spare",
+        "deleted": true
+      }
+    },
+    {
+      "error": {
+        "code": "WORKTREE_MISSING",
+        "details": null,
+        "message": "The local branch no longer exists."
+      },
+      "name": "manage: delete branch again"
+    },
+    {
+      "name": "list: none",
+      "ok": []
+    },
+    {
+      "name": "preview: none",
+      "ok": {
+        "hasCandidates": false
+      }
+    },
+    {
+      "name": "prune: nothing",
+      "ok": {
+        "errors": [],
+        "kept": [],
+        "leasesReleased": [],
+        "limits": "favorites-unknown",
+        "missing": [],
+        "pruned": [],
+        "recovered": [],
+        "removed": [],
+        "selected": []
+      }
+    },
+    {
+      "name": "list: owners gone",
+      "ok": [
+        {
+          "baseCommit": "<sha>",
+          "branch": "feat",
+          "cleanupReason": null,
+          "createdAt": "<ms>",
+          "dirty": 0,
+          "disposable": false,
+          "id": "feat",
+          "ignored": 0,
+          "lastActiveAt": "<ms>",
+          "mergeTarget": "main",
+          "ownerArchived": false,
+          "ownerLive": true,
+          "ownerSessionId": "s1",
+          "ownerTitle": null,
+          "path": "<feat>",
+          "projectPath": "<repo>",
+          "projectSubdir": "",
+          "removable": false,
+          "repoCommonDir": "<repo>/.git",
+          "retained": false,
+          "sharedSessionIds": [],
+          "sizeBytes": 128,
+          "sizeComplete": true,
+          "state": "ready",
+          "unmerged": 0,
+          "warnings": []
+        },
+        {
+          "baseCommit": "<sha>",
+          "branch": "feat2",
+          "cleanupReason": null,
+          "createdAt": "<ms>",
+          "dirty": 0,
+          "disposable": false,
+          "id": "feat2",
+          "ignored": 0,
+          "lastActiveAt": "<ms>",
+          "mergeTarget": "main",
+          "ownerArchived": false,
+          "ownerLive": true,
+          "ownerSessionId": "s2",
+          "ownerTitle": null,
+          "path": "<feat2>",
+          "projectPath": "<repo>",
+          "projectSubdir": "",
+          "removable": false,
+          "repoCommonDir": "<repo>/.git",
+          "retained": false,
+          "sharedSessionIds": [],
+          "sizeBytes": 131,
+          "sizeComplete": true,
+          "state": "ready",
+          "unmerged": 1,
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "name": "preview: clean merged orphan",
+      "ok": {
+        "hasCandidates": false
+      }
+    },
+    {
+      "name": "preview: other repository",
+      "ok": {
+        "hasCandidates": false
+      }
+    },
+    {
+      "name": "archived: mark",
+      "ok": {
+        "changed": [
+          "feat"
+        ]
+      }
+    },
+    {
+      "name": "archived: restore",
+      "ok": {
+        "changed": [
+          "feat"
+        ]
+      }
+    },
+    {
+      "name": "archived: none",
+      "ok": {
+        "changed": []
+      }
+    },
+    {
+      "error": {
+        "code": "WORKTREE_MISSING",
+        "details": {
+          "entryId": "nope"
+        },
+        "message": "The managed worktree no longer exists."
+      },
+      "name": "delete: unknown entry"
+    },
+    {
+      "error": {
+        "code": "WORKTREE_BUSY_JOBS",
+        "details": {
+          "entryId": "feat2",
+          "reason": "workspace-lease"
+        },
+        "message": "A runtime still holds this folder. Stop its work and release the workspace first."
+      },
+      "name": "delete: unmerged without force"
+    },
+    {
+      "name": "prune: removes the clean merged one",
+      "ok": {
+        "errors": [],
+        "kept": [],
+        "leasesReleased": [],
+        "limits": "favorites-unknown",
+        "missing": [],
+        "pruned": [],
+        "recovered": [],
+        "removed": [],
+        "selected": []
+      }
+    },
+    {
+      "name": "list: after prune",
+      "ok": [
+        {
+          "baseCommit": "<sha>",
+          "branch": "feat",
+          "cleanupReason": null,
+          "createdAt": "<ms>",
+          "dirty": 0,
+          "disposable": false,
+          "id": "feat",
+          "ignored": 0,
+          "lastActiveAt": "<ms>",
+          "mergeTarget": "main",
+          "ownerArchived": false,
+          "ownerLive": true,
+          "ownerSessionId": "s1",
+          "ownerTitle": null,
+          "path": "<feat>",
+          "projectPath": "<repo>",
+          "projectSubdir": "",
+          "removable": false,
+          "repoCommonDir": "<repo>/.git",
+          "retained": false,
+          "sharedSessionIds": [],
+          "sizeBytes": 128,
+          "sizeComplete": true,
+          "state": "ready",
+          "unmerged": 0,
+          "warnings": []
+        },
+        {
+          "baseCommit": "<sha>",
+          "branch": "feat2",
+          "cleanupReason": null,
+          "createdAt": "<ms>",
+          "dirty": 0,
+          "disposable": false,
+          "id": "feat2",
+          "ignored": 0,
+          "lastActiveAt": "<ms>",
+          "mergeTarget": "main",
+          "ownerArchived": false,
+          "ownerLive": true,
+          "ownerSessionId": "s2",
+          "ownerTitle": null,
+          "path": "<feat2>",
+          "projectPath": "<repo>",
+          "projectSubdir": "",
+          "removable": false,
+          "repoCommonDir": "<repo>/.git",
+          "retained": false,
+          "sharedSessionIds": [],
+          "sizeBytes": 131,
+          "sizeComplete": true,
+          "state": "ready",
+          "unmerged": 1,
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "error": {
+        "code": "WORKTREE_BUSY_JOBS",
+        "details": {
+          "entryId": "feat2",
+          "reason": "workspace-lease"
+        },
+        "message": "A runtime still holds this folder. Stop its work and release the workspace first."
+      },
+      "name": "delete: unmerged with force"
+    },
+    {
+      "name": "list: empty again",
+      "ok": [
+        {
+          "baseCommit": "<sha>",
+          "branch": "feat",
+          "cleanupReason": null,
+          "createdAt": "<ms>",
+          "dirty": 0,
+          "disposable": false,
+          "id": "feat",
+          "ignored": 0,
+          "lastActiveAt": "<ms>",
+          "mergeTarget": "main",
+          "ownerArchived": false,
+          "ownerLive": true,
+          "ownerSessionId": "s1",
+          "ownerTitle": null,
+          "path": "<feat>",
+          "projectPath": "<repo>",
+          "projectSubdir": "",
+          "removable": false,
+          "repoCommonDir": "<repo>/.git",
+          "retained": false,
+          "sharedSessionIds": [],
+          "sizeBytes": 128,
+          "sizeComplete": true,
+          "state": "ready",
+          "unmerged": 0,
+          "warnings": []
+        },
+        {
+          "baseCommit": "<sha>",
+          "branch": "feat2",
+          "cleanupReason": null,
+          "createdAt": "<ms>",
+          "dirty": 0,
+          "disposable": false,
+          "id": "feat2",
+          "ignored": 0,
+          "lastActiveAt": "<ms>",
+          "mergeTarget": "main",
+          "ownerArchived": false,
+          "ownerLive": true,
+          "ownerSessionId": "s2",
+          "ownerTitle": null,
+          "path": "<feat2>",
+          "projectPath": "<repo>",
+          "projectSubdir": "",
+          "removable": false,
+          "repoCommonDir": "<repo>/.git",
+          "retained": false,
+          "sharedSessionIds": [],
+          "sizeBytes": 131,
+          "sizeComplete": true,
+          "state": "ready",
+          "unmerged": 1,
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "error": {
+        "code": "WORKTREE_REVISION_CONFLICT",
+        "details": {
+          "expectedRevision": 99,
+          "revision": 1
+        },
+        "message": "The session workspace changed; reload and try again."
+      },
+      "name": "remove: stale revision"
+    },
+    {
+      "name": "remove: session works there",
+      "ok": {
+        "removed": {
+          "branchDeleted": true,
+          "removed": true
+        },
+        "revision": 2,
+        "workspace": {
+          "baseCommit": null,
+          "branch": "main",
+          "cwd": "<repo>",
+          "mergeTarget": null,
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "revision": 2,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          },
+          "worktreeId": null
+        }
+      }
+    },
+    {
+      "name": "connectors: all on",
+      "ok": [
+        {
+          "enabled": true,
+          "id": "gmail"
+        },
+        {
+          "enabled": true,
+          "id": "github"
+        },
+        {
+          "enabled": true,
+          "id": "notion"
+        }
+      ]
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "project not registered: <base>/nowhere"
+      },
+      "name": "connectors: unregistered project"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "project path is required"
+      },
+      "name": "connectors: blank project"
+    },
+    {
+      "name": "connectors: switch notion off",
+      "ok": [
+        {
+          "enabled": true,
+          "id": "gmail"
+        },
+        {
+          "enabled": true,
+          "id": "github"
+        },
+        {
+          "enabled": false,
+          "id": "notion"
+        }
+      ]
+    },
+    {
+      "name": "connectors: switch gmail off, remote",
+      "ok": [
+        {
+          "enabled": false,
+          "id": "gmail"
+        },
+        {
+          "enabled": true,
+          "id": "github"
+        },
+        {
+          "enabled": false,
+          "id": "notion"
+        }
+      ]
+    },
+    {
+      "name": "connectors: policy file",
+      "ok": {
+        "projects": {
+          "<repo>": {
+            "off": [
+              "gmail",
+              "notion"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "This change would widen what the bot may do without asking; make it on the desktop."
+      },
+      "name": "connectors: remote cannot widen"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "enabled must be a boolean"
+      },
+      "name": "connectors: enabled must be boolean"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "connector id is required"
+      },
+      "name": "connectors: blank connector id"
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "project not registered: <base>/nowhere"
+      },
+      "name": "connectors: unregistered project set"
+    },
+    {
+      "name": "connectors: switch gmail on",
+      "ok": [
+        {
+          "enabled": true,
+          "id": "gmail"
+        },
+        {
+          "enabled": true,
+          "id": "github"
+        },
+        {
+          "enabled": false,
+          "id": "notion"
+        }
+      ]
+    },
+    {
+      "name": "connectors: switch notion on",
+      "ok": [
+        {
+          "enabled": true,
+          "id": "gmail"
+        },
+        {
+          "enabled": true,
+          "id": "github"
+        },
+        {
+          "enabled": true,
+          "id": "notion"
+        }
+      ]
+    },
+    {
+      "name": "connectors: policy file emptied",
+      "ok": {
+        "projects": {}
+      }
+    },
+    {
+      "name": "connectors: unreadable file reads deny-all",
+      "ok": [
+        {
+          "enabled": false,
+          "id": "gmail"
+        },
+        {
+          "enabled": false,
+          "id": "github"
+        },
+        {
+          "enabled": false,
+          "id": "notion"
+        }
+      ]
+    },
+    {
+      "error": {
+        "code": null,
+        "details": null,
+        "message": "project-connectors.json cannot be read; fix or remove it first"
+      },
+      "name": "connectors: unreadable file is never overwritten"
+    }
+  ]
+}
