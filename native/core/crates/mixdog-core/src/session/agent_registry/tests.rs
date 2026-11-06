@@ -318,8 +318,89 @@ async fn tags_resolve_inside_the_callers_scope_only() {
         registry.resolve_tag("rev", &everyone, scan),
         Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".into())
     );
+    // A trace check of an ambiguous tag raises the resolver's error to the caller.
+    assert_eq!(
+        TerminalTrace::has_terminal_trace(&registry, "rev", &everyone),
+        Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".into())
+    );
+    assert_eq!(TerminalTrace::has_terminal_trace(&registry, "rev", &lead("lead-a")), Ok(false), "live: reused");
     let rows: Vec<String> = registry.read_worker_rows(&lead("lead-b")).unwrap().into_iter().map(|r| r.session_id).collect();
     assert_eq!(rows, ["sess_b"]);
+}
+
+#[derive(Default)]
+struct Statusline(Mutex<Vec<String>>);
+impl AgentStatusline for Statusline {
+    fn clear(&self, session: &str) {
+        self.0.lock().unwrap().push(session.to_owned());
+    }
+}
+
+/// `ask-turn-settle.mjs:137-139` stamps every completed turn; a turn start lifts the owner's
+/// release (`worker-index.mjs:59`); an owner close (`bumpSessionGenerationAttempt` with
+/// `ownerClose`) stamps the session durably, then cancels its running turn, leaving it open.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
+    use std::sync::atomic::AtomicUsize;
+
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::ports::threads::SessionThreads;
+    use crate::session::SessionDirectory;
+    use crate::session::seams::RunOutcome;
+    use crate::session::tests::eventually;
+    use crate::session::tests::idle;
+    use crate::session::tests::start_thread;
+    use crate::session::tests::turn;
+
+    let srig = crate::session::testing::Rig::new();
+    let runs = Arc::new(AtomicUsize::new(0));
+    let counter = runs.clone();
+    srig.set_script(Arc::new(move |run| {
+        let first = counter.fetch_add(1, Ordering::SeqCst) == 0;
+        Box::pin(async move {
+            if !first {
+                run.cancel.cancelled().await;
+                return RunOutcome::Interrupted;
+            }
+            RunOutcome::Completed
+        })
+    }));
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    assert!(srig.turn_starts.bind(registry.clone()).is_ok());
+    let handle = start_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+
+    turn(&handle, "one", "op-1").await;
+    let stamped = eventually(|| {
+        let header = handle.cell.header.load_full();
+        header.contains_key("lastTurnCompletedAt").then(|| (*header).clone())
+    })
+    .await;
+    assert_eq!(stamped["closeProvenance"], json!(1));
+    assert!(stamped["lastTurnCompletedAt"].is_number());
+
+    registry.mark_released(std::slice::from_ref(&id));
+    assert!(rig.store.map(&id).is_some_and(|m| m.contains_key("releasedAt")));
+    turn(&handle, "two", "op-2").await;
+    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    assert!(rig.store.map(&id).is_none(), "the turn start lifted the release");
+
+    let statusline = Arc::new(Statusline::default());
+    let threads = Arc::new(SessionThreads::new(directory.clone()));
+    let sessions = AgentSessions::new(directory.clone(), threads, registry.clone(), statusline.clone(), rig.clock.clone());
+    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: true };
+    assert!(sessions.close_session(&id, "cli-agent-close", options).await);
+    eventually(|| idle(&handle).then_some(())).await;
+    let header = handle.cell.header.load_full();
+    assert_eq!(header["ownerClosedAt"], json!(NOW));
+    assert_eq!(header["detachedReason"], json!("cli-agent-close"));
+    assert_ne!(header.get("closed"), Some(&json!(true)), "the session stays open");
+    sessions.clear_statusline_route(&id);
+    assert_eq!(*statusline.0.lock().unwrap(), [id.clone()]);
+    assert_eq!(runs.load(Ordering::SeqCst), 2);
 }
 
 /// A settled row past its retention and its continuation window becomes a tombstone when the

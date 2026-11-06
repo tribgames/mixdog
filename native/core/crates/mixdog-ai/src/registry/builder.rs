@@ -130,6 +130,12 @@ pub struct BuilderEnv {
     pub gated_off: Arc<dyn Fn(&str) -> bool + Send + Sync>,
 }
 
+/// A built custom provider and its listing (see [`DefaultProviderBuilder::build_custom_parts`]).
+pub struct CustomParts {
+    pub adapter: Arc<dyn ProviderAdapter>,
+    pub listing: Arc<CustomListing>,
+}
+
 pub struct DefaultProviderBuilder {
     env: BuilderEnv,
     /// The metadata server's project, probed once per process (a negative
@@ -722,6 +728,12 @@ impl DefaultProviderBuilder {
     }
 
     fn build_custom(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+        self.build_custom_parts(name, cfg).map(|parts| parts.adapter)
+    }
+
+    /// A custom provider with its model listing at hand: the setup probes read the listing's
+    /// own discovery error (`customDiscoveryError`), which the adapter's `models()` hides.
+    pub fn build_custom_parts(&self, name: &str, cfg: &Value) -> Result<CustomParts, String> {
         let protocol: Protocol = serde_json::from_value(cfg.get("protocol").cloned().unwrap_or(Value::Null))
             .map_err(|_| "[custom-provider] protocol must be openai-chat, openai-responses or anthropic".to_owned())?;
         let base_url = text(cfg, "baseURL").ok_or("[custom-provider] baseURL is required")?.trim_end_matches('/').to_owned();
@@ -763,11 +775,12 @@ impl DefaultProviderBuilder {
             .retry_policy();
         let request = CustomRequestConfig { base_url: base_url.clone(), headers, request_body, model_body, model_headers };
         let mut engines: Vec<(Wire, Arc<dyn ProviderAdapter>)> = Vec::new();
+        let mut handle: Option<Arc<CustomListing>> = None;
         for wire in &served {
             // The provider lists its models once, through the engine of its protocol's wire.
             let listing = (*wire == protocol_wire).then(|| -> Arc<dyn ModelListing> {
                 let header = if *wire == Wire::Messages { key("x-api-key", false) } else { key("authorization", true) };
-                Arc::new(CustomListing::new(
+                let concrete = Arc::new(CustomListing::new(
                     name,
                     protocol.clone(),
                     &base_url,
@@ -777,7 +790,9 @@ impl DefaultProviderBuilder {
                     keyless,
                     cfg,
                     self.env.listing.clone(),
-                ))
+                ));
+                handle = Some(concrete.clone());
+                concrete
             });
             let engine: Arc<dyn ProviderAdapter> = match wire {
                 Wire::Messages => {
@@ -808,10 +823,12 @@ impl DefaultProviderBuilder {
             };
             engines.push((*wire, engine));
         }
+        let listing = handle.ok_or("[custom-provider] the protocol wire is not served")?;
         if engines.len() == 1 {
-            return Ok(engines.remove(0).1);
+            return Ok(CustomParts { adapter: engines.remove(0).1, listing });
         }
-        Ok(Arc::new(MultiWireAdapter::new(ProviderId::from(name), engines, protocol_wire, model_wires)))
+        let adapter = Arc::new(MultiWireAdapter::new(ProviderId::from(name), engines, protocol_wire, model_wires));
+        Ok(CustomParts { adapter, listing })
     }
 
     /// The Messages engine of a custom provider (the `anthropic` protocol, or

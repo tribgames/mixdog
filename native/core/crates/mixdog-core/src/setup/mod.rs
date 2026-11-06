@@ -11,6 +11,9 @@
 
 mod mcp;
 mod requests;
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
+mod tests;
 
 pub use mcp::McpSetup;
 pub use requests::SetupRequests;
@@ -29,6 +32,7 @@ use serde_json::Map;
 use serde_json::Value;
 
 use crate::config::Config;
+use crate::config::OutputStyles;
 use crate::config::Settings;
 use crate::tool_modules::AUTO_EFFORT_BASES;
 use crate::tool_modules::INSTRUCTION_FILES_MODES;
@@ -52,17 +56,43 @@ pub trait SetupCallers: Send + Sync {
     async fn scope(&self, thread: &ThreadId) -> CallerScope;
     /// Mixy's heartbeat session.
     async fn is_heartbeat(&self, thread: &ThreadId) -> bool;
+    /// The agent a human's session acts as (`caller.agent`; the agent-id half of
+    /// `resolveSessionMode`), empty when it acts as none. Added as a method rather than a
+    /// `CallerScope` field because `CallerScope` is built in other owners' code; WP-SESSION's
+    /// composition fills it.
+    async fn acting_agent(&self, _thread: &ThreadId) -> String {
+        String::new()
+    }
+    /// `mixyDisplayName()`: the representative agent's name in messages.
+    async fn mixy_name(&self) -> String {
+        "Mixy".into()
+    }
+    /// `settingsReachCurrentSession()`: an empty session takes a changed global setting at its
+    /// next turn start, a conversation keeps its own until a cold point.
+    async fn settings_reach_session(&self, _thread: &ThreadId) -> bool {
+        false
+    }
+}
+
+/// What `requestDesktop` came to.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DesktopAnswer {
+    /// The window ran it and answered the receipt's result.
+    Done(Value),
+    /// No window claimed the request (`SETUP_DESKTOP_UNCLAIMED`): nothing ran, the message says
+    /// why.
+    Unclaimed(String),
 }
 
 /// `requestDesktop`: the window that hosts a feature takes the request.
 #[async_trait]
 pub trait SetupDesktop: Send + Sync {
-    /// `Ok(None)`: no window claimed the request (`SETUP_DESKTOP_UNCLAIMED`).
-    async fn request(&self, thread: &ThreadId, args: &Value) -> Result<Option<Value>, PortError>;
+    async fn request(&self, thread: &ThreadId, args: &Value) -> Result<DesktopAnswer, PortError>;
 }
 
-/// `setVoice`: the runtime toggle the Built-in card also uses (enabling installs any missing
-/// whisper/ffmpeg component first). Answers the public voice status, or the failure.
+/// `rt.setVoiceEnabled`: the runtime toggle the Built-in card also uses (enabling installs any
+/// missing whisper/ffmpeg component first). Answers `{ status: { enabled, installed,
+/// components? }, error? }`; whether that is the state asked for is the dispatcher's to judge.
 #[async_trait]
 pub trait SetupVoice: Send + Sync {
     async fn set_enabled(&self, enabled: bool) -> Result<Value, PortError>;
@@ -103,31 +133,67 @@ const BACKGROUND: [&str; 8] = [
     "start_local_installation", "maintain_local_model", "cancel_local_installation", "reconnect_mcp",
     "run_automation", "reset_route_fallback", "continue_in_model", "schedule_quota_resume",
 ];
+/// `AGENT_DEFINITION_ACTIONS`.
+const AGENT_DEFINITION: [&str; 4] = ["create_definition", "save_definition", "delete_definition", "restore_definition"];
+/// `MIXY_AGENT_ID`: the representative agent's id.
+const MIXY_AGENT_ID: &str = "lead";
+/// `OWN_AGENT_ACTIONS`: actions on one agent's own settings.
+const OWN_AGENT: [&str; 4] = ["set_agent_route", "set_agent_permission", "set_agent_connector", "set_agent_connector_tool"];
 /// What an unattended run may still change.
 const UNATTENDED_OWN: [&str; 5] = [
     "save_automation", "set_automation_enabled", "delete_automation", "run_automation",
     "set_agent_route",
 ];
 
-const NATIVE: [&str; 10] = [
+const NATIVE: [&str; 11] = [
     "set_memory_enabled", "set_recap_enabled", "set_web_search_enabled", "set_instruction_files",
     "set_auto_effort_base", "set_builtin_enabled", "install_builtin", "set_worktree_settings",
-    "set_bot_order", "set_cache_warming_enabled",
+    "set_bot_order", "set_cache_warming_enabled", "set_output_style",
 ];
 
+/// `ACTION_APPLIES_TO`: when a saved change reaches what already runs.
 fn applies_to(action: &str) -> &'static str {
+    const NEXT_TURN: &str = "every conversation, this one included, from its next turn";
     match action {
+        "set_route" => "new sessions (an established conversation keeps its model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): Lead conversations and agents that inherit Main",
+        "set_agent_route" => "the bot's chats from their next turn (a running turn finishes on the old model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): its chats and sub-agents; an agent switched on or off reaches open conversations from their next turn as an agent list reminder",
+        "reset_route_fallback" => "each listed session from its next turn (a running turn finishes on its fallback model): it returns to its primary and its chain starts over",
+        "continue_in_model" => "that session now; its stopped turn is not resent",
+        "schedule_quota_resume" => "that session's stopped turn, resent at the provider's reset time",
+        "cancel_quota_resume" => "that session: its pending resume is dropped; the turn stays stopped",
+        "set_cache_warming_enabled" => "the next prompt-cache warm of every session; no restart required",
+        "set_agent_permission" => "that agent's next action of the kind, in every session",
+        "set_agent_connector" => "that agent's next connector tool call, in every session",
+        "set_agent_connector_tool" => "that agent's next call of the tool, in every session",
+        "set_project_connector" => "the next connector tool call of sessions in that Project",
+        "restore_definition" => "now: the bot, its chat and its routines (as they were) return",
+        "set_bot_order" => "the Bots page and the Sessions bot section on every device",
+        "set_orchestration_mode" => "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector",
         "set_recap_enabled" => "background Memory cycles; no restart required",
-        "set_instruction_files" | "set_memory_enabled" | "set_web_search_enabled"
-        | "set_builtin_enabled" | "install_builtin" => {
-            "every conversation, this one included, from its next turn"
-        }
-        "set_worktree_settings" => {
-            "new tasks and worktrees created afterwards; existing worktrees are unchanged"
-        }
+        "set_auto_update" => "subsequent automatic update checks",
+        "set_ai_session_titles" => "titles generated from now on; existing titles are unchanged",
+        "set_quota_auto_resume" => "subsequent usage-limit stops; turning it off cancels pending resumes",
+        "set_model_preferences" => "the /model picker and model management lists",
+        "set_heartbeat_enabled" => "Mixy's next heartbeat check; no restart required",
+        "set_heartbeat_interval" => "Mixy's heartbeat from the next tick: the next check is due the new interval after the last one; no restart required",
+        "set_reactions_enabled" => "bots' chats, this conversation included, from their next turn; while off a reaction is refused at once; reactions already left stay visible",
+        "set_profile" | "set_instruction_files" | "set_memory_enabled" | "set_web_search_enabled"
+        | "set_builtin_enabled" | "install_builtin" | "set_output_style" => NEXT_TURN,
+        "set_worktree_settings" => "new tasks and worktrees created afterwards; existing worktrees are unchanged",
+        "set_network_proxy" => "the next request of every provider path; pooled connections opened under the old route are closed, and a request already in flight finishes on its connection",
+        "set_system_shell" => "subsequent shell calls",
+        "save_automation" => "the automation worker; scheduled runs follow the saved timing",
+        "delete_automation" | "set_automation_enabled" => "future automation runs",
+        "run_automation" => "one run now; its result posts into the owning agent's thread",
+        "set_webhook_config" => "the webhook worker after configuration reload",
+        "add_hook_rule" | "set_hook_rule_enabled" | "delete_hook_rule" => "subsequent tool calls; no restart required",
+        "set_media_default" => "media generations that name no lane/model; lane \"\" returns the kind to Auto",
         _ => "new sessions unless appliedToCurrentSession is true",
     }
 }
+
+/// The voice receipt's own `appliesTo` (`setVoice`).
+const VOICE_APPLIES_TO: &str = "channel voice transcription and Desktop dictation now";
 
 fn invalid(field: &str, reason: impl Into<String>) -> PortError {
     PortError::Invalid { field: field.into(), reason: reason.into() }
@@ -168,9 +234,16 @@ pub struct SetupService {
     voice: Arc<dyn SetupVoice>,
     owners: HashMap<&'static str, Arc<dyn SetupActions>>,
     settings: Option<Settings>,
+    output_styles: Option<OutputStyles>,
 }
 
 impl SetupService {
+    /// Serves `set_output_style`.
+    pub fn with_output_styles(mut self, styles: OutputStyles) -> Self {
+        self.output_styles = Some(styles);
+        self
+    }
+
     /// Serves the config-backed roster actions (`set_bot_order`, `set_cache_warming_enabled`).
     pub fn with_settings(mut self, settings: Settings) -> Self {
         self.settings = Some(settings);
@@ -184,7 +257,7 @@ impl SetupService {
         desktop: Arc<dyn SetupDesktop>,
         voice: Arc<dyn SetupVoice>,
     ) -> Self {
-        Self { tool_modules, config, callers, desktop, voice, owners: HashMap::new(), settings: None }
+        Self { tool_modules, config, callers, desktop, voice, owners: HashMap::new(), settings: None, output_styles: None }
     }
 
     /// Registers the actions an owner serves; a name this service serves itself is refused.
@@ -198,6 +271,46 @@ impl SetupService {
 
     /// `assertHeartbeatSetupAction` and `assertInteractiveCaller`.
     async fn authorize(&self, thread: &ThreadId, action: &str, args: &Value) -> Result<(), PortError> {
+        if !READ_ONLY.contains(&action) {
+            let scope = self.callers.scope(thread).await;
+            // `assertAgentEditorAccess`: agent definitions change only from Mixy, the human's
+            // own session or one acting as her.
+            if AGENT_DEFINITION.contains(&action)
+                && args.get("definitionKind").and_then(Value::as_str) == Some("agent")
+                && !matches!(scope, CallerScope::RoomMember | CallerScope::Headless)
+                && !matches!(scope, CallerScope::Agent { unattended: true, .. })
+            {
+                let acting = self.callers.acting_agent(thread).await;
+                let acting = mixdog_js::js_trim(&acting);
+                if !(scope == CallerScope::Human && (acting.is_empty() || acting == MIXY_AGENT_ID)) {
+                    let name = self.callers.mixy_name().await;
+                    return Err(PortError::Denied(format!(
+                        "Only {name} (the representative agent) can create, edit or delete agents (setup {action}); ask the user to do it with {name} or in the Agents settings"
+                    )));
+                }
+            }
+            match scope {
+                CallerScope::Agent { unattended: true, .. } if !UNATTENDED_OWN.contains(&action) => {
+                    return Err(PortError::Denied(format!("An unattended run cannot change settings (setup {action})")));
+                }
+                CallerScope::RoomMember => {
+                    return Err(PortError::Denied(format!("A group-room member cannot change settings (setup {action})")));
+                }
+                CallerScope::Headless => {
+                    return Err(PortError::Denied(format!("A background run cannot change settings (setup {action})")));
+                }
+                // `assertOwnAgentSettings`: another agent's thread changes only its own.
+                CallerScope::Agent { agent_id, .. } if OWN_AGENT.contains(&action) => {
+                    let named = args.get("agent").map(mixdog_js::value_to_string).unwrap_or_default();
+                    if mixdog_js::js_trim(&named) != agent_id {
+                        return Err(PortError::Denied(format!(
+                            "This thread manages only its own agent's settings (setup {action})"
+                        )));
+                    }
+                }
+                _ => {}
+            }
+        }
         if self.callers.is_heartbeat(thread).await {
             let pauses = action == "set_automation_enabled" && args.get("enabled") == Some(&Value::Bool(false));
             if action != "run_automation" && !pauses {
@@ -206,21 +319,7 @@ impl SetupService {
                 )));
             }
         }
-        if READ_ONLY.contains(&action) {
-            return Ok(());
-        }
-        match self.callers.scope(thread).await {
-            CallerScope::Agent { unattended: true, .. } if !UNATTENDED_OWN.contains(&action) => Err(
-                PortError::Denied(format!("An unattended run cannot change settings (setup {action})")),
-            ),
-            CallerScope::Human | CallerScope::Agent { .. } => Ok(()),
-            CallerScope::RoomMember => Err(PortError::Denied(format!(
-                "A group-room member cannot change settings (setup {action})"
-            ))),
-            CallerScope::Headless => Err(PortError::Denied(format!(
-                "A background run cannot change settings (setup {action})"
-            ))),
-        }
+        Ok(())
     }
 
     async fn native(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
@@ -253,7 +352,7 @@ impl SetupService {
                     return self.hosted(call).await;
                 }
                 if name == "voice" {
-                    return self.voice.set_enabled(require_boolean(args, "enabled")?).await;
+                    return self.set_voice(require_boolean(args, "enabled")?).await;
                 }
                 modules
                     .set_builtin_tool_enabled(name, require_boolean(args, "enabled")?)
@@ -266,10 +365,10 @@ impl SetupService {
                     return self.hosted(call).await;
                 }
                 if name == "voice" {
-                    return self.voice.set_enabled(true).await;
+                    return self.set_voice(true).await;
                 }
                 if DESKTOP_PREPARED.contains(&name)
-                    && let Some(done) = self.desktop.request(call.thread, args).await?
+                    && let DesktopAnswer::Done(done) = self.desktop.request(call.thread, args).await?
                 {
                     return Ok(done);
                 }
@@ -299,6 +398,21 @@ impl SetupService {
                     .map_err(from_modules)?;
                 Ok(serde_json::json!({ "promptCacheWarming": view["enabled"] }))
             }
+            "set_output_style" => {
+                let styles = self.output_styles.as_ref().ok_or_else(|| PortError::Unavailable {
+                    capability: "config.outputStyle".into(),
+                    message: "the output styles are not wired".into(),
+                })?;
+                let style = args.get("style").map(mixdog_js::value_to_string).map(|s| mixdog_js::js_trim(&s).to_owned()).unwrap_or_default();
+                if style.is_empty() {
+                    return Err(invalid("style", "style is required"));
+                }
+                let status = styles.set(&style).await.map_err(from_modules)?;
+                Ok(serde_json::json!({
+                    "configured": status["configured"],
+                    "appliedToCurrentSession": self.callers.settings_reach_session(call.thread).await,
+                }))
+            }
             other => Err(PortError::Unavailable {
                 capability: format!("setup.{other}"),
                 message: format!("setup {other} is not served by the config actor"),
@@ -315,10 +429,37 @@ impl SetupService {
 
     /// Browser and computer run in the desktop window; nobody claiming is an error.
     async fn hosted(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
-        self.desktop.request(call.thread, call.args).await?.ok_or_else(|| PortError::Unavailable {
-            capability: "desktop".into(),
-            message: "No Desktop window took this setup request; open the app and try again.".into(),
-        })
+        match self.desktop.request(call.thread, call.args).await? {
+            DesktopAnswer::Done(done) => Ok(done),
+            DesktopAnswer::Unclaimed(message) => Err(PortError::Unavailable { capability: "desktop".into(), message }),
+        }
+    }
+
+    /// `setVoice`: the toggle must end in the state asked for.
+    async fn set_voice(&self, enabled: bool) -> Result<Value, PortError> {
+        let answer = self.voice.set_enabled(enabled).await?;
+        let status = answer.get("status").cloned().unwrap_or(Value::Null);
+        let is = |field: &str| status.get(field) == Some(&Value::Bool(true));
+        if is("enabled") != enabled || (enabled && !is("installed")) {
+            let reason = answer
+                .get("error")
+                .and_then(Value::as_str)
+                .filter(|error| !error.is_empty())
+                .map(|error| format!(": {error}"))
+                .unwrap_or_default();
+            let state = if enabled { "installed and enabled" } else { "disabled" };
+            return Err(PortError::Failed {
+                capability: "setup".into(),
+                message: format!("Voice did not reach the requested {state} state{reason}"),
+            });
+        }
+        let mut voice = Map::new();
+        voice.insert("enabled".into(), Value::Bool(is("enabled")));
+        voice.insert("installed".into(), Value::Bool(is("installed")));
+        if let Some(components) = status.get("components") {
+            voice.insert("components".into(), components.clone());
+        }
+        Ok(serde_json::json!({ "voice": voice, "appliesTo": VOICE_APPLIES_TO }))
     }
 
 }
@@ -350,6 +491,16 @@ impl ToolService for SetupService {
             .map(mixdog_js::js_trim)
             .filter(|action| !action.is_empty())
             .ok_or_else(|| invalid("action", "action must be one of the setup actions"))?;
+        // `validateSetupInput`, before the caller gate: GitHub is the signed-in CLI, not a
+        // catalog connector.
+        if action == "connect_connector"
+            && args.get("connector").map(mixdog_js::value_to_string).is_some_and(|name| mixdog_js::js_trim(&name).to_lowercase() == "github")
+        {
+            return Err(PortError::Failed {
+                capability: "setup".into(),
+                message: "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.".into(),
+            });
+        }
         self.authorize(call.thread, action, args).await?;
         let setup = SetupCall { action, args, thread: call.thread };
         let result = if NATIVE.contains(&action) {

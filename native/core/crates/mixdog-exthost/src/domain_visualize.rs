@@ -16,6 +16,9 @@ use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
+use mixdog_js::js_trim as trim_js;
+use mixdog_js::slice_utf16;
+use mixdog_js::utf16_len as len16;
 use mixdog_protocol::Origin;
 use serde_json::Map;
 use serde_json::Value;
@@ -33,16 +36,6 @@ const THUMBNAIL_MAX_BYTES: usize = 60 * 1024;
 /// A rejected command; the text is the one the desktop's `TypeError` carried.
 type Invalid = &'static str;
 type Checked<T> = Result<T, String>;
-
-/// JavaScript's `String.length` (UTF-16 units).
-fn len16(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// `String.prototype.trim`.
-fn trim_js(text: &str) -> &str {
-    text.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
-}
 
 /// `Number.isInteger` on a JSON value.
 fn integer(value: &Value) -> Option<i64> {
@@ -99,17 +92,9 @@ fn has_url_scheme(target: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
 }
 
-fn clip16(text: &str, limit: usize) -> String {
-    if len16(text) <= limit {
-        return text.to_owned();
-    }
-    let units: Vec<u16> = text.encode_utf16().take(limit).collect();
-    String::from_utf16_lossy(&units)
-}
-
 /// The renderer's command, validated: `{ sessionId, tabId, action, ... }` with only the fields the
 /// action carries.
-pub(crate) fn required_tab_command(value: &Value) -> Checked<Map<String, Value>> {
+pub fn required_tab_command(value: &Value) -> Checked<Map<String, Value>> {
     let empty = Map::new();
     let command = value.as_object().unwrap_or(&empty);
     let action = match command.get("action").and_then(Value::as_str) {
@@ -170,7 +155,7 @@ pub(crate) fn required_tab_command(value: &Value) -> Checked<Map<String, Value>>
             }
             out.insert("renderId".into(), json!(required_string(command.get("renderId"), "visualize render id", 128)?));
             if let Some(text) = error.and_then(Value::as_str).filter(|t| !t.is_empty()) {
-                out.insert("error".into(), json!(clip16(text, 4000)));
+                out.insert("error".into(), json!(slice_utf16(text, 4000)));
             }
         }
         "blocked" => {
@@ -405,6 +390,18 @@ mod tests {
         assert_eq!(say(base(json!({ "action": "reopen", "targets": ["a"], "label": 5 }))), "visualize reopen label is invalid.");
         assert_eq!(say(base(json!({ "action": "reopen", "content": { "kind": "pdf", "source": "x" } }))), "visualize reopen content is invalid.");
         assert_eq!(say(base(json!({ "action": "restore", "version": 1, "assets": [1] }))), "visualize restore assets must be a list of file paths.");
+    }
+
+    #[test]
+    fn trimming_follows_javascript_not_rust() {
+        let say = |c: Value| check(c).unwrap_err();
+        // U+0085 is Rust whitespace but not JavaScript's, so it is not trimmed away.
+        assert_eq!(say(json!({ "action": "close", "sessionId": "\u{85}s\u{85}" })), "session id is invalid.");
+        assert_eq!(
+            check(json!({ "action": "close", "sessionId": "\u{feff}s\u{a0}", "tabId": "\u{85}t" })).unwrap()["tabId"],
+            "\u{85}t"
+        );
+        assert_eq!(check(json!({ "action": "close", "sessionId": "\u{feff}s\u{a0}", "tabId": "t" })).unwrap()["sessionId"], "s");
     }
 
     fn request(origin: Origin, params: Value) -> CoreRequest {

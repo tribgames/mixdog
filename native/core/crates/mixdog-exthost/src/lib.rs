@@ -32,6 +32,7 @@ pub use browser::RenderBrowserConfig;
 pub use document::DocumentService;
 pub use domain_browser::BrowserService;
 pub use domain_visualize::VisualizeService;
+pub use domain_visualize::required_tab_command;
 pub use exits::ExtHostError;
 pub use pool::DEFAULT_PENDING_CAP;
 pub use pool::ExtHostConfig;

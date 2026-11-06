@@ -141,7 +141,7 @@ fn body_of_style(text: &str) -> String {
 }
 
 /// `normalizeOutputStyleId`.
-fn style_slug(value: &str) -> String {
+pub(crate) fn style_slug(value: &str) -> String {
     let lowered = js_trim(value).to_lowercase();
     let mut slug = String::new();
     let mut in_separator = false;

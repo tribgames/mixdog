@@ -328,7 +328,7 @@ impl SessionState {
                 }
                 QueueAction::Dequeue => self.queue.retain(|q| q.qid != queue.qid.as_str()),
             },
-            Record::Compacted(_) | Record::Op(_) | Record::Checkpoint(_) => {}
+            Record::Compacted(_) | Record::Op(_) | Record::Checkpoint(_) | Record::ModelSwitch(_) => {}
         }
     }
 

@@ -30,12 +30,13 @@ reqwest = { workspace = true, features = ["gzip", "brotli", "deflate"] }
 url = { workspace = true }
 regex = { workspace = true }
 regress = { workspace = true }
+unicode-normalization = { workspace = true }
 encoding_rs = { workspace = true }
 dom_query = { workspace = true }
 dom_smoothie = { workspace = true }
 futures = { workspace = true, features = ["std", "alloc"] }
 chrono = { workspace = true }
-tokio-tungstenite = { workspace = true }
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 
 # code_graph / git / github (WP-GRAPH-GIT). mixdog-graph is linked as a library by path; it is
 # not a workspace member (its own lockfile and release profile stay untouched).
@@ -58,6 +59,9 @@ tempfile = { workspace = true }
 wiremock = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Globalization"] }
+windows-sys = { workspace = true, features = ["Win32_Globalization", "Win32_Networking_WinSock"] }
 # computer: in-process input injection, input-desktop identity and screen frames (WP-COMPUTER).
 mixdog-secure-desktop = { path = "../../../mixdog-secure-desktop" }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }

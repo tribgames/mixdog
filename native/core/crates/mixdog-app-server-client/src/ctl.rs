@@ -451,6 +451,92 @@ mod tests {
         assert_eq!(status.stalled_ms, 40);
     }
 
+    /// The listener serves `mixdog_app_protocol::mgmt` types; this client re-declares them, so
+    /// the two must agree on the wire.
+    #[test]
+    fn the_client_types_decode_what_the_listener_serves_and_the_listener_accepts_what_it_sends() {
+        use mixdog_app_protocol::mgmt as wire;
+
+        let served = wire::StatusReply {
+            status: wire::CoreStatus {
+                state: wire::StateName::Draining,
+                version: "1.4.6".into(),
+                instance_id: "i1".into(),
+                hold: true,
+                clients: 2,
+                running: vec![wire::RunningWork {
+                    kind: wire::ActivityKind::BackgroundShell,
+                    thread_id: None,
+                    turn_id: None,
+                    title: "build".into(),
+                }],
+                blocked: Some(wire::BlockedStatus {
+                    blocked: wire::Blocked::Undecidable {
+                        pid: 7,
+                        image: "a.exe".into(),
+                        command_line: "a.exe --x".into(),
+                        start_time: "99".into(),
+                    },
+                    confirm_token: Some("rt".into()),
+                }),
+                migration: Some(wire::MigrationStatus { kind: "store".into(), done: 1, total: 4 }),
+                drain: Some(wire::DrainStatus {
+                    drain_id: "d1".into(),
+                    reason: wire::StopReason::SshReplace,
+                    confirm_token: "c".into(),
+                    releasing: false,
+                }),
+                fenced: Some(wire::FenceReason::LockLost),
+                terminate_token: "tt".into(),
+                seq_of_snapshot: 5,
+            },
+            stalled_ms: 12,
+        };
+        let status: CoreStatus = serde_json::from_value(serde_json::to_value(&served).unwrap()).unwrap();
+        assert_eq!(status.state, CoreStateName::Draining);
+        assert_eq!(status.running[0].kind, "backgroundShell");
+        assert_eq!(status.running[0].thread_id, None);
+        let blocked = status.blocked.unwrap();
+        assert_eq!((blocked.kind.as_str(), blocked.pid), ("undecidable", 7));
+        assert_eq!(blocked.command_line.as_deref(), Some("a.exe --x"));
+        assert_eq!(blocked.start_time.as_deref(), Some("99"));
+        assert_eq!(blocked.confirm_token.as_deref(), Some("rt"));
+        assert_eq!(status.drain.unwrap().reason, "sshReplace");
+        assert_eq!(status.fenced.as_deref(), Some("lockLost"));
+        assert_eq!((status.clients, status.stalled_ms, status.seq_of_snapshot), (2, 12, 5));
+
+        let wait = wire::StatusReply {
+            status: wire::CoreStatus {
+                blocked: Some(wire::BlockedStatus {
+                    blocked: wire::Blocked::WaitExit { pid: 8 },
+                    confirm_token: None,
+                }),
+                ..served.status.clone()
+            },
+            stalled_ms: 0,
+        };
+        let status: CoreStatus = serde_json::from_value(serde_json::to_value(&wait).unwrap()).unwrap();
+        let blocked = status.blocked.unwrap();
+        assert_eq!((blocked.kind.as_str(), blocked.pid, blocked.image), ("waitExit", 8, None));
+
+        // `deny_unknown_fields` on the listener: every body this client sends must parse there.
+        fn body<T: Serialize>(value: &T) -> String {
+            serde_json::to_string(value).unwrap()
+        }
+        let stop = body(&StopBody { mode: StopMode::AbortConfirmed, reason: StopReason::UserStop, confirm_token: Some("c") });
+        let stop: wire::StopRequest = serde_json::from_str(&stop).unwrap();
+        assert_eq!((stop.mode, stop.reason), (wire::StopMode::AbortConfirmed, wire::StopReason::UserStop));
+        serde_json::from_str::<wire::HoldRequest>(&body(&HoldBody { on: true })).unwrap();
+        serde_json::from_str::<wire::CancelDrainRequest>(&body(&CancelDrainBody { drain_id: "d" })).unwrap();
+        serde_json::from_str::<wire::ReleaseRequest>(&body(&ReleaseBody { pid: 3, confirm_token: "t" })).unwrap();
+        serde_json::from_str::<wire::TerminateRequest>(&body(&TerminateBody { confirm_token: "t" })).unwrap();
+
+        // The client's `RefusalBody` reads the listener's `ErrorReply`.
+        let refusal = serde_json::to_vec(&wire::ErrorReply::new("notDraining", "no drain")).unwrap();
+        let refusal: RefusalBody = serde_json::from_slice(&refusal).unwrap();
+        assert_eq!((refusal.code.as_str(), refusal.message.as_str()), ("notDraining", "no drain"));
+    }
+
     #[tokio::test]
     async fn refusals_and_auth_failures_are_typed() {
         let body = r#"{"code":"confirmationInvalid","message":"nope"}"#;

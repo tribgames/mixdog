@@ -67,6 +67,8 @@ fn env() -> Env {
         state: state.clone(),
         recovery_dir: base.join("recovery"),
         user_data_dir: base.join("userData"),
+        sources: vec![Arc::new(FixedSource(base.join("export.bin")))],
+        code_graph: Some(Arc::new(EchoGraph)),
     })
     .unwrap();
     futures_block(service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None)).unwrap();
@@ -267,6 +269,57 @@ impl TrackedFiles for GitCli {
     async fn ignored(&self, root: &std::path::Path, _: &CancellationToken) -> Option<u64> {
         git_lines(root, &["ls-files", "-z", "-o", "-i", "--exclude-standard"]).map(|l| l.len() as u64)
     }
+}
+
+/// A source domain's `TransferSource`: serves one staged file as kind `export`.
+struct FixedSource(PathBuf);
+
+#[async_trait::async_trait]
+impl mixdog_workspace::transfer::TransferSource for FixedSource {
+    fn kind(&self) -> &'static str {
+        "export"
+    }
+    async fn open(&self, _: &Value, _: &CancellationToken) -> Result<mixdog_workspace::transfer::SourceFile, mixdog_workspace::error::WsError> {
+        std::fs::write(&self.0, b"exported").unwrap();
+        Ok(mixdog_workspace::transfer::SourceFile { file: std::fs::File::open(&self.0).unwrap(), name: "session.md".into(), mime_type: "text/markdown".into(), cleanup: None })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_source_domains_file_is_read_through_the_transfer_methods() {
+    let env = env();
+    let began = call(&env, "transfer/beginRead", json!({ "source": { "kind": "export", "id": "s1" } })).await.unwrap();
+    assert_eq!((began["size"].clone(), began["entry"]["name"].clone(), began["mimeType"].clone()), (json!(8), json!("session.md"), json!("text/markdown")));
+    let range = call(&env, "transfer/readRange", json!({ "transferId": began["transferId"], "offset": 0, "length": 8 })).await.unwrap();
+    assert_eq!(range["eof"], true);
+    // A kind nobody serves stays unsupported.
+    let missing = call(&env, "transfer/beginRead", json!({ "source": { "kind": "mediaAsset", "id": "m" } })).await;
+    assert!(matches!(missing, Err(CoreError::DomainError { .. })), "{missing:?}");
+}
+
+/// Stands for the adapter over `CodeGraphTool`: answers with the cwd and the args it was given.
+struct EchoGraph;
+
+#[async_trait::async_trait]
+impl mixdog_workspace::service::CodeGraph for EchoGraph {
+    async fn query(&self, cwd: &std::path::Path, args: Value, _: &CancellationToken) -> Result<String, mixdog_workspace::error::WsError> {
+        Ok(format!("{}|{args}", cwd.display()))
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn code_graph_queries_pass_the_tools_arguments_and_return_its_text() {
+    let env = env();
+    let root = env.root.to_string_lossy().into_owned();
+    let found = call(&env, "project/codeGraph", json!({ "path": root, "mode": "find_symbol", "query": "  main " })).await.unwrap();
+    assert_eq!(found, json!(format!("{root}|{}", json!({ "mode": "find_symbol", "symbols": "main", "limit": 20 }))));
+    let outline = call(&env, "project/codeGraph", json!({ "path": root, "mode": "symbols", "query": "src/main.rs" })).await.unwrap();
+    assert_eq!(outline, json!(format!("{root}|{}", json!({ "mode": "symbols", "files": "src/main.rs", "limit": 200 }))));
+    let long = "x".repeat(257);
+    let refused = call(&env, "project/codeGraph", json!({ "path": root, "mode": "references", "query": long })).await;
+    assert!(matches!(&refused, Err(CoreError::InvalidParams { expected, .. }) if &**expected == "Symbol is invalid."), "{refused:?}");
+    let denied = call(&env, "project/codeGraph", json!({ "path": env.root.parent().unwrap().to_string_lossy(), "mode": "symbols", "query": "a" })).await;
+    assert!(matches!(denied, Err(CoreError::PermissionDenied { .. })));
 }
 
 fn futures_block<F: std::future::Future>(f: F) -> F::Output {
@@ -548,7 +601,10 @@ async fn recorded_editor_files_replay_identically() {
             if !file.to_lowercase().ends_with(".code-workspace") {
                 file.push_str(".code-workspace");
             }
-            let text = std::fs::read_to_string(&file).map(Value::String).unwrap_or(Value::Null);
+            // The file's text is JSON: a Windows path in it has doubled backslashes.
+            let text = std::fs::read_to_string(&file)
+                .map(|t| Value::String(t.replace(&work_s.replace('\\', "\\\\"), "<WORK>").replace(&work_s, "<WORK>")))
+                .unwrap_or(Value::Null);
             assert_eq!(&text, expected, "{label}: file after");
         }
         if let Some(expected) = entry.get("files") {
@@ -571,17 +627,20 @@ async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribe
     let conn = MockConnection::new(ConnectionId(1), env.limits);
     let attached = subscribe(&sub.feed, SubscriptionId::from("s1"), sub.window, None, &conn).unwrap();
     conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
-    // No server on this machine's PATH answers `.xyz`: the manager publishes an `unsupported` status.
-    call(&env, "lsp/document", json!({ "root": root, "document": { "kind": "open", "languageId": "plaintext", "relPath": "A\\B.xyz", "content": "x", "version": 1 } })).await.unwrap();
+    // The mock process manager starts no real server: opening a TypeScript file publishes statuses.
+    call(&env, "lsp/document", json!({ "root": root, "document": { "kind": "open", "languageId": "typescript", "relPath": "a.ts", "content": "x", "version": 1 } })).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let frames: Vec<Value> = conn.drain_text().iter().filter_map(|f| serde_json::from_str(f).ok()).collect();
-    let status = frames.iter().find(|f| f["method"] == "lsp/status/updated").expect("a status frame");
+    let raw = conn.drain_text();
+    let frames: Vec<Value> = raw.iter().filter_map(|f| serde_json::from_str(f.split_once(':')?.1).ok()).collect();
+    assert!(!raw.is_empty(), "no frames at all");
+    let status = frames.iter().find(|f| f["method"] == "lsp/status/updated").unwrap_or_else(|| panic!("a status frame in {raw:?}"));
     let key = status["params"]["key"].as_str().unwrap();
-    // Node's `statusKey` without the project: the language, then `\0` and the lower-cased forward-slash path.
-    assert!(key == "plaintext" || key == "plaintext\0a/b.xyz", "{key:?}");
+    // Node's `statusKey`: the language, or the language, `\0` and the path.
+    assert!(key == "typescript" || key == "typescript\0a.ts", "{key:?}");
     assert_eq!(status["params"]["section"], "lspStatus");
     assert_eq!(status["params"]["value"]["projectPath"], root.as_str());
     assert_eq!(status["params"]["revision"], 1);
+    assert_eq!(status["params"]["value"]["status"], "starting");
     // A subscriber that joins later sees the current rows in its snapshot.
     let late = env.service.call(request("lsp/subscribe", json!({ "root": root }))).await.unwrap();
     let Reply::Subscribe(late) = late else { panic!() };

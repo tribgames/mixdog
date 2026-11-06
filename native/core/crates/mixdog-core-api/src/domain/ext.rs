@@ -73,12 +73,17 @@ pub struct ExtWorkerStatus {
     pub state: ExtWorkerState,
 }
 
+/// What keeps the shared render browser open: dropping it ends the use (Node's pool slot).
+pub type BrowserHold = Box<dyn std::any::Any + Send>;
+
 /// The shared render browser: the DevTools WebSocket URL of a running browser,
-/// launching it when none is. Implemented by the extension host, which owns the
-/// browser's launch, idle close and process guarding.
+/// launching it when none is, together with the hold that keeps it from closing
+/// for idleness until the caller is done. Implemented by the extension host, which
+/// owns the browser's launch, idle close and process guarding. There is no way to
+/// get the URL without the hold, as Node's pool gives no browser without a slot.
 #[async_trait::async_trait]
 pub trait BrowserEndpoint: Send + Sync {
-    async fn endpoint(&self) -> Result<String, String>;
+    async fn lease(&self) -> Result<(String, BrowserHold), String>;
 }
 
 pub trait ExtPool: Send + Sync {

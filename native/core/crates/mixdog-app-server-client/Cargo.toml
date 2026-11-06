@@ -20,7 +20,7 @@ futures = { workspace = true, features = ["std"] }
 rand = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync", "macros", "time", "net", "io-util"] }
 # Loopback `ws://` only (remote targets arrive through a tunnel or the relay as a loopback port), so no TLS feature.
-tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["connect"] }
+tokio-tungstenite = { workspace = true, features = ["connect"] }
 uuid = { workspace = true, features = ["v7"] }
 
 [target.'cfg(unix)'.dependencies]

@@ -21,8 +21,12 @@
 //! files; `refresh_tags_from_sessions` reloads the index.
 
 mod rows;
+mod sessions;
 #[cfg(test)]
 mod tests;
+
+pub use self::sessions::AgentSessions;
+pub use self::sessions::AgentStatusline;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -683,6 +687,32 @@ impl AgentRegistry {
             && matches_scope(session, scope)
     }
 
+    /// `agentDescendantSessionIds`: every agent session below `session`, depth first, each
+    /// once; a child is linked by its `parentSessionId || ownerSessionId`.
+    pub(crate) fn descendants(&self, session: &str) -> Vec<String> {
+        let st = self.lock();
+        let mut children: HashMap<String, Vec<String>> = HashMap::new();
+        for s in self.list_sessions(&st, true) {
+            let id = clean(s.get("id"));
+            let parent = clean(either(&s, "parentSessionId", "ownerSessionId"));
+            if !id.is_empty() && !parent.is_empty() && parent != id {
+                children.entry(parent).or_default().push(id);
+            }
+        }
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        let mut stack = vec![(clean_str(session), 0usize)];
+        while let Some((parent, at)) = stack.pop() {
+            let Some(next) = children.get(&parent).and_then(|c| c.get(at)) else { continue };
+            stack.push((parent, at + 1));
+            if seen.insert(next.clone()) {
+                out.push(next.clone());
+                stack.push((next.clone(), 0));
+            }
+        }
+        out
+    }
+
     /// `terminalWorkerRowForTag`.
     fn terminal_row_for_tag(&self, st: &State, tag: &str, scope: &Scope) -> Option<Row> {
         let value = clean_str(tag);
@@ -910,18 +940,19 @@ impl Registry for AgentRegistry {
 }
 
 impl TerminalTrace for AgentRegistry {
-    /// `hasTerminalTrace`: a tag that resolves to a live session is reused, not a trace.
-    fn has_terminal_trace(&self, tag: &str, scope: &Scope) -> bool {
+    /// `hasTerminalTrace`: a tag that resolves to a live session is reused, not a trace; an
+    /// ambiguous tag is the resolver's error.
+    fn has_terminal_trace(&self, tag: &str, scope: &Scope) -> Result<bool, String> {
         let value = clean_str(tag);
         if value.is_empty() || value.starts_with("sess_") {
-            return false;
+            return Ok(false);
         }
         let mut st = self.lock();
         let options = ResolveOptions { exclude_terminal_traces: true, ..ResolveOptions::default() };
-        if !matches!(self.resolve(&mut st, &value, scope, options), Ok(None)) {
-            return false;
+        if self.resolve(&mut st, &value, scope, options)?.is_some() {
+            return Ok(false);
         }
-        self.terminal_row_for_tag(&st, &value, scope).is_some()
+        Ok(self.terminal_row_for_tag(&st, &value, scope).is_some())
     }
 
     fn reap_terminal_trace_for_tag(&self, tag: &str, scope: &Scope) {
@@ -937,6 +968,18 @@ impl TerminalTrace for AgentRegistry {
         if !id.is_empty() {
             self.remove_row(&mut st, &id);
         }
+    }
+}
+
+/// `onSessionTurnStart(store.clearReleased)`: a turn of any origin ends the owner's release.
+impl super::TurnStarts for AgentRegistry {
+    fn turn_started(&self, thread: &ThreadId) {
+        let id = thread.as_str();
+        let mut st = self.lock();
+        let Some(map) = st.map(id).filter(|m| m.contains_key("releasedAt")).cloned() else { return };
+        let mut map = map;
+        map.remove("releasedAt");
+        self.persist(&mut st, id, (!map.is_empty()).then_some(map));
     }
 }
 

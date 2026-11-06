@@ -1,0 +1,710 @@
+{
+  "cases": [
+    {
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: absent",
+      "outcome": {
+        "error": {
+          "message": "asset id must be a string.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": 5,
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: number",
+      "outcome": {
+        "error": {
+          "message": "asset id must be a string.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": null,
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: null",
+      "outcome": {
+        "error": {
+          "message": "asset id must be a string.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": "",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: empty",
+      "outcome": {
+        "error": {
+          "message": "asset id is invalid.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": "  \t ",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: blanks",
+      "outcome": {
+        "error": {
+          "message": "asset id is invalid.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: 128 chars",
+      "outcome": {
+        "ok": {
+          "mime": "image/png",
+          "name": "a.png",
+          "size": 3
+        }
+      }
+    },
+    {
+      "assetId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: 129 chars",
+      "outcome": {
+        "error": {
+          "message": "asset id is invalid.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": "  abc_-9  ",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: padded is trimmed",
+      "outcome": {
+        "ok": {
+          "mime": "image/png",
+          "name": "a.png",
+          "size": 3
+        }
+      }
+    },
+    {
+      "assetId": " bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: padded to 129 raw, 128 trimmed",
+      "outcome": {
+        "ok": {
+          "mime": "image/png",
+          "name": "a.png",
+          "size": 3
+        }
+      }
+    },
+    {
+      "assetId": "ab\u0000c",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: NUL",
+      "outcome": {
+        "error": {
+          "message": "asset id is invalid.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": "a/b",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: slash",
+      "outcome": {
+        "error": {
+          "message": "asset id is invalid.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": "a.b",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: dot",
+      "outcome": {
+        "error": {
+          "message": "asset id is invalid.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": "é",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: non-ascii",
+      "outcome": {
+        "error": {
+          "message": "asset id is invalid.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": "a b",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "id: inner space",
+      "outcome": {
+        "error": {
+          "message": "asset id is invalid.",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": null,
+      "name": "unknown asset",
+      "outcome": {
+        "error": {
+          "message": "This media file is not available.",
+          "reason": "not-found"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": false,
+        "mime": "image/png",
+        "path": "{DIR}/a.png"
+      },
+      "name": "unavailable",
+      "outcome": {
+        "error": {
+          "message": "This media file is not available.",
+          "reason": "not-found"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "image/png"
+      },
+      "name": "path missing",
+      "outcome": {
+        "error": {
+          "message": "This media file is not available.",
+          "reason": "not-found"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": 5
+      },
+      "name": "path not a string",
+      "outcome": {
+        "error": {
+          "message": "This media file is not available.",
+          "reason": "not-found"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "a.png"
+      },
+      "name": "relative path",
+      "outcome": {
+        "error": {
+          "message": "This media file is not available.",
+          "reason": "not-found"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "//host/share/a.png"
+      },
+      "name": "unc path",
+      "outcome": {
+        "error": {
+          "message": "Only files on this PC can be downloaded.",
+          "reason": "not-a-file"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "\\\\host\\share\\a.png"
+      },
+      "name": "unc path, backslashes",
+      "outcome": {
+        "error": {
+          "message": "Only files on this PC can be downloaded.",
+          "reason": "not-a-file"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/gone.png"
+      },
+      "name": "file is gone",
+      "outcome": {
+        "error": {
+          "message": "The file no longer exists.",
+          "reason": "not-found"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/nowhere/gone.png"
+      },
+      "name": "file in a missing folder",
+      "outcome": {
+        "error": {
+          "message": "The file no longer exists.",
+          "reason": "not-found"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/folder"
+      },
+      "name": "a folder",
+      "outcome": {
+        "error": {
+          "message": "Only files on this PC can be downloaded.",
+          "reason": "not-a-file"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "image/png",
+        "path": "{DIR}/a.png/inner.png"
+      },
+      "name": "a file used as a folder",
+      "outcome": {
+        "error": {
+          "message": "The file no longer exists.",
+          "reason": "not-found"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "application/octet-stream",
+        "path": "{DIR}/exact.bin"
+      },
+      "name": "exactly 256 MiB",
+      "outcome": {
+        "ok": {
+          "mime": "application/octet-stream",
+          "name": "exact.bin",
+          "size": 268435456
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "application/octet-stream",
+        "path": "{DIR}/over.bin"
+      },
+      "name": "one byte over 256 MiB",
+      "outcome": {
+        "error": {
+          "message": "Files larger than 256 MB cannot be downloaded.",
+          "reason": "too-large"
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "image/webp",
+        "path": "{DIR}/a.png"
+      },
+      "name": "stored mime wins",
+      "outcome": {
+        "ok": {
+          "mime": "image/webp",
+          "name": "a.png",
+          "size": 3
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": "",
+        "path": "{DIR}/a.png"
+      },
+      "name": "mime from the extension when empty",
+      "outcome": {
+        "ok": {
+          "mime": "image/png",
+          "name": "a.png",
+          "size": 3
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "path": "{DIR}/a.png"
+      },
+      "name": "mime from the extension when absent",
+      "outcome": {
+        "ok": {
+          "mime": "image/png",
+          "name": "a.png",
+          "size": 3
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": 7,
+        "path": "{DIR}/a.png"
+      },
+      "name": "mime from the extension when not a string",
+      "outcome": {
+        "ok": {
+          "mime": "image/png",
+          "name": "a.png",
+          "size": 3
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/b"
+      },
+      "name": "no extension",
+      "outcome": {
+        "ok": {
+          "mime": "application/octet-stream",
+          "name": "b",
+          "size": 2
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/.hidden.png"
+      },
+      "name": "hidden name is all extension",
+      "outcome": {
+        "ok": {
+          "mime": "image/png",
+          "name": "hidden.png",
+          "size": 1
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/--dash.txt"
+      },
+      "name": "leading dashes are stripped",
+      "outcome": {
+        "ok": {
+          "mime": "text/plain",
+          "name": "dash.txt",
+          "size": 1
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/x.PNG"
+      },
+      "name": "upper-case extension",
+      "outcome": {
+        "ok": {
+          "mime": "image/png",
+          "name": "x.PNG",
+          "size": 1
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/caps.MD"
+      },
+      "name": "upper-case markdown",
+      "outcome": {
+        "ok": {
+          "mime": "text/markdown",
+          "name": "caps.MD",
+          "size": 1
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/plain.unknownext"
+      },
+      "name": "unknown extension",
+      "outcome": {
+        "ok": {
+          "mime": "application/octet-stream",
+          "name": "plain.unknownext",
+          "size": 1
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/trailing."
+      },
+      "name": "trailing dot",
+      "outcome": {
+        "ok": {
+          "mime": "application/octet-stream",
+          "name": "trailing",
+          "size": 1
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/constructor"
+      },
+      "name": "object-prototype name",
+      "outcome": {
+        "ok": {
+          "mime": "application/octet-stream",
+          "name": "constructor",
+          "size": 1
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/dots.tar.gz"
+      },
+      "name": "double extension",
+      "outcome": {
+        "ok": {
+          "mime": "application/octet-stream",
+          "name": "dots.tar.gz",
+          "size": 1
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/é ü.json"
+      },
+      "name": "non-ascii name",
+      "outcome": {
+        "ok": {
+          "mime": "application/json",
+          "name": "é ü.json",
+          "size": 4
+        }
+      }
+    },
+    {
+      "assetId": "x1",
+      "media": {
+        "available": true,
+        "mime": null,
+        "path": "{DIR}/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.txt"
+      },
+      "name": "name cut at 120 units",
+      "outcome": {
+        "ok": {
+          "mime": "text/plain",
+          "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+          "size": 1
+        }
+      }
+    }
+  ],
+  "domain": "media-download-twin",
+  "files": [
+    {
+      "name": "a.png",
+      "size": 3
+    },
+    {
+      "name": "b",
+      "size": 2
+    },
+    {
+      "name": ".hidden.png",
+      "size": 1
+    },
+    {
+      "name": "--dash.txt",
+      "size": 1
+    },
+    {
+      "name": "x.PNG",
+      "size": 1
+    },
+    {
+      "name": "plain.unknownext",
+      "size": 1
+    },
+    {
+      "name": "trailing.",
+      "size": 1
+    },
+    {
+      "name": "é ü.json",
+      "size": 4
+    },
+    {
+      "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.txt",
+      "size": 1
+    },
+    {
+      "name": "exact.bin",
+      "size": 268435456
+    },
+    {
+      "name": "over.bin",
+      "size": 268435457
+    },
+    {
+      "name": "caps.MD",
+      "size": 1
+    },
+    {
+      "name": "constructor",
+      "size": 1
+    },
+    {
+      "name": "dots.tar.gz",
+      "size": 1
+    }
+  ],
+  "folders": [
+    "folder"
+  ],
+  "maxBytes": 268435456,
+  "recorder": "benchmarks/rust-core/recorders/record-media-download.mjs"
+}

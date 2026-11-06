@@ -84,7 +84,7 @@ fn patch(entries: impl IntoIterator<Item = (&'static str, Value)>) -> Map<String
 }
 
 /// The object at `key`, created (or replaced, when the stored value is not an object) in place.
-fn object_at<'a>(doc: &'a mut Map<String, Value>, key: &str) -> &'a mut Map<String, Value> {
+pub(crate) fn object_at<'a>(doc: &'a mut Map<String, Value>, key: &str) -> &'a mut Map<String, Value> {
     let slot = doc.entry(key).or_insert_with(|| Value::Object(Map::new()));
     if !slot.is_object() {
         *slot = Value::Object(Map::new());
@@ -133,7 +133,7 @@ impl ProviderAdmin {
         std::env::var(MODEL_PROXY_ENV).is_ok_and(|v| v == "client")
     }
 
-    fn require_local() -> Result<(), Failure> {
+    pub(crate) fn require_local() -> Result<(), Failure> {
         if Self::model_proxy_client_mode() {
             return Err(Failure::Coded {
                 code: "MODEL_CREDENTIALS_DISABLED",

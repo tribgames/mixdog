@@ -312,7 +312,7 @@ pub(super) fn metadata(message: &Value) -> Metadata {
 
 /// The ids of one record's rows: the record's own id for the first, `<iid>:<n>` after it.
 pub(super) struct Ids<'a> {
-    iid: &'a str,
+    pub(super) iid: &'a str,
     part: usize,
 }
 
@@ -572,6 +572,24 @@ fn status_done(id: String, status: &str, label: &str) -> Row {
     row
 }
 
+/// `modelSwitchItem`: the row of an in-place model switch (live and restored); none for a
+/// boundary without a provider and model.
+pub(super) fn model_switch_row(id: String, boundary: &Value) -> Option<Row> {
+    if !(truthy_opt(boundary.get("provider")) && truthy_opt(boundary.get("modelId"))) {
+        return None;
+    }
+    let mut row = status_done(id, "model-switched", "Model switched");
+    copy_present(&mut row, boundary, &["provider", "modelId", "at"]);
+    Some(row)
+}
+
+/// The id of a switch's row, from its anchor and time: the live row and the restored one name
+/// the same item. A boundary with no time has none (restore numbers it with its record's rows).
+pub(super) fn model_switch_id(anchor_iid: &str, boundary: &Value) -> Option<String> {
+    let at = number(boundary.get("at"));
+    at.is_finite().then(|| format!("{anchor_iid}:model:{}", num_value(at)))
+}
+
 fn copy_present(row: &mut Row, boundary: &Value, keys: &[&str]) {
     for key in keys {
         if let Some(value) = boundary.get(key) {
@@ -599,12 +617,10 @@ fn boundary_rows(message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
         out.push(Restored::Row { row, source: None });
     }
     for boundary in list("modelSwitches") {
-        if !(truthy_opt(boundary.get("provider")) && truthy_opt(boundary.get("modelId"))) {
-            continue;
+        let id = model_switch_id(ids.iid, &boundary).unwrap_or_else(|| ids.next());
+        if let Some(row) = model_switch_row(id, &boundary) {
+            out.push(Restored::Row { row, source: None });
         }
-        let mut row = status_done(ids.next(), "model-switched", "Model switched");
-        copy_present(&mut row, &boundary, &["provider", "modelId", "at"]);
-        out.push(Restored::Row { row, source: None });
     }
     for boundary in list("workflowSwitches") {
         if !truthy_opt(boundary.get("to")) {

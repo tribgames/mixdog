@@ -1,0 +1,4406 @@
+{
+  "domain": "setup-dispatch-twin",
+  "entries": [
+    {
+      "args": {
+        "action": "set_memory_enabled",
+        "enabled": true
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setMemoryToolsEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_memory_enabled",
+        "enabled": true
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setMemoryToolsEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_memory_enabled",
+        "enabled": true
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setMemoryToolsEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_memory_enabled",
+        "enabled": true
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setMemoryToolsEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_memory_enabled",
+        "enabled": true
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_memory_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_memory_enabled",
+        "enabled": true
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_memory_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_memory_enabled",
+        "enabled": true
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_memory_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_memory_enabled",
+        "enabled": true
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_memory_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_recap_enabled",
+        "enabled": false
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "background Memory cycles; no restart required",
+          "args": [
+            false
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setRecapEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_recap_enabled",
+        "enabled": false
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "background Memory cycles; no restart required",
+          "args": [
+            false
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setRecapEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_recap_enabled",
+        "enabled": false
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "background Memory cycles; no restart required",
+          "args": [
+            false
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setRecapEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_recap_enabled",
+        "enabled": false
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "background Memory cycles; no restart required",
+          "args": [
+            false
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setRecapEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_recap_enabled",
+        "enabled": false
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_recap_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_recap_enabled",
+        "enabled": false
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_recap_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_recap_enabled",
+        "enabled": false
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_recap_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_recap_enabled",
+        "enabled": false
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_recap_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_web_search_enabled",
+        "enabled": true
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setWebSearchEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_web_search_enabled",
+        "enabled": true
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setWebSearchEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_web_search_enabled",
+        "enabled": true
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setWebSearchEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_web_search_enabled",
+        "enabled": true
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setWebSearchEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_web_search_enabled",
+        "enabled": true
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_web_search_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_web_search_enabled",
+        "enabled": true
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_web_search_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_web_search_enabled",
+        "enabled": true
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_web_search_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_web_search_enabled",
+        "enabled": true
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_web_search_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_instruction_files",
+        "instructionFiles": "agents"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "agents"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setInstructionFiles"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_instruction_files",
+        "instructionFiles": "agents"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "agents"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setInstructionFiles"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_instruction_files",
+        "instructionFiles": "agents"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "agents"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setInstructionFiles"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_instruction_files",
+        "instructionFiles": "agents"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "agents"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setInstructionFiles"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_instruction_files",
+        "instructionFiles": "agents"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_instruction_files)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_instruction_files",
+        "instructionFiles": "agents"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_instruction_files)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_instruction_files",
+        "instructionFiles": "agents"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_instruction_files)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_instruction_files",
+        "instructionFiles": "agents"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_instruction_files is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_effort_base",
+        "autoEffortBase": "high"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new sessions unless appliedToCurrentSession is true",
+          "args": [
+            "high"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAutoEffortBase"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_effort_base",
+        "autoEffortBase": "high"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new sessions unless appliedToCurrentSession is true",
+          "args": [
+            "high"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAutoEffortBase"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_effort_base",
+        "autoEffortBase": "high"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new sessions unless appliedToCurrentSession is true",
+          "args": [
+            "high"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAutoEffortBase"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_effort_base",
+        "autoEffortBase": "high"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new sessions unless appliedToCurrentSession is true",
+          "args": [
+            "high"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAutoEffortBase"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_effort_base",
+        "autoEffortBase": "high"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_auto_effort_base)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_effort_base",
+        "autoEffortBase": "high"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_auto_effort_base)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_effort_base",
+        "autoEffortBase": "high"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_auto_effort_base)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_effort_base",
+        "autoEffortBase": "high"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_auto_effort_base is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "git"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "git",
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setBuiltinToolEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "git"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "git",
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setBuiltinToolEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "git"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "git",
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setBuiltinToolEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "git"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "git",
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setBuiltinToolEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "git"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "git"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "git"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "git"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_builtin_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "browser"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "error": "setup: no attached Desktop surface; nothing was changed",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "browser"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "error": "setup: no attached Desktop surface; nothing was changed",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "browser"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "error": "setup: no attached Desktop surface; nothing was changed",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "browser"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "error": "setup: no attached Desktop surface; nothing was changed",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "browser"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "browser"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "browser"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "browser"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_builtin_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": true,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "error": "Voice did not reach the requested installed and enabled state: download failed",
+        "ok": false
+      },
+      "voice": "fail"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "error": "Voice did not reach the requested installed and enabled state",
+        "ok": false
+      },
+      "voice": "silent"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": true,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": true,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": true,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": true,
+        "name": "voice"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_builtin_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": false,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {},
+            "enabled": false,
+            "installed": false
+          }
+        },
+        "ok": true
+      },
+      "voice": "fail"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "error": "Voice did not reach the requested disabled state",
+        "ok": false
+      },
+      "voice": "silent"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": false,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": false,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": false,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_builtin_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_builtin_enabled",
+        "enabled": false,
+        "name": "voice"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_builtin_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "memory"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "memory"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "installBuiltinFeature"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "memory"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "memory"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "installBuiltinFeature"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "memory"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "memory"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "installBuiltinFeature"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "memory"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "memory"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "installBuiltinFeature"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "memory"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "memory"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "memory"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "memory"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup install_builtin is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "git"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "git"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "installBuiltinFeature"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "git"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "git"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "installBuiltinFeature"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "git"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "git"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "installBuiltinFeature"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "git"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "args": [
+            "git"
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "installBuiltinFeature"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "git"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "git"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "git"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "git"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup install_builtin is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "computer"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "error": "setup: no attached Desktop surface; nothing was changed",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "computer"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "error": "setup: no attached Desktop surface; nothing was changed",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "computer"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "error": "setup: no attached Desktop surface; nothing was changed",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "computer"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "error": "setup: no attached Desktop surface; nothing was changed",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "computer"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "computer"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "computer"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "computer"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup install_builtin is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": true,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "error": "Voice did not reach the requested installed and enabled state: download failed",
+        "ok": false
+      },
+      "voice": "fail"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "error": "Voice did not reach the requested installed and enabled state",
+        "ok": false
+      },
+      "voice": "silent"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": true,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": true,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "channel voice transcription and Desktop dictation now",
+          "saved": true,
+          "scope": "installation",
+          "voice": {
+            "components": {
+              "whisper": true
+            },
+            "enabled": true,
+            "installed": true
+          }
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup install_builtin)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "install_builtin",
+        "name": "voice"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup install_builtin is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_worktree_settings",
+        "worktree": {
+          "cleanupArchived": true
+        }
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new tasks and worktrees created afterwards; existing worktrees are unchanged",
+          "args": [
+            {
+              "cleanupArchived": true
+            }
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setWorktreeSettings"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_worktree_settings",
+        "worktree": {
+          "cleanupArchived": true
+        }
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new tasks and worktrees created afterwards; existing worktrees are unchanged",
+          "args": [
+            {
+              "cleanupArchived": true
+            }
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setWorktreeSettings"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_worktree_settings",
+        "worktree": {
+          "cleanupArchived": true
+        }
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new tasks and worktrees created afterwards; existing worktrees are unchanged",
+          "args": [
+            {
+              "cleanupArchived": true
+            }
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setWorktreeSettings"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_worktree_settings",
+        "worktree": {
+          "cleanupArchived": true
+        }
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new tasks and worktrees created afterwards; existing worktrees are unchanged",
+          "args": [
+            {
+              "cleanupArchived": true
+            }
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setWorktreeSettings"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_worktree_settings",
+        "worktree": {
+          "cleanupArchived": true
+        }
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_worktree_settings)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_worktree_settings",
+        "worktree": {
+          "cleanupArchived": true
+        }
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_worktree_settings)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_worktree_settings",
+        "worktree": {
+          "cleanupArchived": true
+        }
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_worktree_settings)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_worktree_settings",
+        "worktree": {
+          "cleanupArchived": true
+        }
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_worktree_settings is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_bot_order",
+        "botOrder": [
+          "b",
+          "a"
+        ]
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the Bots page and the Sessions bot section on every device",
+          "botOrder": [
+            "b",
+            "a"
+          ],
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_bot_order",
+        "botOrder": [
+          "b",
+          "a"
+        ]
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the Bots page and the Sessions bot section on every device",
+          "botOrder": [
+            "b",
+            "a"
+          ],
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_bot_order",
+        "botOrder": [
+          "b",
+          "a"
+        ]
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the Bots page and the Sessions bot section on every device",
+          "botOrder": [
+            "b",
+            "a"
+          ],
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_bot_order",
+        "botOrder": [
+          "b",
+          "a"
+        ]
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the Bots page and the Sessions bot section on every device",
+          "botOrder": [
+            "b",
+            "a"
+          ],
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_bot_order",
+        "botOrder": [
+          "b",
+          "a"
+        ]
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_bot_order)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_bot_order",
+        "botOrder": [
+          "b",
+          "a"
+        ]
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_bot_order)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_bot_order",
+        "botOrder": [
+          "b",
+          "a"
+        ]
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_bot_order)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_bot_order",
+        "botOrder": [
+          "b",
+          "a"
+        ]
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_bot_order is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": false
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the next prompt-cache warm of every session; no restart required",
+          "promptCacheWarming": false,
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": false
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the next prompt-cache warm of every session; no restart required",
+          "promptCacheWarming": false,
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": false
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the next prompt-cache warm of every session; no restart required",
+          "promptCacheWarming": false,
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": false
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the next prompt-cache warm of every session; no restart required",
+          "promptCacheWarming": false,
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": false
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_cache_warming_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": false
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_cache_warming_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": false
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_cache_warming_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": false
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_cache_warming_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "minimal"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliedToCurrentSession": false,
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "configured": "minimal",
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "minimal"
+      },
+      "caller": "human",
+      "reach": true,
+      "result": {
+        "answer": {
+          "appliedToCurrentSession": true,
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "configured": "minimal",
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "minimal"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliedToCurrentSession": false,
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "configured": "minimal",
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "minimal"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliedToCurrentSession": false,
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "configured": "minimal",
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "minimal"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliedToCurrentSession": false,
+          "appliesTo": "every conversation, this one included, from its next turn",
+          "configured": "minimal",
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "minimal"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_output_style)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "minimal"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_output_style)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "minimal"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_output_style)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "minimal"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_output_style is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "   "
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "error": "style is required",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "   "
+      },
+      "caller": "human",
+      "reach": true,
+      "result": {
+        "error": "style is required",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "   "
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "error": "style is required",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "   "
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "error": "style is required",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "   "
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "error": "style is required",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "   "
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_output_style)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "   "
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_output_style)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "   "
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_output_style)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_output_style",
+        "style": "   "
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_output_style is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_update",
+        "enabled": true
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent automatic update checks",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAutoUpdate"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_update",
+        "enabled": true
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent automatic update checks",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAutoUpdate"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_update",
+        "enabled": true
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent automatic update checks",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAutoUpdate"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_update",
+        "enabled": true
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent automatic update checks",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAutoUpdate"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_update",
+        "enabled": true
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_auto_update)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_update",
+        "enabled": true
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_auto_update)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_update",
+        "enabled": true
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_auto_update)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_auto_update",
+        "enabled": true
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_auto_update is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_ai_session_titles",
+        "enabled": false
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "titles generated from now on; existing titles are unchanged",
+          "args": [
+            false
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAiSessionTitles"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_ai_session_titles",
+        "enabled": false
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "titles generated from now on; existing titles are unchanged",
+          "args": [
+            false
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAiSessionTitles"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_ai_session_titles",
+        "enabled": false
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "titles generated from now on; existing titles are unchanged",
+          "args": [
+            false
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAiSessionTitles"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_ai_session_titles",
+        "enabled": false
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "titles generated from now on; existing titles are unchanged",
+          "args": [
+            false
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setAiSessionTitles"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_ai_session_titles",
+        "enabled": false
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_ai_session_titles)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_ai_session_titles",
+        "enabled": false
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_ai_session_titles)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_ai_session_titles",
+        "enabled": false
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_ai_session_titles)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_ai_session_titles",
+        "enabled": false
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_ai_session_titles is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_heartbeat_enabled",
+        "enabled": true
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "Mixy's next heartbeat check; no restart required",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setHeartbeatEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_heartbeat_enabled",
+        "enabled": true
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "Mixy's next heartbeat check; no restart required",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setHeartbeatEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_heartbeat_enabled",
+        "enabled": true
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "Mixy's next heartbeat check; no restart required",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setHeartbeatEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_heartbeat_enabled",
+        "enabled": true
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "Mixy's next heartbeat check; no restart required",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setHeartbeatEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_heartbeat_enabled",
+        "enabled": true
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_heartbeat_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_heartbeat_enabled",
+        "enabled": true
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_heartbeat_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_heartbeat_enabled",
+        "enabled": true
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_heartbeat_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_heartbeat_enabled",
+        "enabled": true
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_heartbeat_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_quota_auto_resume",
+        "enabled": true
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent usage-limit stops; turning it off cancels pending resumes",
+          "quotaAutoResume": {
+            "args": [
+              true
+            ],
+            "stub": "setQuotaAutoResume"
+          },
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_quota_auto_resume",
+        "enabled": true
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent usage-limit stops; turning it off cancels pending resumes",
+          "quotaAutoResume": {
+            "args": [
+              true
+            ],
+            "stub": "setQuotaAutoResume"
+          },
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_quota_auto_resume",
+        "enabled": true
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent usage-limit stops; turning it off cancels pending resumes",
+          "quotaAutoResume": {
+            "args": [
+              true
+            ],
+            "stub": "setQuotaAutoResume"
+          },
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_quota_auto_resume",
+        "enabled": true
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent usage-limit stops; turning it off cancels pending resumes",
+          "quotaAutoResume": {
+            "args": [
+              true
+            ],
+            "stub": "setQuotaAutoResume"
+          },
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_quota_auto_resume",
+        "enabled": true
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_quota_auto_resume)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_quota_auto_resume",
+        "enabled": true
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_quota_auto_resume)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_quota_auto_resume",
+        "enabled": true
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_quota_auto_resume)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_quota_auto_resume",
+        "enabled": true
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_quota_auto_resume is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "hidden": true,
+        "model": "m",
+        "provider": "openai"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the /model picker and model management lists",
+          "args": [
+            "openai",
+            [
+              {
+                "hidden": true,
+                "model": "m"
+              }
+            ]
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setModelPreferences"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "hidden": true,
+        "model": "m",
+        "provider": "openai"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the /model picker and model management lists",
+          "args": [
+            "openai",
+            [
+              {
+                "hidden": true,
+                "model": "m"
+              }
+            ]
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setModelPreferences"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "hidden": true,
+        "model": "m",
+        "provider": "openai"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the /model picker and model management lists",
+          "args": [
+            "openai",
+            [
+              {
+                "hidden": true,
+                "model": "m"
+              }
+            ]
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setModelPreferences"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "hidden": true,
+        "model": "m",
+        "provider": "openai"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the /model picker and model management lists",
+          "args": [
+            "openai",
+            [
+              {
+                "hidden": true,
+                "model": "m"
+              }
+            ]
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setModelPreferences"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "hidden": true,
+        "model": "m",
+        "provider": "openai"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_model_preferences)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "hidden": true,
+        "model": "m",
+        "provider": "openai"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_model_preferences)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "hidden": true,
+        "model": "m",
+        "provider": "openai"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_model_preferences)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_model_preferences",
+        "hidden": true,
+        "model": "m",
+        "provider": "openai"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_model_preferences is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_system_shell",
+        "command": "pwsh"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent shell calls",
+          "args": [
+            {
+              "command": "pwsh"
+            }
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setSystemShell"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_system_shell",
+        "command": "pwsh"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent shell calls",
+          "args": [
+            {
+              "command": "pwsh"
+            }
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setSystemShell"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_system_shell",
+        "command": "pwsh"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent shell calls",
+          "args": [
+            {
+              "command": "pwsh"
+            }
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setSystemShell"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_system_shell",
+        "command": "pwsh"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "subsequent shell calls",
+          "args": [
+            {
+              "command": "pwsh"
+            }
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setSystemShell"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_system_shell",
+        "command": "pwsh"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_system_shell)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_system_shell",
+        "command": "pwsh"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_system_shell)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_system_shell",
+        "command": "pwsh"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_system_shell)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_system_shell",
+        "command": "pwsh"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_system_shell is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_reactions_enabled",
+        "enabled": true
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "bots' chats, this conversation included, from their next turn; while off a reaction is refused at once; reactions already left stay visible",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setReactionsEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_reactions_enabled",
+        "enabled": true
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "bots' chats, this conversation included, from their next turn; while off a reaction is refused at once; reactions already left stay visible",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setReactionsEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_reactions_enabled",
+        "enabled": true
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "bots' chats, this conversation included, from their next turn; while off a reaction is refused at once; reactions already left stay visible",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setReactionsEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_reactions_enabled",
+        "enabled": true
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "bots' chats, this conversation included, from their next turn; while off a reaction is refused at once; reactions already left stay visible",
+          "args": [
+            true
+          ],
+          "saved": true,
+          "scope": "installation",
+          "stub": "setReactionsEnabled"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_reactions_enabled",
+        "enabled": true
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_reactions_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_reactions_enabled",
+        "enabled": true
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_reactions_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_reactions_enabled",
+        "enabled": true
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_reactions_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_reactions_enabled",
+        "enabled": true
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_reactions_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": true
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the next prompt-cache warm of every session; no restart required",
+          "promptCacheWarming": true,
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": true
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the next prompt-cache warm of every session; no restart required",
+          "promptCacheWarming": true,
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": true
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the next prompt-cache warm of every session; no restart required",
+          "promptCacheWarming": true,
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": true
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "the next prompt-cache warm of every session; no restart required",
+          "promptCacheWarming": true,
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": true
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup set_cache_warming_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": true
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_cache_warming_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": true
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_cache_warming_enabled)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_cache_warming_enabled",
+        "enabled": true
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup set_cache_warming_enabled is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "reconnect_mcp"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new sessions unless appliedToCurrentSession is true",
+          "mcp": {
+            "connectedCount": 0,
+            "servers": []
+          },
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "reconnect_mcp"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new sessions unless appliedToCurrentSession is true",
+          "mcp": {
+            "connectedCount": 0,
+            "servers": []
+          },
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "reconnect_mcp"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new sessions unless appliedToCurrentSession is true",
+          "mcp": {
+            "connectedCount": 0,
+            "servers": []
+          },
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "reconnect_mcp"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new sessions unless appliedToCurrentSession is true",
+          "mcp": {
+            "connectedCount": 0,
+            "servers": []
+          },
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "reconnect_mcp"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup reconnect_mcp)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "reconnect_mcp"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup reconnect_mcp)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "reconnect_mcp"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup reconnect_mcp)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "reconnect_mcp"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "A heartbeat turn only pauses a routine or runs one again (setup reconnect_mcp is refused); propose other changes with session action suggest",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_agent_route",
+        "agent": "helper",
+        "route": {
+          "model": "m",
+          "provider": "openai"
+        }
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "agent": "helper",
+          "appliesTo": "the bot's chats from their next turn (a running turn finishes on the old model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): its chats and sub-agents; an agent switched on or off reaches open conversations from their next turn as an agent list reminder",
+          "route": {
+            "args": [
+              "helper",
+              {
+                "model": "m",
+                "provider": "openai"
+              }
+            ],
+            "stub": "setAgentRoute"
+          },
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_agent_route",
+        "agent": "helper",
+        "route": {
+          "model": "m",
+          "provider": "openai"
+        }
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "agent": "helper",
+          "appliesTo": "the bot's chats from their next turn (a running turn finishes on the old model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): its chats and sub-agents; an agent switched on or off reaches open conversations from their next turn as an agent list reminder",
+          "route": {
+            "args": [
+              "helper",
+              {
+                "model": "m",
+                "provider": "openai"
+              }
+            ],
+            "stub": "setAgentRoute"
+          },
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_agent_route",
+        "agent": "helper",
+        "route": {
+          "model": "m",
+          "provider": "openai"
+        }
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "agent": "helper",
+          "appliesTo": "the bot's chats from their next turn (a running turn finishes on the old model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): its chats and sub-agents; an agent switched on or off reaches open conversations from their next turn as an agent list reminder",
+          "route": {
+            "args": [
+              "helper",
+              {
+                "model": "m",
+                "provider": "openai"
+              }
+            ],
+            "stub": "setAgentRoute"
+          },
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_agent_route",
+        "agent": "helper",
+        "route": {
+          "model": "m",
+          "provider": "openai"
+        }
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "answer": {
+          "agent": "helper",
+          "appliesTo": "the bot's chats from their next turn (a running turn finishes on the old model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): its chats and sub-agents; an agent switched on or off reaches open conversations from their next turn as an agent list reminder",
+          "route": {
+            "args": [
+              "helper",
+              {
+                "model": "m",
+                "provider": "openai"
+              }
+            ],
+            "stub": "setAgentRoute"
+          },
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_agent_route",
+        "agent": "helper",
+        "route": {
+          "model": "m",
+          "provider": "openai"
+        }
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "answer": {
+          "agent": "helper",
+          "appliesTo": "the bot's chats from their next turn (a running turn finishes on the old model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): its chats and sub-agents; an agent switched on or off reaches open conversations from their next turn as an agent list reminder",
+          "route": {
+            "args": [
+              "helper",
+              {
+                "model": "m",
+                "provider": "openai"
+              }
+            ],
+            "stub": "setAgentRoute"
+          },
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_agent_route",
+        "agent": "helper",
+        "route": {
+          "model": "m",
+          "provider": "openai"
+        }
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup set_agent_route)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_agent_route",
+        "agent": "helper",
+        "route": {
+          "model": "m",
+          "provider": "openai"
+        }
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup set_agent_route)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "set_agent_route",
+        "agent": "helper",
+        "route": {
+          "model": "m",
+          "provider": "openai"
+        }
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "This thread manages only its own agent's settings (setup set_agent_route)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "connect_connector",
+        "connector": "github"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "connect_connector",
+        "connector": "github"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "connect_connector",
+        "connector": "github"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "connect_connector",
+        "connector": "github"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "connect_connector",
+        "connector": "github"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "connect_connector",
+        "connector": "github"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "connect_connector",
+        "connector": "github"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "connect_connector",
+        "connector": "github"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "now: the bot, its chat and its routines (as they were) return",
+          "note": "Its chat is back, and its routines run again as they were.",
+          "restored": "writer",
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "error": "Only Mixy (the representative agent) can create, edit or delete agents (setup restore_definition); ask the user to do it with Mixy or in the Agents settings",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "now: the bot, its chat and its routines (as they were) return",
+          "note": "Its chat is back, and its routines run again as they were.",
+          "restored": "writer",
+          "saved": true,
+          "scope": "installation"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "error": "Only Mixy (the representative agent) can create, edit or delete agents (setup restore_definition); ask the user to do it with Mixy or in the Agents settings",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup restore_definition)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup restore_definition)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup restore_definition)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "restore_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "Only Mixy (the representative agent) can create, edit or delete agents (setup restore_definition); ask the user to do it with Mixy or in the Agents settings",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "human",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new sessions unless appliedToCurrentSession is true",
+          "args": [
+            "writer"
+          ],
+          "recovery": "A custom agent or bot is archived with its chat; its schedules and webhooks are paused and hidden, unchanged. The user can restore it, routines included, from Sessions → Archived, or delete it there for good, which deletes its routines too. A built-in override reverts to its built-in definition.",
+          "saved": true,
+          "scope": "installation",
+          "stub": "deleteAgentDefinition"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "acting",
+      "reach": false,
+      "result": {
+        "error": "Only Mixy (the representative agent) can create, edit or delete agents (setup delete_definition); ask the user to do it with Mixy or in the Agents settings",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "mixy_acting",
+      "reach": false,
+      "result": {
+        "answer": {
+          "appliesTo": "new sessions unless appliedToCurrentSession is true",
+          "args": [
+            "writer"
+          ],
+          "recovery": "A custom agent or bot is archived with its chat; its schedules and webhooks are paused and hidden, unchanged. The user can restore it, routines included, from Sessions → Archived, or delete it there for good, which deletes its routines too. A built-in override reverts to its built-in definition.",
+          "saved": true,
+          "scope": "installation",
+          "stub": "deleteAgentDefinition"
+        },
+        "ok": true
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "agent",
+      "reach": false,
+      "result": {
+        "error": "Only Mixy (the representative agent) can create, edit or delete agents (setup delete_definition); ask the user to do it with Mixy or in the Agents settings",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "unattended",
+      "reach": false,
+      "result": {
+        "error": "An unattended run cannot change settings (setup delete_definition)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "room",
+      "reach": false,
+      "result": {
+        "error": "A group-room member cannot change settings (setup delete_definition)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "headless",
+      "reach": false,
+      "result": {
+        "error": "A background run cannot change settings (setup delete_definition)",
+        "ok": false
+      },
+      "voice": "ok"
+    },
+    {
+      "args": {
+        "action": "delete_definition",
+        "definitionKind": "agent",
+        "name": "writer"
+      },
+      "caller": "heartbeat",
+      "reach": false,
+      "result": {
+        "error": "Only Mixy (the representative agent) can create, edit or delete agents (setup delete_definition); ask the user to do it with Mixy or in the Agents settings",
+        "ok": false
+      },
+      "voice": "ok"
+    }
+  ],
+  "recorder": "benchmarks/rust-core/recorders/record-setup-dispatch.mjs"
+}

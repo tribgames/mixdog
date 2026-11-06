@@ -124,6 +124,7 @@ pub fn failure_text(code: &str, detail: Option<&DomainErrorDetail>) -> String {
         ("WORKTREE_PROJECT_UNKNOWN", _) => "Project is not available.".to_owned(),
         ("WORKTREE_PROJECT_MISMATCH", _) => "This session keeps a worktree of another project. Remove it before creating a new one here.".to_owned(),
         ("WORKTREE_LARGE_REPO_CONFIRM", _) => "The repository is large; confirm before creating a worktree.".to_owned(),
+        ("MERGE_CONFLICT", Some(D::MergeConflict { files })) => merge_conflict_text(files),
         ("MERGE_CONFLICT", _) => "Nothing was merged because the branches conflict.".to_owned(),
         ("WORKTREE_UNMERGED", _) => "The worktree branch has commits that are not merged.".to_owned(),
         ("MERGE_TARGET_DIRTY", _) => "The branch to merge into has uncommitted changes. Commit or stash them first.".to_owned(),
@@ -149,17 +150,24 @@ pub fn merge_conflict_text(files: &[String]) -> String {
     )
 }
 
-/// `MERGE_CONFLICT` as the tool's failure JSON. It has no `DomainErrorDetail` variant: a
-/// conflicting merge is a result (`merged:false, conflicts`), and this is how a surface that
-/// must fail on it words it.
+/// `MERGE_CONFLICT` as the tool's failure JSON: a conflicting merge is a result
+/// (`merged:false, conflicts`), and this is how a surface that must fail on it words it.
 pub fn merge_conflict_json(files: &[String]) -> Value {
-    json!({
-        "ok": false,
-        "code": "MERGE_CONFLICT",
-        "error": merge_conflict_text(files),
-        "details": { "files": files },
-        "next": next_step("MERGE_CONFLICT", None, false),
-    })
+    failure_json(&crate::worktree::errors::merge_conflict(files.to_vec()), false).unwrap_or(Value::Null)
+}
+
+/// Node's `error` field (`git-worktree-tool.mjs` `failureText` → `worktreeFailureText`): the
+/// desktop wording for the codes its switch covers (`:93-149`); for every other code, and for
+/// `WORKTREE_LARGE_REPO_CONFIRM` and a `snapshot-held` busy refusal, the error's own message
+/// (`:149-150`, `default: return message`), which is the producer's text or the contract's
+/// default of the code.
+fn error_text(failure: &ScmFailure, code: &str, detail: Option<&DomainErrorDetail>) -> String {
+    let desktop = failure_text(code, detail);
+    let snapshot_held = matches!(detail, Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. }) if reason == "snapshot-held");
+    if desktop != code && code != "WORKTREE_LARGE_REPO_CONFIRM" && !snapshot_held {
+        return desktop;
+    }
+    failure.message().map(str::to_owned).or_else(|| contract_message(code, detail).map(str::to_owned)).unwrap_or(desktop)
 }
 
 /// What the caller does next, for the refusals that need the user or a retry.
@@ -200,10 +208,10 @@ pub fn failure_json(failure: &ScmFailure, raw: bool) -> Option<Value> {
         return None;
     };
     let detail = detail.as_deref();
-    let mut out = json!({ "ok": false, "code": code, "error": failure_text(code, detail) });
+    let mut out = json!({ "ok": false, "code": code, "error": error_text(failure, code, detail) });
     if let Some(detail) = detail {
         if let Ok(Value::Object(mut fields)) = serde_json::to_value(detail) {
-            fields.remove("type");
+            fields.shift_remove("type");
             if !fields.is_empty() {
                 out["details"] = Value::Object(fields);
             }
@@ -227,6 +235,31 @@ mod tests {
         assert_eq!(out["error"], "The worktree has uncommitted changes.");
         assert_eq!(out["details"]["count"], 3);
         assert!(out["next"].as_str().unwrap().starts_with("Nothing was removed."));
+    }
+
+    #[test]
+    fn a_merge_conflict_carries_its_files_and_words_nodes_answer() {
+        let files: Vec<String> = (1..=6).map(|n| format!("f{n}.txt")).collect();
+        let out = failure_json(&errors::merge_conflict(files.clone()), false).unwrap();
+        assert_eq!(out["code"], "MERGE_CONFLICT");
+        assert_eq!(out["details"], json!({ "files": files }));
+        assert_eq!(out["error"], "Nothing was merged. Conflicting files: f1.txt, f2.txt, f3.txt, f4.txt, f5.txt, …");
+        assert!(out["next"].as_str().unwrap().starts_with("Nothing was merged or forced."));
+        let none = failure_json(&errors::merge_conflict(Vec::new()), false).unwrap();
+        assert_eq!(none["error"], "Nothing was merged because the branches conflict.");
+        assert_eq!(none["details"], json!({ "files": [] }));
+    }
+
+    #[test]
+    fn codes_the_desktop_has_no_wording_for_answer_with_the_errors_own_message() {
+        let detail = DomainErrorDetail::WorktreeLargeRepoConfirm { estimate_bytes: 5 << 30, threshold_bytes: 2 << 30 };
+        // The producer set no message: the contract's default of the code.
+        let plain = failure_json(&ScmFailure::coded("WORKTREE_LARGE_REPO_CONFIRM", detail.clone()), false).unwrap();
+        assert_eq!(plain["error"], "The repository is large; confirm before creating a worktree.");
+        // The message the error carries is what Node's `default: return message` answers.
+        let said = failure_json(&ScmFailure::coded_with_message("WORKTREE_LARGE_REPO_CONFIRM", detail, "WORKTREE_LARGE_REPO_CONFIRM: big"), false).unwrap();
+        assert_eq!(said["error"], "WORKTREE_LARGE_REPO_CONFIRM: big");
+        assert_eq!(said["details"], json!({ "estimateBytes": 5u64 << 30, "thresholdBytes": 2u64 << 30 }));
     }
 
     #[test]

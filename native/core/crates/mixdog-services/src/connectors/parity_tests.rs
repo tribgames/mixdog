@@ -6,6 +6,7 @@ use serde_json::Value;
 use super::accounts::{ConnectorAccount, accounts_of_instructions, connector_accounts_instructions};
 use super::triggers::{CONNECTOR_TRIGGER_MAX_CHARS, CONNECTOR_TRIGGERS, connector_trigger};
 
+#[allow(clippy::disallowed_methods, reason = "test fixture loading")]
 fn twin() -> Value {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/connectors/connector-text-twin.json");
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()

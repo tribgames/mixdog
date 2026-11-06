@@ -299,7 +299,24 @@ mod tools {
         let shown = text(&out);
         assert!(out.is_err());
         assert!(shown.contains("Blocked request to private address: 127.0.0.1"), "{shown}");
-        assert!(shown.contains("errorCode: POLICY_BLOCKED"), "{shown}");
+        assert!(shown.contains("errorCode: Error"), "{shown}");
+    }
+
+    /// Node 22: `formatResponse('fetch', …)` of the item `handleToolCall` builds when `assertPublicUrl`
+    /// throws: the message, `errorCode: 'Error'` (the error's name) and no diagnostics.
+    #[tokio::test]
+    async fn address_policy_block_is_nodes_plain_error_item() {
+        let web = WebService::new(WebConfig::new("test")).unwrap();
+        let private = text(&call(&web, "web_fetch", json!({"url": "http://127.0.0.1:9/x"})).await);
+        assert_eq!(
+            private,
+            "[http://127.0.0.1:9/x]\n(error: Blocked request to private address: 127.0.0.1)\nerrorCode: Error"
+        );
+        let userinfo = text(&call(&web, "web_fetch", json!({"url": "http://user:p@example.com/"})).await);
+        assert_eq!(
+            userinfo,
+            "[http://user:p@example.com/]\n(error: Blocked URL with userinfo credentials: example.com)\nerrorCode: Error"
+        );
     }
 
     #[tokio::test]
@@ -398,7 +415,7 @@ mod tools {
     #[async_trait]
     impl PageRenderer for FakeRenderer {
         async fn render(&self, url: &Url, _budget: Duration) -> Result<StagePage, FetchError> {
-            Ok(StagePage { url: url.to_string(), title: "Rendered".into(), content: "rendered body".into(), extractor: "puppeteer".into(), ..StagePage::default() })
+            Ok(StagePage { url: url.to_string(), title: "Rendered".into(), content: "rendered body".into(), extractor: "puppeteer".into(), excerpt_json_len: 2, ..StagePage::default() })
         }
     }
 
@@ -554,6 +571,171 @@ mod tools {
         let local = web.tools().into_iter().find(|t| t.spec().name == "local_fetch").unwrap();
         assert_eq!(local.spec().annotations.open_world_hint, Some(false));
     }
+
+    #[test]
+    fn runtime_only_targets_are_hidden_from_the_agent() {
+        let web = service(|_| {});
+        let hidden: Vec<(String, bool)> =
+            web.tools().iter().map(|t| (t.spec().name.clone(), t.spec().annotations.agent_hidden)).collect();
+        assert_eq!(
+            hidden,
+            [
+                ("web_search".to_string(), false),
+                ("web_fetch".to_string(), false),
+                ("local_fetch".to_string(), true),
+                ("image_fetch".to_string(), true),
+            ]
+        );
+    }
+
+    /// Every expected text is `JSON.stringify({ error: 'Invalid arguments', details: error.issues })`
+    /// printed by Node 22 with zod 4.6 for the schema in `index.mjs`.
+    #[tokio::test]
+    async fn invalid_arguments_match_nodes_zod_payload() {
+        let union_missing = |key: &str, other: &str| {
+            format!(
+                r#"{{"error":"Invalid arguments","details":[{{"code":"invalid_union","errors":[[{{"expected":"string","code":"invalid_type","path":[],"message":"Invalid input: expected string, received {other}"}}],[{{"expected":"array","code":"invalid_type","path":[],"message":"Invalid input: expected array, received {other}"}}]],"path":["{key}"],"message":"Invalid input"}}]}}"#
+            )
+        };
+        let web = service(|_| {});
+        let fetch: Vec<(serde_json::Value, String)> = vec![
+            (json!({}), union_missing("url", "undefined")),
+            (json!({"url": []}), union_missing("url", "undefined")),
+            (json!({"url": 5}), union_missing("url", "number")),
+            (json!({"url": null}), union_missing("url", "null")),
+            (json!({"url": {"a": 1}}), union_missing("url", "object")),
+            (json!({"url": "not a url"}), r#"{"error":"Invalid arguments","details":[{"code":"invalid_format","format":"url","path":["url"],"message":"Invalid URL"}]}"#.into()),
+            (json!({"url": ["x", "https://a.b"]}), r#"{"error":"Invalid arguments","details":[{"code":"invalid_format","format":"url","path":["url",0],"message":"Invalid URL"}]}"#.into()),
+            (json!({"url": ["x", "y"]}), r#"{"error":"Invalid arguments","details":[{"code":"invalid_format","format":"url","path":["url",0],"message":"Invalid URL"},{"code":"invalid_format","format":"url","path":["url",1],"message":"Invalid URL"}]}"#.into()),
+            (json!({"url": ["x", 3]}), r#"{"error":"Invalid arguments","details":[{"code":"invalid_union","errors":[[{"expected":"string","code":"invalid_type","path":[],"message":"Invalid input: expected string, received array"}],[{"code":"invalid_format","format":"url","path":[0],"message":"Invalid URL"},{"expected":"string","code":"invalid_type","path":[1],"message":"Invalid input: expected string, received number"}]],"path":["url"],"message":"Invalid input"}]}"#.into()),
+            (json!({"url": [3]}), r#"{"error":"Invalid arguments","details":[{"code":"invalid_union","errors":[[{"expected":"string","code":"invalid_type","path":[],"message":"Invalid input: expected string, received array"}],[{"expected":"string","code":"invalid_type","path":[0],"message":"Invalid input: expected string, received number"}]],"path":["url"],"message":"Invalid input"}]}"#.into()),
+            (json!({"url": "https://a.b", "startIndex": -1}), r#"{"error":"Invalid arguments","details":[{"origin":"number","code":"too_small","minimum":0,"inclusive":true,"path":["startIndex"],"message":"Too small: expected number to be >=0"}]}"#.into()),
+            (json!({"url": "https://a.b", "startIndex": 1.5}), r#"{"error":"Invalid arguments","details":[{"expected":"int","format":"safeint","code":"invalid_type","path":["startIndex"],"message":"Invalid input: expected int, received number"}]}"#.into()),
+            (json!({"url": "https://a.b", "startIndex": -1.5}), r#"{"error":"Invalid arguments","details":[{"expected":"int","format":"safeint","code":"invalid_type","path":["startIndex"],"message":"Invalid input: expected int, received number"}]}"#.into()),
+            (json!({"url": "https://a.b", "startIndex": 1e300}), r#"{"error":"Invalid arguments","details":[{"code":"too_big","maximum":9007199254740991,"note":"Integers must be within the safe integer range.","origin":"int","inclusive":true,"path":["startIndex"],"message":"Too big: expected int to be <=9007199254740991"}]}"#.into()),
+            (json!({"url": "https://a.b", "startIndex": -1e300}), r#"{"error":"Invalid arguments","details":[{"code":"too_small","minimum":-9007199254740991,"note":"Integers must be within the safe integer range.","origin":"int","inclusive":true,"path":["startIndex"],"message":"Too small: expected int to be >=-9007199254740991"},{"origin":"number","code":"too_small","minimum":0,"inclusive":true,"path":["startIndex"],"message":"Too small: expected number to be >=0"}]}"#.into()),
+            (json!({"url": "https://a.b", "startIndex": null}), r#"{"error":"Invalid arguments","details":[{"expected":"number","code":"invalid_type","path":["startIndex"],"message":"Invalid input: expected number, received null"}]}"#.into()),
+            (json!({"url": "https://a.b", "startIndex": true}), r#"{"error":"Invalid arguments","details":[{"expected":"number","code":"invalid_type","path":["startIndex"],"message":"Invalid input: expected number, received boolean"}]}"#.into()),
+            (json!({"url": "https://a.b", "maxLength": "x"}), r#"{"error":"Invalid arguments","details":[{"expected":"number","code":"invalid_type","path":["maxLength"],"message":"Invalid input: expected number, received string"}]}"#.into()),
+            (json!({"url": "https://a.b", "cwd": 3}), r#"{"error":"Invalid arguments","details":[{"expected":"string","code":"invalid_type","path":["cwd"],"message":"Invalid input: expected string, received number"}]}"#.into()),
+            (json!([1]), r#"{"error":"Invalid arguments","details":[{"expected":"object","code":"invalid_type","path":[],"message":"Invalid input: expected object, received array"}]}"#.into()),
+            (json!("x"), r#"{"error":"Invalid arguments","details":[{"expected":"object","code":"invalid_type","path":[],"message":"Invalid input: expected object, received string"}]}"#.into()),
+        ];
+        for (args, want) in fetch {
+            for tool in ["web_fetch", "local_fetch", "image_fetch"] {
+                let error = call(&web, tool, args.clone()).await.unwrap_err();
+                assert_eq!(error.message_for_model, want, "{tool} {args}");
+                assert!(matches!(error.code, ToolErrorCode::InvalidArgs { .. }));
+            }
+        }
+        let search: Vec<(serde_json::Value, String)> = vec![
+            (json!({}), union_missing("keywords", "undefined")),
+            (json!({"keywords": "  "}), union_missing("keywords", "undefined")),
+            (json!({"keywords": 7}), union_missing("keywords", "number")),
+            (json!({"keywords": []}), r#"{"error":"Invalid arguments","details":[{"origin":"array","code":"too_small","minimum":1,"inclusive":true,"path":["keywords"],"message":"Too small: expected array to have >=1 items"}]}"#.into()),
+            (json!({"query": ["a", ""]}), r#"{"error":"Invalid arguments","details":[{"origin":"string","code":"too_small","minimum":1,"inclusive":true,"path":["keywords",1],"message":"Too small: expected string to have >=1 characters"}]}"#.into()),
+            (json!({"keywords": [1, ""]}), r#"{"error":"Invalid arguments","details":[{"code":"invalid_union","errors":[[{"expected":"string","code":"invalid_type","path":[],"message":"Invalid input: expected string, received array"}],[{"expected":"string","code":"invalid_type","path":[0],"message":"Invalid input: expected string, received number"},{"origin":"string","code":"too_small","minimum":1,"inclusive":true,"path":[1],"message":"Too small: expected string to have >=1 characters"}]],"path":["keywords"],"message":"Invalid input"}]}"#.into()),
+            (json!({"keywords": [[]]}), r#"{"error":"Invalid arguments","details":[{"code":"invalid_union","errors":[[{"expected":"string","code":"invalid_type","path":[],"message":"Invalid input: expected string, received array"}],[{"expected":"string","code":"invalid_type","path":[0],"message":"Invalid input: expected string, received array"},{"origin":"array","code":"too_small","minimum":1,"inclusive":true,"path":[0],"message":"Too small: expected array to have >=1 items"}]],"path":["keywords"],"message":"Invalid input"}]}"#.into()),
+            (json!({"keywords": "a", "maxResults": 0}), r#"{"error":"Invalid arguments","details":[{"origin":"number","code":"too_small","minimum":1,"inclusive":true,"path":["maxResults"],"message":"Too small: expected number to be >=1"}]}"#.into()),
+            (json!({"keywords": "a", "maxResults": 21}), r#"{"error":"Invalid arguments","details":[{"origin":"number","code":"too_big","maximum":20,"inclusive":true,"path":["maxResults"],"message":"Too big: expected number to be <=20"}]}"#.into()),
+            (json!({"keywords": "a", "maxResults": 1e300}), r#"{"error":"Invalid arguments","details":[{"code":"too_big","maximum":9007199254740991,"note":"Integers must be within the safe integer range.","origin":"int","inclusive":true,"path":["maxResults"],"message":"Too big: expected int to be <=9007199254740991"},{"origin":"number","code":"too_big","maximum":20,"inclusive":true,"path":["maxResults"],"message":"Too big: expected number to be <=20"}]}"#.into()),
+            (json!({"keywords": "a", "contextSize": "x"}), r#"{"error":"Invalid arguments","details":[{"code":"invalid_value","values":["low","medium","high"],"path":["contextSize"],"message":"Invalid option: expected one of \"low\"|\"medium\"|\"high\""}]}"#.into()),
+            (json!({"keywords": "a", "site": 3}), r#"{"error":"Invalid arguments","details":[{"expected":"string","code":"invalid_type","path":["site"],"message":"Invalid input: expected string, received number"}]}"#.into()),
+            (json!({"keywords": "a", "locale": 3}), r#"{"error":"Invalid arguments","details":[{"code":"invalid_union","errors":[[{"expected":"string","code":"invalid_type","path":[],"message":"Invalid input: expected string, received number"}],[{"expected":"object","code":"invalid_type","path":[],"message":"Invalid input: expected object, received number"}]],"path":["locale"],"message":"Invalid input"}]}"#.into()),
+            (json!({"keywords": "a", "locale": {"country": 3}}), r#"{"error":"Invalid arguments","details":[{"code":"invalid_union","errors":[[{"expected":"string","code":"invalid_type","path":[],"message":"Invalid input: expected string, received object"}],[{"expected":"string","code":"invalid_type","path":["country"],"message":"Invalid input: expected string, received number"}]],"path":["locale"],"message":"Invalid input"}]}"#.into()),
+            (json!({"keywords": "a", "site": 3, "maxResults": 0}), r#"{"error":"Invalid arguments","details":[{"expected":"string","code":"invalid_type","path":["site"],"message":"Invalid input: expected string, received number"},{"origin":"number","code":"too_small","minimum":1,"inclusive":true,"path":["maxResults"],"message":"Too small: expected number to be >=1"}]}"#.into()),
+        ];
+        for (args, want) in search {
+            let error = call(&web, "web_search", args.clone()).await.unwrap_err();
+            assert_eq!(error.message_for_model, want, "{args}");
+        }
+        let pattern = call(&web, "web_search", json!({"pattern": "*.rs"})).await.unwrap_err();
+        assert_eq!(pattern.message_for_model, "Error: web search requires query; use glob(pattern=...) for file paths.");
+    }
+
+    fn cache_file(dir: &std::path::Path) -> crate::web::cache::CacheFile {
+        crate::web::cache::CacheFile {
+            path: dir.join("cache.local.json"),
+            lane: mixdog_rt::testing::tokens().maintenance_io,
+        }
+    }
+
+    #[tokio::test]
+    async fn caches_persist_in_nodes_file_shape_and_load_at_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = MockServer::start().await;
+        Mock::given(path("/p")).respond_with(html("<main>persisted body</main>")).expect(1).mount(&server).await;
+        let url = format!("{}/p", server.uri());
+        let first = service(|c| c.cache_file = Some(cache_file(dir.path())));
+        assert!(call(&first, "web_fetch", json!({"url": url})).await.is_ok());
+        // `web_fetch` writes the file before it answers, as Node's `flushCacheState` does.
+        let stored: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join("cache.local.json")).unwrap()).unwrap();
+        let key = super::super::cache::node_cache_key("fetch:url", &json!({"url": url, "version": "document-pipeline-v3"}));
+        let entry = &stored["entries"][key.as_str()];
+        assert_eq!(entry["payload"]["tool"], "web_fetch");
+        assert_eq!(entry["payload"]["content"], "persisted body");
+        assert_eq!(entry["expiresAt"].as_u64().unwrap() - entry["cachedAt"].as_u64().unwrap(), 3_600_000);
+        assert_eq!(stored["entries"].as_object().unwrap().len(), 1);
+        assert!(stored["__approxBytes"].as_i64().unwrap() > 0);
+        // A new service reads the file: the origin is not contacted again (`expect(1)` above).
+        let second = service(|c| c.cache_file = Some(cache_file(dir.path())));
+        let shown = text(&call(&second, "web_fetch", json!({"url": url})).await);
+        assert!(shown.ends_with("persisted body"), "{shown}");
+    }
+
+    #[tokio::test]
+    async fn expired_and_oversized_entries_are_dropped_at_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("cache.local.json");
+        let entry = |at: u64, expires: u64| json!({"cachedAt": at, "expiresAt": expires, "payload": {"tool": "web_fetch"}});
+        let mut entries = serde_json::Map::new();
+        entries.insert("fetch:url:old".into(), entry(1, 2));
+        for n in 0..502u64 {
+            entries.insert(format!("fetch:url:k{n}"), entry(1000 + n, 99_999_999_999_999));
+        }
+        std::fs::write(&file, json!({"entries": entries}).to_string()).unwrap();
+        let cache = Arc::new(super::super::cache::NodeCache::new(Some(cache_file(dir.path()))));
+        assert!(cache.get("fetch:url:old").await.is_none());
+        // 502 live entries exceed Node's 500; the two oldest `cachedAt` went.
+        assert!(cache.get("fetch:url:k0").await.is_none() && cache.get("fetch:url:k1").await.is_none());
+        assert!(cache.get("fetch:url:k2").await.is_some() && cache.get("fetch:url:k501").await.is_some());
+    }
+
+    #[test]
+    fn name_lookup_failures_are_classified_as_nodes_resolver_codes() {
+        use super::super::error::FetchKind;
+        use super::super::gai::LookupError;
+        use super::super::gai::classify;
+        use super::super::ssrf::lookup_failure;
+        let failure = |code: i32| lookup_failure("h.example", LookupError { kind: classify(code), code });
+        // The `getaddrinfo` result codes of the platform: EAI_NONAME / EAI_NODATA are ENOTFOUND / ENODATA,
+        // EAI_AGAIN is retried, anything else is a plain network error.
+        #[cfg(unix)]
+        let (not_found, again, other) = {
+            #[allow(unused_mut)]
+            let mut not_found = vec![libc::EAI_NONAME];
+            #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+            not_found.push(libc::EAI_NODATA);
+            (not_found, libc::EAI_AGAIN, libc::EAI_FAIL)
+        };
+        #[cfg(windows)]
+        let (not_found, again, other) = (vec![11001, 11004], 11002, 11003);
+        for code in not_found {
+            let error = failure(code);
+            assert_eq!((error.kind, error.message.as_str()), (FetchKind::Policy, "DNS returned no addresses for h.example"));
+        }
+        let again = failure(again);
+        assert_eq!(again.kind, FetchKind::NetworkTransient);
+        assert_eq!(again.message, "fetch failed: getaddrinfo EAI_AGAIN h.example");
+        assert_eq!(failure(other).kind, FetchKind::Network);
+    }
+
+    #[test]
+    fn lookup_resolves_literals_through_the_shared_resolver_path() {
+        let ips = super::super::gai::lookup("127.0.0.1").unwrap();
+        assert_eq!(ips, vec![std::net::IpAddr::from([127, 0, 0, 1])]);
+    }
 }
 
 mod page_entry_parity {
@@ -562,8 +744,13 @@ mod page_entry_parity {
     use super::super::extract::extract_document;
     use super::super::http::Redirect;
     use super::super::pipeline::Page;
-    use super::super::tools::page_entry_size;
+    use super::super::cache::node_entry_size;
+    use super::super::tools::excerpt_size_gap;
     use super::super::tools::page_payload;
+
+    fn page_entry_size(page: &Page, requested_url: &str) -> usize {
+        node_entry_size(&page_payload(page, requested_url), std::time::Duration::from_secs(3600)) + excerpt_size_gap(page)
+    }
 
     fn page(excerpt_source: &str, redirects: Option<Vec<Redirect>>) -> Page {
         let url = Url::parse("https://a.example/doc.txt").unwrap();
@@ -634,6 +821,7 @@ mod search_semantics {
     fn args(query: &str, site: Option<&str>) -> SearchArgs {
         SearchArgs {
             query: query.into(),
+            listed: false,
             site: site.map(str::to_string),
             locale: None,
             context_size: "low".into(),

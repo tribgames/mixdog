@@ -247,6 +247,8 @@ pub(crate) struct Rig {
     pub(crate) server: AppServer,
     pub(crate) core: Arc<TestCore>,
     pub(crate) outgoing: Arc<Outgoing>,
+    /// The origins the transport would know: filled by `connect`, emptied by `forget`.
+    origins: Arc<Mutex<std::collections::HashMap<ConnectionId, Origin>>>,
 }
 
 /// The requests and notifications of the table in `namespaces`. Leaked: the services list their
@@ -310,12 +312,22 @@ impl Rig {
             loads: AtomicUsize::new(0),
         });
         let outgoing = Outgoing::new();
-        let server = AppServer::new(core.clone(), outgoing.clone(), config()).unwrap();
+        let origins: Arc<Mutex<std::collections::HashMap<ConnectionId, Origin>>> = Arc::default();
+        let known = origins.clone();
+        let origin_of: crate::OriginOf =
+            Arc::new(move |id| known.lock().unwrap().get(&id).copied());
+        let server = AppServer::new(core.clone(), outgoing.clone(), origin_of, config()).unwrap();
         Self {
             server,
             core,
             outgoing,
+            origins,
         }
+    }
+
+    /// The transport loses track of connection `id` while its handle is still driven.
+    pub(crate) fn forget(&self, id: u64) {
+        self.origins.lock().unwrap().remove(&ConnectionId(id));
     }
 
     pub(crate) fn gate(&self, namespace: &str) -> &Arc<GateDomain> {
@@ -327,7 +339,8 @@ impl Rig {
             ConnectionId(id),
             MockLimits::default(),
         ));
-        let handle = self.server.open(ConnectionId(id), origin, wire.clone());
+        self.origins.lock().unwrap().insert(ConnectionId(id), origin);
+        let handle = self.server.open(ConnectionId(id), wire.clone());
         Client { handle, wire }
     }
 
@@ -346,7 +359,8 @@ impl Rig {
             inner: wire.clone(),
             hook: Mutex::new(Some(Box::new(hook))),
         };
-        let handle = self.server.open(ConnectionId(id), Origin::Local, Arc::new(sink));
+        self.origins.lock().unwrap().insert(ConnectionId(id), Origin::Local);
+        let handle = self.server.open(ConnectionId(id), Arc::new(sink));
         Client { handle, wire }
     }
 

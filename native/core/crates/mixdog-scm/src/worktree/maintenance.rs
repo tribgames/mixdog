@@ -414,7 +414,12 @@ impl Worktrees {
     /// After a session was deleted: with autoCleanup on, its worktree is marked disposable and
     /// removed when clean and merged (dirty or unmerged work is kept, still disposable, for a
     /// later prune). Off: kept. Its branch stays unless deleteBranch is on. `None`: it had none.
+    /// In Node's order (`maintenance.mjs` `cleanupDeletedSessionWorktree`): its shared references
+    /// are forgotten, its read-only snapshots go whatever autoCleanup says (they never outlive
+    /// their holder), and only then the owned worktree is handled.
     pub async fn cleanup_deleted_session_worktree(&self, session_id: &str, cancel: &CancellationToken) -> Result<Option<Value>, ScmFailure> {
+        self.forget_shared_worktree_session(session_id, cancel).await?;
+        self.remove_session_snapshots(session_id, cancel).await?;
         let Some(entry) = self
             .all_records(cancel)
             .await?

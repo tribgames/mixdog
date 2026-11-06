@@ -1,0 +1,97 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "go",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "assistant",
+      "content": "looking",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "echo",
+          "arguments": {
+            "a": 1
+          }
+        }
+      ],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": "<system-reminder>Write all user-facing text in Korean.</system-reminder>"
+    },
+    {
+      "role": "tool",
+      "content": "echo:{\"a\":1}",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": "c1",
+      "toolKind": "normal",
+      "turnReminder": null
+    }
+  ],
+  "result": {
+    "content": "all done",
+    "historyContent": null,
+    "reportContent": null,
+    "terminationReason": null,
+    "iterations": 2,
+    "toolCallsTotal": 1,
+    "maxOutputRecoveryAttempts": null,
+    "providerContinuations": 0
+  },
+  "error": null,
+  "requests": [
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>Write all user-facing text in Korean.</system-reminder>",
+          "toolCallId": null
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "assistant",
+          "content": "looking",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "echo:{\"a\":1}",
+          "toolCallId": "c1"
+        },
+        {
+          "role": "user",
+          "content": "<system-reminder>Write all user-facing text in Korean.</system-reminder>",
+          "toolCallId": null
+        }
+      ]
+    }
+  ]
+}

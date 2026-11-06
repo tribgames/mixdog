@@ -25,6 +25,7 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::Config;
+use super::OutputStyles;
 use super::ConfigEdit;
 use super::ConfigError;
 use super::PUBLISHED_SUBTREES;
@@ -69,6 +70,8 @@ const METHODS: &[&str] = &[
     "config/saveStarterGuideState",
     "config/getBotOrder",
     "config/setBotOrder",
+    "config/getOutputStyle",
+    "config/listOutputStyles",
 ];
 
 pub struct ConfigService {
@@ -77,11 +80,12 @@ pub struct ConfigService {
     /// The scalar settings of the agent config (heartbeat, reactions, AI session titles, cache
     /// warming, system shell, developer options, recap, starter guide).
     settings: Settings,
+    output_styles: OutputStyles,
 }
 
 impl ConfigService {
-    pub fn new(config: Config, tool_modules: Arc<ToolModules>, settings: Settings) -> Self {
-        Self { config, tool_modules, settings }
+    pub fn new(config: Config, tool_modules: Arc<ToolModules>, settings: Settings, output_styles: OutputStyles) -> Self {
+        Self { config, tool_modules, settings, output_styles }
     }
 
     async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, CoreError> {
@@ -138,6 +142,7 @@ impl ConfigService {
                 let patch = params.get("patch").cloned().unwrap_or(Value::Null);
                 set_worktree_settings(&self.config, &patch).await
             }
+            "config/getOutputStyle" | "config/listOutputStyles" => tool(self.output_styles.status().await),
             other => settings_call(&self.settings, other, params).await,
         }
     }

@@ -102,6 +102,26 @@ pub struct Range {
     pub data: String,
 }
 
+/// A readable file a source domain hands to the transfer service.
+pub struct SourceFile {
+    pub file: File,
+    pub name: String,
+    pub mime_type: String,
+    /// A staged temp file removed when the transfer ends.
+    pub cleanup: Option<PathBuf>,
+}
+
+/// One `transfer/beginRead` source kind served by another domain: `mediaAsset` (media),
+/// `attachment` (blob) and `export` (session). `open` runs on the caller's task; it authorizes
+/// the request itself and returns the open file.
+#[async_trait::async_trait]
+pub trait TransferSource: Send + Sync + 'static {
+    /// The `source.kind` this serves.
+    fn kind(&self) -> &'static str;
+    /// `source` is the request's whole `source` object.
+    async fn open(&self, source: &serde_json::Value, cancel: &tokio_util::sync::CancellationToken) -> WsResult<SourceFile>;
+}
+
 #[derive(Default)]
 pub struct Transfers {
     reads: Mutex<HashMap<String, Read>>,
@@ -146,6 +166,11 @@ impl Transfers {
         }
         let name = absolute.file_name().unwrap_or_default().to_string_lossy().into_owned();
         self.register(owner, file, name, mime_type(&absolute), None)
+    }
+
+    /// A file another domain produced (`TransferSource`), read like any file.
+    pub fn begin_source(&self, owner: &str, file: SourceFile) -> WsResult<Opened> {
+        self.register(owner, file.file, file.name, &file.mime_type, file.cleanup)
     }
 
     /// A folder as a zip staged in a temp file, then read like any file. The walk runs on

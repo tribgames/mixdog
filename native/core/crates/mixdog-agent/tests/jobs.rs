@@ -131,6 +131,7 @@ async fn the_board_equals_nodes_background_tasks() {
                         started_at_ms: op.get("startedAt").and_then(Value::as_i64).map(|offset| start + offset),
                         cancel: None,
                         cwd: text(op, "cwd"),
+                        render: None,
                     });
                     if let Err(error) = result {
                         got.insert("error".into(), Value::String(error));
@@ -151,7 +152,7 @@ async fn the_board_equals_nodes_background_tasks() {
                                 notify_on_cancel: op.get("notifyOnCancel") == Some(&Value::Bool(true)),
                                 ..NewJob::default()
                             },
-                            async move { receive.await.unwrap() },
+                            |_| async move { receive.await.unwrap() },
                         )
                         .unwrap();
                 }

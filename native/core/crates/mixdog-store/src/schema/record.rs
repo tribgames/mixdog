@@ -52,6 +52,7 @@ pub enum Record {
     Queue(QueueRecord),
     Op(OpRecord),
     Checkpoint(CheckpointRecord),
+    ModelSwitch(ModelSwitchRecord),
 }
 
 /// First frame of file `log.000000`: ordinal 0, or `base.end_ordinal_exclusive` for a fork.
@@ -427,6 +428,39 @@ pub struct OpRef {
     /// reproduced by a read (P §9.2 `resultRef`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Json<OP_RESULT_MAX>>,
+}
+
+/// A display-only model-switch boundary: one 1.4.5 `meta.modelSwitches` entry of the
+/// anchor row (`set-route.mjs` `recordModelSwitchBoundary`), appended instead of rewriting
+/// that row. Never part of the model context. Shown after the anchor's own items for as
+/// long as the anchor row is live in the reader's view, whatever this record's own ordinal
+/// a later rewind covers (FORMAT.md §5.3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelSwitchRecord {
+    pub anchor: Anchor,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub op: Option<OpRef>,
+    pub entry: ModelSwitchEntry,
+}
+
+/// An already stored `item` row: its `iid` and its ordinal in the session's lineage view
+/// (below the record's own ordinal; a fork's anchor may be an inherited base row).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Anchor {
+    pub iid: Id,
+    pub ordinal: u64,
+}
+
+/// The 1.4.5 boundary entry as stored in `meta.modelSwitches`: `{provider, modelId, at}`
+/// (`at` = the switch's `Date.now()`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchEntry {
+    pub provider: Name,
+    pub model_id: Name,
+    pub at: i64,
 }
 
 /// Bounded materialized state (FORMAT.md §6). Never holds rows.

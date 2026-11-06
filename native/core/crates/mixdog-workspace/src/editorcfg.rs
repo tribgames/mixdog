@@ -263,7 +263,9 @@ pub fn write_workspace_file(workspace_file: &Path, folders: &Value) -> WsResult<
         .iter()
         .filter_map(|f| {
             let path = f.get("path")?.as_str()?;
-            let name = f.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_owned);
+            // The returned workspace keeps the name as given (Node spreads the folder); only the
+            // saved file drops an empty one.
+            let name = f.get("name").and_then(Value::as_str).map(str::to_owned);
             Some((lexical(Path::new(path)), name))
         })
         .collect();
@@ -273,10 +275,13 @@ pub fn write_workspace_file(workspace_file: &Path, folders: &Value) -> WsResult<
         .iter()
         .map(|(path, name)| {
             let rel = relative(&base, path);
-            let text = if rel.is_empty() { ".".to_owned() } else { rel };
+            // Node keeps the absolute path when the relative one is empty or absolute (the workspace
+            // folder itself, another drive); `.` only if even that is empty.
+            let text = if rel.is_empty() || Path::new(&rel).is_absolute() { path.to_string_lossy().into_owned() } else { rel };
+            let text = if text.is_empty() { ".".to_owned() } else { text };
             let mut folder = Map::new();
             folder.insert("path".into(), json!(text));
-            if let Some(name) = name {
+            if let Some(name) = name.as_ref().filter(|n| !n.is_empty()) {
                 folder.insert("name".into(), json!(name));
             }
             Value::Object(folder)

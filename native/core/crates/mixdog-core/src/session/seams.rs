@@ -230,6 +230,14 @@ pub trait ThreadStore: Send + Sync + 'static {
         id: &ThreadId,
     ) -> Result<Vec<ItemRecord>, CoreError>;
 
+    /// The lineage's whole history, oldest first, as the transcript pages it (archived rows
+    /// included): the session's whole stored conversation (`readSessionHistory`).
+    fn history_rows(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+    ) -> Result<Vec<ItemRecord>, CoreError>;
+
     /// The io step of a model-context read (the lineage's model rows since its last
     /// compaction, as acked so far): `None` starts the read; a stale page restarts it.
     fn context_io(

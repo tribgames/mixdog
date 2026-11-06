@@ -150,7 +150,7 @@ fn diagnostics(error_code: Option<&str>, is_error: bool, failures: &[Failure], a
                 format!(
                     "{}={} ({}ms)",
                     attempt.stage,
-                    attempt.code.unwrap_or("success"),
+                    attempt.code.as_deref().unwrap_or("success"),
                     attempt.elapsed_ms
                 )
             })
@@ -159,10 +159,8 @@ fn diagnostics(error_code: Option<&str>, is_error: bool, failures: &[Failure], a
     }
     for failure in failures {
         let status = failure.status.map(|s| format!(" HTTP {s}")).unwrap_or_default();
-        lines.push(format!(
-            "failure: {} [{}]{status}: {}",
-            failure.extractor, failure.code, failure.error
-        ));
+        let code = if failure.code.is_empty() { String::new() } else { format!(" [{}]", failure.code) };
+        lines.push(format!("failure: {}{code}{status}: {}", failure.extractor, failure.error));
     }
     lines
 }

@@ -52,6 +52,8 @@ pub enum FoldError {
     RewindOutOfRange { to: u64, start: u64, at: u64 },
     #[error("record kind {0} is not valid here")]
     Unexpected(&'static str),
+    #[error("model switch at {at} anchored at {anchor}, not an earlier row")]
+    AnchorNotBefore { anchor: u64, at: u64 },
     #[error("out-of-line body: {0}")]
     Body(String),
     #[error(transparent)]
@@ -210,6 +212,12 @@ impl Fold {
                 Record::Checkpoint(_) | Record::Amend(_) | Record::Op(_) => Effect::None,
                 Record::Meta(meta) => Effect::Header(resolve_slot(&meta.change, resolve).map_err(FoldError::Body)?),
                 Record::Item(item) => Effect::Item { visible: item.visible },
+                Record::ModelSwitch(switch) => {
+                    if switch.anchor.ordinal >= ordinal {
+                        return Err(FoldError::AnchorNotBefore { anchor: switch.anchor.ordinal, at: ordinal });
+                    }
+                    Effect::None
+                }
                 Record::Rewind(rewind) => {
                     let to = rewind.to_ordinal;
                     // A fork may rewind into its base range: the lineage view is cut.
@@ -221,7 +229,12 @@ impl Fold {
                             at: ordinal,
                         });
                     }
-                    let below = if to < horizon {
+                    // No own row lies below a horizon at or under the log's start (a fork
+                    // that rewound into its base range): nothing to look up.
+                    let below = if to < horizon && horizon <= self.start_ordinal {
+                        horizon = to;
+                        Some(Below { rows: 0, visible: 0, compaction: None })
+                    } else if to < horizon {
                         let (rows, visible) = index.live_rows(&self.session, to, horizon)?;
                         let compaction = index.live_compaction_before(&self.session, to)?;
                         horizon = to;

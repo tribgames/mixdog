@@ -314,6 +314,27 @@ pub fn idle_ms_for_provider(provider: Option<&Value>, provider_idle_ms: Option<&
     override_of(&overrides, "default").map_or(DEFAULT_IDLE_MS, resolved)
 }
 
+/// `AGENT_TERMINAL_REAP_MS`: the finite retention where the idle window is unlimited.
+fn terminal_reap(provider: &str) -> Option<f64> {
+    (provider == "openai-oauth").then_some(HOUR)
+}
+
+/// `resolveAgentTerminalReapMs(config, provider)`: how long a completed agent is kept. Listed
+/// providers use their cache window, or the finite reap entry where that is unlimited; any
+/// other provider uses the `default` override or the built-in default. An unlimited override
+/// never disables reaping. `auto_clear` is the config's `autoClear` section.
+pub fn agent_terminal_reap_ms(auto_clear: Option<&Value>, provider: &str) -> f64 {
+    let key = js_trim(provider).to_lowercase();
+    let overrides = provider_idle(auto_clear.and_then(|section| section.get("providerIdleMs")));
+    let finite = |provider: &str| override_of(&overrides, provider).filter(|ms| *ms > 0.0);
+    match built_in(&key) {
+        Some(built) if !key.is_empty() && key != "default" => {
+            finite(&key).or_else(|| terminal_reap(&key)).unwrap_or(built)
+        }
+        _ => finite("default").unwrap_or(DEFAULT_IDLE_MS),
+    }
+}
+
 /// `autoClearProviderDefaults`.
 pub fn provider_defaults(provider_idle_ms: Option<&Value>, extra: &[String]) -> Vec<Value> {
     let overrides = provider_idle(provider_idle_ms);

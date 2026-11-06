@@ -1,0 +1,39 @@
+{
+  "name": "turn_limits",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "limits": {
+    "maxToolCalls": 1
+  },
+  "script": [
+    {
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "c1",
+          "name": "echo",
+          "arguments": {
+            "n": 1
+          }
+        },
+        {
+          "id": "c2",
+          "name": "echo",
+          "arguments": {
+            "n": 2
+          }
+        }
+      ],
+      "stopReason": "tool_use"
+    },
+    {
+      "content": "wrap",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}

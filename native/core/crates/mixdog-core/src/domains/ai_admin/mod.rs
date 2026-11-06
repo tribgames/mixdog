@@ -12,4 +12,6 @@ pub mod route_service;
 #[cfg(test)]
 mod agent_route_tests;
 #[cfg(test)]
+mod route_actions_tests;
+#[cfg(test)]
 mod route_service_tests;

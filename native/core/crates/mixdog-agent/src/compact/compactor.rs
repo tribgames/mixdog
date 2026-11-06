@@ -7,8 +7,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_protocol::ProviderId;
+use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_protocol::message_class::user_text::UserText;
 
 use super::conversation::conversation_compaction_input;
+use super::dropped::Redactor;
+use super::dropped::dropped_summary;
 use super::estimate::MediaMeter;
 use super::estimate::MessageMeter;
 use super::execution_tail::MessageRows;
@@ -81,6 +85,10 @@ pub struct FreshParts {
     /// Where the dropped execution is stored; a preview only computes the reference.
     pub archive: Arc<dyn ArtifactStore>,
     pub attachments: Arc<dyn AttachmentSeam>,
+    /// The session's sensitive-value redaction, applied before a dropped row's visibility is judged.
+    pub redactor: Arc<dyn Redactor>,
+    /// The attachment store the transcript reads user text from.
+    pub blobs: Arc<dyn Blobs + Send + Sync>,
 }
 
 impl FreshParts {
@@ -188,9 +196,15 @@ impl Compactor for FreshCompactor {
         // A generated summary can differ from its prediction: an automatic
         // result is never equal-sized or larger than the original.
         if request.require_reduction && meter.messages(&result.messages) >= meter.messages(request.messages) {
-            return Ok(CompactOutput { messages: request.messages.to_vec(), usage });
+            return Ok(CompactOutput { messages: request.messages.to_vec(), usage, dropped_count: 0, dropped: None });
         }
-        Ok(CompactOutput { messages: result.messages, usage })
+        let (dropped_count, dropped) = if result.messages == request.messages {
+            (0, None)
+        } else {
+            let mut text = UserText::new(&*self.parts.blobs);
+            dropped_summary(request.messages, &result.messages, &*self.parts.rows, &*self.parts.redactor, &mut text)
+        };
+        Ok(CompactOutput { messages: result.messages, usage, dropped_count, dropped })
     }
 }
 

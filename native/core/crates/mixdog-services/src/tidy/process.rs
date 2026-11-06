@@ -26,6 +26,10 @@ pub struct ProcessResult {
     pub code: i32,
     pub stdout: String,
     pub stderr: String,
+    /// Both streams as the chunks arrived, the last `max_capture` bytes: the log a caller that
+    /// quotes the child's whole output (Node appends every `data` chunk of either stream to one
+    /// string) must show in arrival order.
+    pub combined: String,
     pub timed_out: bool,
     pub truncated: bool,
     pub error: String,
@@ -153,7 +157,7 @@ async fn run_process(processes: &Arc<dyn ProcessManager>, bin: &str, args: &[Str
         tokio::spawn(feed_stdin(processes.clone(), handle.clone(), input));
     }
     let cap = options.max_capture;
-    let (mut stdout, mut stderr, mut truncated) = (Vec::new(), Vec::new(), false);
+    let (mut stdout, mut stderr, mut combined, mut truncated) = (Vec::new(), Vec::new(), Vec::new(), false);
     let mut exit = None;
     let mut killed = false;
     let never = CancellationToken::new();
@@ -172,6 +176,10 @@ async fn run_process(processes: &Arc<dyn ProcessManager>, bin: &str, args: &[Str
                     let room = cap.saturating_sub(sink.len());
                     truncated |= bytes.len() > room;
                     sink.extend_from_slice(&bytes[..bytes.len().min(room)]);
+                    combined.extend_from_slice(&bytes);
+                    if combined.len() > cap {
+                        combined.drain(..combined.len() - cap);
+                    }
                 }
                 Some(ProcessEvent::Exited { exit: done, .. }) => {
                     exit = Some(done);
@@ -189,6 +197,7 @@ async fn run_process(processes: &Arc<dyn ProcessManager>, bin: &str, args: &[Str
         },
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        combined: String::from_utf8_lossy(&combined).into_owned(),
         timed_out,
         truncated,
         error: if timed_out { format!("timed out after {}ms", options.timeout.as_millis()) } else { String::new() },

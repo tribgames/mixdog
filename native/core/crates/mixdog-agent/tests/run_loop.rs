@@ -321,6 +321,8 @@ impl Compactor for Compactor100 {
         Ok(CompactOutput {
             messages: kept,
             usage: None,
+            dropped_count: 0,
+            dropped: None,
         })
     }
 }

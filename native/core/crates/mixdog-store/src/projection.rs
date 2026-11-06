@@ -18,7 +18,9 @@ use crate::schema::bounded::Digest;
 use crate::schema::checkpoint::FramePos;
 use crate::schema::record::ApprovalPhase;
 use crate::schema::record::Base;
+use crate::schema::record::Anchor;
 use crate::schema::record::Form;
+use crate::schema::record::ModelSwitchEntry;
 use crate::schema::record::OpRef;
 use crate::schema::record::OpState;
 use crate::schema::record::Record;
@@ -54,6 +56,7 @@ pub enum FrameKind {
     },
     Run { rid: String, phase: RunPhase },
     Approval { aid: String, rid: String, phase: ApprovalPhase },
+    ModelSwitch { anchor: Anchor, entry: ModelSwitchEntry },
     /// `meta`, `queue`, `op`, `checkpoint`: nothing beyond the op lookup.
     Other,
 }
@@ -187,6 +190,9 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
             },
             op(&r.op),
         ),
+        Record::ModelSwitch(r) => {
+            (FrameKind::ModelSwitch { anchor: r.anchor.clone(), entry: r.entry.clone() }, op(&r.op))
+        }
         Record::Queue(r) => (FrameKind::Other, op(&r.op)),
         Record::Op(r) => {
             let mut o = op(&Some(r.op.clone()));

@@ -1,0 +1,21 @@
+{
+  "name": "empty_incomplete_nudge",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "toolCalls": [],
+      "stopReason": "OTHER"
+    },
+    {
+      "content": "done",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ]
+}

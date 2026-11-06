@@ -2,6 +2,8 @@
 
 mod common;
 mod edit;
+mod edit_plan;
+mod hints;
 mod list;
 mod patch;
 mod read;

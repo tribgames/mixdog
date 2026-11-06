@@ -31,6 +31,8 @@ struct FakeProcesses {
     limited: Mutex<std::collections::HashSet<ProcessHandle>>,
     /// Every spawn request, in order.
     seen: Mutex<Vec<(CommandSpec, EnvSpec)>>,
+    /// The `echo X; Start-Sleep 30` command prints nothing at spawn; the test prints later.
+    quiet: std::sync::atomic::AtomicBool,
 }
 
 struct ChanSource(mpsc::UnboundedReceiver<ProcessEvent>);
@@ -75,9 +77,13 @@ impl ProcessManager for FakeProcesses {
                 seq,
                 exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
             });
+        } else if self.quiet.load(std::sync::atomic::Ordering::SeqCst) && script.ends_with("; Start-Sleep 30") {
         } else if let Some(word) = script.strip_suffix("; Start-Sleep 30").and_then(|s| s.strip_prefix("echo ")) {
             let bytes = format!("{word}\n").into_bytes();
             send(&tx, &mut seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
+        } else if script == "echo done-out" {
+            // Silent until the test prints and ends it, as Node's process had printed nothing when
+            // the task was promoted.
         } else if let Some(rest) = script.strip_prefix("echo ") {
             send(&tx, &mut seq, |seq| ProcessEvent::Output {
                 seq,
@@ -380,6 +386,12 @@ async fn shell_and_task_goldens_recorded_from_node() {
 async fn task_read_wait_and_list_match_the_goldens_recorded_from_node() {
     let rig = rig();
     rig.shell.call(&ctx(&rig, "a"), serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.values_mut().next().unwrap();
+        send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: b"done-out\n".to_vec() });
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    }
     let owner = ThreadId::from("t");
     rig.runtime.get(&owner, "task-a").unwrap().settled().await;
     let c = ctx(&rig, "x");
@@ -389,7 +401,13 @@ async fn task_read_wait_and_list_match_the_goldens_recorded_from_node() {
         input["task_id"] = "task-a".into();
         assert_eq!(normalize(&body(rig.task.call(&c, input).await)), golden["text"].as_str().unwrap(), "{name}");
     }
+    rig.processes.quiet.store(true, std::sync::atomic::Ordering::SeqCst);
     rig.shell.call(&ctx(&rig, "b"), serde_json::json!({"command": "echo tick; Start-Sleep 30", "background": true})).await.unwrap();
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.values_mut().find(|(tx, _)| !tx.is_closed()).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: b"tick\n".to_vec() });
+    }
     let golden = fixture("task", "task-wait-running-expiry");
     let mut input = golden["input"].clone();
     input["task_id"] = "task-b".into();

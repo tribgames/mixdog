@@ -21,9 +21,12 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-use super::cache::TtlCache;
+use super::args::FetchArgs;
+use super::args::fetch_args;
+use super::args::search_args;
+use super::cache::CacheFile;
+use super::cache::NodeCache;
 use super::cache::node_cache_key;
-use super::cache::node_entry_size;
 use super::error::FetchError;
 use super::format::FetchItem;
 use super::format::continuation;
@@ -40,6 +43,8 @@ use super::search::format_results;
 use super::ssrf::AddressPolicy;
 
 const PAGE_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
+/// The `name` of the plain `Error` Node throws for an address-policy block; it serves as the code.
+const NODE_ERROR_NAME: &str = "Error";
 const FETCH_CACHE_VERSION: &str = "document-pipeline-v3";
 const FETCH_URL_CAP: usize = 10;
 const FETCH_CONCURRENCY: usize = 3;
@@ -52,6 +57,9 @@ pub struct WebConfig {
     pub renderer: Option<Arc<dyn PageRenderer>>,
     pub search: Option<Arc<dyn NativeWebSearch>>,
     pub request_timeout: Duration,
+    /// Where the page and search caches persist (`cache.local.json` in the data directory);
+    /// without it they live in memory only.
+    pub cache_file: Option<CacheFile>,
     pub(crate) public_policy: AddressPolicy,
 }
 
@@ -62,6 +70,7 @@ impl WebConfig {
             renderer: None,
             search: None,
             request_timeout: Duration::from_secs(120),
+            cache_file: None,
             public_policy: AddressPolicy::PublicOnly,
         }
     }
@@ -71,30 +80,9 @@ pub struct WebService {
     public: Arc<Fetcher>,
     loopback: Fetcher,
     pipeline: Pipeline,
-    pages: TtlCache<Page>,
+    cache: Arc<NodeCache>,
     search: SearchService,
     timeout: Duration,
-}
-
-struct FetchArgs {
-    urls: Vec<String>,
-    start_index: u64,
-    max_length: Option<u64>,
-}
-
-fn invalid(field: &str, reason: &str) -> ToolError {
-    let text = json!({
-        "error": "Invalid arguments",
-        "details": [{ "path": [field], "message": reason }],
-    })
-    .to_string();
-    ToolError::new(
-        ToolErrorCode::InvalidArgs {
-            field: field.to_string(),
-            reason: reason.to_string(),
-        },
-        text,
-    )
 }
 
 fn unavailable(capability: &str, message: String) -> ToolError {
@@ -107,59 +95,6 @@ fn unavailable(capability: &str, message: String) -> ToolError {
     )
 }
 
-fn optional_text(args: &JsonValue, key: &str) -> Result<Option<String>, ToolError> {
-    match args.get(key) {
-        None | Some(JsonValue::Null) => Ok(None),
-        Some(JsonValue::String(text)) => {
-            let text = mixdog_js::js_trim(text);
-            Ok((!text.is_empty()).then(|| text.to_string()))
-        }
-        Some(_) => Err(invalid(key, "Expected string")),
-    }
-}
-
-fn optional_count(args: &JsonValue, key: &str) -> Result<Option<u64>, ToolError> {
-    match args.get(key) {
-        None | Some(JsonValue::Null) => Ok(None),
-        Some(value) => value
-            .as_u64()
-            .map(Some)
-            .ok_or_else(|| invalid(key, "Expected a non-negative integer")),
-    }
-}
-
-/// A string or an array of strings, trimmed, blanks dropped.
-fn text_list(args: &JsonValue, key: &str) -> Result<Vec<String>, ToolError> {
-    let raw: Vec<&JsonValue> = match args.get(key) {
-        Some(JsonValue::Array(items)) => items.iter().collect(),
-        Some(value) => vec![value],
-        None => Vec::new(),
-    };
-    let mut out = Vec::new();
-    for item in raw {
-        let text = mixdog_js::js_trim(item.as_str().ok_or_else(|| invalid(key, "Expected string"))?);
-        if !text.is_empty() {
-            out.push(text.to_string());
-        }
-    }
-    if out.is_empty() {
-        return Err(invalid(key, "Required"));
-    }
-    Ok(out)
-}
-
-fn fetch_args(args: &JsonValue) -> Result<FetchArgs, ToolError> {
-    let urls = text_list(args, "url")?;
-    if urls.iter().any(|url| Url::parse(url).is_err()) {
-        return Err(invalid("url", "Invalid url"));
-    }
-    Ok(FetchArgs {
-        urls,
-        start_index: optional_count(args, "startIndex")?.unwrap_or(0),
-        max_length: optional_count(args, "maxLength")?,
-    })
-}
-
 fn text_output(text: String) -> ToolOutput {
     ToolOutput {
         parts: vec![ToolPart::Text(text)],
@@ -170,14 +105,20 @@ fn text_output(text: String) -> ToolOutput {
 impl WebService {
     pub fn new(config: WebConfig) -> Result<Arc<Self>, FetchError> {
         let public = Arc::new(Fetcher::new(config.public_policy, &config.version)?);
+        let cache = Arc::new(NodeCache::new(config.cache_file));
         Ok(Arc::new(Self {
             loopback: Fetcher::new(AddressPolicy::LoopbackOnly, &config.version)?,
             pipeline: Pipeline::new(public.clone(), config.renderer),
             public,
-            pages: TtlCache::default(),
-            search: SearchService::new(config.search),
+            search: SearchService::new(config.search, cache.clone()),
+            cache,
             timeout: config.request_timeout,
         }))
+    }
+
+    /// Writes any unsaved cache entries now (Node `flushCacheState`, run on stop).
+    pub async fn flush_cache(&self) {
+        self.cache.flush().await;
     }
 
     pub fn tools(self: &Arc<Self>) -> Vec<Arc<dyn Tool>> {
@@ -192,7 +133,9 @@ impl WebService {
     async fn fetch_one(&self, url: &str, args: &FetchArgs, cancel: &CancellationToken) -> FetchItem {
         let normalized = Url::parse(url).map_or_else(|_| url.to_string(), |parsed| parsed.to_string());
         let cache_key = node_cache_key("fetch:url", &json!({ "url": normalized, "version": FETCH_CACHE_VERSION }));
-        if let Some(page) = self.pages.get(&cache_key) {
+        if let Some(payload) = self.cache.get(&cache_key).await
+            && let Some(page) = Page::from_node(&payload)
+        {
             return success_item(&page, args);
         }
         let error_item = |error: &FetchError, code: &str, failures, attempts| FetchItem::Error {
@@ -202,16 +145,23 @@ impl WebService {
             failures,
             attempts,
         };
+        // Node's `assertPublicUrl` throws a plain `Error` before the pipeline runs: the item
+        // carries the message and the error's name as its code, and no diagnostics.
         let mut target = match self.public.parse_url(url) {
             Ok(target) => target,
-            Err(error) => return error_item(&error, error.code(), Vec::new(), Vec::new()),
+            Err(error) => return error_item(&error, NODE_ERROR_NAME, Vec::new(), Vec::new()),
         };
         target.set_fragment(None);
         match self.pipeline.run(&target, self.timeout, cancel).await {
             Ok(page) => {
-                let page = Arc::new(page);
-                let size = page_entry_size(&page, target.as_str());
-                self.pages.put(cache_key, page.clone(), size, PAGE_CACHE_TTL);
+                self.cache
+                    .put(
+                        cache_key,
+                        page_payload(&page, target.as_str()),
+                        PAGE_CACHE_TTL,
+                        excerpt_size_gap(&page),
+                    )
+                    .await;
                 success_item(&page, args)
             }
             Err(failure) => error_item(&failure.error, failure.code, failure.failures, failure.attempts),
@@ -227,6 +177,7 @@ impl WebService {
             self.fetch_one(url, &args, cancel).await
         }))
         .await;
+        self.cache.flush().await;
         let text = format_fetch(&items, truncated);
         if items.iter().any(|item| matches!(item, FetchItem::Success { .. })) {
             Ok(text_output(text))
@@ -236,32 +187,21 @@ impl WebService {
     }
 
     async fn web_search(&self, args: &JsonValue, cancel: &CancellationToken) -> ToolOutcome {
+        let input = search_args(args)?;
+        let listed_alone = input.listed && input.queries.len() == 1;
         let mut queries: Vec<String> = Vec::new();
-        let given = if args.get("query").is_some() { "query" } else { "keywords" };
-        for query in text_list(args, given)? {
+        for query in input.queries {
             if !queries.contains(&query) {
                 queries.push(query);
             }
         }
-        let max_results = match args.get("maxResults") {
-            None | Some(JsonValue::Null) => 10,
-            Some(value) => match value.as_u64() {
-                Some(n @ 1..=20) => n as usize,
-                _ => return Err(invalid("maxResults", "Expected an integer from 1 to 20")),
-            },
-        };
-        let context_size = optional_text(args, "contextSize")?.unwrap_or_else(|| "low".to_string());
-        if !matches!(context_size.as_str(), "low" | "medium" | "high") {
-            return Err(invalid("contextSize", "Expected low, medium or high"));
-        }
-        let site = optional_text(args, "site")?;
-        let locale = optional_text(args, "locale")?;
         let one = |query: String| SearchArgs {
             query,
-            site: site.clone(),
-            locale: locale.clone(),
-            context_size: context_size.clone(),
-            max_results,
+            listed: listed_alone,
+            site: input.site.clone(),
+            locale: input.locale.clone(),
+            context_size: input.context_size.clone(),
+            max_results: input.max_results,
         };
         if let [only] = queries.as_slice() {
             return match self.search.search(&one(only.clone()), cancel).await {
@@ -386,13 +326,13 @@ pub(super) fn page_payload(page: &Page, requested_url: &str) -> serde_json::Valu
         .iter()
         .map(|attempt| {
             let elapsed = u64::try_from(attempt.elapsed_ms).unwrap_or(u64::MAX);
-            match attempt.code {
+            match &attempt.code {
                 None => json!({ "stage": attempt.stage, "status": "success", "elapsedMs": elapsed }),
                 Some(code) => json!({ "stage": attempt.stage, "status": "error", "elapsedMs": elapsed, "code": code }),
             }
         })
         .collect();
-    let tried: Vec<&str> = page.attempts.iter().map(|attempt| attempt.stage).collect();
+    let tried: Vec<&str> = page.attempts.iter().map(|attempt| attempt.stage.as_str()).collect();
     let mut map = serde_json::Map::new();
     map.insert("tool".into(), json!("web_fetch"));
     map.insert("url".into(), json!(page.url));
@@ -420,10 +360,11 @@ pub(super) fn page_payload(page: &Page, requested_url: &str) -> serde_json::Valu
     serde_json::Value::Object(map)
 }
 
-/// Node's entry size for a page; the excerpt counts as `JSON.stringify` writes it.
-pub(super) fn page_entry_size(page: &Page, requested_url: &str) -> usize {
+/// Units the excerpt takes in Node's serialized entry beyond what the stored text takes: a cut
+/// inside a surrogate pair is a lone surrogate there (six units escaped), U+FFFD here.
+pub(super) fn excerpt_size_gap(page: &Page) -> usize {
     let shown = mixdog_js::utf16_len(&mixdog_js::json_stringify(&json!(page.excerpt)));
-    node_entry_size(&page_payload(page, requested_url), PAGE_CACHE_TTL) + page.excerpt_json_len - shown
+    page.excerpt_json_len - shown
 }
 
 fn success_item(page: &Page, args: &FetchArgs) -> FetchItem {
@@ -452,7 +393,8 @@ fn fetch_schema() -> JsonValue {
     })
 }
 
-fn spec(name: &str, title: &str, description: &str, schema: JsonValue, open_world: bool) -> ToolSpec {
+/// `hidden` is Node's `public: false`: a runtime-only target the agent does not list.
+fn spec(name: &str, title: &str, description: &str, schema: JsonValue, open_world: bool, hidden: bool) -> ToolSpec {
     ToolSpec {
         name: name.to_string(),
         aliases: Vec::new(),
@@ -464,6 +406,7 @@ fn spec(name: &str, title: &str, description: &str, schema: JsonValue, open_worl
             destructive_hint: Some(false),
             idempotent_hint: Some(true),
             open_world_hint: Some(open_world),
+            agent_hidden: hidden,
             ..ToolAnnotations::default()
         },
         parallel_safe: true,
@@ -472,7 +415,7 @@ fn spec(name: &str, title: &str, description: &str, schema: JsonValue, open_worl
 }
 
 macro_rules! web_tool {
-    ($tool:ident, $name:literal, $title:literal, $description:literal, $schema:expr, $open_world:literal, |$svc:ident, $ctx:ident, $args:ident| $body:expr) => {
+    ($tool:ident, $name:literal, $title:literal, $description:literal, $schema:expr, $open_world:literal, $hidden:literal, |$svc:ident, $ctx:ident, $args:ident| $body:expr) => {
         pub struct $tool {
             service: Arc<WebService>,
             spec: ToolSpec,
@@ -482,7 +425,7 @@ macro_rules! web_tool {
             pub fn new(service: Arc<WebService>) -> Self {
                 Self {
                     service,
-                    spec: spec($name, $title, $description, $schema, $open_world),
+                    spec: spec($name, $title, $description, $schema, $open_world, $hidden),
                 }
             }
         }
@@ -522,6 +465,7 @@ web_tool!(
         "additionalProperties": false,
     }),
     true,
+    false,
     |service, ctx, args| service.web_search(&args, &ctx.cancel).await
 );
 
@@ -532,6 +476,7 @@ web_tool!(
     "Fetch the page or docs body of known URLs; to find pages, use web_search.",
     fetch_schema(),
     true,
+    false,
     |service, ctx, args| service.web_fetch(fetch_args(&args)?, &ctx.cancel).await
 );
 
@@ -542,6 +487,7 @@ web_tool!(
     "Runtime-only loopback HTTP(S) fetch target.",
     fetch_schema(),
     false,
+    true,
     |service, ctx, args| service.local_fetch(fetch_args(&args)?, &ctx.cancel).await
 );
 
@@ -551,6 +497,7 @@ web_tool!(
     "Mixdog Image Fetch",
     "Runtime-only bounded public image fetch target.",
     fetch_schema(),
+    true,
     true,
     |service, ctx, args| service.image_fetch(fetch_args(&args)?, &ctx.cancel).await
 );

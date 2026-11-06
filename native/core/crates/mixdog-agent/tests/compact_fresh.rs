@@ -99,6 +99,8 @@ async fn compactor_equals_node() {
                 rows: Arc::new(Rows),
                 archive: Arc::new(PreviewArchive { session: session.clone() }),
                 attachments: Arc::new(NoAttachments),
+                redactor: Arc::new(compact_support::NoRedaction),
+                blobs: Arc::new(compact_support::NoBlobs),
             }),
             triggers: None,
             summary: Some(Arc::new(FixedHandoff(o["handoffText"].as_str().unwrap_or_default().to_owned()))),

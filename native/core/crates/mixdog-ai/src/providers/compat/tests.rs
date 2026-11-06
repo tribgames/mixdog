@@ -1590,6 +1590,20 @@ mod liveness {
                 })
                 .collect();
             assert_eq!(ids(&got), ids(expected), "{what}: ids");
+            // Only the console config states prices on the row itself; the rest come from the catalog.
+            if case["provider"] == "opencode-go-oauth" {
+                for (row, node) in rows.iter().zip(expected) {
+                    let prices = [
+                        ("inputCostPerM", row.input_cost_per_m),
+                        ("outputCostPerM", row.output_cost_per_m),
+                        ("cacheReadCostPerM", row.cache_read_cost_per_m),
+                        ("cacheWriteCostPerM", row.cache_write_cost_per_m),
+                    ];
+                    for (key, got) in prices {
+                        assert_eq!(got, node[key].as_f64(), "{what}: {} {key}", row.id);
+                    }
+                }
+            }
             for (got, node) in got.iter().zip(expected) {
                 let field = |key: &str| node.get(key).filter(|v| !v.is_null()).cloned();
                 let row = format!("{what}: {}", node["id"]);

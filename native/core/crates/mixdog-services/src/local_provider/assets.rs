@@ -449,7 +449,10 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
 
 /// Windows builds ship as zips (PowerShell's `Expand-Archive`); the macOS build is a gzipped
 /// tarball the system `tar` unpacks.
-async fn extract_archive(processes: &Processes, archive: &Path, destination: &Path, cancel: &CancellationToken) -> Result<(), AssetError> {
+pub(super) async fn extract_archive(processes: &Processes, archive: &Path, destination: &Path, cancel: &CancellationToken) -> Result<(), AssetError> {
+    if cancel.is_cancelled() {
+        return Err(AssetError::Aborted);
+    }
     // The manager starts a child with exactly the environment it is given.
     let mut env: HashMap<String, String> = std::env::vars().collect();
     let (program, args) = if archive.extension().is_some_and(|e| e == "zip") {
@@ -473,8 +476,7 @@ async fn extract_archive(processes: &Processes, archive: &Path, destination: &Pa
     if output.code == -1 && !output.error.is_empty() {
         return Err(AssetError::Other(format!("[local-provider] runtime extraction failed: {}", output.error)));
     }
-    let mut log = output.stdout.clone();
-    log.push_str(&output.stderr);
+    let log = &output.combined;
     // `log.slice(-16384)`: the last 16384 UTF-16 units; a pair cut in half is dropped whole.
     let (mut units, mut from) = (0, log.len());
     for (at, c) in log.char_indices().rev() {

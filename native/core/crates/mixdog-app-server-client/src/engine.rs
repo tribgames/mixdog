@@ -1549,3 +1549,97 @@ impl Client {
         rx.await.map_err(|_| ClientError::ClientClosed)?
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods)] // reads the shared scenario options file
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::mock::MockNetwork;
+
+    fn thread_result(id: &str) -> Json {
+        json!({
+            "thread": { "id": id, "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": {}, "projectPath": null },
+            "subscription": { "id": format!("sub-{id}"), "mode": "snapshot", "epoch": "e1", "startSeq": 1 }
+        })
+    }
+
+    async fn until(what: &str, mut ok: impl FnMut() -> bool) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !ok() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("timed out: {what}"));
+    }
+
+    /// A lane's task holds a reference on the shared state, so the reference count shows whether the task is alive.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_unsubscribed_feeds_lane_ends_after_its_queued_items() {
+        let options: Json = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../../packages/protocol-client/conformance/options.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let net = Arc::new(MockNetwork::default());
+        let mut opts = ConnectOptions::new(
+            Target { id: "local".into() },
+            net.clone(),
+            serde_json::from_value(options["clientInfo"].clone()).unwrap(),
+        );
+        opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
+        let connecting = tokio::spawn(connect(opts));
+        let conn = net.accept().await;
+        let init: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        let mut result = options["initializeResult"].clone();
+        result["serverInstanceId"] = json!("s1");
+        conn.server_send(&json!({ "id": init["id"], "result": result }));
+        conn.next_sent().await; // initialized
+        let client = Arc::new(connecting.await.unwrap().unwrap());
+
+        let resume = {
+            let c = client.clone();
+            tokio::spawn(async move {
+                c.resume_thread(&ThreadId::from("t1"), ResumeWindow::LastItems { last_items: 50 })
+                    .await
+            })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        conn.server_send(&json!({ "id": req["id"], "result": thread_result("t1") }));
+        resume.await.unwrap().unwrap();
+        let base = Arc::strong_count(&client.inner);
+
+        // The first item waits on a blob read nobody answers yet; the second is queued behind it.
+        let digest = format!("sha256:{}", "a".repeat(64));
+        conn.server_send(&json!({ "method": "thread/snapshot", "params": { "text": { "blob": { "digest": digest, "bytes": 5, "mediaType": "text/plain" } } }, "feed": { "id": "t1", "epoch": "e1", "seq": 1 } }));
+        let read: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(read["method"], "blob/read");
+        conn.server_send(&json!({ "method": "item/completed", "params": { "n": 2 }, "feed": { "id": "t1", "epoch": "e1", "seq": 2 } }));
+        until("lane started", || Arc::strong_count(&client.inner) == base + 1).await;
+
+        let unsub = {
+            let c = client.clone();
+            tokio::spawn(async move { c.unsubscribe_thread(&ThreadId::from("t1")).await })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(req["method"], "thread/unsubscribe");
+        conn.server_send(&json!({ "id": req["id"], "result": {} }));
+        unsub.await.unwrap().unwrap();
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            Arc::strong_count(&client.inner),
+            base + 1,
+            "the lane stays alive while its queued items are unfinished"
+        );
+
+        conn.server_send(&json!({ "id": read["id"], "result": { "bytesB64": "aGVsbG8=" } }));
+        until("lane ended", || Arc::strong_count(&client.inner) == base).await;
+    }
+}

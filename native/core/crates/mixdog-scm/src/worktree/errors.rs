@@ -22,6 +22,7 @@ pub const WORKTREE_PATH_UNSAFE: &str = "WORKTREE_PATH_UNSAFE";
 pub const WORKTREE_FILE_RECOVERY: &str = "WORKTREE_FILE_RECOVERY";
 pub const WORKTREE_LARGE_REPO_CONFIRM: &str = "WORKTREE_LARGE_REPO_CONFIRM";
 pub const WORKTREE_DISK_INSUFFICIENT: &str = "WORKTREE_DISK_INSUFFICIENT";
+pub const MERGE_CONFLICT: &str = "MERGE_CONFLICT";
 pub const MERGE_TARGET_DIRTY: &str = "MERGE_TARGET_DIRTY";
 pub const MERGE_FAILED: &str = "MERGE_FAILED";
 
@@ -62,6 +63,11 @@ fn none_busy(reason: &str) -> DomainErrorDetail {
         starting: None,
         session_id: None,
     }
+}
+
+/// `MERGE_CONFLICT`: the merge would conflict in `files` (`details.files` as Node's).
+pub fn merge_conflict(files: Vec<String>) -> ScmFailure {
+    ScmFailure::coded(MERGE_CONFLICT, DomainErrorDetail::MergeConflict { files })
 }
 
 /// `WORKTREE_BUSY_JOBS` with the shared reason.

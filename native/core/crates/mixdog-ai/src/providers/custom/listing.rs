@@ -143,12 +143,72 @@ fn effective_row(mut base: ModelRecord, over: Option<&Override>, discovered: boo
         Some(l) if !l.is_empty() => vec![ReasoningOption { kind: "effort".into(), values: l.clone() }],
         _ => Vec::new(),
     };
+    let leveled = levels.is_some();
     base.reasoning_levels = levels.unwrap_or_default();
     base.picker.custom_reasoning =
         Some(CustomReasoning { wire_format: ov.wire_format.clone().unwrap_or_else(|| "standard".into()), wire_values, replay });
     base.reasoning_content_field = replay.then(|| "reasoning_content".to_owned());
-    base.raw = Some(json!({ "manual": ov.manual, "inherited": inherited }));
+    // `leveled`: the row states its effort levels (Node's row then has the
+    // `reasoningOptions` / `reasoningLevels` keys, even when empty).
+    base.raw = Some(json!({ "manual": ov.manual, "inherited": inherited, "leveled": leveled }));
     base
+}
+
+/// The rows a config states without any network: its manual models under their overrides
+/// (`effectiveCustomModelRows(config, [])`).
+pub fn manual_rows(cfg: &Value) -> Vec<ModelRecord> {
+    let overrides = cfg.get("modelOverrides").and_then(Value::as_object).cloned().unwrap_or_default();
+    let hidden = cfg.get("discovery").and_then(|d| d.get("newModelsHidden")).and_then(Value::as_bool) == Some(true);
+    effective_rows(&overrides, hidden, &[])
+}
+
+/// `publicCustomModelRows`: the setup UI's view of effective rows, one field vocabulary for a
+/// provider row and for discovery.
+pub fn public_rows(rows: &[ModelRecord]) -> Vec<Value> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut models = Vec::new();
+    for item in rows {
+        let id = mixdog_js::js_trim(&item.id).to_owned();
+        if id.is_empty() || !seen.insert(id.clone()) {
+            continue;
+        }
+        let mut model = Map::new();
+        model.insert("id".into(), json!(id));
+        let name = item.name.as_deref().or(item.display_name.as_deref()).map(mixdog_js::js_trim).unwrap_or_default();
+        if !name.is_empty() && name != id {
+            model.insert("name".into(), json!(name));
+        }
+        if let Some(window) = positive(item.context_window) {
+            model.insert("contextWindow".into(), json!(window));
+        }
+        if let Some(out) = positive(item.max_output_tokens) {
+            model.insert("maxOutputTokens".into(), json!(out));
+        }
+        let raw = item.raw.as_ref();
+        model.insert("hidden".into(), json!(item.hidden));
+        model.insert("manual".into(), json!(raw.and_then(|r| r.get("manual")) == Some(&Value::Bool(true))));
+        if let Some(inherited) = raw.and_then(|r| r.get("inherited")).filter(|v| !v.is_null()) {
+            model.insert("inherited".into(), inherited.clone());
+        }
+        if let Some(vision) = item.supports_images {
+            model.insert("supportsVision".into(), json!(vision));
+        }
+        if let Some(reasoning) = item.supports_reasoning {
+            model.insert("supportsReasoning".into(), json!(reasoning));
+        }
+        if raw.and_then(|r| r.get("leveled")) == Some(&Value::Bool(true)) {
+            model.insert("reasoningOptions".into(), json!(item.picker.reasoning_options));
+            model.insert("reasoningLevels".into(), json!(item.reasoning_levels));
+        }
+        if let Some(custom) = &item.picker.custom_reasoning {
+            model.insert("customReasoning".into(), json!(custom));
+        }
+        if let Some(field) = &item.reasoning_content_field {
+            model.insert("reasoningContentField".into(), json!(field));
+        }
+        models.push(Value::Object(model));
+    }
+    models
 }
 
 /// `effectiveCustomModelRows`: discovered rows (first of each id) under their

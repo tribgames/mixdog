@@ -76,17 +76,57 @@ fn valid_agent_id(v: Option<&Value>) -> String {
     if !id.is_empty() && !agent_home_session_id(id).is_empty() { id.to_owned() } else { String::new() }
 }
 
-/// `resolveSessionMode({ session }).mode` for a session record header.
-fn resolve_mode(session: &Map<String, Value>) -> &'static str {
+/// `MIXY_AGENT_ID` (`agent-home.mjs`).
+const MIXY_AGENT_ID: &str = "lead";
+
+/// `resolveSessionMode({ session })` for a session record header: its mode and the agent it
+/// acts as ("" for a delegated worker, Mixy for a coding Lead).
+pub fn resolve_session_mode(session: &Map<String, Value>) -> (&'static str, String) {
     let owner = js_trim(&js_text(session.get("owner"))).to_lowercase();
     if owner == "agent" || session.get("visibility").and_then(Value::as_str) == Some("agent-only") {
-        return "coding";
+        return ("coding", String::new());
     }
     let id = js_text(session.get("id"));
     let agent = room_member_agent(&id)
         .or_else(|| Some(agent_id_of_home_session(&id)).filter(|a| !a.is_empty()))
         .unwrap_or_else(|| valid_agent_id(session.get("ownerAgentId")));
-    if agent.is_empty() { "coding" } else { "agent" }
+    if agent.is_empty() { ("coding", MIXY_AGENT_ID.to_owned()) } else { ("agent", agent) }
+}
+
+/// `actingAgentOf` (`setup-tool/session-route-actions.mjs`): whose settings the session runs
+/// on, `resolveSessionMode({ session }).agentId || clean(session.agent)`.
+pub fn acting_agent_of(session: &Map<String, Value>) -> String {
+    let (_, agent) = resolve_session_mode(session);
+    if agent.is_empty() { js_trim(&js_text(session.get("agent"))).to_owned() } else { agent }
+}
+
+fn resolve_mode(session: &Map<String, Value>) -> &'static str {
+    resolve_session_mode(session).0
+}
+
+#[cfg(test)]
+mod acting_agent_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn of(session: Value) -> (String, String) {
+        let session = session.as_object().cloned().unwrap();
+        (resolve_session_mode(&session).1, acting_agent_of(&session))
+    }
+
+    /// `agent-mode.mjs` `resolveSessionMode` and `actingAgentOf`.
+    #[test]
+    fn a_session_acts_as_its_home_room_or_owner_agent_else_mixy() {
+        assert_eq!(of(json!({ "id": "sess_home_lead" })), ("lead".into(), "lead".into()));
+        assert_eq!(of(json!({ "id": "sess_home_my_bot" })), ("my.bot".into(), "my.bot".into()));
+        assert_eq!(of(json!({ "id": "sess_rmem_abcdef_scout" })), ("scout".into(), "scout".into()));
+        assert_eq!(of(json!({ "id": "sess_x", "ownerAgentId": " scout " })), ("scout".into(), "scout".into()));
+        assert_eq!(of(json!({ "id": "sess_x", "ownerAgentId": "Bad Id" })), ("lead".into(), "lead".into()));
+        // A delegated worker acts as no agent: its own `agent` names whose settings it runs on.
+        assert_eq!(of(json!({ "id": "sess_w", "owner": "Agent", "agent": " reviewer " })), (String::new(), "reviewer".into()));
+        assert_eq!(of(json!({ "id": "sess_w", "visibility": "agent-only" })), (String::new(), String::new()));
+    }
 }
 
 /// `sessionModeOf(session)`: the stored mode; older records resolve it.

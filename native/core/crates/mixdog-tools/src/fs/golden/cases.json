@@ -1,0 +1,1236 @@
+[
+  {
+    "name": "edit-typo-double-quotes",
+    "tool": "edit",
+    "files": {
+      "t.txt": "He said “hi” there\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "said \"hi\"",
+      "new_string": "said \"bye\""
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "He said “bye” there\n"
+    }
+  },
+  {
+    "name": "edit-typo-dash",
+    "tool": "edit",
+    "files": {
+      "t.txt": "range 1 – 5 here\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "range 1 - 5",
+      "new_string": "range 1 - 9"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "range 1 - 9 here\n"
+    }
+  },
+  {
+    "name": "edit-typo-nbsp",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a b c\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "a b",
+      "new_string": "x y"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "x y c\n"
+    }
+  },
+  {
+    "name": "edit-typo-single-quotes",
+    "tool": "edit",
+    "files": {
+      "t.txt": "it’s ‘fine’ now\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "it's 'fine'",
+      "new_string": "don't 'ok'"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "don’t ‘ok’ now\n"
+    }
+  },
+  {
+    "name": "edit-typo-replace-all-uniform",
+    "tool": "edit",
+    "files": {
+      "t.txt": "“a” and “a”\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "\"a\"",
+      "new_string": "\"b\"",
+      "replace_all": true
+    },
+    "text": "Updated t.txt (2 replacements)",
+    "isError": false,
+    "after": {
+      "t.txt": "“b” and “b”\n"
+    }
+  },
+  {
+    "name": "edit-typo-replace-all-mixed",
+    "tool": "edit",
+    "files": {
+      "t.txt": "“a” and ”a”\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "\"a\"",
+      "new_string": "\"b\"",
+      "replace_all": true
+    },
+    "text": "Updated t.txt (2 replacements)",
+    "isError": false,
+    "after": {
+      "t.txt": "\"b\" and \"b\"\n"
+    }
+  },
+  {
+    "name": "edit-typo-multiline",
+    "tool": "edit",
+    "files": {
+      "t.txt": "x\n“q”\ny\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "x\n\"q\"",
+      "new_string": "x\n\"r\""
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "x\n“r”\ny\n"
+    }
+  },
+  {
+    "name": "edit-typo-crlf",
+    "tool": "edit",
+    "files": {
+      "t.txt": "x\r\n“q”\r\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "\"q\"",
+      "new_string": "\"r\""
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "x\r\n“r”\r\n"
+    }
+  },
+  {
+    "name": "edit-typo-same-after-rematch",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a – b\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "a - b",
+      "new_string": "a – b"
+    },
+    "text": "Error: old_string and new_string are exactly the same — no change needed; the file may already contain it, re-read before retrying",
+    "isError": true,
+    "after": {
+      "t.txt": "a – b\n"
+    }
+  },
+  {
+    "name": "edit-typo-delete-line",
+    "tool": "edit",
+    "files": {
+      "t.txt": "keep\n“gone”\nkeep2\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "\"gone\"",
+      "new_string": ""
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "keep\nkeep2\n"
+    }
+  },
+  {
+    "name": "edit-typo-ambiguous",
+    "tool": "edit",
+    "files": {
+      "t.txt": "“a” x\n“a” y\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "\"a\"",
+      "new_string": "\"b\""
+    },
+    "text": "Error: edit failed (old_string found 2 times at lines 1, 2; add surrounding lines to make it unique, or set replace_all to true to change every occurrence)\ncurrent file excerpt lines 1-3 (use exact current text for retry):\n“a” x\n“a” y\n",
+    "isError": true,
+    "after": {
+      "t.txt": "“a” x\n“a” y\n"
+    }
+  },
+  {
+    "name": "edit-missing-file",
+    "tool": "edit",
+    "files": {},
+    "input": {
+      "path": "nope.txt",
+      "old_string": "a",
+      "new_string": "b"
+    },
+    "text": "Error: cannot read <ROOT>\\nope.txt (target is missing or inaccessible)",
+    "isError": true,
+    "after": {}
+  },
+  {
+    "name": "edit-create-new",
+    "tool": "edit",
+    "files": {},
+    "input": {
+      "path": "deep/dir/new.txt",
+      "old_string": "",
+      "new_string": "hello\n"
+    },
+    "text": "Created deep/dir/new.txt (6 bytes)",
+    "isError": false,
+    "after": {
+      "deep/dir/new.txt": "hello\n"
+    }
+  },
+  {
+    "name": "edit-create-existing",
+    "tool": "edit",
+    "files": {
+      "t.txt": "x\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "",
+      "new_string": "hello\n"
+    },
+    "text": "Error: cannot create <ROOT>\\t.txt: file exists: to replace it entirely pass its current content as old_string (read it first); to change part, pass that part as old_string with the replacement as new_string",
+    "isError": true,
+    "after": {
+      "t.txt": "x\n"
+    }
+  },
+  {
+    "name": "edit-fill-empty",
+    "tool": "edit",
+    "files": {
+      "t.txt": ""
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "",
+      "new_string": "hello\n"
+    },
+    "text": "Updated t.txt (filled empty file)",
+    "isError": false,
+    "after": {
+      "t.txt": "hello\n"
+    }
+  },
+  {
+    "name": "edit-same-strings",
+    "tool": "edit",
+    "files": {
+      "t.txt": "x\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "x",
+      "new_string": "x"
+    },
+    "text": "Error: old_string and new_string are exactly the same — no change needed; the file may already contain it, re-read before retrying",
+    "isError": true,
+    "after": {
+      "t.txt": "x\n"
+    }
+  },
+  {
+    "name": "edit-alias-keys",
+    "tool": "edit",
+    "files": {
+      "t.txt": "x\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_str": "x",
+      "new_str": "y"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "y\n"
+    }
+  },
+  {
+    "name": "edit-alias-conflict",
+    "tool": "edit",
+    "files": {
+      "t.txt": "x\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "x",
+      "old_str": "z",
+      "new_string": "y"
+    },
+    "text": "Error: edit received both old_string and old_str with different values; pass only old_string",
+    "isError": true,
+    "after": {
+      "t.txt": "x\n"
+    }
+  },
+  {
+    "name": "edit-not-strings",
+    "tool": "edit",
+    "files": {
+      "t.txt": "x\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "x"
+    },
+    "text": "Error: edit requires string old_string and new_string (got keys: path, old_string)",
+    "isError": true,
+    "after": {
+      "t.txt": "x\n"
+    }
+  },
+  {
+    "name": "edit-ambiguous-lf",
+    "tool": "edit",
+    "files": {
+      "t.txt": "dup\nmid\ndup\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "dup",
+      "new_string": "one"
+    },
+    "text": "Error: edit failed (old_string found 2 times at lines 1, 3; add surrounding lines to make it unique, or set replace_all to true to change every occurrence)\ncurrent file excerpt lines 1-4 (use exact current text for retry):\ndup\nmid\ndup\n",
+    "isError": true,
+    "after": {
+      "t.txt": "dup\nmid\ndup\n"
+    }
+  },
+  {
+    "name": "edit-ambiguous-many",
+    "tool": "edit",
+    "files": {
+      "t.txt": "dup\ndup\ndup\ndup\ndup\ndup\ndup\ndup\ndup\ndup\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "dup",
+      "new_string": "one"
+    },
+    "text": "Error: edit failed (old_string found 10 times at lines 1, 2, 3, 4, 5, 6, 7, 8, …; add surrounding lines to make it unique, or set replace_all to true to change every occurrence)\ncurrent file excerpt lines 1-10 (use exact current text for retry):\ndup\ndup\ndup\ndup\ndup\ndup\ndup\ndup\ndup\ndup",
+    "isError": true,
+    "after": {
+      "t.txt": "dup\ndup\ndup\ndup\ndup\ndup\ndup\ndup\ndup\ndup\n"
+    }
+  },
+  {
+    "name": "edit-ambiguous-overlap",
+    "tool": "edit",
+    "files": {
+      "t.txt": "aaa\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "aa",
+      "new_string": "b"
+    },
+    "text": "Error: edit failed (old_string found 2 times at lines 1; add surrounding lines to make it unique, or set replace_all to true to change every occurrence)\ncurrent file excerpt lines 1-2 (use exact current text for retry):\naaa\n",
+    "isError": true,
+    "after": {
+      "t.txt": "aaa\n"
+    }
+  },
+  {
+    "name": "edit-replace-all",
+    "tool": "edit",
+    "files": {
+      "t.txt": "dup\nmid\ndup\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "dup",
+      "new_string": "one",
+      "replace_all": true
+    },
+    "text": "Updated t.txt (2 replacements)",
+    "isError": false,
+    "after": {
+      "t.txt": "one\nmid\none\n"
+    }
+  },
+  {
+    "name": "edit-replace-all-string-true",
+    "tool": "edit",
+    "files": {
+      "t.txt": "dup\nmid\ndup\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "dup",
+      "new_string": "one",
+      "replace_all": "true"
+    },
+    "text": "Updated t.txt (2 replacements)",
+    "isError": false,
+    "after": {
+      "t.txt": "one\nmid\none\n"
+    }
+  },
+  {
+    "name": "edit-no-match-nearest",
+    "tool": "edit",
+    "files": {
+      "t.txt": "alpha\nlonger_token = 1;\nomega\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "longer_token = 2;",
+      "new_string": "x"
+    },
+    "text": "Error: edit failed (old_string not found; nearest match on line 2: longer_token = 1;)\ncurrent file excerpt lines 1-4 (use exact current text for retry):\nalpha\nlonger_token = 1;\nomega\n",
+    "isError": true,
+    "after": {
+      "t.txt": "alpha\nlonger_token = 1;\nomega\n"
+    }
+  },
+  {
+    "name": "edit-no-match-nothing",
+    "tool": "edit",
+    "files": {
+      "t.txt": "alpha\nomega\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "zzz",
+      "new_string": "x"
+    },
+    "text": "Error: edit failed (old_string not found)\ncurrent file has 3 line(s) and contains nothing resembling old_string — verify the path and re-read before retrying.",
+    "isError": true,
+    "after": {
+      "t.txt": "alpha\nomega\n"
+    }
+  },
+  {
+    "name": "edit-crlf-multiline",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a\r\nb\r\nc\r\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "a\nb",
+      "new_string": "A\nB"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "A\r\nB\r\nc\r\n"
+    }
+  },
+  {
+    "name": "edit-crlf-single-line-new-lines",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a\r\nb\r\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "a",
+      "new_string": "x\ny"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "x\r\ny\r\nb\r\n"
+    }
+  },
+  {
+    "name": "edit-crlf-ambiguous",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a\r\nb\r\na\r\nb\r\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "a\nb",
+      "new_string": "x"
+    },
+    "text": "Error: edit failed (old_string found 2 times at lines 1, 3; pass replace_all:true or extend old_string)\ncurrent file excerpt lines 1-5 (use exact current text for retry):\na\nb\na\nb\n",
+    "isError": true,
+    "after": {
+      "t.txt": "a\r\nb\r\na\r\nb\r\n"
+    }
+  },
+  {
+    "name": "edit-crlf-delete-block",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a\r\nb\r\nc\r\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "b\nc",
+      "new_string": ""
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "a\r\n\r\n"
+    }
+  },
+  {
+    "name": "edit-nfc-tier",
+    "tool": "edit",
+    "files": {
+      "t.txt": "café au lait\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "café",
+      "new_string": "tea"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "tea au lait\n"
+    }
+  },
+  {
+    "name": "edit-delete-line",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a\nb\nc\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "b",
+      "new_string": ""
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "a\nc\n"
+    }
+  },
+  {
+    "name": "edit-delete-last-no-newline",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a\nb"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "b",
+      "new_string": ""
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "a\n"
+    }
+  },
+  {
+    "name": "edit-trailing-blanks-text",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "a",
+      "new_string": "x  \ny \t\nz"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "x\ny\nz\n"
+    }
+  },
+  {
+    "name": "edit-trailing-blanks-markdown",
+    "tool": "edit",
+    "files": {
+      "t.md": "a\n"
+    },
+    "input": {
+      "path": "t.md",
+      "old_string": "a",
+      "new_string": "x  \ny"
+    },
+    "text": "Updated t.md (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.md": "x  \ny\n"
+    }
+  },
+  {
+    "name": "edit-no-path",
+    "tool": "edit",
+    "files": {},
+    "input": {
+      "old_string": "a",
+      "new_string": "b"
+    },
+    "text": "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
+    "isError": true,
+    "after": {}
+  },
+  {
+    "name": "edit-file-path-key",
+    "tool": "edit",
+    "files": {
+      "t.txt": "x\n"
+    },
+    "input": {
+      "file_path": "t.txt",
+      "old_string": "x",
+      "new_string": "y"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "y\n"
+    }
+  },
+  {
+    "name": "edit-empty-path",
+    "tool": "edit",
+    "files": {},
+    "input": {
+      "path": "  ",
+      "old_string": "a",
+      "new_string": "b"
+    },
+    "text": "Error: cannot read <ROOT> (EISDIR: illegal operation on a directory, read)",
+    "isError": true,
+    "after": {}
+  },
+  {
+    "name": "edit-directory",
+    "tool": "edit",
+    "files": {
+      "d/x.txt": "x\n"
+    },
+    "input": {
+      "path": "d",
+      "old_string": "a",
+      "new_string": "b"
+    },
+    "text": "Error: cannot read <ROOT>\\d (EISDIR: illegal operation on a directory, read)",
+    "isError": true,
+    "after": {
+      "d/x.txt": "x\n"
+    }
+  },
+  {
+    "name": "edit-bom-utf8",
+    "tool": "edit",
+    "files": {
+      "t.txt": "﻿hello\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "hello",
+      "new_string": "bye"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "﻿bye\n"
+    }
+  },
+  {
+    "name": "edit-crlf-trailing-blank-new",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a\r\nb\r\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "a\nb",
+      "new_string": "x  \ny"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "x\r\ny\r\n"
+    }
+  },
+  {
+    "name": "edit-single-line-lf-in-mixed",
+    "tool": "edit",
+    "files": {
+      "t.txt": "a\nb\r\nc\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "c",
+      "new_string": "x\ny"
+    },
+    "text": "Updated t.txt (1 replacement)",
+    "isError": false,
+    "after": {
+      "t.txt": "a\nb\r\nx\ny\n"
+    }
+  },
+  {
+    "name": "edit-curly-tier-native",
+    "tool": "edit",
+    "files": {
+      "t.txt": "say “a” and “b”\n"
+    },
+    "input": {
+      "path": "t.txt",
+      "old_string": "say \"a\" and \"b\"\nmore",
+      "new_string": "x"
+    },
+    "text": "Error: edit failed (old_string not found)\ncurrent file excerpt lines 1-2 (use exact current text for retry):\nsay “a” and “b”\n",
+    "isError": true,
+    "after": {
+      "t.txt": "say “a” and “b”\n"
+    }
+  },
+  {
+    "name": "edit-binary",
+    "tool": "edit",
+    "files": {
+      "t.bin": "a\u0000b"
+    },
+    "input": {
+      "path": "t.bin",
+      "old_string": "a",
+      "new_string": "x"
+    },
+    "text": "Error: cannot edit <ROOT>/t.bin: its bytes are not decidable text (invalid UTF-8, malformed UTF-16 with an odd trailing byte, or NUL bytes without a consistent UTF-16 pattern), so any edit would alter bytes outside the replacement. Convert the encoding first.",
+    "isError": true,
+    "after": {
+      "t.bin": "a\u0000b"
+    }
+  },
+  {
+    "name": "patch-divergence-middle",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "one\ntwo\nthree\nfour\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n one\n-TWO\n+2\n three\n*** End Patch\n",
+      "fuzzy": false,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.js: context not found: (no anchor); expected first old line: \"one\"; nearest line 1: \"one\"; first divergent line: old[2] expected \"TWO\" vs file line 2 actual \"two\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-4 (verbatim — build the retry from these):\n    1| one\n    2| two\n    3| three\n    4| four",
+    "isError": true,
+    "after": {
+      "a.js": "one\ntwo\nthree\nfour\n"
+    }
+  },
+  {
+    "name": "patch-divergence-past-eof",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "one\ntwo\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n one\n two\n-three\n+3\n*** End Patch\n",
+      "fuzzy": false,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.js: context not found: (no anchor); expected first old line: \"one\"; nearest line 1: \"one\"; first divergent line: old[3] expected \"three\" vs file line 3 actual (past EOF); use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-2 (verbatim — build the retry from these):\n    1| one\n    2| two",
+    "isError": true,
+    "after": {
+      "a.js": "one\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-divergence-fuzzy",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "one\ntwo\nthree\nfour\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n one\n-TWO\n+2\n three\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.js: context not found: (no anchor); expected first old line: \"one\"; nearest line 1: \"one\"; first divergent line: old[2] expected \"TWO\" vs file line 2 actual \"two\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-4 (verbatim — build the retry from these):\n    1| one\n    2| two\n    3| three\n    4| four",
+    "isError": true,
+    "after": {
+      "a.js": "one\ntwo\nthree\nfour\n"
+    }
+  },
+  {
+    "name": "patch-anchor-missing-nearest",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "function nop() {}\nlet x = 1;\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@ function nope\n-let x = 1;\n+let x = 2;\n*** End Patch\n",
+      "fuzzy": false,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.js: anchor not found: function nope; use an existing @@ anchor from the current file or add exact context lines; no stubs. nearest anchor candidate: nearest line 1: \"function nop() {}\".",
+    "isError": true,
+    "after": {
+      "a.js": "function nop() {}\nlet x = 1;\n"
+    }
+  },
+  {
+    "name": "patch-anchor-missing-bare",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "abc\ndef\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@ XYZ\n-def\n+DEF\n*** End Patch\n",
+      "fuzzy": false,
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.js: anchor not found: XYZ; use an existing @@ anchor from the current file or add exact context lines; no stubs.",
+    "isError": true,
+    "after": {
+      "a.js": "abc\ndef\n"
+    }
+  },
+  {
+    "name": "patch-anchor-chain",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "class A {\n  a() {}\n  method b() {\n    old\n  }\n}\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@ class A\n@@ method b\n-    old\n+    new\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.js — +1/-1",
+    "isError": false,
+    "after": {
+      "a.js": "class A {\n  a() {}\n  method b() {\n    new\n  }\n}\n"
+    }
+  },
+  {
+    "name": "patch-anchor-trimmed",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "function f() {   \n  old\n}\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@ function f() {\n-  old\n+  new\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.js — +1/-1",
+    "isError": false,
+    "after": {
+      "a.js": "function f() {   \n  new\n}\n"
+    }
+  },
+  {
+    "name": "patch-anchor-typographic",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "say “hi”\nold\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@ say \"hi\"\n-old\n+new\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.js — +1/-1",
+    "isError": false,
+    "after": {
+      "a.js": "say “hi”\nnew\n"
+    }
+  },
+  {
+    "name": "patch-anchor-numeric",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "a\nb\nc\nd\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@ 3\n c\n-d\n+D\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.js — +1/-1",
+    "isError": false,
+    "after": {
+      "a.js": "a\nb\nc\nD\n"
+    }
+  },
+  {
+    "name": "patch-anchor-out-of-order",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "alpha\nbeta\ngamma\ndelta\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@ gamma\n-gamma\n+GAMMA\n@@ alpha\n-alpha\n+ALPHA\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.js — +2/-2",
+    "isError": false,
+    "after": {
+      "a.js": "ALPHA\nbeta\nGAMMA\ndelta\n"
+    }
+  },
+  {
+    "name": "patch-envelope-marker",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "a\nb\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n a\n-*** Update File: b.js\n+x\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A hunk a.js: structure error (malformed patch envelope): \"*** Update File: b.js\" appears as a content line at old[2]. The section body ended early or is missing its `*** Update File: <path>` header. Rebuild the envelope and resend; the file was never searched, so no context excerpt applies.",
+    "isError": true,
+    "after": {
+      "a.js": "a\nb\n"
+    }
+  },
+  {
+    "name": "patch-update-missing",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: nope.js\n@@\n-a\n+b\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — V4A update target unreadable: nope.js (ENOENT).",
+    "isError": true,
+    "after": {}
+  },
+  {
+    "name": "patch-ambiguity-notice",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "x\nfoo\ny\nfoo\nz\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n foo\n+bar\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.js — +1\n⚠️ a.js: hunk context matches more than one place; applied at line 2 (first match after the previous hunk). Add an @@ anchor to target a different one.",
+    "isError": false,
+    "after": {
+      "a.js": "x\nfoo\nbar\ny\nfoo\nz\n"
+    }
+  },
+  {
+    "name": "patch-eof-ignored-notice",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "a\nb\nc\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n a\n-b\n+B\n*** End of File\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.js — +1/-1\n⚠️ a.js: hunk carried *** End of File but its context is at line 1, not the end of file; the marker was ignored. Drop it unless the hunk really ends the file.",
+    "isError": false,
+    "after": {
+      "a.js": "a\nB\nc\n"
+    }
+  },
+  {
+    "name": "patch-two-hunks",
+    "tool": "apply_patch",
+    "files": {
+      "a.js": "a\nb\nc\nd\ne\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-b\n+B\n@@\n-d\n+D\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Modify a.js — +2/-2",
+    "isError": false,
+    "after": {
+      "a.js": "a\nB\nc\nD\ne\n"
+    }
+  },
+  {
+    "name": "patch-add-new",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "*** Begin Patch\n*** Add File: dir/new.txt\n+one\n+two\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Create dir/new.txt — +2 Lines",
+    "isError": false,
+    "after": {
+      "dir/new.txt": "one\ntwo\n"
+    }
+  },
+  {
+    "name": "patch-add-existing",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "x\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Add File: a.txt\n+one\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: Add File target already exists: a.txt; read it and use Update File instead\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {
+      "a.txt": "x\n"
+    }
+  },
+  {
+    "name": "patch-delete",
+    "tool": "apply_patch",
+    "files": {
+      "gone.txt": "a\nb\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: gone.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "  OK Delete gone.txt — -2",
+    "isError": false,
+    "after": {}
+  },
+  {
+    "name": "patch-delete-missing",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "*** Begin Patch\n*** Delete File: gone.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: native patch failed — a/gone.txt: stat \\\\?\\<ROOT>\\gone.txt for delete: 지정된 파일을 찾을 수 없습니다. (os error 2)\n--- rolled back: every touched path was restored to its pre-patch state ---",
+    "isError": true,
+    "after": {}
+  },
+  {
+    "name": "patch-mixed",
+    "tool": "apply_patch",
+    "files": {
+      "u.txt": "a\nb\n",
+      "d.txt": "x\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Add File: n.txt\n+new\n*** Update File: u.txt\n@@\n-b\n+B\n*** Delete File: d.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "apply_patch: applied 3 section(s)\n  OK Create n.txt — +1 Line\n  OK Modify u.txt — +1/-1\n  OK Delete d.txt — -1",
+    "isError": false,
+    "after": {
+      "n.txt": "new\n",
+      "u.txt": "a\nB\n"
+    }
+  },
+  {
+    "name": "patch-rename-pure",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\ny\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: sub/new.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "OK sub/new.txt (renamed from old.txt, ~0 lines touched, engine=v4a-rename)\n",
+    "isError": false,
+    "after": {
+      "sub/new.txt": "x\ny\n"
+    }
+  },
+  {
+    "name": "patch-rename-edit",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\ny\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n@@\n-y\n+Y\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "OK new.txt (renamed from old.txt, ~2 lines touched, engine=v4a-rename)\n",
+    "isError": false,
+    "after": {
+      "new.txt": "x\nY\n"
+    }
+  },
+  {
+    "name": "patch-rename-dry-run",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\ny\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n*** End Patch\n",
+      "dry_run": true,
+      "base_path": "<ROOT>"
+    },
+    "text": "OK new.txt (renamed from undefined, ~0 lines touched, engine=v4a-rename)\n",
+    "isError": false,
+    "after": {
+      "old.txt": "x\ny\n"
+    }
+  },
+  {
+    "name": "patch-rename-dest-exists",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\n",
+      "new.txt": "z\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: V4A rename destination already exists: new.txt; delete it first or choose a new name",
+    "isError": true,
+    "after": {
+      "new.txt": "z\n",
+      "old.txt": "x\n"
+    }
+  },
+  {
+    "name": "patch-rename-source-missing",
+    "tool": "apply_patch",
+    "files": {},
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: V4A rename source missing or unreadable: old.txt (ENOENT)",
+    "isError": true,
+    "after": {}
+  },
+  {
+    "name": "patch-rename-same-path",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: old.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: V4A rename source and destination are the same path (old.txt)",
+    "isError": true,
+    "after": {
+      "old.txt": "x\n"
+    }
+  },
+  {
+    "name": "patch-rename-dest-dir",
+    "tool": "apply_patch",
+    "files": {
+      "old.txt": "x\n",
+      "sub/keep.txt": "k\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: old.txt\n*** Move to: sub\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: V4A rename destination is a directory: sub",
+    "isError": true,
+    "after": {
+      "old.txt": "x\n",
+      "sub/keep.txt": "k\n"
+    }
+  },
+  {
+    "name": "patch-rename-duplicate-dest",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: c.txt\n*** Update File: b.txt\n*** Move to: c.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: duplicate V4A rename destination c.txt",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    }
+  },
+  {
+    "name": "patch-rename-duplicate-source",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: c.txt\n*** Update File: a.txt\n*** Move to: d.txt\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: conflicting operations target a.txt; only repeated plain Update File sections can be merged",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n"
+    }
+  },
+  {
+    "name": "patch-rename-touches-section",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: c.txt\n*** Update File: b.txt\n@@\n-b\n+B\n*** Update File: c.txt\n@@\n-a\n+A\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "Error: apply_patch: V4A parse failed — apply_patch: V4A rename a.txt → c.txt touches a path another section edits; split into separate patches.",
+    "isError": true,
+    "after": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    }
+  },
+  {
+    "name": "patch-rename-with-other-section",
+    "tool": "apply_patch",
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n"
+    },
+    "input": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: c.txt\n*** Update File: b.txt\n@@\n-b\n+B\n*** End Patch\n",
+      "base_path": "<ROOT>"
+    },
+    "text": "OK c.txt (renamed from a.txt, ~0 lines touched, engine=v4a-rename)\n  OK Modify b.txt — +1/-1",
+    "isError": false,
+    "after": {
+      "b.txt": "B\n",
+      "c.txt": "a\n"
+    }
+  }
+]

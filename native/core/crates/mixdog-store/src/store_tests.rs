@@ -1648,3 +1648,78 @@ async fn a_rebuild_marks_unreadable_logs_damaged_and_indexes_the_rest() {
     assert_eq!(damage["path"], y_log.to_string_lossy().as_ref());
     drop(store);
 }
+
+fn model_switch(iid: &str, ordinal: u64, model: &str, at: i64) -> Encoded {
+    rec(json!({"k":"model_switch","anchor":{"iid":iid,"ordinal":ordinal},
+        "entry":{"provider":"openai","modelId":model,"at":at}}))
+}
+
+/// Each page row with the model ids of its boundaries.
+fn switched(rows: &[HistoryRow]) -> Vec<(String, Vec<String>)> {
+    rows.iter()
+        .map(|r| (r.iid.clone(), r.model_switches.iter().map(|m| m.model_id.as_str().to_owned()).collect()))
+        .collect()
+}
+
+/// A `model_switch` belongs to its anchor row (the 1.4.5 anchor message's
+/// `meta.modelSwitches`): shown on that row while it is live, through a rewind that covers
+/// the record but keeps the anchor (a retry), in a fork up to its fork point and past a cut
+/// that keeps the anchor; gone with the anchor. It is no history row, and a rebuild from the
+/// logs gives the same pages.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_switches_follow_their_anchor_row() {
+    let env = Env::new();
+    let page = |levels: Vec<LineageLevel>, cut: Option<u64>| {
+        let store = env.store.clone();
+        async move { switched(&store.history_page(levels, cut, None, 50).await.unwrap().0) }
+    };
+    let row = |iid: &str, models: &[&str]| (iid.to_owned(), models.iter().map(|m| m.to_string()).collect::<Vec<_>>());
+    let base = || lineage(&[("b0", None)]);
+    let w = env.create("b0", None).await;
+    // a1 (1) answered; p1 (2) the trailing prompt: the switches (3, 4) anchor on a1.
+    let (w, _) = env.commit(w, vec![item("a1"), item("p1")]).await;
+    let (w, _) = env.commit(w, vec![model_switch("a1", 1, "m1", 10), model_switch("a1", 1, "m2", 20)]).await;
+    let rows = env.store.history_page(base(), None, None, 50).await.unwrap().0;
+    assert_eq!(
+        serde_json::to_value(&rows[1].model_switches).unwrap(),
+        json!([{"provider":"openai","modelId":"m1","at":10}, {"provider":"openai","modelId":"m2","at":20}])
+    );
+    // A retry rewinds the prompt (5) over the switch records; the anchor and its boundaries stay.
+    let rewind = rec(json!({"k":"rewind","to_ordinal":2,"reason":"rewind"}));
+    let (w, _) = env.commit(w, vec![rewind, item("p2")]).await;
+    assert_eq!((w.fold().rows, w.fold().visible_rows), (2, 2));
+    // 7 names an iid that is not row 6's: never shown. 8 anchors on p2.
+    let (w, _) = env.commit(w, vec![model_switch("zz", 6, "m3", 30), model_switch("p2", 6, "m5", 50)]).await;
+    assert_eq!(page(base(), None).await, [row("p2", &["m5"]), row("a1", &["m1", "m2"])]);
+    // A fork at 9; the base's later switch (9) is not the fork's, the fork's own (11) not the base's.
+    let (w, _) = env.commit(w, vec![model_switch("a1", 1, "m6", 60)]).await;
+    let child = env.create("c0", Some(("b0", 9))).await;
+    let (child, _) = env.commit(child, vec![item("c1"), model_switch("a1", 1, "m7", 70)]).await;
+    let fork = || lineage(&[("c0", None), ("b0", Some(9))]);
+    assert_eq!(page(fork(), None).await, [row("c1", &[]), row("p2", &["m5"]), row("a1", &["m1", "m2", "m7"])]);
+    assert_eq!(page(base(), None).await, [row("p2", &["m5"]), row("a1", &["m1", "m2", "m6"])]);
+    // The fork rewinds into the base range (12): p2 is cut, a1 keeps every boundary.
+    let rewind = rec(json!({"k":"rewind","to_ordinal":6,"reason":"edit"}));
+    let (child, _) = env.commit(child, vec![rewind]).await;
+    let cut = child.fold().base_cut;
+    assert_eq!(page(fork(), cut).await, [row("a1", &["m1", "m2", "m7"])]);
+    // A rewind that removes the anchor removes its boundaries; a new row with its iid has none.
+    let rewind = rec(json!({"k":"rewind","to_ordinal":1,"reason":"edit"}));
+    let (w, _) = env.commit(w, vec![rewind, item("a1")]).await;
+    assert_eq!(page(base(), None).await, [row("a1", &[])]);
+    assert_eq!(page(fork(), cut).await, [row("a1", &["m1", "m2", "m7"])], "the fork's view is its own");
+    // A boundary must anchor on an earlier row.
+    let (w, refused) = env.append(w, vec![model_switch("a1", 12, "m8", 80)]).await;
+    assert!(refused.is_err(), "anchor at its own ordinal");
+    let expected = (page(base(), None).await, page(fork(), cut).await);
+    drop((w, child));
+    // A rebuild from the logs projects the same boundaries.
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    let rebuilt = open_index(other.path()).unwrap();
+    let pages = (
+        switched(&rebuilt.history_page(base(), None, None, 50).await.unwrap().0),
+        switched(&rebuilt.history_page(fork(), cut, None, 50).await.unwrap().0),
+    );
+    assert_eq!(pages, expected);
+}

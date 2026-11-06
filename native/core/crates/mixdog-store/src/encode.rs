@@ -87,7 +87,7 @@ pub fn encode_record(mut record: Record) -> Result<Encoded, EncodeError> {
         Record::Queue(r) => reslot_opt(&mut r.entry, &mut blobs)?,
         Record::Op(r) => reslot_opt(&mut r.detail, &mut blobs)?,
         Record::Checkpoint(r) => drop(reslot(&mut r.state, &mut blobs)?),
-        Record::Rewind(_) => {}
+        Record::Rewind(_) | Record::ModelSwitch(_) => {}
     }
     Encoded::new(record, blobs)
 }

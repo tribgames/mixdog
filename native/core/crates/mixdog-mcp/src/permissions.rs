@@ -236,6 +236,11 @@ fn lone_policy(manifest: &Value) -> Result<Loaded, String> {
     })
 }
 
+#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
+fn is_present(_lane: &InLane<MaintenanceIo>, path: &Path) -> bool {
+    path.exists()
+}
+
 /// Node `readJson` over a policy file: no file (or a path through a file) is `absent`; a file
 /// that cannot be read is `deny`; a damaged one (empty, NUL-filled, torn, or a shape `parse`
 /// refuses) falls back to its last good copy `<file>.bak` and, without one, is `deny` — it never
@@ -255,7 +260,7 @@ fn read_policy_file<T>(
     match mixdog_statefile::read_json(lane, path, Some(&valid), &opts) {
         Ok(Some(value)) => parse(&value).unwrap_or(deny),
         // Nothing there is `absent`; a damaged file left in place with no good copy denies.
-        Ok(None) if path.exists() => {
+        Ok(None) if is_present(lane, path) => {
             tracing::warn!(path = %path.display(), "connector policy is unreadable; denying all connectors");
             deny
         }

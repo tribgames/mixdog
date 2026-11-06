@@ -65,7 +65,7 @@ impl IndexProjector for TestProjector {
     }
 }
 
-fn drivers() -> Vec<Arc<dyn ItemDriver>> {
+pub(crate) fn drivers() -> Vec<Arc<dyn ItemDriver>> {
     product_drivers(Arc::new(TestProjector))
 }
 
@@ -92,7 +92,7 @@ fn tree_digest(roots: &MigrationRoots) -> BTreeMap<String, String> {
     out
 }
 
-fn write(root: &Path, rel: &str, bytes: &[u8]) {
+pub(crate) fn write(root: &Path, rel: &str, bytes: &[u8]) {
     let path = root.join(rel);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, bytes).unwrap();
@@ -101,7 +101,8 @@ fn write(root: &Path, rel: &str, bytes: &[u8]) {
 /// A data dir with every data kind: 1.4.5 json with archive, pending job, recoverable
 /// checkpoint, a lone surrogate and a blob-sized body; a dev pair; spool, worker row,
 /// set-aside, tmp, orphan checkpoint, preserved stores, settings with legacy compaction
-/// keys, the genuine 1.4.5 ledger and an imported legacy usage file.
+/// keys and one-account connector servers an agent and the accounts in use name, a pending
+/// connector merge, the genuine 1.4.5 ledger and an imported legacy usage file.
 fn fixture(root: &Path) -> MigrationRoots {
     let data = root.join("data");
     let home = root.join("home");
@@ -177,8 +178,12 @@ fn fixture(root: &Path) -> MigrationRoots {
     write(
         &data,
         "mixdog-config.json",
-        br#"{"agent":{"compaction":{"enabled":false,"semanticModel":"m"},"other":1}}"#,
+        br#"{"agent":{"compaction":{"enabled":false,"semanticModel":"m"},"other":1,"mcpServers":{"notion":{"url":"https://mcp.notion.com/mcp","connector":"notion"},"notion-2":{"url":"https://mcp.notion.com/mcp","oauthKey":"2","connector":"notion"}}}}"#,
     );
+    write(&data, "agents/a/agent.json", br#"{"connectors":{"off":["notion-2"]}}"#);
+    write(&data, "bots/b/agent.json", br#"{"connectors":{"off":["linear-2"]}}"#);
+    write(&data, "connector-merge-pending.json", br#"{"merged":[{"name":"linear","from":["linear","linear-2"]}]}"#);
+    write(&data, "connector-accounts-in-use.json", br#"{"notion":"notion-2"}"#);
     write(&data, "client-versions.json", b"{}");
     write(&data, "live-sessions/1.pid", b"1");
     let ledger = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/migration/ledger-v145/ledger.sqlite");
@@ -258,8 +263,23 @@ fn fixture_migrates_every_kind() {
         .data
         .join("quarantine/carried_set_aside/retain%2Fdata%2Fsessions%2Fsess_c.json.corrupt-123/sess_c.json.corrupt-123")
         .exists());
+    // Both late config rewrites land: the compaction keys fold and the connector merges, its
+    // accounts with their ids, which the agents and the accounts in use then name.
     let config: Value = serde_json::from_slice(&std::fs::read(roots.data.join("mixdog-config.json")).unwrap()).unwrap();
-    assert_eq!(config, json!({"agent":{"compaction":{"auto":false,"summaryModel":"m"},"other":1}}));
+    let accounts = config["agent"]["mcpServers"]["notion"]["accounts"].as_array().unwrap().clone();
+    let id = |n: usize| accounts[n]["id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        config,
+        json!({"agent":{"compaction":{"auto":false,"summaryModel":"m"},"other":1,"mcpServers":{"notion":{
+            "type":"http","url":"https://connectors.mixdog.invalid/notion/mcp","connector":"notion","accounts":[
+                {"name":"notion","url":"https://mcp.notion.com/mcp","id":id(0)},
+                {"name":"notion-2","url":"https://mcp.notion.com/mcp","oauthKey":"2","id":id(1)}]}}}})
+    );
+    let read = |rel: &str| serde_json::from_slice::<Value>(&std::fs::read(roots.data.join(rel)).unwrap()).unwrap();
+    assert_eq!(read("agents/a/agent.json"), json!({"connectors":{"off":["notion"]}}));
+    assert_eq!(read("bots/b/agent.json"), json!({"connectors":{"off":["linear"]}}));
+    assert_eq!(read("connector-accounts-in-use.json"), json!({"notion":{"name":"notion-2","id":id(1)},"#ids":true}));
+    assert!(!roots.data.join("connector-merge-pending.json").exists());
     // The dev pair folds the log, with the worker row as a meta.
     let states = BTreeMap::new();
     let blobs = BlobStatuses::default();
@@ -396,6 +416,7 @@ fn every_crash_point_resumes_to_the_same_tree() {
     let want = tree_digest(&roots);
     std::fs::remove_dir_all(&base).unwrap();
     let mut seen = 0;
+    let mut points = Vec::new();
     loop {
         let roots = fixture(&base);
         let calls = Arc::new(AtomicUsize::new(0));
@@ -424,9 +445,14 @@ fn every_crash_point_resumes_to_the_same_tree() {
         let diff: Vec<_> = want.keys().chain(got.keys()).filter(|k| want.get(*k) != got.get(*k)).collect();
         assert!(diff.is_empty(), "after a crash at {point}: {diff:?}");
         std::fs::remove_dir_all(&base).unwrap();
+        points.push(point);
         seen += 1;
     }
     assert!(seen > 40, "{seen} fault points");
+    // The connector transition is cut between each of its file publications.
+    let connector = format!("publish:{}:", crate::connectors::ITEM);
+    let publications = points.iter().filter(|p| p.starts_with(&connector)).count();
+    assert!(publications >= 5, "{publications} connector publication points");
 }
 
 #[test]

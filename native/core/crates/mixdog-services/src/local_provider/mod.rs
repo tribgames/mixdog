@@ -20,6 +20,8 @@ pub mod server_process;
 pub mod service;
 pub mod setup_actions;
 #[cfg(test)]
+mod extract_twin_tests;
+#[cfg(test)]
 mod process_twin_tests;
 #[cfg(test)]
 mod twin_tests;

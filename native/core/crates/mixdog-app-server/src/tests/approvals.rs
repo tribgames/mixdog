@@ -249,7 +249,7 @@ async fn simultaneous_answers_one_wins_and_every_connection_hears_the_winners_de
             panic!("not decided: {records:?}");
         };
         let winner: usize = device.strip_prefix("dev-").unwrap().parse().unwrap();
-        assert_eq!(decision.approved, winner % 2 == 0);
+        assert_eq!(decision.approved, winner.is_multiple_of(2));
         assert_eq!(*connection_kind, kinds[winner % 2]);
 
         // Everyone, losers included, hears it once, naming that device.

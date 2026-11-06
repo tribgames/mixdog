@@ -220,7 +220,7 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                     }
                     QueueAction::Dequeue => folded.queue.retain(|q| q.0 != qr.qid.as_str()),
                 },
-                Record::Rewind(_) | Record::Approval(_) | Record::Op(_) => {
+                Record::Rewind(_) | Record::Approval(_) | Record::Op(_) | Record::ModelSwitch(_) => {
                     return Err(format!("frame {}: a record migration never writes", frame.ordinal));
                 }
             }

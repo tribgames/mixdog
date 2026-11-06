@@ -363,6 +363,7 @@ fn every_record_kind_parses_and_encodes_to_its_vector() {
         "queue",
         "op",
         "checkpoint",
+        "model_switch",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -510,6 +511,8 @@ fn every_record_kind_fits_a_frame_at_its_type_bounds() {
                "op": op, "body": slot}),
         json!({"k": "queue", "qid": id, "action": "enqueue", "reason": "cancelled", "op": op, "entry": slot}),
         json!({"k": "op", "op": op, "state": "externalPending", "at": neg, "detail": slot}),
+        json!({"k": "model_switch", "anchor": {"iid": id, "ordinal": big}, "op": op,
+               "entry": {"provider": name, "modelId": name, "at": neg}}),
     ];
     let mut largest = 0;
     for value in records {
@@ -624,6 +627,7 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
             "message_rows",
             "message_views",
             "meta",
+            "model_switches",
             "prompt_history",
             "prompt_occurrences",
             "session_search",

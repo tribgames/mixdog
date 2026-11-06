@@ -25,6 +25,7 @@ pub mod remote_access;
 pub mod remote_push;
 pub(crate) mod support;
 pub mod update;
+pub mod visualize_export;
 
 pub use self::support::OpScopes;
 

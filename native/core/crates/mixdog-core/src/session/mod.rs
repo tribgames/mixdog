@@ -22,6 +22,7 @@
 mod actor;
 mod agent_host;
 pub mod agent_registry;
+mod attachments;
 mod completions;
 mod control;
 mod directory;
@@ -59,6 +60,7 @@ use mixdog_rt::CpuInteractive;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 
+pub use self::attachments::SessionAttachmentLinks;
 pub use self::directory::SessionDirectory;
 pub use self::handle::SessionHandle;
 pub use self::prompt_history::FilePromptHistory;
@@ -133,8 +135,36 @@ pub struct SessionDeps {
     pub approval_ids: Arc<dyn ApprovalIds>,
     pub devices: Arc<dyn Devices>,
     pub clock: Arc<dyn Clock>,
+    /// Told of every turn start (today's `onSessionTurnStart`).
+    pub turn_starts: Arc<dyn TurnStarts>,
     pub lanes: SessionLanes,
     pub limits: SessionLimits,
+}
+
+/// A turn of any origin started on a thread (`session-activity-signal.mjs`
+/// `onSessionTurnStart`): the worker index clears the owner's release mark.
+pub trait TurnStarts: Send + Sync {
+    fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId);
+}
+
+/// [`TurnStarts`] bound after the sessions exist: the agent registry reads the session
+/// directory, which is built over the deps that carry this. Unbound, a turn start tells no one.
+#[derive(Default)]
+pub struct LateTurnStarts(std::sync::OnceLock<Arc<dyn TurnStarts>>);
+
+impl LateTurnStarts {
+    /// Binds the listener; a second bind is refused.
+    pub fn bind(&self, listener: Arc<dyn TurnStarts>) -> Result<(), Arc<dyn TurnStarts>> {
+        self.0.set(listener)
+    }
+}
+
+impl TurnStarts for LateTurnStarts {
+    fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId) {
+        if let Some(listener) = self.0.get() {
+            listener.turn_started(thread);
+        }
+    }
 }
 
 /// The lane tokens sessions use (RL §3, §13): open reads, encodes and decodes, durability.

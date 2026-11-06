@@ -251,6 +251,221 @@
       }
     },
     {
+      "name": "hidden_only",
+      "before": [
+        {
+          "role": "user",
+          "content": "question",
+          "meta": {
+            "transcript": {
+              "at": 1,
+              "messageId": "msg_082779a5bc7a116175f07d6fbf57c126"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "[Request interrupted by user]",
+          "meta": {
+            "transcript": {
+              "at": 2,
+              "messageId": "msg_d6cf0996ca6b5672b35d1218632dafc9"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "[Request interrupted by user for tool use]",
+          "meta": {
+            "transcript": {
+              "at": 3,
+              "messageId": "msg_d509024a29b46e54cf770f39a13f15b3"
+            }
+          }
+        }
+      ],
+      "after": [
+        {
+          "role": "user",
+          "content": "A previous model worked on this task and produced the compacted handoff summary below.\n\n## Goal",
+          "meta": {
+            "source": "compact-summary"
+          }
+        },
+        {
+          "role": "user",
+          "content": "question",
+          "meta": {
+            "transcript": {
+              "at": 1,
+              "messageId": "msg_082779a5bc7a116175f07d6fbf57c126"
+            }
+          }
+        }
+      ],
+      "droppedMessages": 0,
+      "identities": null
+    },
+    {
+      "name": "task_notification",
+      "before": [
+        {
+          "role": "user",
+          "content": "question",
+          "meta": {
+            "transcript": {
+              "at": 1,
+              "messageId": "msg_f165bdddc933d8db6a2cdcfa4032cf7a"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "Async agent task task_1 (completed) finished.",
+          "meta": {
+            "transcript": {
+              "at": 2,
+              "messageId": "msg_603de27c159ac4709a1ed1264ea40110"
+            }
+          }
+        }
+      ],
+      "after": [
+        {
+          "role": "user",
+          "content": "A previous model worked on this task and produced the compacted handoff summary below.\n\n## Goal",
+          "meta": {
+            "source": "compact-summary"
+          }
+        },
+        {
+          "role": "user",
+          "content": "question",
+          "meta": {
+            "transcript": {
+              "at": 1,
+              "messageId": "msg_f165bdddc933d8db6a2cdcfa4032cf7a"
+            }
+          }
+        }
+      ],
+      "droppedMessages": 0,
+      "identities": null
+    },
+    {
+      "name": "completion",
+      "before": [
+        {
+          "role": "user",
+          "content": "question",
+          "meta": {
+            "transcript": {
+              "at": 1,
+              "messageId": "msg_70e74801e3488fdf0bedcc6dd7f84552"
+            }
+          }
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "meta": {
+            "transcript": {
+              "at": 2,
+              "completion": {
+                "status": "failed",
+                "elapsedMs": 5
+              },
+              "messageId": "msg_fbc32c08908886754507006473e0da30"
+            }
+          }
+        }
+      ],
+      "after": [
+        {
+          "role": "user",
+          "content": "A previous model worked on this task and produced the compacted handoff summary below.\n\n## Goal",
+          "meta": {
+            "source": "compact-summary"
+          }
+        },
+        {
+          "role": "user",
+          "content": "question",
+          "meta": {
+            "transcript": {
+              "at": 1,
+              "messageId": "msg_70e74801e3488fdf0bedcc6dd7f84552"
+            }
+          }
+        }
+      ],
+      "droppedMessages": 1,
+      "identities": {
+        "messageIds": [
+          "msg_fbc32c08908886754507006473e0da30"
+        ],
+        "callIds": []
+      }
+    },
+    {
+      "name": "model_switch",
+      "before": [
+        {
+          "role": "user",
+          "content": "question",
+          "meta": {
+            "transcript": {
+              "at": 1,
+              "messageId": "msg_701563a559fc51675178b58529b1d6da"
+            }
+          }
+        },
+        {
+          "role": "user",
+          "content": "[Request interrupted by user]",
+          "meta": {
+            "transcript": {
+              "at": 2,
+              "messageId": "msg_ec797aab12c34671e331cd96f647354f"
+            },
+            "modelSwitches": [
+              {
+                "provider": "openai",
+                "modelId": "next-model",
+                "at": 2
+              }
+            ]
+          }
+        }
+      ],
+      "after": [
+        {
+          "role": "user",
+          "content": "A previous model worked on this task and produced the compacted handoff summary below.\n\n## Goal",
+          "meta": {
+            "source": "compact-summary"
+          }
+        },
+        {
+          "role": "user",
+          "content": "question",
+          "meta": {
+            "transcript": {
+              "at": 1,
+              "messageId": "msg_701563a559fc51675178b58529b1d6da"
+            }
+          }
+        }
+      ],
+      "droppedMessages": 1,
+      "identities": {
+        "messageIds": [
+          "msg_ec797aab12c34671e331cd96f647354f"
+        ],
+        "callIds": []
+      }
+    },
+    {
       "name": "rewrite_only",
       "before": [
         {

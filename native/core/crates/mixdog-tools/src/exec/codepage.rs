@@ -204,6 +204,12 @@ impl Sniffer {
     }
 }
 
+fn finish(decoder: &mut Decoder) -> String {
+    let text = run(decoder, &[], true);
+    *decoder = decoder.encoding().new_decoder();
+    text
+}
+
 enum State {
     /// No OEM page: a plain UTF-8 decoder (bytes of a cut character wait for the next write).
     Plain(Decoder),
@@ -273,9 +279,17 @@ impl ShellStreamDecoder {
         out
     }
 
+    /// Flushes what a cut character left. Like Node's `StringDecoder.end()`, the decoder stays
+    /// usable for a later write (`encoding_rs` forbids reuse once finished, so it is replaced by
+    /// a fresh one of the same encoding).
     pub fn end(&mut self) -> String {
         match &mut self.state {
-            State::Plain(decoder) | State::Committed(decoder) => run(decoder, &[], true),
+            State::Plain(decoder) => {
+                let text = run(decoder, &[], true);
+                *decoder = encoding_rs::UTF_8.new_decoder_without_bom_handling();
+                text
+            }
+            State::Committed(decoder) => finish(decoder),
             State::Undecided => {
                 if self.held.is_empty() {
                     return String::new();
@@ -283,7 +297,7 @@ impl ShellStreamDecoder {
                 let label = evaluate_window(&self.held, self.oem, true).0.unwrap_or("utf-8");
                 let mut text = self.commit(label);
                 if let State::Committed(decoder) = &mut self.state {
-                    text.push_str(&run(decoder, &[], true));
+                    text.push_str(&finish(decoder));
                 }
                 text
             }

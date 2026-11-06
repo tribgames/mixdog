@@ -16,8 +16,8 @@ use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
-use super::edit::compact_preview;
-use super::edit::nearest_line;
+use super::hints::compact_preview;
+use super::hints::nearest_line;
 
 const PATCH_SPEC: &str = include_str!("specs/apply_patch.json");
 const EXCERPT_MAX_LINES: usize = 14;

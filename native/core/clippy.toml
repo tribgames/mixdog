@@ -105,6 +105,11 @@ disallowed-methods = [
   { path = "tokio::fs::DirBuilder::create", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
 
   { path = "std::process::Command::new", reason = "process spawning goes through mixdog-spawn" },
+
+  # serde_json is built with preserve_order, so Map is an IndexMap and Map::remove is a swap-remove:
+  # it moves the last key into the removed slot and reorders the rest. Node keeps insertion order.
+  { path = "serde_json::Map::remove", reason = "swap-removes under preserve_order and reorders the remaining keys; use shift_remove" },
+  { path = "serde_json::Map::remove_entry", reason = "swap-removes under preserve_order and reorders the remaining keys; use shift_remove_entry" },
 ]
 
 disallowed-types = [

@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 
 use icu_collator::CollatorBorrowed;
 use icu_collator::options::CollatorOptions;
+use icu_collator::options::Strength;
 use icu_locale_core::Locale;
 
 fn collator() -> &'static CollatorBorrowed<'static> {
@@ -23,6 +24,20 @@ fn collator() -> &'static CollatorBorrowed<'static> {
 /// `a.localeCompare(b)`, as an `Ordering`.
 pub fn locale_compare(a: &str, b: &str) -> Ordering {
     collator().compare(a, b)
+}
+
+/// `a.localeCompare(b, 'en', { sensitivity: 'base' })`: English collation that ignores case and
+/// accents.
+pub fn locale_compare_en_base(a: &str, b: &str) -> Ordering {
+    static COLLATOR: OnceLock<CollatorBorrowed<'static>> = OnceLock::new();
+    COLLATOR
+        .get_or_init(|| {
+            let mut options = CollatorOptions::default();
+            options.strength = Some(Strength::Primary);
+            let locale: Locale = "en".parse().expect("static locale");
+            CollatorBorrowed::try_new((&locale).into(), options).expect("compiled collation data")
+        })
+        .compare(a, b)
 }
 
 #[cfg(test)]

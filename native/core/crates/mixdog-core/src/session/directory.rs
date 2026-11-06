@@ -119,6 +119,38 @@ impl SessionDirectory {
         self.inner.loaded(id)
     }
 
+    /// A thread's model context (`session.messages`), read from the store; a thread need not be
+    /// loaded.
+    pub(crate) fn model_context(&self, id: &ThreadId) -> super::run::ModelContext {
+        super::run::ModelContext {
+            store: self.inner.deps.store.clone(),
+            lanes: self.inner.deps.lanes,
+            thread: id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        }
+    }
+
+    /// A thread's whole stored history as the transcript shows it, oldest first; a thread need
+    /// not be loaded.
+    pub(crate) async fn history_items(&self, id: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, CoreError> {
+        let deps = &self.inner.deps;
+        let token = CancellationToken::new();
+        let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
+        let (store, thread) = (deps.store.clone(), id.clone());
+        let rows = deps.lanes.io.submit(&token, move |lane| store.history_rows(lane, &thread))?.await.map_err(|_| dropped())??;
+        let transcript = deps.transcript.clone();
+        let items = deps.lanes.cpu.submit(&token, move |lane| {
+            rows.iter()
+                .flat_map(|row| transcript.items(lane, row))
+                .filter_map(|shown| match shown {
+                    super::seams::Shown::Item(item) => Some(item),
+                    super::seams::Shown::Update(_) => None,
+                })
+                .collect()
+        })?;
+        items.await.map_err(|_| dropped())
+    }
+
     /// The ids of every loaded thread (the threads this process hosts).
     pub fn loaded_ids(&self) -> Vec<ThreadId> {
         self.inner

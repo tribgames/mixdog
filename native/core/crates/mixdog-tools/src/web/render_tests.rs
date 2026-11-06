@@ -24,6 +24,9 @@ use super::hosted_search::*;
 use super::pipeline::PageRenderer;
 use super::render::BrowserEndpoint;
 use super::render::BrowserRenderer;
+use mixdog_core_api::domain::ext::BrowserHold;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use super::search::NativeSearchRequest;
 use super::search::NativeWebSearch;
 use super::ssrf::AddressPolicy;
@@ -33,8 +36,30 @@ struct Endpoint(String);
 
 #[async_trait]
 impl BrowserEndpoint for Endpoint {
-    async fn endpoint(&self) -> Result<String, String> {
-        Ok(self.0.clone())
+    async fn lease(&self) -> Result<(String, BrowserHold), String> {
+        Ok((self.0.clone(), Box::new(())))
+    }
+}
+
+/// An endpoint that counts the holds that are alive.
+struct Counting {
+    url: String,
+    live: Arc<AtomicUsize>,
+}
+
+struct CountedHold(Arc<AtomicUsize>);
+
+impl Drop for CountedHold {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl BrowserEndpoint for Counting {
+    async fn lease(&self) -> Result<(String, BrowserHold), String> {
+        self.live.fetch_add(1, Ordering::SeqCst);
+        Ok((self.url.clone(), Box::new(CountedHold(self.live.clone()))))
     }
 }
 
@@ -149,6 +174,40 @@ async fn render_reads_the_page_through_the_request_gate() {
     assert_eq!(seen.fulfilled_status, Some(200));
     assert_eq!(seen.fulfilled_body, body);
     assert!(seen.methods.contains(&"Target.disposeBrowserContext".to_string()));
+}
+
+#[tokio::test]
+async fn render_holds_the_shared_browser_for_the_whole_render_and_lets_go_after() {
+    let origin = MockServer::start().await;
+    let body = "<title>Slow</title><main><p>Late.</p></main>";
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(body.as_bytes().to_vec(), "text/html; charset=utf-8")
+                .set_delay(Duration::from_millis(300)),
+        )
+        .mount(&origin)
+        .await;
+    let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
+    let (endpoint, _seen) = fake_browser(url.clone()).await;
+    let live = Arc::new(AtomicUsize::new(0));
+    let renderer = BrowserRenderer::with_policy(
+        Arc::new(Counting { url: endpoint, live: live.clone() }),
+        AddressPolicy::AnyForTest,
+        "test",
+    )
+    .unwrap();
+    let render = tokio::spawn({
+        let url = url.clone();
+        async move { renderer.render(&url, Duration::from_secs(10)).await }
+    });
+    // The page is being fetched for the browser: the render is under way.
+    while origin.received_requests().await.unwrap().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(live.load(Ordering::SeqCst), 1, "held while the render runs");
+    render.await.unwrap().unwrap();
+    assert_eq!(live.load(Ordering::SeqCst), 0, "released when the render ends");
 }
 
 #[tokio::test]

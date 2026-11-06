@@ -93,7 +93,7 @@ pub(super) fn first_truthy(values: &[Option<&Value>]) -> String {
     String::new()
 }
 
-fn wants_session_scan(args: &Value) -> bool {
+pub(crate) fn wants_session_scan(args: &Value) -> bool {
     ["recover", "scanSessions", "scan_sessions"].iter().any(|k| args.get(k) == Some(&Value::Bool(true)))
 }
 
@@ -466,7 +466,7 @@ impl AgentRuntime {
                 .await?;
             return Ok(SpawnPlan::Reused(Box::new(reply)));
         }
-        if self.deps.terminal_trace.has_terminal_trace(tag, scope) {
+        if self.deps.terminal_trace.has_terminal_trace(tag, scope)? {
             self.deps.terminal_trace.reap_terminal_trace_for_tag(tag, scope);
             return Ok(SpawnPlan::Fresh { args: args.clone(), respawned: true });
         }

@@ -285,6 +285,39 @@ impl ThreadStore for MemStore {
         }
         Ok(rows.into_iter().map(|(_, row)| row).collect())
     }
+
+    fn history_rows(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+    ) -> Result<Vec<ItemRecord>, CoreError> {
+        let records = self.records(id);
+        if records.is_empty() {
+            return Err(CoreError::ThreadNotFound { thread_id: id.clone() });
+        }
+        let mut rows: Vec<(u64, ItemRecord)> = Vec::new();
+        for (ordinal, record) in records {
+            match record {
+                Record::Item(item) => rows.push((ordinal, item)),
+                Record::Rewind(rewind) => rows.retain(|(o, _)| *o < rewind.to_ordinal),
+                _ => {}
+            }
+        }
+        Ok(rows.into_iter().map(|(_, row)| row).collect())
+    }
+}
+
+impl MemStore {
+    /// Seeds a log with records as if a writer had committed them.
+    pub fn seed(&self, id: &ThreadId, records: Vec<Record>) {
+        let log = self.log(id);
+        let mut log = lock(&log);
+        let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
+        for record in records {
+            log.push((next, record));
+            next += 1;
+        }
+    }
 }
 
 
@@ -537,6 +570,7 @@ pub(crate) struct Rig {
     pub feeds: Arc<RecFeeds>,
     pub sink: Arc<MockServerRequests>,
     pub clock: Arc<FixedClock>,
+    pub turn_starts: Arc<super::LateTurnStarts>,
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
     pub prewarms: Arc<Prewarms>,
     pub ingests: Arc<Ingests>,
@@ -596,6 +630,7 @@ impl Rig {
             feeds: Arc::new(RecFeeds::default()),
             sink: Arc::new(MockServerRequests::default()),
             clock: Arc::new(FixedClock(AtomicU64::new(1000))),
+            turn_starts: Arc::default(),
             wakes: mixdog_tools::exec::WakeHub::new(),
             prewarms: Arc::default(),
             ingests: Arc::default(),
@@ -614,8 +649,13 @@ impl Rig {
 
     /// The stack over another thread store (the real one over a temp data dir).
     pub fn deps_on(&self, store: Arc<dyn ThreadStore>) -> Arc<SessionDeps> {
+        Arc::new(self.deps_parts(store))
+    }
+
+    /// The stack's parts, for a test that swaps one of them.
+    pub fn deps_parts(&self, store: Arc<dyn ThreadStore>) -> SessionDeps {
         let tokens = mixdog_rt::testing::tokens();
-        Arc::new(SessionDeps {
+        SessionDeps {
             store,
             codec: Arc::new(super::store::StoreCodec),
             transcript: Arc::new(TextTranscript),
@@ -634,12 +674,13 @@ impl Rig {
             approval_ids: Arc::new(Counter::default()),
             devices: Arc::new(NamedDevices),
             clock: self.clock.clone(),
+            turn_starts: self.turn_starts.clone(),
             lanes: SessionLanes {
                 cpu: tokens.cpu_interactive,
                 io: tokens.interactive_io,
                 durability: tokens.durability_io,
             },
             limits: SessionLimits::default(),
-        })
+        }
     }
 }

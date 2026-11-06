@@ -281,6 +281,11 @@ pub struct CompactOutput {
     pub messages: Vec<AgentMessage>,
     /// Summary-model usage, billed to the turn.
     pub usage: Option<Usage>,
+    /// Messages taken out of the context whose rows the transcript shows (0 when
+    /// none of what left is shown, or the pass changed nothing).
+    pub dropped_count: u64,
+    /// The ids of what left; `Some` exactly when `dropped_count`'s rows are shown.
+    pub dropped: Option<Dropped>,
 }
 
 #[derive(Debug)]

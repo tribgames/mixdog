@@ -1,0 +1,17 @@
+{
+  "name": "empty_nudge",
+  "messages": [
+    {
+      "role": "user",
+      "content": "go"
+    }
+  ],
+  "script": [
+    {
+      "content": "",
+      "toolCalls": [],
+      "stopReason": "end_turn"
+    }
+  ],
+  "repeatLast": true
+}

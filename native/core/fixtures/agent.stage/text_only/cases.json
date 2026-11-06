@@ -1,0 +1,690 @@
+[
+  {
+    "name": "image_with_text",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look"
+            },
+            {
+              "type": "image",
+              "data": "AAECAw==",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "look"
+          },
+          {
+            "type": "text",
+            "text": "[image omitted: local model is text-only]"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "image_only_is_an_error",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "data": "AAECAw==",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "error": "[local-provider] local-test is text-only in this managed runtime. Use a compatible multimodal provider for image, audio, video or document input."
+  },
+  {
+    "name": "zip_only_is_an_error",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "data": "UEsDBHppcA==",
+              "mimeType": "application/zip",
+              "filename": "b.zip"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "error": "[local-provider] local-test is text-only in this managed runtime. Use a compatible multimodal provider for image, audio, video or document input."
+  },
+  {
+    "name": "blank_text_and_image_is_an_error",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "  \n"
+            },
+            {
+              "type": "image",
+              "data": "AAECAw==",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "error": "[local-provider] local-test is text-only in this managed runtime. Use a compatible multimodal provider for image, audio, video or document input."
+  },
+  {
+    "name": "history_media_degrades",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "first"
+            },
+            {
+              "type": "image",
+              "data": "AAECAw==",
+              "mimeType": "image/png"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "seen"
+        },
+        {
+          "role": "user",
+          "content": "now"
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "first"
+          },
+          {
+            "type": "text",
+            "text": "[image omitted: local model is text-only]"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "seen"
+      },
+      {
+        "role": "user",
+        "content": "now"
+      }
+    ]
+  },
+  {
+    "name": "csv_is_text",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "read"
+            },
+            {
+              "type": "file",
+              "data": "YSxiCjEsMgo=",
+              "mimeType": "text/csv",
+              "filename": "rows.csv"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "read"
+          },
+          {
+            "type": "text",
+            "text": "--- rows.csv (text/csv, 8 bytes) ---\na,b\n1,2\n"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "csv_only_is_usable",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "file",
+              "data": "YSxiCjEsMgo=",
+              "mimeType": "text/csv",
+              "filename": "rows.csv"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "--- rows.csv (text/csv, 8 bytes) ---\na,b\n1,2\n"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "zip_is_described",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "hm"
+            },
+            {
+              "type": "file",
+              "data": "UEsDBHppcA==",
+              "mimeType": "application/zip",
+              "filename": "b.zip"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hm"
+          },
+          {
+            "type": "text",
+            "text": "[file not sent inline: b.zip (application/zip, 7 bytes) — this type has no inline form; open it from disk with read]"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "gone_attachment_placeholder",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi"
+            },
+            {
+              "type": "file",
+              "mimeType": "text/plain",
+              "filename": "dir/n.txt",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sizeBytes": 10
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          },
+          {
+            "type": "text",
+            "text": "[attachment unavailable: n.txt]"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "text_source_document_is_omitted",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi"
+            },
+            {
+              "type": "document",
+              "source": {
+                "type": "text",
+                "data": "doc body"
+              },
+              "title": "notes"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          },
+          {
+            "type": "text",
+            "text": "[document omitted: local model is text-only]"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "unsent_text_with_image_is_an_error",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "[file not sent inline: x"
+            },
+            {
+              "type": "image",
+              "data": "AAECAw==",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "[file not sent inline: x"
+          },
+          {
+            "type": "text",
+            "text": "[image omitted: local model is text-only]"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "string_content_untouched",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "plain"
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "plain"
+      }
+    ]
+  },
+  {
+    "name": "no_user_message",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "a"
+            },
+            {
+              "type": "image",
+              "data": "AAECAw==",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "a"
+          },
+          {
+            "type": "text",
+            "text": "[image omitted: local model is text-only]"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "tool_message_media",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "go"
+        },
+        {
+          "role": "tool",
+          "toolCallId": "t1",
+          "content": [
+            {
+              "type": "image",
+              "data": "AAECAw==",
+              "mimeType": "image/png"
+            },
+            {
+              "type": "text",
+              "text": "r"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": "next"
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "go"
+      },
+      {
+        "role": "tool",
+        "toolCallId": "t1",
+        "content": [
+          {
+            "type": "text",
+            "text": "[image omitted: local model is text-only]"
+          },
+          {
+            "type": "text",
+            "text": "r"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "next"
+      }
+    ]
+  },
+  {
+    "name": "last_user_wins",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "old"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "a"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "data": "AAECAw==",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "options": {},
+      "capabilities": {}
+    },
+    "error": "[local-provider] local-test is text-only in this managed runtime. Use a compatible multimodal provider for image, audio, video or document input."
+  },
+  {
+    "name": "tools_unsupported",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi"
+        }
+      ],
+      "tools": [
+        {
+          "name": "t"
+        }
+      ],
+      "options": {},
+      "capabilities": {
+        "tools": false
+      }
+    },
+    "error": "[local-provider] local-test does not support the requested tool interface. Choose a tool-capable model."
+  },
+  {
+    "name": "capability_overrides_model",
+    "input": {
+      "model": {
+        "name": "local-test",
+        "supportsFunctionCalling": false
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi"
+        }
+      ],
+      "tools": [
+        {
+          "name": "t"
+        }
+      ],
+      "options": {},
+      "capabilities": {
+        "tools": true
+      }
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  {
+    "name": "model_flag_without_capability",
+    "input": {
+      "model": {
+        "name": "local-test",
+        "supportsFunctionCalling": false
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi"
+        }
+      ],
+      "tools": [
+        {
+          "name": "t"
+        }
+      ],
+      "options": {},
+      "capabilities": {}
+    },
+    "error": "[local-provider] local-test does not support the requested tool interface. Choose a tool-capable model."
+  },
+  {
+    "name": "effort_is_rejected",
+    "input": {
+      "model": {
+        "name": "local-test"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi"
+        }
+      ],
+      "tools": [],
+      "options": {
+        "effort": "low"
+      },
+      "capabilities": {}
+    },
+    "error": "[local-provider] reasoning-level controls are not configured for this model; remove the setting or choose another provider."
+  }
+]

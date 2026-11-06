@@ -2,7 +2,7 @@
   "domain": "editor-config",
   "entries": [
     {
-      "fileAfter": "{\n  \"folders\": [\n    {\n      \"path\": \"a\"\n    },\n    {\n      \"path\": \"b\",\n      \"name\": \"B\"\n    },\n    {\n      \"path\": \"../other/c\"\n    },\n    {\n      \"path\": \"d\"\n    },\n    {\n      \"path\": \"D:\\\\mixdog-build\\\\tmp\\\\mixdog-editor-config-IcxOhH\\\\proj\"\n    }\n  ]\n}\n",
+      "fileAfter": "{\n  \"folders\": [\n    {\n      \"path\": \"a\"\n    },\n    {\n      \"path\": \"b\",\n      \"name\": \"B\"\n    },\n    {\n      \"path\": \"../other/c\"\n    },\n    {\n      \"path\": \"d\"\n    },\n    {\n      \"path\": \"<WORK>\\\\proj\"\n    }\n  ]\n}\n",
       "input": {
         "folders": [
           {

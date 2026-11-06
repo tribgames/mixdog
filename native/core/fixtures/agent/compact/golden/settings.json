@@ -2948,5 +2948,592 @@
         }
       ]
     }
+  ],
+  "reap": [
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "openai-oauth",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "OpenAI",
+      "ms": 1800000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": " anthropic ",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "groq",
+      "ms": 7200000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "xai",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "mistral",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "deepseek",
+      "ms": 86400000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "unknown",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "Default",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": "20",
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "none",
+      "autoClear": null,
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "openai-oauth",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "OpenAI",
+      "ms": 1800000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": " anthropic ",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "groq",
+      "ms": 7200000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "xai",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "mistral",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "deepseek",
+      "ms": 86400000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "unknown",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "Default",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": "20",
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "empty",
+      "autoClear": {},
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "openai-oauth",
+      "ms": 600000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "OpenAI",
+      "ms": 1800000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": " anthropic ",
+      "ms": 3600000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "groq",
+      "ms": 7200000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "xai",
+      "ms": 3600000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "mistral",
+      "ms": 3600000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "deepseek",
+      "ms": 86400000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "unknown",
+      "ms": 900000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "Default",
+      "ms": 900000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "",
+      "ms": 900000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": "20",
+      "ms": 900000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": null,
+      "ms": 900000
+    },
+    {
+      "section": "overrides",
+      "autoClear": {
+        "providerIdleMs": {
+          "20": 300000,
+          "Groq": 7200000,
+          "anthropic": 0,
+          "openai-oauth": 600000,
+          "mistral": "90m",
+          "default": 900000,
+          "bad": -1
+        }
+      },
+      "provider": null,
+      "ms": 900000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "openai-oauth",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "OpenAI",
+      "ms": 1800000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": " anthropic ",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "groq",
+      "ms": 7200000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "xai",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "mistral",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "deepseek",
+      "ms": 86400000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "unknown",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "Default",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": "20",
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "unlimited-default",
+      "autoClear": {
+        "providerIdleMs": {
+          "default": 0,
+          "xai": "never"
+        }
+      },
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "openai-oauth",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "OpenAI",
+      "ms": 1800000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": " anthropic ",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "groq",
+      "ms": 7200000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "xai",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "mistral",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "deepseek",
+      "ms": 86400000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "unknown",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "Default",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": "20",
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": null,
+      "ms": 3600000
+    },
+    {
+      "section": "not-an-object",
+      "autoClear": "x",
+      "provider": null,
+      "ms": 3600000
+    }
   ]
 }

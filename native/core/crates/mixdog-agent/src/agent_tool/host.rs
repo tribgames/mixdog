@@ -135,7 +135,8 @@ pub trait SpawnFlow: Send + Sync {
 }
 
 pub trait TerminalTrace: Send + Sync {
-    fn has_terminal_trace(&self, tag: &str, scope: &Scope) -> bool;
+    /// `Err` when the tag is ambiguous across terminals (`resolveTag` throws).
+    fn has_terminal_trace(&self, tag: &str, scope: &Scope) -> Result<bool, String>;
     fn reap_terminal_trace_for_tag(&self, tag: &str, scope: &Scope);
 }
 

@@ -23,9 +23,9 @@ fn obj(v: &Value) -> Obj {
     v.as_object().cloned().unwrap_or_default()
 }
 
-struct Facts {
-    case: Value,
-    config: Config,
+pub(super) struct Facts {
+    pub(super) case: Value,
+    pub(super) config: Config,
 }
 
 impl Facts {
@@ -53,7 +53,7 @@ impl RouteContext for Facts {
 }
 
 #[derive(Default)]
-struct Published(Mutex<Vec<Value>>);
+pub(super) struct Published(pub(super) Mutex<Vec<Value>>);
 
 #[async_trait]
 impl AgentRoutePublisher for Published {

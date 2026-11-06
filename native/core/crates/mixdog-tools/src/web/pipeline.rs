@@ -54,16 +54,16 @@ pub trait PageRenderer: Send + Sync {
 pub struct Failure {
     pub extractor: String,
     pub error: String,
-    pub code: &'static str,
+    pub code: String,
     pub status: Option<u16>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Attempt {
-    pub stage: &'static str,
+    pub stage: String,
     pub ok: bool,
     pub elapsed_ms: u128,
-    pub code: Option<&'static str>,
+    pub code: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +79,69 @@ pub struct Page {
     pub redirects: Option<Vec<Redirect>>,
     pub failures: Vec<Failure>,
     pub attempts: Vec<Attempt>,
+}
+
+impl Page {
+    /// A page read back from a cached `{ tool: 'web_fetch', ...page }` payload, which may have
+    /// been written by Node; `None` when it lacks the fields a result needs.
+    pub(super) fn from_node(payload: &serde_json::Value) -> Option<Self> {
+        let text = |key: &str| payload.get(key).and_then(serde_json::Value::as_str).map(str::to_string);
+        let failures = payload
+            .get("failures")?
+            .as_array()?
+            .iter()
+            .map(|item| {
+                Some(Failure {
+                    extractor: item.get("extractor")?.as_str()?.to_string(),
+                    error: item.get("error")?.as_str()?.to_string(),
+                    code: item.get("code").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                    status: item.get("status").and_then(serde_json::Value::as_u64).and_then(|n| u16::try_from(n).ok()),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let attempts = payload
+            .get("attempts")?
+            .as_array()?
+            .iter()
+            .map(|item| {
+                let code = item.get("code").and_then(serde_json::Value::as_str).map(str::to_string);
+                Some(Attempt {
+                    stage: item.get("stage")?.as_str()?.to_string(),
+                    ok: item.get("status")?.as_str()? == "success",
+                    elapsed_ms: u128::from(item.get("elapsedMs").and_then(serde_json::Value::as_u64).unwrap_or(0)),
+                    code,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let redirects = match payload.get("redirects") {
+            Some(serde_json::Value::Array(hops)) => Some(
+                hops.iter()
+                    .map(|hop| {
+                        Some(Redirect {
+                            url: hop.get("url")?.as_str()?.to_string(),
+                            status: hop.get("status").and_then(serde_json::Value::as_u64).and_then(|n| u16::try_from(n).ok()),
+                            location: hop.get("location")?.as_str()?.to_string(),
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+            _ => None,
+        };
+        let excerpt = text("excerpt").unwrap_or_default();
+        Some(Self {
+            url: text("url")?,
+            title: text("title").unwrap_or_default(),
+            content: text("content")?,
+            extractor: text("extractor").unwrap_or_default(),
+            format: text("format").unwrap_or_default(),
+            content_type: text("contentType").unwrap_or_default(),
+            excerpt_json_len: mixdog_js::utf16_len(&mixdog_js::json_stringify(&serde_json::json!(excerpt))),
+            excerpt,
+            redirects,
+            failures,
+            attempts,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -298,7 +361,7 @@ impl Pipeline {
         match result {
             Ok(page) => {
                 trace.attempts.push(Attempt {
-                    stage,
+                    stage: stage.to_string(),
                     ok: true,
                     elapsed_ms,
                     code: None,
@@ -321,14 +384,14 @@ impl Pipeline {
                 trace.failures.push(Failure {
                     extractor: stage.to_string(),
                     error: error.message.clone(),
-                    code: error.code(),
+                    code: error.code().to_string(),
                     status: error.status,
                 });
                 trace.attempts.push(Attempt {
-                    stage,
+                    stage: stage.to_string(),
                     ok: false,
                     elapsed_ms,
-                    code: Some(error.code()),
+                    code: Some(error.code().to_string()),
                 });
                 Err(error)
             }

@@ -11,6 +11,8 @@ pub enum Reason {
     NotFound,
     AlreadyExists,
     NotAFile,
+    /// An attachment the session's conversation does not name (Node's `not-linked`).
+    NotLinked,
     /// Compare-and-set mismatch; `actual` is the current content.
     PreconditionFailed { expected: Vec<u8>, actual: Vec<u8> },
     TooLarge,
@@ -36,6 +38,7 @@ impl Reason {
             Self::NotFound => "notFound",
             Self::AlreadyExists => "alreadyExists",
             Self::NotAFile => "notAFile",
+            Self::NotLinked => "notLinked",
             Self::PreconditionFailed { .. } => "preconditionFailed",
             Self::TooLarge => "tooLarge",
             Self::Changed => "changed",

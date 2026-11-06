@@ -1,0 +1,146 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "go",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [
+        {
+          "id": "call_0",
+          "name": "echo",
+          "arguments": {
+            "i": 1
+          }
+        }
+      ],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "tool",
+      "content": "echo:{\"i\":1}",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": "call_0",
+      "toolKind": "normal",
+      "turnReminder": null
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [
+        {
+          "id": "call_0-2",
+          "name": "echo",
+          "arguments": {
+            "i": 2
+          }
+        }
+      ],
+      "toolCallId": null,
+      "toolKind": null,
+      "turnReminder": null
+    },
+    {
+      "role": "tool",
+      "content": "echo:{\"i\":2}",
+      "source": null,
+      "attempt": null,
+      "toolCalls": [],
+      "toolCallId": "call_0-2",
+      "toolKind": "normal",
+      "turnReminder": null
+    }
+  ],
+  "result": {
+    "content": "k",
+    "historyContent": null,
+    "reportContent": null,
+    "terminationReason": null,
+    "iterations": 3,
+    "toolCallsTotal": 2,
+    "maxOutputRecoveryAttempts": null,
+    "providerContinuations": 0
+  },
+  "error": null,
+  "requests": [
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "echo:{\"i\":1}",
+          "toolCallId": "call_0"
+        }
+      ]
+    },
+    {
+      "override": null,
+      "toolChoice": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go",
+          "toolCallId": null
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "echo:{\"i\":1}",
+          "toolCallId": "call_0"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCallId": null
+        },
+        {
+          "role": "tool",
+          "content": "echo:{\"i\":2}",
+          "toolCallId": "call_0-2"
+        }
+      ]
+    }
+  ]
+}

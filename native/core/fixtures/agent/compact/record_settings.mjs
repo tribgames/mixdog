@@ -200,9 +200,28 @@ const cases = [
   },
 ].map(run);
 
+// `resolveAgentTerminalReapMs`: per autoClear section, each provider's retention. openai-oauth is
+// unlimited as an idle window (0) yet reaps after an hour; unlimited overrides never disable reaping.
+const reapSections = [
+  { name: 'none', autoClear: undefined },
+  { name: 'empty', autoClear: {} },
+  { name: 'overrides', autoClear: { providerIdleMs: { Groq: 7200000, anthropic: 0, 'openai-oauth': 600000, mistral: '90m', default: 900000, bad: -1, '20': 300000 } } },
+  { name: 'unlimited-default', autoClear: { providerIdleMs: { default: 0, xai: 'never' } } },
+  { name: 'not-an-object', autoClear: 'x' },
+];
+const reapProviders = ['openai-oauth', 'OpenAI', ' anthropic ', 'groq', 'xai', 'mistral', 'deepseek', 'unknown', 'Default', '', '20', undefined, null];
+const reap = reapSections.flatMap(({ name, autoClear }) =>
+  reapProviders.map((provider) => ({
+    section: name,
+    autoClear: autoClear ?? null,
+    provider: provider ?? null,
+    ms: helpers.resolveAgentTerminalReapMs(autoClear === undefined ? {} : { autoClear }, provider),
+  }))
+);
+
 writeFileSync(
   join(outDir, 'golden', 'settings.json'),
-  `${JSON.stringify({ configKeys: keys.COMPACTION_CONFIG_KEYS, cases }, null, 2)}\n`
+  `${JSON.stringify({ configKeys: keys.COMPACTION_CONFIG_KEYS, cases, reap }, null, 2)}\n`
 );
 refreshSetManifest(stage, nodeRoot);
 commitStage(stage, agentDir);

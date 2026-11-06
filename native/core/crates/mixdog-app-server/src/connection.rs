@@ -22,7 +22,6 @@ use mixdog_core_api::FeedSource;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::FeedId;
 use mixdog_core_api::ids::SubscriptionId;
-use mixdog_protocol::Origin;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -73,7 +72,6 @@ struct HostState {
 
 pub(crate) struct Connection {
     pub(crate) id: ConnectionId,
-    pub(crate) origin: Origin,
     pub(crate) sink: Arc<dyn ConnectionSink>,
     /// Cancelled when the connection closes: queued work is dropped, running work is told.
     pub(crate) cancel: CancellationToken,
@@ -124,10 +122,9 @@ fn class_index(class: RequestClass) -> usize {
 }
 
 impl Connection {
-    pub(crate) fn new(id: ConnectionId, origin: Origin, sink: Arc<dyn ConnectionSink>) -> Self {
+    pub(crate) fn new(id: ConnectionId, sink: Arc<dyn ConnectionSink>) -> Self {
         Self {
             id,
-            origin,
             sink,
             cancel: CancellationToken::new(),
             session: OnceLock::new(),
